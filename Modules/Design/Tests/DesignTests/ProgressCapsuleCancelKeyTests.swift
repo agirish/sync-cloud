@@ -3,17 +3,15 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// **⌘. stops the run in the toolbar's progress capsule, and Esc does not.**
+/// ⌘. stops the run in the toolbar's progress capsule, and Esc does not.
 ///
-/// The progress dialog it replaced had no key at first: a 7,000-item copy could be stopped only
-/// with the mouse. The chord is ⌘. — the Mac's cancel-operation chord — and NOT Esc, because the
-/// whole window is live around the capsule, where Esc clears a pane's selection; a habitual Esc
-/// must not abort the copy. So both directions are pinned: the chord fires, and the role key a
-/// sheet's Cancel would carry does not.
+/// A long copy must be stoppable from the keyboard. The chord is ⌘., the Mac's cancel-operation
+/// chord, and not Esc: the whole window is live around the capsule, and Esc clears a pane's
+/// selection, so a habitual Esc must not abort the copy. Both directions are pinned.
 ///
-/// Driven through a real window's key-equivalent pass, which is where a SwiftUI
-/// `.keyboardShortcut` lives — a `Button` is not an `NSControl` and cannot be pressed from here
-/// any other way. `AppChordTests` pins what the chord renders; this pins that it is wired.
+/// Driven through a real window's key-equivalent pass, where a SwiftUI `.keyboardShortcut` lives;
+/// a `Button` is not an `NSControl` and can't be pressed from here any other way. `AppChordTests`
+/// pins what the chord renders; this pins that it is wired.
 @MainActor
 @Suite(.serialized) struct ProgressCapsuleCancelKeyTests {
 
@@ -41,7 +39,7 @@ import Testing
         return window
     }
 
-    /// `ignoring` defaults to `characters`; the two differ for a shifted chord — see ⇧⌘. below.
+    /// `ignoring` defaults to `characters`; the two differ for a shifted chord (see ⇧⌘. below).
     private func key(_ window: NSWindow, keyCode: UInt16, characters: String, ignoring: String? = nil,
                      modifiers: NSEvent.ModifierFlags) throws -> NSEvent {
         try #require(NSEvent.keyEvent(
@@ -59,7 +57,7 @@ import Testing
         return progress
     }
 
-    /// Both rungs: the ring keeps the stop button, and with it the chord (TE206).
+    /// Both rungs: the ring keeps the stop button, and with it the chord.
     @Test(arguments: [ProgressCapsuleStyle.full, .ring])
     func commandPeriodPressesCancel(style: ProgressCapsuleStyle) async throws {
         let progress = cancellable()
@@ -74,16 +72,14 @@ import Testing
     /// A click counter a SwiftUI button can write from inside a hosted view.
     private final class Presses { var count = 0 }
 
-    /// **⌘. over a window with an Esc button reaches the capsule, and only the capsule.** AppKit
-    /// treats ⌘. as Esc (`cancelOperation:`), so a `.cancelAction` button elsewhere in the window —
-    /// Settings' close, a sheet's Cancel — is the other claimant. Pressing it there would close
-    /// whatever lies under the copy and leave the copy running. Both stacking orders, since which
-    /// view the key pass meets first is the whole question.
+    /// ⌘. over a window with an Esc button reaches the capsule, and only the capsule. AppKit treats
+    /// ⌘. as Esc (`cancelOperation:`), so a `.cancelAction` button elsewhere in the window
+    /// (Settings' close, a sheet's Cancel) is the other claimant; pressing it would close whatever
+    /// lies under the copy and leave the copy running. Both stacking orders, since which view the
+    /// key pass meets first is the question.
     ///
-    /// Measured 2026-10-24: with the dialog's own chord removed, neither the key-equivalent pass
-    /// nor the window's keyDown carried ⌘. to the hosted `.cancelAction` button, so the second
-    /// half has never been seen red here — it holds the line should AppKit or SwiftUI start
-    /// mapping ⌘. onto Esc buttons. The first half goes red with the chord removed.
+    /// Removing the capsule's chord must fail the first half. The second half guards against AppKit
+    /// or SwiftUI starting to map ⌘. onto Esc buttons, which neither does today.
     @Test(arguments: [true, false])
     func commandPeriodCancelsTheCapsuleNotAnEscButtonBesideIt(dialogOnTop: Bool) async throws {
         let progress = cancellable()
@@ -102,18 +98,17 @@ import Testing
         try #require(presses.count == 1, "Esc did not press the .cancelAction button — this fixture sees nothing")
         try #require(!progress.isCancelled, "Esc cancelled the operation")
 
-        // As NSApplication delivers it: the key-equivalent pass, then — only if nothing claimed
-        // it — the window's keyDown, where AppKit turns ⌘. into `cancelOperation:`.
+        // As NSApplication delivers it: the key-equivalent pass, then, only if nothing claimed it,
+        // the window's keyDown, where AppKit turns ⌘. into `cancelOperation:`.
         let commandPeriod = try key(window, keyCode: 47, characters: ".", modifiers: .command)
         if !window.performKeyEquivalent(with: commandPeriod) { window.sendEvent(commandPeriod) }
         #expect(progress.isCancelled, "⌘. did not cancel the operation with an Esc button beside the capsule")
         #expect(presses.count == 1, "⌘. also pressed the Esc button beside the capsule")
     }
 
-    /// **With two or more runs, ⌘. opens the list and stops nothing** (TE219, decision CJ). The
-    /// capsule draws the newest run; a ✕ there would stop whichever run happened to be drawn, so
-    /// the one key the capsule registers moves to the count button. Both rungs — the ring shows
-    /// the count as a badge (TE225).
+    /// With two or more runs, ⌘. opens the list and stops nothing. The capsule draws the newest
+    /// run, and a ✕ there would stop whichever run happened to be drawn, so the capsule's one key
+    /// moves to the count button. Both rungs; the ring shows the count as a badge.
     @Test(arguments: [ProgressCapsuleStyle.full, .ring])
     func withSeveralRunsCommandPeriodOpensTheListInsteadOfStopping(style: ProgressCapsuleStyle) async throws {
         let progress = cancellable()
@@ -130,9 +125,9 @@ import Testing
         #expect(!progress.isCancelled, "⌘. stopped the drawn run with another one going beside it")
     }
 
-    /// **The list's ⌘. and Return stop the newest run, and only it** (decision CJ: the second ⌘.
-    /// stops what the capsule drew). The older run's Stop is its own button — reached by a click,
-    /// never by a key that names no run.
+    /// The list's ⌘. and Return stop the newest run, and only it, so a second ⌘. stops what the
+    /// capsule drew. The older run's Stop is its own button, reached by a click, never by a key
+    /// that names no run.
     enum ListKey: CaseIterable, Sendable { case commandPeriod, returnKey }
 
     @Test(arguments: ListKey.allCases)
@@ -154,8 +149,8 @@ import Testing
         #expect(!older.isCancelled, "the key stopped the older run too")
     }
 
-    /// **In the Activity window neither key stops a run**: it is opened to read, and Return there
-    /// cancelled the newest run. Its Stops are clicked.
+    /// In the Activity window neither key stops a run: it is opened to read, and a stray Return
+    /// must not cancel the newest run. Its Stops are clicked.
     @Test(arguments: ListKey.allCases)
     func theWindowsListTakesNoKeys(listKey: ListKey) async throws {
         let newest = cancellable()
@@ -172,9 +167,9 @@ import Testing
         #expect(!newest.isCancelled, "a key in the Activity window stopped the run")
     }
 
-    /// **A message over a run keeps the run's count, and ⌘. still reaches the runs** (decision CU):
-    /// the count, even of one, opens the list rather than stopping anything; and with no run left
-    /// the message has a close button that takes no key.
+    /// A message over a run keeps the run's count, and ⌘. still reaches the runs: the count, even of
+    /// one, opens the list rather than stopping anything. With no run left, the message has a close
+    /// button that takes no key.
     @Test func aMessageOverARunKeepsItsCount() async throws {
         let progress = cancellable()
         let opened = Presses(), closed = Presses()
@@ -195,9 +190,9 @@ import Testing
         #expect(alone.trailing == .none, "a message with no run under it showed a count")
     }
 
-    /// **The count is grouped for the reader's locale**, like the title above it. The locale is
-    /// pinned so the separator is a fact of the test; a cached formatter with no locale ignored
-    /// it. Clamped to the total, as the bar is.
+    /// The count is grouped for the reader's locale, like the title above it. The locale is pinned
+    /// so the separator is a fact of the test, and a formatter that ignores the locale fails.
+    /// Clamped to the total, as the bar is.
     @Test func theCountIsGroupedForTheLocale() {
         #expect(ProgressCapsule.formattedCount(completed: 3336, total: 7363, locale: Locale(identifier: "en_US"))
                 == "3,336 of 7,363")
@@ -207,11 +202,11 @@ import Testing
                 == "7,363 of 7,363")
     }
 
-    /// **The Cancel button's key comes from `AppChord.cancelOperation`, whole.** The key pass above
-    /// cannot see a ⇧ slip in the binding: measured 2026-10-23, a button bound to ⇧⌘. still claims a
-    /// plain ⌘. event — SwiftUI's match is lenient about ⇧ on a punctuation key — so the test above
-    /// stays green over it. The chord's own modifiers are pinned by `AppChordTests` (its display,
-    /// and `noTwoChordsCollide` against ⇧⌘. `hiddenFiles`); this pins that the button reads them.
+    /// The Cancel button's key comes from `AppChord.cancelOperation`, whole. The key pass above
+    /// can't see a ⇧ slip in the binding: a button bound to ⇧⌘. still claims a plain ⌘. event,
+    /// because SwiftUI's match is lenient about ⇧ on a punctuation key. `AppChordTests` pins the
+    /// chord's modifiers (its display, and `noTwoChordsCollide` against ⇧⌘. `hiddenFiles`); this
+    /// pins that the button reads them.
     @Test func theCancelButtonIsBoundToTheRegisteredChord() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -228,9 +223,9 @@ import Testing
             "Cancel's key equivalent is no longer read from AppChord.cancelOperation")
     }
 
-    /// Esc is the key a sheet's Cancel takes (`.cancelAction`), so it is the binding a later
-    /// "consistency" fix would reach for. And ⇧⌘. is the hidden-files toggle — the neighbour a
-    /// modifier slip would land on — which must flip the filter, not stop the copy.
+    /// Esc is the key a sheet's Cancel takes (`.cancelAction`), so it is the binding a
+    /// "consistency" fix would reach for. And ⇧⌘. is the hidden-files toggle, the neighbour a
+    /// modifier slip would land on, which must flip the filter, not stop the copy.
     @Test func neitherEscNorShiftCommandPeriodCancels() async throws {
         let progress = cancellable()
         let window = try await host(progress)
@@ -240,8 +235,8 @@ import Testing
         window.sendEvent(escape)
         #expect(!progress.isCancelled, "Esc cancelled the operation — it belongs to the window around the capsule")
 
-        // ⇧⌘. spelled as the keyboard spells it: `characters` ".", `charactersIgnoringModifiers` ">"
-        // — measured 2026-10-23 by converting a CGEvent for key 47 with ⇧⌘ on this Mac's layout.
+        // ⇧⌘. spelled as the keyboard spells it: `characters` ".", `charactersIgnoringModifiers`
+        // ">", as a CGEvent for key 47 with ⇧⌘ converts on this Mac's layout.
         let shiftCommandPeriod = try key(window, keyCode: 47, characters: ".", ignoring: ">",
                                          modifiers: [.shift, .command])
         _ = window.performKeyEquivalent(with: shiftCommandPeriod)

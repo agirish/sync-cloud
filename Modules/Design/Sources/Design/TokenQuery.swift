@@ -7,15 +7,15 @@ public protocol DimmableTokenChip {
     var isActive: Bool { get set }
 }
 
-/// The shared core of the app's token-search grammars (Compare's `DifferenceSearch`, the Duplicates lens's
-/// `DuplicateSearch`, the Activity Log's `LogSearch`): one tokenizer, one all-occurrences word
-/// removal, one family-last-wins chip builder, and the number+unit value parsers. Each grammar
-/// keeps its own token table and `matches()` — this core is the mechanics they must agree on, so
-/// "one vocabulary across surfaces" can't drift copy by copy.
+/// The shared core of the app's token-search grammars (Compare's `DifferenceSearch`, the Duplicates
+/// lens's `DuplicateSearch`, the Activity Log's `LogSearch`): one tokenizer, one all-occurrences
+/// word removal, one family-last-wins chip builder, and the number+unit value parsers. Each grammar
+/// keeps its own token table and `matches()`; this core is the mechanics they must agree on, so one
+/// vocabulary across surfaces can't drift copy by copy.
 ///
-/// Everything here is pure and pinned indirectly by the three grammars' full-grammar snapshot
-/// tests (LogSearchTests / DifferenceSearchTests / DuplicateSearchTests), which byte-pin the
-/// parse↔chips contract this core implements.
+/// Pure, and pinned indirectly by the three grammars' full-grammar snapshot tests
+/// (`LogSearchTests`, `DifferenceSearchTests`, `DuplicateSearchTests`), which pin the parse↔chips
+/// contract this core implements.
 public enum TokenQuery {
 
     // MARK: Tokenizing
@@ -27,11 +27,10 @@ public enum TokenQuery {
     }
 
     /// Runs the shared parse loop: feeds each word to `consume` (the grammar's token table, which
-    /// returns whether it recognized the word) and returns the free text — the unconsumed words
-    /// joined by single spaces, or, when NO word was recognized, the raw string verbatim. The
-    /// verbatim fallback is the backwards-compatibility rule every grammar shares: a query with no
-    /// tokens is exactly the legacy substring search, spacing intact, so phrase and trailing-space
-    /// searches are unchanged.
+    /// says whether it recognized the word) and returns the free text: the unconsumed words joined
+    /// by single spaces or, when no word was recognized, the raw string verbatim. So a query with
+    /// no tokens is a plain substring search, spacing intact, and phrase and trailing-space
+    /// searches keep working.
     public static func freeText(_ raw: String, consumingTokens consume: (String) -> Bool) -> String {
         var freeWords: [String] = []
         var matchedAnyToken = false
@@ -46,22 +45,20 @@ public enum TokenQuery {
     }
 
     /// Removes every occurrence of `word` from `raw`, leaving every other word as typed. Backs a
-    /// chip's ✕ button. ALL occurrences, deliberately: chips are keyed by raw text, so with
-    /// `kind:pdf kind:png kind:pdf` the ✕ on the active pdf chip must not just drop the FIRST pdf
-    /// (which would leave the effective last-wins filter unchanged and the ✕ looking dead) — one
-    /// click clearing every duplicate of the word is the honest semantics.
+    /// chip's ✕. All occurrences, because chips are keyed by raw text: with
+    /// `kind:pdf kind:png kind:pdf`, dropping only the first pdf would leave the last-wins filter
+    /// unchanged and the ✕ looking dead.
     public static func removing(_ raw: String, word: String) -> String {
         words(raw).filter { $0 != word }.joined(separator: " ")
     }
 
     // MARK: Chips
 
-    /// Builds display chips for every recognized token word in `raw`, in typed order, applying the
-    /// family-last-wins dimming shared by all the grammars: `parse` is last-wins within a
-    /// single-valued family, so when the same family appears twice only the LAST word filters
-    /// anything — the earlier chip has `isActive` flipped false so the chips read as the query the
-    /// filter actually runs. A `nil` family marks a conjunctive token (never superseded, always
-    /// active). Free text yields no chip (`parse` returns nil).
+    /// Builds display chips for every recognized token word in `raw`, in typed order. `parse` is
+    /// last-wins within a single-valued family, so when a family appears twice only the last word
+    /// filters; the earlier chip gets `isActive` false so the chips read as the query the filter
+    /// runs. A `nil` family marks a conjunctive token (never superseded). Free text yields no chip
+    /// (`parse` returns nil).
     public static func lastWinsChips<Chip: DimmableTokenChip>(
         _ raw: String,
         parse: (String) -> (chip: Chip, family: String?)?
@@ -96,10 +93,10 @@ public enum TokenQuery {
         case "g", "gb": multiplier = 1_000_000_000
         default: return nil
         }
-        // Guard the Double→Int conversion: `Int(_: Double)` TRAPS when the value isn't representable,
-        // and this parses live on every keystroke — an over-large token (e.g. `>99999999999gb`) would
-        // otherwise crash the window. Strict `<`: `Double(Int.max)` rounds up to 2^63, which is itself
-        // one past `Int.max`, so `bytes < Double(Int.max)` is what keeps `Int(bytes)` in range.
+        // Guard the Double→Int conversion: `Int(_: Double)` traps when the value isn't
+        // representable, and this parses on every keystroke, so a huge token (`>99999999999gb`)
+        // would crash the window. Strict `<`: `Double(Int.max)` rounds up to 2^63, one past
+        // `Int.max`.
         let bytes = (value * multiplier).rounded()
         guard bytes >= 0, bytes < Double(Int.max) else { return nil }
         return Int(bytes)
@@ -123,7 +120,7 @@ public enum TokenQuery {
     }
 
     /// Splits "1.5gb" into ("1.5", "gb"): digits and "." accumulate into the number, everything
-    /// else into the unit, preserving each parser's historical tolerance for interleaved forms.
+    /// else into the unit, so interleaved forms are tolerated.
     private static func numberAndUnit(_ string: String) -> (number: String, unit: String) {
         var number = "", unit = ""
         for character in string {

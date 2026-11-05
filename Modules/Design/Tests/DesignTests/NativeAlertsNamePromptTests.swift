@@ -3,14 +3,11 @@ import Testing
 
 /// Pins the rename / new-folder prompt's re-prompt contract.
 ///
-/// The bug these exist for: confirming the sheet with an empty (or whitespace-only) name returned
-/// nil, and nil is this API's *Cancel* signal — so `FileActionHandler` and every other caller read
-/// it as "the user backed out". The dialog closed with no rename, no new folder, and no
-/// explanation, while any OTHER invalid name got a reason and a second try. The loop lives in
-/// `NativeAlerts.runNamePrompt` with its two modal presentations injected precisely because a
-/// blank entry ending the loop is indistinguishable from a cancel when observed from outside —
-/// which is how it went unnoticed. Here the two are distinguishable: a cancel presents once and
-/// explains nothing, a rejection presents again and explains why.
+/// nil is this API's Cancel signal, so `FileActionHandler` and every other caller read it as "the
+/// user backed out". A blank (or whitespace-only) name must therefore get a reason and a second
+/// try like any other invalid name, never nil. From outside, a blank entry ending the loop looks
+/// just like a cancel, so `NativeAlerts.runNamePrompt` takes its two modal presentations injected:
+/// here a cancel presents once and explains nothing, a rejection presents again and explains why.
 @Suite struct NativeAlertsNamePromptTests {
 
     /// Drives `runNamePrompt` with a scripted sequence of what the user "types", recording what
@@ -28,8 +25,8 @@ import Testing
         func present(_ draft: String) -> String? {
             presentedDrafts.append(draft)
             defer { next += 1 }
-            // Running past the script means the loop asked for a round the test didn't expect —
-            // surface it as a cancel so the test fails on its assertions rather than trapping.
+            // Running past the script means the loop asked for an unexpected round. Answer with a
+            // cancel so the test fails on its assertions rather than trapping.
             guard next < entries.count else { return nil }
             return entries[next]
         }
@@ -38,14 +35,14 @@ import Testing
     }
 
     /// The app's real rule (`FileSyncManager.validateItemName`), reduced to the two cases that
-    /// matter here. Design can't import Sync, and doesn't need to — it takes the rule as a closure.
+    /// matter here. Design can't import Sync and doesn't need to: it takes the rule as a closure.
     private let validate: (String) -> String? = { name in
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "A name is required." }
         if name.contains("/") { return "Names can’t contain “/”." }
         return nil
     }
 
-    /// The finding itself: a blank confirm must come back for another try, with a reason.
+    /// A blank confirm comes back for another try, with a reason.
     @MainActor
     @Test func blankNameRePromptsWithAReasonInsteadOfSilentlyCancelling() {
         let session = Session(["   ", "Receipts"])
@@ -62,8 +59,8 @@ import Testing
         #expect(session.explanations.first?.reason == "A name is required.")
     }
 
-    /// A blank entry behaves exactly like any other invalid one — that parity is the fix. Both
-    /// re-present, both explain, both hand the rejected text back so it can be corrected in place.
+    /// A blank entry behaves exactly like any other invalid one: both re-present, both explain, and
+    /// both hand the rejected text back so it can be corrected in place.
     @MainActor
     @Test func blankNameFollowsTheSamePathAsAnyOtherInvalidName() {
         let blank = Session(["", "Taxes"])
@@ -80,7 +77,7 @@ import Testing
         #expect(slashed.presentedDrafts == ["untitled folder", "a/b"])
     }
 
-    /// Cancel is still the only thing that returns nil — the channel a blank name used to steal.
+    /// Cancel is the only thing that returns nil.
     @MainActor
     @Test func cancelIsTheOnlyNilResult() {
         let session = Session([nil])
@@ -108,9 +105,8 @@ import Testing
         #expect(session.explanations.isEmpty)
     }
 
-    /// Empty can never escape as a *result*, whatever the caller's validator says: nil is the
-    /// Cancel channel, so a validator that accepted a blank name would otherwise reintroduce the
-    /// phantom cancel from the other side.
+    /// Empty can never escape as a result, whatever the caller's validator says: a validator that
+    /// accepted a blank name would otherwise make a confirm look like a cancel.
     @MainActor
     @Test func emptyIsRejectedEvenWhenTheCallerValidatorAcceptsIt() {
         let permissive: (String) -> String? = { _ in nil }
@@ -118,7 +114,7 @@ import Testing
         #expect(NativeAlerts.nameRejectionReason(for: "Receipts", validate: permissive) == nil)
     }
 
-    /// …and when the caller DOES have wording for it, that wording wins over the built-in fallback.
+    /// …and when the caller does have wording for it, that wording wins over the built-in fallback.
     @MainActor
     @Test func callerWordingWinsForTheEmptyCase() {
         #expect(NativeAlerts.nameRejectionReason(for: "", validate: { _ in "Folders need a name." })

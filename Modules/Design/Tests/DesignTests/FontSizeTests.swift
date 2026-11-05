@@ -4,13 +4,11 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// Pins the app-wide text-size setting: the stored format, the scaling math, and — the load-bearing
-/// part — that the *default* size renders byte-for-byte what the app rendered before the setting
-/// existed, while the other sizes genuinely move the type.
+/// Pins the app-wide text-size setting: the stored format, the scaling math, and that the default
+/// size renders exactly what a plain `.font(…)` renders while the other sizes really move the type.
 ///
-/// The rendered assertions all measure `NSHostingView.fittingSize`, never a constant: the whole
-/// risk here is a font that is *specified* differently but *laid out* the same (or vice versa), and
-/// only a laid-out measurement can tell those apart.
+/// The rendered checks measure `NSHostingView.fittingSize`, never a constant: the risk is a font
+/// specified differently but laid out the same (or the reverse), which only layout can reveal.
 @Suite @MainActor struct FontSizeTests {
 
     /// Laid-out width of a fixed string under a font. The probe string mixes wide and narrow
@@ -19,8 +17,8 @@ import Testing
         NSHostingView(rootView: Text("Hamburgefonstiv 0123").font(font)).fittingSize.width
     }
 
-    /// Laid-out width of a `ScaledFont` as the app applies it — through the environment, not by
-    /// calling `resolved` directly. This is what proves the modifier is actually wired.
+    /// Laid-out width of a `ScaledFont` as the app applies it, through the environment rather than
+    /// `resolved`, so it proves the modifier is wired.
     private func renderedWidth(_ font: ScaledFont, scale: CGFloat) -> CGFloat {
         NSHostingView(rootView: Text("Hamburgefonstiv 0123")
             .scaledFont(font)
@@ -35,9 +33,8 @@ import Testing
     }
 
     @Test func presetPercentsAreStable() {
-        // These four are what the app shipped as Small/Default/Large/Larger, and they are still
-        // the values on disk for everyone who chose one. Moving a number here silently changes
-        // the size an existing user sees.
+        // The four presets, Small/Default/Large/Larger, are the values on disk for everyone who
+        // chose one. Moving a number here silently changes the size an existing user sees.
         #expect(FontSize.small.percent == 90)
         #expect(FontSize.medium.percent == 100)
         #expect(FontSize.large.percent == 125)
@@ -49,7 +46,7 @@ import Testing
     @Test func initClampsToTheSelectableRange() {
         #expect(FontSize(percent: 10).percent == FontSize.minimumPercent)
         #expect(FontSize(percent: 400).percent == FontSize.maximumPercent)
-        // Deliberately NOT snapped to `step` — a value typed or restored between stops is honoured.
+        // Not snapped to `step`: a value typed or restored between stops is honoured.
         #expect(FontSize(percent: 113).percent == 113)
     }
 
@@ -66,10 +63,9 @@ import Testing
     }
     // MARK: Stepping from the keyboard (View ▸ Text Size)
 
-    /// **The keyboard cannot reach a size the slider cannot.** Every step from every slider stop
-    /// lands on another slider stop — which is the whole claim behind "the version line's width
-    /// budget is safe from the menu": that budget was measured over `selectablePercents`, and this
-    /// is what says the menu stays inside it.
+    /// The keyboard can't reach a size the slider can't: every step from every slider stop lands
+    /// on another stop. Width budgets such as the version line's are measured over
+    /// `selectablePercents`, so this keeps the menu inside them.
     @Test func everyStepFromASliderStopLandsOnASliderStop() {
         let stops = Set(FontSize.selectablePercents)
         for percent in FontSize.selectablePercents {
@@ -85,7 +81,7 @@ import Testing
         }
     }
 
-    /// The ends are `nil`, which is what greys the menu item — and only the ends are.
+    /// The ends are `nil`, which greys the menu item, and only the ends are.
     @Test func onlyTheEndsOfTheRangeRefuseToStep() {
         #expect(FontSize(percent: FontSize.maximumPercent).bigger == nil)
         #expect(FontSize(percent: FontSize.minimumPercent).smaller == nil)
@@ -96,9 +92,8 @@ import Testing
         #expect(FontSize.medium.smaller?.percent == FontSize.medium.percent - FontSize.step)
     }
 
-    /// A value between stops — `init(percent:)` clamps but does not snap — steps to the NEAREST stop
-    /// in the direction asked, so one press of ⌘+ puts a stray 113 back on the rail at 115 rather
-    /// than inventing 118.
+    /// A value between stops (`init(percent:)` clamps but doesn't snap) steps to the nearest stop in
+    /// the direction asked, so one ⌘+ puts a stray 113 back on the rail at 115, not 118.
     @Test func aValueBetweenStopsSnapsToTheNextStop() {
         #expect(FontSize(percent: 113).bigger?.percent == 115)
         #expect(FontSize(percent: 113).smaller?.percent == 110)
@@ -113,12 +108,12 @@ import Testing
         defaults.set("extraLarge", forKey: FontSize.defaultsKey)
         let migrated = FontSize.migrateLegacyValue(in: defaults)
         #expect(migrated?.size == .extraLarge)
-        // The raw string is carried out for the launch log, which named the value's NEW label
-        // until it was: a machine storing "extraLarge" logged «"Largest"», which was never on disk.
+        // The raw string is carried out for the launch log, so it names what was on disk, not the
+        // size's current label.
         #expect(migrated?.raw == "extraLarge")
-        // The point of migrating at all: what is on disk is now an Int, which is the only shape
-        // `@AppStorage(...) var percent: Int` can see. Asserting what it WROTE BACK, not that it
-        // decoded — a tolerant reader would pass this test without the store ever changing.
+        // What is on disk is now an Int, the only shape `@AppStorage(...) var percent: Int` can
+        // see. Checks what it wrote back, not that it decoded: a tolerant reader would pass
+        // without the store ever changing.
         #expect(defaults.object(forKey: FontSize.defaultsKey) as? Int == 135)
 
         // Idempotent: a second run has nothing to do, and must not re-examine its own output.
@@ -160,8 +155,8 @@ import Testing
     }
 
     @Test func rangeStaysWithinLegibleBounds() {
-        // The user's brief: reasonable on both ends, illegible on neither. Guards against someone
-        // later widening the range into unreadable-small or layout-breaking-large.
+        // Legible at both ends: keeps the range from widening into unreadable-small or
+        // layout-breaking-large.
         let scales = FontSize.allCases.map(\.scale)
         #expect(scales.min()! >= 0.85, "smaller than this and 11pt body text stops being readable")
         #expect(scales.max()! <= 1.5, "larger than this and the fixed chrome starts clipping")
@@ -176,8 +171,8 @@ import Testing
     }
 
     @Test func scalingUpAppliesTheFullMultiplierThroughTheKnee() {
-        // At and below the 11pt knee the whole boost applies — this is the text the larger
-        // settings exist for.
+        // At and below the 11pt knee the whole boost applies: this is the text the larger settings
+        // exist for.
         #expect(FontSize.scaledPointSize(10, scale: 1.25) == 12.5)
         #expect(FontSize.scaledPointSize(11, scale: 1.25) == 13.75)
         #expect(FontSize.scaledPointSize(10, scale: 1.4) == 14)
@@ -187,17 +182,16 @@ import Testing
     @Test func scalingUpDampsAboveTheKnee() {
         // Above the knee each base point adds only `surplusSlope` scaled points: 13pt body at
         // Large is 11 × 1.25 + 2 × 0.5 = 14.75, not the 16.25 a flat multiply would give. These
-        // literals are the curve's pin — if `knee` or `surplusSlope` moves, this fails and the
-        // new numbers get chosen deliberately.
+        // literals pin the curve: if `knee` or `surplusSlope` moves, this fails and the new numbers
+        // get chosen deliberately.
         #expect(FontSize.scaledPointSize(13, scale: 1.25) == 14.75)
         #expect(FontSize.scaledPointSize(15, scale: 1.25) == 15.75)
         #expect(FontSize.scaledPointSize(13, scale: 1.4) == 16.4)
     }
 
     @Test func titlesPastTheCrossoverKeepTheirDefaultSize() {
-        // The damped curve dips below `base` past 16.5pt at Large (19.8 at Larger) and the clamp
-        // holds the font at its default size — "titles barely move" made literal. A 26pt title
-        // under the old flat 1.3 hit 33.8pt; now it does not move at all.
+        // The damped curve dips below `base` past 16.5pt at Large (19.8 at Larger), and the clamp
+        // holds the font at its default size, so titles don't grow at all.
         #expect(FontSize.scaledPointSize(17, scale: 1.25) == 17)
         #expect(FontSize.scaledPointSize(22, scale: 1.25) == 22)
         #expect(FontSize.scaledPointSize(26, scale: 1.4) == 26)
@@ -206,11 +200,11 @@ import Testing
     }
 
     @Test func chromeTextAtTheKneeStaysUnderThePinnedRowCliff() {
-        // Measured cliff: one line of system-font text is 18pt tall through 14.85pt and 19pt
-        // from 15.0pt. Header chrome carries 11pt text inside pinned 28pt rows with exactly
-        // 18pt to spare (the differences count pill's inset age capsule — 19 + 2 + 8 = 29 was
-        // the failure). Every selectable size must keep knee-sized text under 15pt, or those
-        // rows grow a pixel and `theRowIsAlwaysTheActionBarHeight` fails across the ladder.
+        // Measured cliff: one line of system-font text is 18pt tall through 14.85pt and 19pt from
+        // 15.0pt. Header chrome carries 11pt text in pinned 28pt rows with exactly 18pt to spare
+        // (the differences count pill's inset age capsule: 19 + 2 + 8 would be 29). Every
+        // selectable size must keep knee-sized text under 15pt, or those rows grow a pixel and
+        // `theRowIsAlwaysTheActionBarHeight` fails across the ladder.
         for percent in FontSize.selectablePercents {
             let size = FontSize(percent: percent)
             #expect(FontSize.scaledPointSize(FontSize.knee, scale: size.scale) < 15,
@@ -219,9 +213,9 @@ import Testing
     }
 
     @Test func theCeilingIsTheLargestPercentUnderTheCliff() {
-        // The range is now the thing an edit widens, so pin WHY it stops where it does rather
-        // than only that today's stops are safe. 136% puts knee text at 14.96 and 137% at 15.07,
-        // so the first unsafe whole percent is 137 — and 135 is the round number under it.
+        // Pins why the range stops where it does, not only that its stops are safe. 136% puts
+        // knee text at 14.96 and 137% at 15.07, so 137 is the first unsafe whole percent and 135
+        // the round number under it.
         #expect(FontSize.scaledPointSize(FontSize.knee, scale: 1.36) < 15)
         #expect(FontSize.scaledPointSize(FontSize.knee, scale: 1.37) >= 15)
         #expect(FontSize.maximumPercent == 135)
@@ -238,9 +232,8 @@ import Testing
 
     @Test func theCurveIsMonotonicSoTheTypeHierarchyCannotInvert() {
         // A bigger base font must never render smaller than a smaller one at the same setting.
-        // This is the property that killed the interpolated-scale design: lerping the multiplier
-        // between two bands makes f(b) = b·s(b) non-monotonic near the upper band. The knee
-        // model is monotone by construction; this sweep is the guard that keeps it so.
+        // Interpolating the multiplier between bands would make f(b) = b·s(b) non-monotonic near
+        // the upper band; the knee model is monotone by construction, and this sweep keeps it so.
         for size in FontSize.allCases {
             var previous: CGFloat = 0
             for base in stride(from: CGFloat(4), through: 54, by: 0.25) {
@@ -253,8 +246,8 @@ import Testing
     }
 
     @Test func smallTextGetsProportionallyMoreBoostThanLargeText() {
-        // The complaint the curve exists to fix: under a flat multiplier the captions stayed
-        // small while the titles ballooned. Growth ratio must never increase with base size.
+        // Under a flat multiplier captions stay small while titles balloon, which the curve exists
+        // to avoid. Growth ratio must never increase with base size.
         for scale in [FontSize.large.scale, FontSize.extraLarge.scale] {
             let ratios = [CGFloat(9), 10, 11, 13, 15, 17, 22, 26]
                 .map { FontSize.scaledPointSize($0, scale: scale) / $0 }
@@ -274,9 +267,9 @@ import Testing
     }
 
     @Test func fontsAlreadyBelowTheFloorAreNeverGrownByShrinking() {
-        // The app draws 8pt and 9pt badge glyphs. Flooring them at 9 flat would make "Small"
-        // render them BIGGER than "Default" — the floor is `min(base, floor)` to prevent exactly
-        // that. This is the assertion that catches a naive `max(base * scale, floor)`.
+        // The app draws 8pt and 9pt badge glyphs. Flooring them at 9 flat would make Small render
+        // them bigger than Default, so the floor is `min(base, floor)`. Catches a naive
+        // `max(base * scale, floor)`.
         #expect(FontSize.scaledPointSize(8, scale: 0.9) == 8)
         #expect(FontSize.scaledPointSize(4, scale: 0.9) == 4)
         for base in [CGFloat(4), 8, 9, 10, 11, 13] {
@@ -313,9 +306,9 @@ import Testing
     }
 
     @Test func textStyleWeightsMatchTheSystem() {
-        // `.headline` is bold and `.caption2` is medium — measured, not assumed. A scaled headline
-        // that came back regular would be a visible regression, so each style's recorded weight is
-        // confirmed by rendering: the explicitly-sized equivalent must lay out to the same width.
+        // `.headline` is bold and `.caption2` is medium, measured, not assumed. Each style's
+        // recorded weight is confirmed by rendering: the explicitly sized equivalent must lay out
+        // to the same width.
         for style in [Font.TextStyle.largeTitle, .title, .title2, .title3, .headline, .body,
                       .callout, .subheadline, .footnote, .caption, .caption2] {
             let metrics = ScaledFont.metrics(for: style)
@@ -327,9 +320,9 @@ import Testing
     }
 
     @Test func headlineAndCaption2AreNotPlainRegular() {
-        // Mutation guard for the test above: if `metrics(for:)` ever collapsed to a flat
-        // `.regular`, the width comparison would still pass for the 9 regular styles. These two
-        // are the ones that would actually break, so assert their weights directly.
+        // Guards the test above: if `metrics(for:)` collapsed to a flat `.regular`, the width check
+        // would still pass for the 9 regular styles. These two would break, so assert them
+        // directly.
         #expect(ScaledFont.metrics(for: .headline).weight == .bold)
         #expect(ScaledFont.metrics(for: .caption2).weight == .medium)
         #expect(renderedWidth(.system(size: 13, weight: .bold))
@@ -339,7 +332,7 @@ import Testing
 
     // MARK: The default size changes nothing
 
-    /// Every `.font(…)` shape the app actually uses, paired with the `ScaledFont` it migrated to.
+    /// Every `.font(…)` shape the app uses, paired with its `ScaledFont` equivalent.
     private var migratedShapes: [(name: String, original: Font, scaled: ScaledFont)] {
         [
             ("caption", .caption, .caption),
@@ -370,8 +363,8 @@ import Testing
     }
 
     @Test func defaultSizeRendersIdenticallyToThePreSettingFont() {
-        // The correctness bar for the migration: at the default setting, every one of the ~290
-        // rewritten call sites must lay out exactly as its `.font(…)` predecessor did.
+        // At the default setting, every `ScaledFont` call site must lay out exactly as the plain
+        // `.font(…)` it stands for.
         for shape in migratedShapes {
             #expect(renderedWidth(shape.scaled, scale: FontSize.medium.scale)
                     == renderedWidth(shape.original),
@@ -380,8 +373,8 @@ import Testing
     }
 
     @Test func defaultSizeReturnsTheOriginalFontValueItself() {
-        // Stronger than equal layout: `resolved(scale: 1)` hands back the very `Font` the old code
-        // passed, so the default cannot drift even in a property no measurement here covers.
+        // Stronger than equal layout: `resolved(scale: 1)` hands back the very `Font` it stands
+        // for, so the default can't drift even in a property no measurement here covers.
         for shape in migratedShapes {
             #expect(shape.scaled.resolved(scale: 1) == shape.original, "\(shape.name)")
         }
@@ -390,8 +383,8 @@ import Testing
     // MARK: The other sizes actually move the type
 
     @Test func largerSizesRenderWider() {
-        // Mutation guard for the identity tests: if `scaledFont` silently ignored the scale, every
-        // "unchanged at default" assertion above would still pass. This is the one that fails.
+        // Guards the identity tests: if `scaledFont` ignored the scale, every "unchanged at
+        // default" check above would still pass. This one fails.
         for shape in migratedShapes {
             let widths = FontSize.allCases.map { renderedWidth(shape.scaled, scale: $0.scale) }
             #expect(widths == widths.sorted(), "\(shape.name) is not monotonic across sizes")
@@ -410,8 +403,8 @@ import Testing
     }
 
     @Test func scalingPreservesTheMonospacedDigitTreatment() {
-        // `Pill` moved `.monospacedDigit()` from the `Text` onto the font; the scaled synthesis
-        // has to re-apply it, or count pills would start jittering at non-default sizes.
+        // `Pill` puts `.monospacedDigit()` on the font, not the `Text`; the scaled synthesis has to
+        // re-apply it, or count pills jitter at non-default sizes.
         func digitWidths(_ font: ScaledFont, scale: CGFloat) -> (CGFloat, CGFloat) {
             func width(_ s: String) -> CGFloat {
                 NSHostingView(rootView: Text(s).scaledFont(font)
@@ -431,9 +424,9 @@ import Testing
     // MARK: The default font for text that names none
 
     @Test func textThatNamesNoFontStillScales() {
-        // Not every label in the app has a `.font(…)` call site to migrate — a plain `Label` in a
-        // button, a `TextField`'s contents. `appFontSize(_:)` supplies a scaled default font for
-        // those; without it they sat at 13pt while everything around them grew.
+        // Not every label names a font: a plain `Label` in a button, a `TextField`'s contents.
+        // `appFontSize(_:)` supplies a scaled default for those; without it they stay at 13pt
+        // while everything around them grows.
         func width(_ size: FontSize) -> CGFloat {
             NSHostingView(rootView: Text("Hamburgefonstiv 0123").appFontSize(size)).fittingSize.width
         }
@@ -442,10 +435,10 @@ import Testing
     }
 
     @Test func theDefaultSizeLeavesTheAmbientFontUntouched() {
-        // The other half of that: at the default size the environment font must be left ALONE,
-        // not written with an explicit `.body`. Writing it would replace SwiftUI's own implicit
-        // default for every unstyled control in the app — a silent, app-wide shift for users who
-        // never touched the setting. Compared against no modifier at all, not against `.body`.
+        // At the default size the environment font must be left alone, not written as `.body`.
+        // Writing it replaces SwiftUI's implicit default for every unstyled control, a silent
+        // app-wide shift for users who never touched the setting. Compared against no modifier at
+        // all, not against `.body`.
         let bare = NSHostingView(rootView: Text("Hamburgefonstiv 0123")).fittingSize
         let defaulted = NSHostingView(
             rootView: Text("Hamburgefonstiv 0123").appFontSize(.medium)).fittingSize
@@ -460,8 +453,8 @@ import Testing
     }
 
     @Test func anExplicitFontStillOutranksTheScaledDefault() {
-        // The scaled default is published at the ROOT, so any view that names its own font must
-        // still win. Otherwise the default would stomp all ~290 migrated call sites.
+        // The scaled default is published at the root, so any view that names its own font must
+        // still win, or the default would override every explicit call site.
         let explicit = NSHostingView(rootView: Text("Hamburgefonstiv 0123")
             .scaledFont(.system(size: 11))
             .appFontSize(.extraLarge)).fittingSize.width
@@ -475,25 +468,25 @@ import Testing
 
     @Test func theScaleReachesTableCells() {
         // A SwiftUI `Table` drops `defaultMinListRowHeight`, `controlSize` and the ambient `\.font`
-        // at its boundary (see `listDensity(_:)`), which is why the app's Compare table sets fonts
-        // per cell. A custom environment key is not subject to that — but the Differences table is
-        // the single most text-heavy surface in the app, so prove it rather than assume it.
+        // at its boundary (see `listDensity(_:)`), which is why Compare's table sets fonts per
+        // cell. A custom environment key isn't dropped, but the Differences table is the app's
+        // most text-heavy surface, so prove it rather than assume it.
         let large = Self.scalesSeenInsideTableCells(scale: FontSize.extraLarge.scale)
         #expect(!large.isEmpty, "no cell ever realized — the probe is broken, not the behaviour")
         #expect(large == [FontSize.extraLarge.scale],
                 "the text size does not reach Table cells")
-        // The control: the default scale arrives as the default, not as a leaked 1.3.
+        // The control: the default scale arrives as the default, not as a leaked larger one.
         #expect(Self.scalesSeenInsideTableCells(scale: 1) == [1])
     }
 
     /// Collects `\.appFontScale` as seen from *inside* a realized `Table` cell.
     ///
-    /// Reported from within the cell rather than read back off an `NSTextField`, because a SwiftUI
-    /// `Table` draws its cell text itself — there are no `NSTextField`s in the subtree to inspect.
+    /// Reported from within the cell, because a SwiftUI `Table` draws its cell text itself and
+    /// there are no `NSTextField`s to inspect.
     ///
-    /// Mounted the way `SnapshotRendering` mounts its subjects: a borderless window that is never
-    /// ordered in, with `isReleasedWhenClosed = false`. Ordering a window in and closing it inside
-    /// the test host segfaults it.
+    /// Mounted as `SnapshotRendering` mounts its subjects: a borderless window never ordered in,
+    /// with `isReleasedWhenClosed = false`. Ordering a window in and closing it inside the test
+    /// host segfaults it.
     @MainActor
     private static func scalesSeenInsideTableCells(scale: CGFloat) -> [CGFloat] {
         final class Box: @unchecked Sendable { var seen: Set<CGFloat> = [] }
@@ -524,10 +517,8 @@ import Testing
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         // A `Table` builds its cells lazily during a display pass, not during layout. Drawing it
-        // (the same call `SnapshotRendering` uses to capture) realizes them, and a brief runloop
-        // turn lets the tiling settle so `onAppear` fires. The caller's non-empty guard is what
-        // keeps this honest: if the cells ever stop realizing, the test fails rather than passing
-        // vacuously.
+        // (as `SnapshotRendering` captures) realizes them, and a brief runloop turn lets `onAppear`
+        // fire. The caller's non-empty guard fails the test if the cells stop realizing.
         if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
             host.cacheDisplay(in: host.bounds, to: rep)
         }
@@ -547,8 +538,8 @@ import Testing
         #expect(base == compact)
         #expect(largest! > base!)
 
-        // Grow-only: Small must not tighten rows further — that is List density's job, and
-        // shrinking risks clipping the row content that is not text.
+        // Grow-only: Small must not tighten rows further. That is List density's job, and
+        // shrinking risks clipping row content that isn't text.
         #expect(ListDensity.tableRowHeight(compact, fontScale: FontSize.small.scale) == compact)
 
         // Comfortable pins nothing at any size; the Table measures its own rows.

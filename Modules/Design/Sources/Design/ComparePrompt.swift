@@ -1,30 +1,24 @@
 import Foundation
 
-/// The copy on Compare's not-scanned empty state — the card the default workspace opens on.
+/// The copy on Compare's not-scanned empty state, the card the workspace opens on. Compare can't
+/// restore its rows (every action on one writes files), but it can say when it last scanned
+/// instead of claiming it never has.
 ///
-/// Compare was the only workspace that opened cold. Duplicates and Organize re-run their scan on
-/// open when it cannot cost money, Storage restores its report, and Compare said *"Nothing scanned
-/// yet"* on every launch however many times it had been scanned. It cannot restore its rows — every
-/// action it offers against one writes files — but it can stop pretending it has never run.
-///
-/// Lives beside ``ScanFreshness``, whose buckets it borrows, so the two ways this app says "how old
-/// is this?" use one ladder. It takes the ladder's words form (``ScanFreshness/spokenRelative(_:)``),
-/// not the compact one: this is a sentence, and "3d ago" inside a sentence reads as a pill's
-/// shorthand on screen and as "3 d" to VoiceOver. The summary itself is a `Sync` type; only the sentence is here, which
-/// is why these take loose values rather than the struct — `Design` sits under `Sync`, not over it.
+/// Uses ``ScanFreshness``'s buckets in their words form (``ScanFreshness/spokenRelative(_:)``):
+/// in a sentence, "3d ago" reads as shorthand and as "3 d" to VoiceOver. Takes loose values, not
+/// the `Sync` summary type, because `Design` sits under `Sync`.
 public enum ComparePrompt {
 
-    /// No usable summary: either nothing has ever been scanned, or what was scanned was a
-    /// different pair of folders than the panes are pointed at now.
+    /// No usable summary: nothing was ever scanned, or the last scan was of a different pair of
+    /// folders than the panes show now.
     public static let neverScanned =
         "Nothing scanned yet. Scan the two focused folders to see what differs."
 
     /// `"Last scanned 3 days ago — 412 differences. Scan again to see what has changed since."`
     ///
-    /// Past tense throughout, and the button beside it says Scan: nothing here may read as a
-    /// statement about the folders *now*. The count is what the last scan found, and the sentence
-    /// that follows exists to say the world has moved on since — which is the whole reason the rows
-    /// themselves are not restored.
+    /// Past tense throughout, beside a Scan button: nothing here may read as a statement about the
+    /// folders now. The count is what the last scan found; the second sentence says things may
+    /// have changed since.
     public static func lastScan(differenceCount: Int, date: Date, now: Date) -> String {
         let age = ScanFreshness.spokenRelative(max(0, now.timeIntervalSince(date)))
         let found: String

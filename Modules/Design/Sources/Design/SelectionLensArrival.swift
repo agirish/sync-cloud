@@ -1,18 +1,17 @@
 import SwiftUI
 
-/// Things that arrive (roadmap RD46.11): a count that drops out of its item when a scan finds
-/// something, and melts back into it when the count goes to zero.
+/// Things that arrive: a count that drops out of its item when a scan finds something, and melts
+/// back into it when the count goes to zero.
 ///
-/// Frosted and Clear only — the caller decides by the lens material it sits under
-/// (`selectionLensMaterial`), which is `.today` at Solid, under Reduce Transparency and outside
-/// any host, so all three keep today's plain appearance. Reduce Motion keeps it instant: the
-/// animation goes through `DesignAnimationRule`.
+/// Frosted and Clear only: the caller decides by the lens material it sits under
+/// (`selectionLensMaterial`), which is `.today` at Solid, under Reduce Transparency and outside any
+/// host, so all three keep the plain appearance. Reduce Motion keeps it instant through
+/// `DesignAnimationRule`.
 ///
-/// **Only a change animates.** The motion is keyed on the count's presence changing while the row
-/// is on screen, so an item that appears already reporting — the rail drawn for the first time,
-/// a workspace switch — shows its badge at rest, exactly as today. And it is keyed on the ROW, not
-/// the item: an item that grows a badge pushes its neighbours along, and an animation scoped to the
-/// item would leave them jumping out of the way while it grew into the gap.
+/// Only a change animates. The motion is keyed on the count's presence changing while the row is
+/// on screen, so an item that appears already reporting (a first draw, a workspace switch) shows
+/// its badge at rest. It is keyed on the row, not the item: a growing badge pushes its neighbours
+/// along, and an animation scoped to the item would leave them jumping out of the way.
 public enum SelectionLensArrival {
     /// The badge's way in and out: from a seed at the item's leading side, a little short of where
     /// it settles. Reversed, the same path is the melt.
@@ -20,9 +19,9 @@ public enum SelectionLensArrival {
         .modifier(active: Effect(progress: 0), identity: Effect(progress: 1))
     }
 
-    /// The change: the spring the lens's leading edge moves on — a little overshoot, settles once.
-    /// One curve both ways: leaving, the overshoot falls after the badge has faded, so what shows
-    /// is the item and its neighbours settling, which is right for both.
+    /// The change: the spring the lens's leading edge moves on, a little overshoot and one settle.
+    /// One curve both ways: leaving, the overshoot falls after the badge has faded, so only the
+    /// item and its neighbours settling shows.
     public static let curve: Animation = .spring(duration: SelectionLensMotion.Spring.lead.duration,
                                                  bounce: SelectionLensMotion.Spring.lead.bounce)
 

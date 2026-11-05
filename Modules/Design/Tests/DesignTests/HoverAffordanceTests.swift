@@ -2,10 +2,9 @@ import SwiftUI
 import XCTest
 @testable import Design
 
-/// The affordance is a table of numbers, so it's tested as one. These assert the *properties*
-/// the design rests on (nothing grows on hover, disabled stays inert, press always reads as
-/// deeper than hover) rather than restating each constant — a test that only echoes the
-/// literal it reads passes just as happily when the literal is wrong.
+/// The affordance is a table of numbers, so it's tested as one. These assert the properties the
+/// design rests on (nothing grows on hover, disabled stays inert, press reads deeper than hover)
+/// rather than restating each constant, which would pass just as well when the constant is wrong.
 final class HoverAffordanceTests: XCTestCase {
 
     private let allVariants = HoverAffordanceVariant.allCases
@@ -69,8 +68,8 @@ final class HoverAffordanceTests: XCTestCase {
         for variant in allVariants {
             let hover = HoverAffordanceMetrics.resolve(variant: variant, phase: .hover)
             let pressed = HoverAffordanceMetrics.resolve(variant: variant, phase: .pressed)
-            // Either the wash deepens or the control sinks — a press that looked identical to
-            // hover would leave the click unacknowledged.
+            // Either the wash deepens or the control sinks: a press that looked like hover would
+            // leave the click unacknowledged.
             let deepens = pressed.wash > hover.wash
             let sinks = pressed.scale < hover.scale
             // `.chrome` is the exception by design: it hands press back to the system style,
@@ -130,8 +129,7 @@ final class HoverAffordanceTests: XCTestCase {
     }
 
     func testReduceMotionLeavesEveryVariantWithSomethingToShow() {
-        // The failure this guards: a variant whose entire hover is a lift would go completely
-        // silent under Reduce Motion, which is exactly the state we started from.
+        // A variant whose entire hover is a lift would go completely silent under Reduce Motion.
         for variant in allVariants {
             let hover = HoverAffordanceMetrics.resolve(variant: variant, phase: .hover,
                                                        reduceMotion: true)
@@ -156,23 +154,21 @@ final class HoverAffordanceTests: XCTestCase {
     // MARK: - System-chrome buttons
 
     func testChromeHoverBorrowsTheFilledNumbers() {
-        // `chromeHover` can't stroke a ring — it doesn't know a glass capsule's silhouette — so it
-        // spends `.filled`'s ring alpha on a tight halo instead. Both must be non-zero or the
-        // treatment collapses to a bare 1pt nudge, which reads as a rendering glitch, not a state.
+        // `chromeHover` can't stroke a ring (it doesn't know a glass capsule's silhouette), so it
+        // spends `.filled`'s ring alpha on a tight halo. Both must be non-zero, or the treatment
+        // collapses to a bare 1pt nudge that reads as a rendering glitch, not a state.
         let m = HoverAffordanceMetrics.resolve(variant: .chrome, phase: .hover)
         XCTAssertGreaterThan(m.ring, 0, "no halo — the hover would be a silent 1pt shift")
         XCTAssertGreaterThan(m.shadow, 0)
         XCTAssertLessThan(m.lift, 0)
-        // The wash is the point. Two earlier attempts tried to light a glass button from outside
-        // — a halo, then a saturation filter — and both were invisible on a control that is
+        // The wash is the point: a halo or filter alone is invisible on a glass button that is
         // close to transparent at rest.
         XCTAssertGreaterThan(m.wash, 0, "nothing is drawn; a clear glass button has no fill to deepen")
     }
 
     func testChromeIsLouderThanFilledBecauseItHasNoFillToLandOn() {
         // `.filled`'s ring works because it lands on a saturated capsule. The same alpha on a
-        // clear macOS 26 glass button over a pale header is invisible — which is exactly what
-        // the pane header's nav arrows showed after the first pass.
+        // clear glass button over a pale header, like the pane header's nav arrows, is invisible.
         let chrome = HoverAffordanceMetrics.resolve(variant: .chrome, phase: .hover)
         let filled = HoverAffordanceMetrics.resolve(variant: .filled, phase: .hover)
         XCTAssertGreaterThan(chrome.ring, filled.ring)
@@ -180,9 +176,9 @@ final class HoverAffordanceTests: XCTestCase {
     }
 
     func testChromeHoverStaysVisibleWhenTheLiftIsTakenAway() {
-        // Reduce Motion strips the offset, and a system-chrome button has no wash to fall back
-        // on — the halo is the only thing left standing. If it ever went with the lift, every
-        // bordered and glass button in the app would silently lose its hover under the setting.
+        // Reduce Motion strips the offset, leaving the wash and halo. If they went with the lift,
+        // every bordered and glass button in the app would silently lose its hover under the
+        // setting.
         let reduced = HoverAffordanceMetrics.resolve(variant: .chrome, phase: .hover,
                                                      reduceMotion: true)
         XCTAssertEqual(reduced.lift, 0)
@@ -191,8 +187,8 @@ final class HoverAffordanceTests: XCTestCase {
     }
 
     func testChromeHoverIsInertWhenDisabled() {
-        // A greyed-out Back arrow that still lifts is worse than no hover: it promises a click
-        // that does nothing. `chromeHover` sits inside the button's `.disabled` scope for this.
+        // A greyed-out Back arrow that still lifts promises a click that does nothing, so
+        // `chromeHover` sits inside the button's `.disabled` scope.
         XCTAssertEqual(HoverAffordanceMetrics.resolve(variant: .chrome, phase: .hover,
                                                       isEnabled: false),
                        .none)

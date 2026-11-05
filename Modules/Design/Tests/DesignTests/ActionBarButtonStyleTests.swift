@@ -7,8 +7,8 @@ import SwiftUI
 @Suite struct ActionBarButtonStyleTests {
 
     @Test func testWeightsFormAStrictLadder() {
-        // Primary is the only full-strength fill; quiet is a wash; outline has none. A change that
-        // narrowed the gap would put the bar back where it started — three capsules of one weight.
+        // Primary is the only full-strength fill; quiet is a wash; outline has none. Narrow the gap
+        // and the bar becomes three capsules of one weight.
         #expect(ActionBarWeight.primary.fillOpacity == 1)
         #expect(ActionBarWeight.quiet.fillOpacity == PillVariant.fillOpacity)
         #expect(ActionBarWeight.outline.fillOpacity == 0)
@@ -46,7 +46,7 @@ import SwiftUI
 
     @Test func testEveryWeightRestsWithSomeVisibleEdgeOrFill() {
         // A weight that rested completely invisible would be a button you find by clicking where
-        // one might be — the thing HoverAffordance was added to end.
+        // one might be, which HoverAffordance exists to prevent.
         for weight in ActionBarWeight.allCases {
             #expect(weight.fillOpacity > 0 || weight.strokeOpacity > 0,
                     "\(weight) rests with nothing drawn")

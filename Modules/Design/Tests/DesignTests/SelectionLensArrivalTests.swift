@@ -3,9 +3,9 @@ import AppKit
 import SwiftUI
 @testable import Design
 
-/// RD46.11 — the path a count takes when it arrives, and in reverse when it melts: from a seed at
-/// the item's leading side, a little short of its place. Rendered at fixed points along the path,
-/// so the shape is pinned without timing anything.
+/// The path a count takes when it arrives, and in reverse when it melts: from a seed at the item's
+/// leading side, a little short of its place. Rendered at fixed points along the path, so the
+/// shape is pinned without timing anything.
 @MainActor
 @Suite struct SelectionLensArrivalTests {
 

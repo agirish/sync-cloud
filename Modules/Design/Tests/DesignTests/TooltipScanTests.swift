@@ -1,12 +1,8 @@
 import Foundation
 import Testing
 
-/// **Every button whose entire label is a glyph must carry a tooltip.**
-///
-/// A glyph says nothing until the pointer rests on it — the tooltip is the only place a sighted
-/// user learns what ✕, ▲ or ⌄ does here. The 2026-10-22 audit found six such buttons with none
-/// (two clear-search ✕s, a roster chip's ✕, a diff's ▲▼, a section chevron); this is what stops
-/// the seventh.
+/// Every button whose entire label is a glyph must carry a tooltip: it is the only place a sighted
+/// user learns what ✕, ▲ or ⌄ does here.
 ///
 /// A source scan for the same reason as ``UnnamedControlScanTests``: SwiftUI exposes no tooltip
 /// to a test process, so a rendered assertion would pass whether `.help` is there or not.
@@ -16,12 +12,10 @@ import Testing
     /// its own indentation that continue it (`.modifier`, `} label: {`, `}`). Comment lines continue
     /// it too, because the codebase explains a modifier directly above it.
     ///
-    /// **Stops at the first line indented LESS than the control.** The walker in
+    /// Stops at the first line indented less than the control. The walker in
     /// `UnnamedControlScanTests` continues through any `}` or `.`-line at or below the control's
-    /// indentation, so it can run on into the parent's closing braces and modifiers, where a `.help`
-    /// on the parent would hide a button that has none (`aParentsTooltipDoesNotCoverTheButton`).
-    /// On the 2026-10-22 tree both walkers found the same six buttons; the planted case is where
-    /// they differ.
+    /// indentation, so it can run on into the parent, where the parent's `.help` would hide a
+    /// button that has none (`aParentsTooltipDoesNotCoverTheButton`).
     static func chain(in lines: [String], from start: Int) -> String {
         let base = lines[start].prefix { $0 == " " }.count
         var end = start + 1
@@ -38,7 +32,7 @@ import Testing
         return lines[start..<end].joined(separator: "\n")
     }
 
-    /// Visible words in the label: `Text(` or `Label(`, but not `accessibilityLabel(` — which names
+    /// Visible words in the label: `Text(` or `Label(`, but not `accessibilityLabel(`, which names
     /// the control for VoiceOver and shows nothing on screen.
     private static let visibleWords = try! NSRegularExpression(pattern: #"(?<![A-Za-z])(Text|Label)\("#)
 
@@ -46,7 +40,7 @@ import Testing
         guard block.contains("Image(systemName:") else { return false }
         let range = NSRange(block.startIndex..., in: block)
         guard visibleWords.firstMatch(in: block, range: range) == nil else { return false }
-        // Hidden from accessibility and from the pointer's attention alike — decoration, not a control.
+        // Hidden from accessibility: decoration, not a control.
         guard !block.contains("accessibilityHidden(true)") else { return false }
         return !block.contains(".help(")
     }
@@ -68,8 +62,8 @@ import Testing
         #expect(found.isEmpty, "\(found.count) glyph-only control(s) have no tooltip — add `.help`, worded like its `accessibilityLabel`:\n\(found.prefix(12).joined(separator: "\n"))")
     }
 
-    /// Both spellings — `CloseButton(action:)` and the trailing-closure `CloseButton { … }` — and
-    /// not a mention in a comment.
+    /// Both spellings, `CloseButton(action:)` and the trailing-closure `CloseButton { … }`, and not
+    /// a mention in a comment.
     private static let closeButtonCall = try! NSRegularExpression(pattern: #"^\s*CloseButton\s*[({]"#)
 
     /// `CloseButton` is a bare ✕ whose comment says callers own its words, so the scan above cannot
@@ -104,7 +98,8 @@ import Testing
                 "an accessibility label is not a tooltip, and must not read as visible words")
     }
 
-    /// The case the borrowed walker got wrong: the parent's `.help` lies past the button's end.
+    /// The case `UnnamedControlScanTests`' walker would get wrong: the parent's `.help` lies past
+    /// the button's end.
     @Test func aParentsTooltipDoesNotCoverTheButton() {
         let planted = """
             HStack {

@@ -12,48 +12,34 @@ public enum SemanticCapsuleFamily: String, CaseIterable, Sendable {
 
 /// The three colors a semantic capsule is built from, for one family and appearance.
 ///
-/// These are SEMANTIC colors, not the app accent, and flat fills rather than tinted glass. Both
-/// choices were forced by measurement on the pane header's old freshness badge: an accent-tinted
-/// glass capsule over the accent-washed header rendered LIGHTER than its own backdrop, stranding
-/// its label at 1.35:1 — a tint composited over its own hue has nothing to shift against. Being
-/// hue-independent also means a capsule renders identically under every `LiquidGlassHue`
-/// case, including the two (`.green`, `.amber`) that would otherwise collide with the very colors
-/// carrying the status.
+/// Semantic colors, not the app accent, and flat fills, not tinted glass: an accent-tinted glass
+/// capsule over the accent-washed pane header renders lighter than its own backdrop and strands its
+/// label near 1.35:1, since a tint over its own hue has nothing to shift against. Being
+/// hue-independent also keeps a capsule identical under every `LiquidGlassHue`, including `.green`
+/// and `.amber`, which would otherwise collide with the status colors.
 ///
-/// These two families are the app's ONE definition of these colours. Scan freshness used to keep
-/// its own `FreshnessStyle` triad per state, which was three-quarters duplication — `stale` already
-/// delegated here and `scanning` was a verbatim copy of `.neutral` — and exactly the "two warms
-/// that nearly match" drift this type exists to prevent. `DifferencesView.countPillDressing` now
-/// reads these directly. `SemanticCapsuleTests` measures the contrast rather than trusting a
-/// comment.
-///
-/// The family is terracotta, not the amber it started as. Amber's yellow cast went muddy against
-/// the mint/emerald window wash — the earthier red-orange reads as a deliberate choice there while
-/// still being unmistakably warm, i.e. still saying "this wants your attention". The move also
-/// bought contrast: its dot went 3.6:1 → 4.2:1. (The words have since gone to label colour — DS1.)
+/// These two families are the app's one definition of these colours, which
+/// `DifferencesView.countPillDressing` reads directly; `SemanticCapsuleTests` measures the contrast.
+/// The attention family is terracotta, not amber, which goes muddy against the mint/emerald window
+/// wash while terracotta still reads as warm.
 public struct SemanticCapsuleStyle: Equatable, Sendable {
     /// The capsule fill.
     public let fill: Color
-    /// Label and glyphs. In a semantic family, label colour — black in light, white in dark (DS1):
-    /// the family's colour is the fill and the dot, and the words are not a second carrier of it.
-    /// They were drawn from the fill's own family (a deep terracotta, a navy) until the owner chose
-    /// label colour for every coloured pill's words. On the accent path, the fill's paired label.
+    /// Label and glyphs. In a semantic family, label colour (black in light, white in dark): the
+    /// family's colour is the fill and the dot, and the words don't carry it a second time. On the
+    /// accent path, the fill's paired label.
     public let content: Color
-    /// The status dot: the most colorful member of the family, since it is the smallest element
-    /// and has the least area in which to communicate its hue. Colorful meaning CHROMA, not HSV
-    /// saturation — the dark fill is a near-black brown whose HSV saturation actually exceeds the
-    /// bright orange dot's, so that is the wrong yardstick for this rule (`SemanticCapsuleTests`).
+    /// The status dot: the most colorful member of the family, since it is the smallest element.
+    /// Colorful means chroma, not HSV saturation: the dark fill is a near-black brown whose HSV
+    /// saturation exceeds the bright dot's (`SemanticCapsuleTests`).
     public let dot: Color
     /// A ring drawn around the dot, or nil for no ring.
     ///
-    /// Non-nil only on the `onAccent(fill:label:)` path, and load-bearing there: on a saturated
-    /// accent fill NOTHING coloured can clear the 3:1 floor for a non-text indicator. Measured, a
-    /// bare terracotta dot lands between 1.01:1 (Graphite) and 1.69:1 (Cyan) across the fixed hues
-    /// (eleven when measured, Slate since removed) — the accents all sit mid-luminance, so there is no room on either side. Green at
-    /// L = 0.34 puts 3:1 at L < 0.081 or L > 0.87, i.e. darker than this terracotta and lighter than
-    /// a pale peach, and even a pure white dot only reaches 2.7:1 there. So the ring carries the
-    /// separation (it is the fill's own label colour, hence ≥3:1 against it by construction) and the
-    /// dot is free to just carry the hue.
+    /// Non-nil only on the `onAccent(fill:label:)` path, where it is load-bearing: on a saturated
+    /// accent fill no coloured dot clears the 3:1 floor for a non-text indicator. The accents sit
+    /// mid-luminance (a bare terracotta dot measures 1.01:1 to 1.69:1 across them, and even white
+    /// reaches only 2.7:1 on Green), so the ring carries the separation. It is the fill's own label
+    /// colour, hence at least 3:1 against it, and the dot only has to carry the hue.
     public let dotRing: Color?
 
     public init(fill: Color, content: Color, dot: Color, dotRing: Color? = nil) {
@@ -91,32 +77,29 @@ public struct SemanticCapsuleStyle: Equatable, Sendable {
     /// A capsule that wears the app's accent hue instead of a semantic family, with an attention
     /// dot on top: the differences count pill's treatment.
     ///
-    /// The trade this makes, stated plainly because it reverses the reasoning above: an accent
-    /// capsule is hue-DEPENDENT, so it cannot carry meaning by colour the way `.attention` does.
-    /// What it gets in exchange is reading as a control, which the pill needs and a pale wash never
-    /// managed. The dot is what keeps the "wants your attention" signal, which is why it stays
-    /// terracotta and gets a ring.
+    /// The trade: an accent capsule is hue-dependent, so unlike `.attention` it can't carry meaning
+    /// by colour. In exchange it reads as a control, which the pill needs and a pale wash can't
+    /// give. The dot keeps the "wants your attention" signal, so it stays terracotta with a ring.
     ///
     /// - Parameters:
-    ///   - fill: the accent fill, from `LiquidGlassHue.accentFillColor` — the DEEPENED accent, not
-    ///     the raw one, since this capsule carries a white label. Passed in rather than derived here
-    ///     so `Design` needs no opinion about which hue is in play.
+    ///   - fill: the accent fill, from `LiquidGlassHue.accentFillColor`: the deepened accent, not
+    ///     the raw one, since this capsule carries a white label. Passed in so `Design` needs no
+    ///     opinion about which hue is in play.
     ///   - label: its paired label colour, from `LiquidGlassHue.onAccentLabelColor`.
     public static func onAccent(fill: Color, label: Color) -> SemanticCapsuleStyle {
         SemanticCapsuleStyle(fill: fill, content: label, dot: attentionDotOnAccent, dotRing: label)
     }
 
-    /// The attention dot as it appears on a saturated accent fill: brighter than the `.attention`
-    /// family's own dot, which is tuned to sit on that family's pale cream and would read as a mud
-    /// spot on mid-luminance emerald. Not a second terracotta any more than the light and dark
-    /// variants above are two colours — one family, valued for the backdrop it lands on.
+    /// The attention dot on a saturated accent fill: brighter than the `.attention` family's own
+    /// dot, which is tuned for that family's pale cream and would read as a mud spot on emerald.
+    /// One family, valued for the backdrop it lands on, as the light and dark variants are.
     ///
-    /// Appearance-independent by design: the accent fill IS this dot's background, so the window's
-    /// light/dark mode never enters into it (same reasoning as `Color.onFillLabel(_:)`).
+    /// Appearance-independent: the accent fill is this dot's background, so light/dark mode never
+    /// enters into it (as with `Color.onFillLabel(_:)`).
     public static let attentionDotOnAccent = rgb(0.89, 0.38, 0.17)
 
-    /// A family capsule's words: label colour for the appearance (DS1), as plain colours rather
-    /// than `.primary` so the style stays a value its tests can measure without a view.
+    /// A family capsule's words: label colour for the appearance, as plain colours rather than
+    /// `.primary` so the style stays a value its tests can measure without a view.
     private static func labelInk(dark: Bool) -> Color { dark ? .white : .black }
 
     private static func rgb(_ r: Double, _ g: Double, _ b: Double) -> Color {
@@ -125,17 +108,15 @@ public struct SemanticCapsuleStyle: Equatable, Sendable {
 }
 
 public extension View {
-    /// The flat semantic-capsule surface: `PillVariant.standard`'s geometry with a SOLID
+    /// The flat semantic-capsule surface: `PillVariant.standard`'s geometry with a solid
     /// `SemanticCapsuleStyle` fill in place of `pillSurface(_:tint:)`'s 14% tint wash.
     ///
-    /// Shared rather than re-derived per caller, and that is the whole reason it is here: the
-    /// differences count pill (`StatPill`) and the Appearance tab's accent preview have to paint
-    /// the same capsule, or the preview quietly stops previewing what ships. A lookalike with its
-    /// own paddings is exactly the drift `PaneActionBar`'s old private capsule caused.
+    /// Shared so the differences count pill (`StatPill`) and the Appearance tab's accent preview
+    /// paint the same capsule; a lookalike with its own paddings would let the preview drift from
+    /// what ships.
     ///
-    /// Deliberately surface-only — the caller sets `style.content` itself, because only the caller
-    /// knows which of its runs are non-text indicators allowed to take
-    /// `AccentLabel.dimmedOnFillOpacity` and which are text that may not.
+    /// Surface only: the caller sets `style.content` itself, because only it knows which runs are
+    /// non-text indicators allowed `AccentLabel.dimmedOnFillOpacity` and which are text.
     func semanticCapsuleSurface(_ style: SemanticCapsuleStyle) -> some View {
         padding(.horizontal, PillVariant.standard.horizontalPadding)
             .padding(.vertical, PillVariant.standard.verticalPadding)

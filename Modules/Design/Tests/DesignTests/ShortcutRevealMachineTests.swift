@@ -4,29 +4,23 @@ import Testing
 
 /// The ⌥-hold rule, driven directly with a clock the test picks.
 ///
-/// Every one of these is a real interaction someone performs in the app — ⌥-clicking a breadcrumb
-/// to move both panes, ⌥-typing a `ø` into a rename field, ⌥⇥-ing away mid-look. The reveal is
-/// only allowed to exist because it stays out of all of them, so the cancel rules get more tests
-/// here than the happy path does.
+/// Each is a real interaction in the app: ⌥-clicking a breadcrumb to move both panes, ⌥-typing a
+/// `ø` into a rename field, ⌥⇥-ing away mid-look. The reveal must stay out of all of them, so the
+/// cancel rules get more tests than the happy path.
 @Suite struct ShortcutRevealMachineTests {
 
-    /// A fixed instant. Pinned rather than `Date()` per house style: every deadline below is
-    /// arithmetic on this, so nothing depends on how long the test itself takes to run.
+    /// A fixed instant rather than `Date()`: every deadline below is arithmetic on it, so nothing
+    /// depends on how long the test takes to run.
     private static let t0 = Date(timeIntervalSinceReferenceDate: 780_000_000)
 
-    /// Every timing below is expressed in terms of the real constant rather than a literal.
-    ///
-    /// This is not tidiness. The first version of this file hardcoded `0.7` in twelve places, and
-    /// `anOptionTapShorterThanTheHoldRevealsNothing` released ⌥ at a hardcoded 0.3 — *shorter* than
-    /// a 0.7 hold, but *longer* than the 0.2 the constant later became. Shortening the hold would
-    /// have turned a cancel test into one that releases after the deadline has already passed:
-    /// still green, no longer testing anything. Derived timings cannot rot that way.
+    /// Every timing below is a fraction of the real constant, not a literal: with a literal, a
+    /// shorter hold could turn a cancel test into one that releases after the deadline, still green
+    /// and testing nothing.
     private static let hold = ShortcutRevealMachine.holdDuration
     private static func at(_ fraction: Double) -> Date { t0.addingTimeInterval(hold * fraction) }
 
-    /// The one place the constant is pinned to a number — so a change to it is a deliberate edit
-    /// here and not a silent drift everywhere else. If you are changing the feel of the reveal,
-    /// this is the test that is supposed to fail.
+    /// The one place the constant is pinned to a number, so changing the feel of the reveal is a
+    /// deliberate edit here.
     @Test func theHoldDurationIsWhatTheInterfacePromises() {
         #expect(ShortcutRevealMachine.holdDuration == 0.2)
     }
@@ -47,8 +41,8 @@ import Testing
         #expect(machine.isRevealActive)
     }
 
-    /// A tap is not a hold. This is the assertion that keeps the reveal off the screen during the
-    /// ⌥ that merely *begins* an ⌥-click, which is over in a fraction of the window.
+    /// A tap is not a hold: keeps the reveal off screen during the ⌥ that merely begins an ⌥-click,
+    /// which is over in a fraction of the window.
     @Test func anOptionTapShorterThanTheHoldRevealsNothing() {
         var machine = armed()
         // Released at half the hold...
@@ -159,8 +153,8 @@ import Testing
         #expect(!machine.isRevealActive)
     }
 
-    /// ⌥-click, which is `act on both panes` at three separate call sites. Holding ⌥ after the
-    /// click — which is what actually happens, the finger stays down — must stay quiet.
+    /// ⌥-click, which means "act on both panes" at several call sites. Holding ⌥ after the click,
+    /// as the finger usually does, must stay quiet.
     @Test func optionClickThenKeepingOptionDownRevealsNothing() {
         var machine = armed()
         machine.mouseDown()

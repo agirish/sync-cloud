@@ -3,17 +3,14 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// A borderless window that can take key. Focus is only ever granted inside a key window, so a
-/// test that wants to observe real first-responder behaviour has to have one — but ordering a
-/// window in would flash on the test machine's screen, so this stays off-screen and merely
-/// *becomes* key.
+/// A borderless window that can take key. Focus is only granted inside a key window, but ordering
+/// one in would flash on the test machine's screen, so this stays off-screen and only becomes key.
 private final class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
 }
 
-/// Host-owned reveal state, so a test can flip it from OUTSIDE the view — which is the whole
-/// point: the field has to be inserted by a transaction the test controls, exactly as the
-/// magnifier's `withAnimation` insert does in the app.
+/// Host-owned reveal state, so a test can flip it from outside the view: the field must be
+/// inserted by a transaction the test controls, as the magnifier's `withAnimation` insert does.
 @MainActor
 private final class RevealBox: ObservableObject {
     @Published var isExpanded = false
@@ -24,22 +21,13 @@ private final class RevealBox: ObservableObject {
 
     // MARK: The deferred focus
 
-    /// The user-visible promise: click the magnifier, start typing. The REAL component is
-    /// revealed by a real animated transaction — `withAnimation(.easeOut(0.15))`, what the
-    /// toggle does — and must come up holding the caret, with no second click.
+    /// Click the magnifier, start typing: the real component, revealed by the toggle's animated
+    /// transaction, comes up holding the caret with no second click. Deleting the `.onAppear`
+    /// focus claim from `ExpandingSearchField` must make this fail.
     ///
-    /// Verified to have teeth by mutation: delete the `.onAppear` focus claim from
-    /// `ExpandingSearchField` and this fails (the field reveals dead, exactly the bug).
-    ///
-    /// What it does NOT pin, recorded so the next reader doesn't over-trust the comment in the
-    /// component: the `Task` hop. `DifferencesView` documented that a `FocusState` write landing
-    /// in the transaction that inserts the field is silently dropped — hence the hop. That hazard
-    /// could not be reproduced here on macOS 26 in ANY variant: a synchronous `.onAppear` write
-    /// focuses, and so does a write from the revealer naming the not-yet-inserted field. Either
-    /// SwiftUI has since fixed it or it needs a hierarchy deeper than a harness can stage. The hop
-    /// is therefore carried verbatim rather than "simplified away" — it is what Compare has always
-    /// shipped, and removing a defence whose absence you cannot test for is how the fix→regression
-    /// cycle starts. Do not drop it on the strength of this note.
+    /// It does not pin the component's `Task` hop, which guards against a `FocusState` write in
+    /// the inserting transaction being dropped. No harness here reproduces that drop, so this test
+    /// can't show the hop is needed. **Don't drop the hop on the strength of this test.**
     @Test func revealedFieldClaimsFocusWithoutAClick() async throws {
         let box = RevealBox()
         let window = Self.host(RealFieldHarness(box: box))
@@ -47,11 +35,9 @@ private final class RevealBox: ObservableObject {
 
         withAnimation(ExpandingSearch.animation) { box.isExpanded = true }
 
-        // The focus claim is asynchronous twice over — the `.onAppear` Task hop, then
-        // FocusState→AppKit first-responder propagation — so a fixed pump here flakes under
-        // suite load (CI run 30403470882; shrinking the pump to 1ms reproduces that failure
-        // exactly). The deadline is a ceiling, not a wait: the poll returns as soon as the
-        // caret lands, ~150ms in a quiet run.
+        // The focus claim is asynchronous twice over (the `.onAppear` Task hop, then FocusState to
+        // AppKit first responder), so a fixed pump here flakes under suite load. The deadline is
+        // a ceiling, not a wait: the poll returns as soon as the caret lands.
         let caret = await Self.becomesEditingText(window)
         #expect(caret.held,
                 """
@@ -60,9 +46,9 @@ private final class RevealBox: ObservableObject {
                 """)
     }
 
-    /// The same promise on the glass path, which Frosted — the default — takes: there the field's
-    /// content is at opacity 0 for the first 0.12 s of its opening, exactly when the focus claim
-    /// lands. A field that would not take the caret while invisible would reveal dead in glass alone.
+    /// The same promise on the glass path, which Frosted (the default) takes. There the field's
+    /// content is at opacity 0 for the first 0.12 s, just when the focus claim lands, so a field
+    /// that refused the caret while invisible would reveal dead in glass alone.
     @Test func revealedFieldClaimsFocusOnTheGlassPathToo() async throws {
         let box = RevealBox()
         let window = Self.host(RealFieldHarness(box: box, appearance: SelectionLensAppearance(
@@ -75,14 +61,11 @@ private final class RevealBox: ObservableObject {
 
     // MARK: Behaviour-preservation of the extraction
 
-    /// Compare's adoption has to be a no-op visually, and the risky part is the accessories slot:
-    /// the chips and suggestions used to be written inline as two siblings of a `VStack(spacing:
-    /// 7)`, and now arrive through a ViewBuilder closure as a nested `TupleView`. If SwiftUI
-    /// didn't flatten that, the 7pt spacing between them would change and Compare's header would
-    /// silently shift.
-    ///
-    /// So: the pre-extraction shape, reproduced verbatim, measured against the component in every
-    /// combination of chips and suggestions. Equal heights ⇒ the extraction preserved the layout.
+    /// Compare's search field through the component must lay out like the inline original. The
+    /// risk is the accessories slot: chips and suggestions arrive through a ViewBuilder as a
+    /// nested `TupleView`, and if SwiftUI didn't flatten it, the 7pt spacing of the
+    /// `VStack(spacing: 7)` would change and Compare's header would shift. Measured in every
+    /// combination of chips and suggestions; equal heights mean the layout is preserved.
     @Test(arguments: [(false, false), (true, false), (false, true), (true, true)])
     func matchesThePreExtractionLayout(showsChips: Bool, showsSuggestions: Bool) {
         let legacy = LegacyCompareField(showsChips: showsChips, showsSuggestions: showsSuggestions)
@@ -123,17 +106,13 @@ private final class RevealBox: ObservableObject {
 
     // MARK: The floor itself
 
-    /// **The floor outlives an expired deadline** — the property the fix rests on, and the one
-    /// thing standing over it.
+    /// The floor outlives an expired deadline: with the deadline already spent, a condition that
+    /// never holds is still evaluated `pumpFloor` times. The sweep in `docs/flaky-tests.md` ("Fixed
+    /// pumps and fixed sleeps") finds only unfloored loops and can't see a floor deleted from this
+    /// one, so this test is what guards it.
     ///
-    /// The sweep in `docs/flaky-tests.md` mechanism 2 finds an UNFLOORED loop; nothing in it can
-    /// see a floor that was deleted from a floored one, and `pumpUntil` takes no argument a scan
-    /// could watch. So this asserts the shape directly: with the deadline already spent, a
-    /// condition that never holds is still evaluated `pumpFloor` times.
-    ///
-    /// Deliberately drives `pumpUntil` rather than `becomesEditingText`, because the caret arrives
-    /// on the first pass in a quiet run — a fixture whose condition is already true would pass with
-    /// the floor set to zero and prove nothing.
+    /// Drives `pumpUntil`, not `becomesEditingText`: the caret can arrive on the first pass, and a
+    /// condition already true would pass with the floor at zero.
     @Test func theFloorOutlivesAnExpiredDeadline() async {
         let window = Self.host(EmptyView())
         var evaluated = 0
@@ -150,13 +129,9 @@ private final class RevealBox: ObservableObject {
                 """)
     }
 
-    /// **The production floor's VALUE**, pinned separately and cheaply.
-    ///
-    /// The case above deliberately does NOT compare against `pumpFloor`: deriving the demand from
-    /// the constant defeats the mutation test, because zeroing the floor would zero the expectation
-    /// with it and the case would pass against a wait that no longer has a floor at all. Measured
-    /// here rather than reasoned — the first version of that case did derive it, and survived
-    /// `pumpFloor = 0` untouched.
+    /// Pins the production floor's value. The case above doesn't compare against `pumpFloor`,
+    /// since a demand derived from it would drop to zero with the floor and pass against a wait
+    /// with no floor at all.
     @Test func theProductionFloorIsFifty() {
         #expect(Self.pumpFloor == 50,
                 "the floor every real wait here uses is now \(Self.pumpFloor) — see docs/flaky-tests.md mechanism 2")
@@ -188,31 +163,25 @@ private final class RevealBox: ObservableObject {
         return responder.isKind(of: NSTextView.self)
     }
 
-    /// Ten times what a starved run has been measured to need, which also clears what an idle one
-    /// wants — so the floor carries this wait on its own. Same number and same reason as
-    /// `LayoutPumpWait.pumpFloor`, which this target now has a copy of too; this wait polls a
-    /// window's first responder rather than a hosting view's layout, so it keeps its own loop.
+    /// Ten times what a starved run was measured to need, so the floor carries this wait on its
+    /// own. Same number and reason as `LayoutPumpWait.pumpFloor`; this wait polls a window's first
+    /// responder, not a hosting view's layout, so it keeps its own loop.
     private static let pumpFloor = 50
 
-    /// What `theFloorOutlivesAnExpiredDeadline` demands — a LITERAL, deliberately not derived from
-    /// `pumpFloor`, so zeroing the floor cannot zero the expectation along with it.
+    /// What `theFloorOutlivesAnExpiredDeadline` demands. A literal, not derived from `pumpFloor`,
+    /// so zeroing the floor can't zero the expectation with it.
     private static let passesDemanded = 25
 
-    /// Pumps `window`'s layout until `condition` holds, or until BOTH the deadline has passed and
+    /// Pumps `window`'s layout until `condition` holds, or until both the deadline has passed and
     /// `pumpFloor` passes have been made.
     ///
-    /// **Seconds are the wrong unit and the deadline alone was the bug.** What this waits on is
-    /// main-actor turns, and a congested test host delivers them at no fixed rate — 15s bought
-    /// four polls in a suite measured in `docs/flaky-tests.md` mechanism 2, so raising the ceiling
-    /// buys nothing. The floor is the bound that means something.
+    /// Seconds alone are the wrong bound: this waits on main-actor turns, which a congested host
+    /// delivers at no fixed rate, so a longer ceiling buys nothing (`docs/flaky-tests.md`, "Fixed
+    /// pumps and fixed sleeps"). The floor is the bound that means something. It takes no `floor:`
+    /// argument, so nothing here can lower it.
     ///
-    /// Deliberately takes no `floor:` argument. `LayoutPumpWait` has one for its own tests and pays
-    /// for it with a repo-wide scan keeping every real wait on the default; with nothing here able
-    /// to lower it, there is nothing for such a scan to catch.
-    ///
-    /// Returns the pass count as well, because that is the diagnosis: a wait that gave up after a
-    /// handful of passes was starved, one that gave up after a thousand was genuinely disproved,
-    /// and elapsed time cannot tell those apart.
+    /// Returns the pass count too: a wait that gave up after a handful of passes was starved, one
+    /// after a thousand was disproved, and elapsed time can't tell them apart.
     private static func pumpUntil(_ window: NSWindow, timeout: TimeInterval,
                                   _ condition: () -> Bool) async -> (held: Bool, passes: Int) {
         var passes = 0
@@ -228,7 +197,7 @@ private final class RevealBox: ObservableObject {
 
     /// Polls until a text editor holds first responder, pumping layout each pass so AppKit can
     /// finish standing up the field editor. 15s matches the ceiling the FileExplorer mounted
-    /// suites converged on for a loaded run of the whole test host.
+    /// suites use for a loaded run of the whole test host.
     private static func becomesEditingText(_ window: NSWindow,
                                            timeout: TimeInterval = 15) async -> (held: Bool, passes: Int) {
         await pumpUntil(window, timeout: timeout) { isEditingText(window) }
@@ -263,8 +232,8 @@ private struct AccessoryStubs {
     }
 }
 
-/// Compare's search field EXACTLY as it was written before the extraction (DifferencesView:765–806
-/// at `9733e2f`). The reference the adoption is measured against.
+/// Compare's search field written inline, as `DifferencesView` had it before using the component:
+/// the reference the adoption is measured against.
 private struct LegacyCompareField: View {
     let showsChips: Bool
     let showsSuggestions: Bool

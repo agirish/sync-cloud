@@ -1,19 +1,13 @@
 import SwiftUI
 
-/// One chord, one truth. Every menu-registered shortcut that also appears on a control — as an
-/// ⌥-reveal keycap, in a tooltip, or both — is declared here once, and the two consumers read
-/// the same value: the menu item registers `key` + `modifiers`, the keycap shows `display`.
+/// One chord, one truth. Every menu-registered shortcut that also appears on a control (an
+/// ⌥-reveal keycap, a tooltip) is declared here once: the menu item registers `key` + `modifiers`,
+/// the keycap shows `display`. `display` is derived from the registration, so a badge can't
+/// advertise a key that no longer fires; `AppChordTests` pins each display so a key change fails
+/// by name.
 ///
-/// `display` is DERIVED from the registration, not stored beside it, which is the point: before
-/// this type the chord lived in four hand-copied places (the `.keyboardShortcut` call, the
-/// `.shortcutKeycap` string, the tooltip, and the ⌘/ reference row), and changing the menu's
-/// key left every badge advertising the old one with every test green. Now a badge cannot
-/// disagree with the key equivalent that fires; `AppChordTests` pins each rendered display so
-/// an accidental key change fails by name.
-///
-/// Keys that are semantics rather than chords — `esc` on a cancel button, `⏎` on a default
-/// button, `␣` for Quick Look — stay literal at their call sites: they are not menu-registered
-/// and their keycap names a ROLE, not a registration.
+/// Role keys (`esc` on a cancel button, `⏎` on a default button, `␣` for Quick Look) stay literal
+/// at their call sites: they aren't menu-registered, and their keycap names a role.
 public struct AppChord: Sendable {
     public let key: KeyEquivalent
     public let modifiers: EventModifiers
@@ -23,8 +17,8 @@ public struct AppChord: Sendable {
         self.modifiers = modifiers
     }
 
-    /// What the keycap (and tooltip) shows — glyphs in the platform's canonical ⌃⌥⇧⌘ order,
-    /// then the key, uppercased where it is a letter.
+    /// What the keycap and tooltip show: glyphs in the platform's ⌃⌥⇧⌘ order, then the key,
+    /// uppercased where it is a letter.
     public var display: String {
         var glyphs = ""
         if modifiers.contains(.control) { glyphs += "⌃" }
@@ -35,32 +29,27 @@ public struct AppChord: Sendable {
     }
 
     private static func keyGlyph(_ key: KeyEquivalent) -> String {
-        // The keys whose `character` is a control code rather than something drawable — ⌫ is
-        // U+007F and ⇥ is a literal tab, which a keycap would render as blank space.
+        // Keys whose `character` is a control code (⌫ is U+007F, ⇥ a tab), which a keycap would
+        // draw as blank space.
         if key == .delete { return "⌫" }
         if key == .tab { return "⇥" }
-        // The arrows are function-key code points (`NSLeftArrowFunctionKey` and friends), so
-        // `String(key.character)` is an unprintable glyph rather than a missing one — a keycap that
-        // renders as a blank box instead of nothing, which is worse.
+        // The arrows are function-key code points (`NSLeftArrowFunctionKey` and friends), which a
+        // keycap would draw as a blank box.
         if key == .leftArrow { return "←" }
         if key == .rightArrow { return "→" }
         if key == .upArrow { return "↑" }
         if key == .downArrow { return "↓" }
-        // The hyphen-minus is the KEY (`AppChord("-", …)` is what registers), but on a keycap it
-        // reads as a dash — "⌘-" looks like a stray punctuation mark beside "⌘+". The minus sign is
-        // what the platform's own View ▸ Zoom Out draws, and what the ⌘/ reference already spells.
+        // The hyphen-minus is the key that registers, but on a keycap "⌘-" reads as stray
+        // punctuation. The minus sign is what the platform's Zoom Out and the ⌘/ reference draw.
         if key.character == "-" { return "−" }
         return String(key.character).uppercased()
     }
 
     // MARK: AppKit's spelling
 
-    /// The chord as an `NSMenuItem` takes it — `keyEquivalent` and `keyEquivalentModifierMask`.
-    ///
-    /// For a menu built by hand (the editor's Markup context menu) rather than by SwiftUI's
-    /// `.keyboardShortcut`. Deriving both halves here is what lets that menu draw the same chord the
-    /// menu bar registers without a second copy of the key anywhere: `keyEquivalent` is the raw
-    /// character, never `display`, because AppKit wants the key and draws the glyphs itself.
+    /// The chord as an `NSMenuItem` takes it, for a hand-built menu (the editor's Markup context
+    /// menu), so it shows the menu bar's chord without a second copy of the key. The raw character,
+    /// never `display`: AppKit wants the key and draws the glyphs itself.
     public var appKitKeyEquivalent: String { String(key.character) }
 
     public var appKitModifierMask: NSEvent.ModifierFlags {
@@ -77,108 +66,82 @@ public extension AppChord {
     // General
     static let settings = AppChord(",", .command)
     static let infoInspector = AppChord("i", .command)
-    /// ⌘J — Ask Claude's panel (RD69, v7.0). Free in this app: no chord here used J, and it is not
-    /// one of macOS's reserved single-window equivalents. A menu item like ⌘K, for the same reason:
-    /// focus-scoped key handlers never fire with focus in a file table.
+    /// ⌘J, Ask Claude's panel. Free here and not one of macOS's reserved equivalents. A menu item,
+    /// like ⌘K, because focus-scoped key handlers never fire with focus in a file table.
     static let askClaude = AppChord("j", .command)
     static let activityLog = AppChord("l", .command)
     static let shortcutsReference = AppChord("/", .command)
-    /// ⌘K — the command palette (ROADMAP 14).
-    ///
-    /// **A menu item, and it has to be.** `.onKeyPress` is strictly focus-scoped: with focus in a
-    /// file table — where it always is — a sibling's handler never fires, and with no focus at all
-    /// nothing fires anywhere. A palette that only opened when you had not clicked anything would
-    /// be worse than none. The menu item also documents the chord where someone looks for it.
-    ///
-    /// ⌘K was free: it is not one of macOS's reserved single-window equivalents, and nothing in
-    /// this app had claimed it. No ⌥, per the invariant `AppChordTests` guards.
+    /// ⌘K, the command palette. It must be a menu item: `.onKeyPress` is focus-scoped, so with
+    /// focus in a file table (where it usually is) or nowhere, the handler never fires. The menu
+    /// also shows the chord where people look. Free, not reserved by macOS, and no ⌥, per the
+    /// invariant `AppChordTests` guards.
     static let commandPalette = AppChord("k", .command)
 
-    // View ▸ Text Size — the whole app's type, stepped from the keyboard (roadmap RD2).
+    // View ▸ Text Size: the whole app's type, stepped from the keyboard.
     //
-    // **The same detents Settings ▸ Text size offers, and nothing between or beyond them.** These
-    // items step `FontSize.selectablePercents`, the slider's own stops, so the keyboard can never
-    // reach a size the slider cannot — which matters because the Settings rail's version line has
-    // a width budget measured against exactly that range (see RELEASE.md). `FontSize.stepped` is
-    // the rule, and its tests say so in as many words.
+    // These step `FontSize.selectablePercents`, the Settings slider's own stops
+    // (`FontSize.stepped`), so the keyboard never reaches a size the slider can't. The Settings
+    // rail's version line has a width budget measured against exactly that range (see RELEASE.md).
     //
-    // ⌘+ is the platform's Bigger. AppKit matches a key equivalent of "+" against the "+" that
-    // ⇧= produces, which is how every Mac user types it; the unshifted ⌘= that Safari also accepts
-    // needs a second, hidden menu item, and SwiftUI's `.commands` has no hidden item — the only
-    // alternate it offers is an ⌥ one, which this app cannot register. So ⌘+ alone, displayed as
-    // ⌘+, and the reference says so.
+    // ⌘+ is the platform's Bigger; AppKit matches "+" against ⇧=. The unshifted ⌘= would need a
+    // hidden menu item, which SwiftUI's `.commands` can't make (its only alternate is an ⌥ one,
+    // barred here). So ⌘+ alone.
     static let textBigger = AppChord("+", .command)
     static let textSmaller = AppChord("-", .command)
-    /// ⌘0 — back to the default size. Not a workspace digit: `workspace(_:)` is 1…9 and
-    /// `noChordCollidesWithAWorkspaceDigit` compares against exactly that set.
+    /// ⌘0, back to the default size. Not a workspace digit: `workspace(_:)` is 1…9, the set
+    /// `noChordCollidesWithAWorkspaceDigit` checks.
     static let textDefaultSize = AppChord("0", .command)
 
-    // The Text and Markup menus (roadmap RD1). The chords for a document's CONTENTS, all of them
-    // routed on `EditorDocumentSurface` at key-press — never on `TextEditingChord`, which is true
-    // of every field editor and would italicise the ⌘K field.
+    // The Text and Markup menus: chords for a document's contents, all routed on
+    // `EditorDocumentSurface` at key-press, never on `TextEditingChord`, which is true of every
+    // field editor and would italicise the ⌘K field.
 
-    /// Text ▸ Source / Preview / Split — ⌃⌘1/2/3. Control, because ⌘1…⌘4 are the workspaces and
-    /// ⌥ is barred; the other ⌃⌘ chords — ⌃⌘S (the sidebar) and ⌃⌘E (Expand) — are letters.
+    /// Text ▸ Source / Preview / Split, ⌃⌘1/2/3. Control, because the ⌘ digits are the workspaces
+    /// and ⌥ is barred; the other ⌃⌘ chords are letters.
     static let editorSourceMode = AppChord("1", [.control, .command])
     static let editorPreviewMode = AppChord("2", [.control, .command])
     static let editorSplitMode = AppChord("3", [.control, .command])
-    /// Text ▸ Expand — the document alone in the window, the file pane, the rail and the sidebar
-    /// put away (TE48). ⌃⌘ beside the three modes, because it is the fourth way of choosing how
-    /// much of the window the document gets.
-    ///
-    /// **⌃⌘E was free, and checked rather than assumed.** ⌘E is Use Selection for Find and
-    /// ⌃⌘S the sidebar; nothing else in this registry is ⌃⌘ and a letter. AppKit's
-    /// `StandardKeyBinding.dict` binds no ⌃⌘ letter at all (its four ⌃⌘ entries are the space bar
-    /// and three arrow keys), so the field editor never claims it and it does not join
-    /// `TextEditingChord`'s colliding set. Not ⌃⌘F, which is the platform's Enter Full Screen —
-    /// decision K made this a widening INSIDE the window, which is a different act.
+    /// Text ▸ Expand: the document alone in the window, with the file pane, rail and sidebar put
+    /// away. ⌃⌘ beside the three modes, as the fourth way to choose how much window the document
+    /// gets. AppKit's `StandardKeyBinding.dict` binds no ⌃⌘ letter (its ⌃⌘ entries are space and
+    /// arrows), so the field editor never claims it and it stays out of `TextEditingChord`'s
+    /// colliding set. Not ⌃⌘F, which is Enter Full Screen; this widens inside the window.
     static let editorExpand = AppChord("e", [.control, .command])
 
-    /// Text ▸ Go to Line… — the status line's "Line, Col" as a menu item (TE61). The user's choice.
-    ///
-    /// **⌃⌘L was free, and checked rather than assumed.** ⌘L is the activity log and ⇧⌘L Markup's
-    /// Link; nothing else here is ⌃⌘ and a letter but ⌃⌘S and ⌃⌘E. AppKit's `StandardKeyBinding.dict`
-    /// binds no ⌃⌘ letter (the reason ``editorExpand`` gives), so the field editor never claims it and
-    /// it does not join `TextEditingChord`'s colliding set.
+    /// Text ▸ Go to Line…, the status line's "Line, Col" as a menu item. ⌘L is the activity log and
+    /// ⇧⌘L Markup's Link; AppKit binds no ⌃⌘ letter (see ``editorExpand``), so the field editor
+    /// never claims it.
     static let goToLine = AppChord("l", [.control, .command])
 
-    /// View ▸ Text Files — Edit's Text Files / Outline list, folded into the pane's strip or back
-    /// (TE81). **⌃⌘T was free, and checked rather than assumed**: ⌘T is New Tab and ⇧⌘T the tab
-    /// bar; the ⌃⌘ letters in use are S, E and L. AppKit binds no ⌃⌘ letter (``editorExpand``), so
-    /// the field editor never claims it. Beside ⌃⌘S, the sidebar's: the two columns' switches.
+    /// View ▸ Text Files: folds Edit's Text Files / Outline list into the pane's strip or back.
+    /// ⌘T is New Tab and ⇧⌘T the tab bar; AppKit binds no ⌃⌘ letter (``editorExpand``). Pairs with
+    /// the sidebar's ⌃⌘S as the two side columns' switches.
     static let editorTextFiles = AppChord("t", [.control, .command])
 
-    /// Text ▸ Find Next / Find Previous / Use Selection for Find — the find bar's own verbs, which
+    /// Text ▸ Find Next / Find Previous / Use Selection for Find: the find bar's verbs, which
     /// AppKit binds to nothing until a menu item names them. ⌘G, ⇧⌘G and ⌘E, the platform's own.
-    ///
-    /// **⇧⌘G was free, and checked rather than assumed** — added with the PDF reader's find, which
-    /// steps both ways: ⇧⌘ letters in use are N, P, C, F, T, X, K and L, and AppKit's
-    /// `StandardKeyBinding.dict` binds no ⌘ letter, so the field editor never claims it.
+    /// AppKit's `StandardKeyBinding.dict` binds no ⌘ letter, so the field editor never claims them.
     static let findNext = AppChord("g", .command)
     static let findPrevious = AppChord("g", [.shift, .command])
     static let useSelectionForFind = AppChord("e", .command)
 
     /// Markup ▸ the five inline verbs that take a chord. Headings and lists stay menu-only.
     static let bold = AppChord("b", .command)
-    /// **⌘I, and it is `infoInspector`'s chord** — not a second declaration. Decision B (2026-09-01):
-    /// ⌘I is Italic while the caret is in the editor's document and the Info inspector everywhere
-    /// else. One registered chord, two meanings, resolved when the key is pressed — so a computed
-    /// alias rather than a `static let`, which `noTwoChordsCollide` would rightly refuse and the
-    /// registry would count twice. `InspectorOrItalic` in the app target is the rule that picks.
+    /// ⌘I, which is `infoInspector`'s chord, not a second declaration: Italic while the caret is in
+    /// the editor's document, the Info inspector everywhere else, picked at key-press by
+    /// `InspectorOrItalic` in the app target. A computed alias, because a second `static let` would
+    /// fail `noTwoChordsCollide` and count twice in the registry.
     static var italic: AppChord { infoInspector }
     static let strikethrough = AppChord("x", [.shift, .command])
     static let inlineCode = AppChord("k", [.shift, .command])
     static let link = AppChord("l", [.shift, .command])
 
-    /// ⌘1…⌘9 by the workspace bar's own enumeration order — the caller passes the 1-based
-    /// ordinal, so the badge and the registration count the same list.
+    /// ⌘1…⌘9 in the workspace bar's order; the caller passes the 1-based ordinal, so the badge and
+    /// the registration count the same list.
     ///
-    /// **Nil past nine, rather than trapping.** `Character.init(String)` requires exactly one
-    /// grapheme cluster, so a tenth workspace produced a two-character string and crashed — at
-    /// MENU-BAR CONSTRUCTION, not at the tenth key press, which is to say the app would not open.
-    /// There are four workspaces today and the tests exercise 1…9, so nothing approaches it; a
-    /// latent trap on a number the UI is free to grow is worth one optional. A tenth item simply
-    /// gets no chord, which is what the platform does too — ⌘0 is not "the tenth".
+    /// Nil past nine, rather than trapping: `Character.init(String)` needs one grapheme, and "10"
+    /// would crash at menu-bar construction, so the app would not open. A tenth item gets no chord,
+    /// as on the platform (⌘0 is not "the tenth").
     static func workspace(_ ordinal: Int) -> AppChord? {
         guard (1...9).contains(ordinal) else { return nil }
         return AppChord(KeyEquivalent(Character("\(ordinal)")), .command)
@@ -186,14 +149,12 @@ public extension AppChord {
 
     // The file clipboard, and the selection it acts on.
     //
-    // **Every one of these four is also a text-editing key**, and a menu key equivalent outranks the
-    // field editor — so each is routed through ``TextEditingChord`` at its call site, exactly as
-    // ⌘⌫ has been since `deleteSelection` was registered. Registering them without that routing
-    // takes ⌘C away from the pane search, the rename field and the differences search.
+    // All four are also text-editing keys, and a menu key equivalent outranks the field editor, so
+    // each is routed through ``TextEditingChord`` at its call site, as ⌘⌫ is. Without that routing
+    // ⌘C stops working in the pane search, the rename field and the differences search.
     //
-    // ⌘X + ⌘V is move-here, which is why there is no paste-as-move chord: the clipboard carries
-    // `isCut`, so Finder's ⌥⌘V has nothing left to do — and could not be registered anyway, per the
-    // no-⌥ invariant `AppChordTests` guards.
+    // ⌘X then ⌘V is move-here (the clipboard carries `isCut`), so there is no paste-as-move chord;
+    // Finder's ⌥⌘V is barred anyway by the no-⌥ invariant `AppChordTests` guards.
     static let selectAll = AppChord("a", .command)
     static let cut = AppChord("x", .command)
     static let copy = AppChord("c", .command)
@@ -207,156 +168,100 @@ public extension AppChord {
     static let newFolder = AppChord("n", [.shift, .command])
     static let hiddenFiles = AppChord(".", [.shift, .command])
     static let deleteSelection = AppChord(.delete, .command)
-    /// ⌘↓ — open the selected folder into a new column, and ⌘↑ — close the rightmost one.
+    /// ⌘↓ opens the selected folder into a new column; ⌘↑ closes the rightmost one.
     ///
-    /// **They move the COLUMN STACK, never the comparison scope** (roadmap RD5, decided
-    /// 2026-09-06). A pane has two positions and `PaneBrowsePath`'s own doc comment is where the
-    /// difference is written down: the scope reloads the tree and re-runs the scan, the column
-    /// stack costs nothing and leaves every difference badge valid. These are the cheap one, which
-    /// is what makes them safe on a keypress — and is why they are dead in Tree view, which draws
-    /// no columns at all, rather than quietly meaning something else there.
+    /// They move the column stack, never the comparison scope (see `PaneBrowsePath`): the scope
+    /// reloads the tree and rescans, the column stack costs nothing and keeps every difference
+    /// badge valid. That makes them safe on a keypress, and dead in Tree view, which has no
+    /// columns.
     static let openSelectedFolder = AppChord(.downArrow, .command)
-    /// ⌘↑. **Not a second spelling of ⌘[.** `paneBack` pops the column stack and then FALLS
-    /// THROUGH to the pane's focus history once the stack is empty, which steps the comparison
-    /// scope back; this one stops at the root column and disables instead. That is the whole
-    /// difference between them, it is deliberate, and it is why both exist — Finder draws the same
-    /// distinction between Back and Enclosing Folder. Do not "simplify" this into `paneBack`.
+    /// ⌘↑. Not a second spelling of ⌘[: `paneBack` pops the column stack and then falls through to
+    /// the pane's focus history, stepping the comparison scope back; this one stops at the root
+    /// column and disables. Finder draws the same line between Back and Enclosing Folder. Don't
+    /// fold this into `paneBack`.
     static let enclosingFolder = AppChord(.upArrow, .command)
     /// Moves the pane-scoped chords (⌘F, ⌘[, ⌘], ⇧⌘N) to the other comparison pane.
     ///
-    /// ⌃⇥ and deliberately **not** a bare ⇥, which is the two-pane convention this borrows from.
-    /// A menu key equivalent outranks the field editor — the hazard `DeleteSelectionCommand`
-    /// documents for ⌘⌫ — and unlike ⌘⌫ there would be no way to route it back: plain Tab is how
-    /// you leave every text field in the app and how SwiftUI walks focus, so registering it would
-    /// take that away everywhere, permanently. ⌃⇥ is free here because this is a single-`Window`
-    /// scene with no window tabs for macOS to claim it for.
+    /// ⌃⇥, **not** a bare ⇥: a menu key equivalent outranks the field editor (the hazard
+    /// `DeleteSelectionCommand` documents for ⌘⌫), and plain Tab is how you leave every text field
+    /// and how SwiftUI walks focus, so registering it would break both everywhere. ⌃⇥ is free
+    /// because this single-`Window` scene has no window tabs for macOS to claim it.
     static let switchPaneFocus = AppChord(.tab, .control)
 
     // Tabs
     //
-    // Finder's own mapping throughout, with one deliberate deviation recorded in the v4.x roadmap:
-    // **⌘1…⌘9 do not select tabs**, because the workspaces own every ⌘-digit. Nothing here can be
-    // reclaimed for them without taking a workspace's key away.
+    // Finder's own mapping, with one deliberate deviation: ⌘1…⌘9 do not select tabs, because the
+    // workspaces own every ⌘-digit.
     static let newTab = AppChord("t", .command)
-    /// Closes the tab — and, on the last one, the window, which is what Finder does and what makes
-    /// ⌘W keep meaning "get rid of this" rather than acquiring an exception.
+    /// Closes the tab, or the window on the last one, as Finder does, so ⌘W always means "get rid
+    /// of this".
     static let closeTab = AppChord("w", .command)
     /// ⇧⌘] / ⇧⌘[, so the unshifted pair stays pane back/forward.
     static let nextTab = AppChord("]", [.shift, .command])
     static let previousTab = AppChord("[", [.shift, .command])
-    /// Previous Tab's second chord, ⌃⇧⇥ — the reverse of ⌃⇥ (SH3). It does what ⇧⌘[ does,
-    /// wherever ⇧⌘[ does it; its Go menu item is hidden behind Previous Tab ⇧⌘[ with its key
-    /// left live (`GoMenuDuplicates`). Free for the reason ⌃⇥ is: no window tabs to claim it.
+    /// Previous Tab's second chord, ⌃⇧⇥, the reverse of ⌃⇥. It does what ⇧⌘[ does; its Go menu
+    /// item is hidden behind Previous Tab with its key left live (`GoMenuDuplicates`). Free for
+    /// ⌃⇥'s reason: no window tabs to claim it.
     static let previousTabControl = AppChord(.tab, [.control, .shift])
-    /// View ▸ Tab Bar. ⇧⌘T is Finder's, and it is free here — Reopen Closed Tab therefore has no
-    /// chord at all rather than an ⌥ one, which would be the single kind that can fire through the
-    /// ⌥-hold reveal (see `foldAllDifferences`).
+    /// View ▸ Tab Bar, ⇧⌘T as in Finder. Reopen Closed Tab therefore has no chord rather than an ⌥
+    /// one, the one kind that can fire through the ⌥-hold reveal (see `foldAllDifferences`).
     static let tabBar = AppChord("t", [.shift, .command])
 
-    /// View ▸ Sidebar — the Favorites / Sources / Recents column, carried by every workspace.
+    /// View ▸ Sidebar: the Favorites / Sources / Recents column every workspace carries. ⌃⌘S is
+    /// Finder's own Show/Hide Sidebar; ⌘S means Save on the platform and belongs to the editor's
+    /// document (``saveDocument``).
     ///
-    /// **⌃⌘S, which is Finder's own Show/Hide Sidebar** and free here: `switchPaneFocus` is the
-    /// only other ⌃ chord in the registry and it is ⌃⇥. ⌘S was not a candidate for this, because it
-    /// means Save everywhere on the platform — which was an argument for leaving it *unclaimed* in
-    /// an app whose every action was already on disk, and is now the argument for giving it to the
-    /// editor's document. See ``saveDocument``.
-    ///
-    /// Declared here from v4.2 until 2026-08-20, when the column was held back and this went with
-    /// it: a declared chord is not free, because the registry drives the ⌘/ reference, and leaving
-    /// it would have published a keystroke for a column that could not appear. Restored for v4.4
-    /// with the column itself (item #13), and the reference row and its window height came back in
-    /// the same commit for the same reason.
+    /// The registry drives the ⌘/ reference, so a chord declared here is published: declare one
+    /// only while the thing it opens can appear.
     static let folderSidebar = AppChord("s", [.control, .command])
 
-    // The Editor workspace
-    //
-    // The first two chords in this registry that act on a file's CONTENTS rather than on files.
-    // Both were free, and both were free for the same reason: until the editor existed there was no
-    // document in this app to save and no document to create, so the two chords every other Mac app
-    // spends first had nothing to spend them on.
+    // The Editor workspace: chords that act on a file's contents rather than on files.
 
-    /// File ▸ Save — write the open document NOW.
+    /// File ▸ Save: write the open document now.
     ///
-    /// **It is no longer the only thing that writes**, which changes what this chord is for rather
-    /// than removing the need for it. The editor autosaves once the typing settles; ⌘S means "do
-    /// not wait", and it is also how a document autosave has STOPPED on — one that changed
-    /// underneath the buffer — is settled, since that is the one state where typing is not reaching
-    /// the file. Live whenever a document is open, including when it is clean: a greyed-out Save
-    /// would be the menu's answer to "did my work make it?" at exactly the wrong moment.
-    ///
-    /// ⌘S is unclaimed here. The sidebar's ⌃⌘S is a different chord (see ``folderSidebar``), and
-    /// nothing else registers a bare ⌘. It is also not one of the field editor's own bindings, so
-    /// it does not join `TextEditingChord`'s colliding set — a menu equivalent claims it outright
-    /// and the text view never sees it.
+    /// The editor autosaves once typing settles; ⌘S means "don't wait", and it is how a document
+    /// whose autosave stopped (it changed underneath the buffer) gets settled. Live whenever a
+    /// document is open, even a clean one: a greyed-out Save would answer "did my work make it?"
+    /// wrongly. Not a field-editor binding, so it stays out of `TextEditingChord`'s colliding set.
     static let saveDocument = AppChord("s", .command)
 
-    /// File ▸ Print… — the open document, rendered, on paper (roadmap RD9).
+    /// File ▸ Print…: the open document, rendered, on paper. Not one of `NSTextView`'s key
+    /// bindings, so a menu equivalent takes it outright.
     ///
-    /// **⌘P was free, and that is not the same as unused.** ⇧⌘P was View ▸ File Preview from v3
-    /// until the preview moved into the Info inspector (TE318), and is unbound now; the bare ⌘P had
-    /// never been registered by anything here, and it is the one
-    /// chord on the platform a reader will try without looking. `TextEditingChord` does not claim
-    /// it either — printing is not one of `NSTextView`'s own key bindings — so a menu equivalent
-    /// takes it outright and the field editor never sees it.
-    ///
-    /// **File ▸ Export as PDF… deliberately has none.** It is the same render to a different
-    /// destination, and the destination is the *dialog*, so a key equivalent would buy nothing that
-    /// ⌘P and the panel's own PDF button do not already offer. ⇧⌘P was taken when this was decided
-    /// and would read as a second Print anyway, ⌥ chords are barred
-    /// app-wide (see ``foldAllDifferences``), and ⌘E is Use Selection for Find.
+    /// File ▸ Export as PDF… has no chord: the print panel's own PDF button already reaches it, ⇧⌘P
+    /// would read as a second Print, ⌥ chords are barred (see ``foldAllDifferences``), and ⌘E is
+    /// Use Selection for Find.
     static let printDocument = AppChord("p", .command)
 
-    /// File ▸ Open in Edit — hand the pane's selected text file to the Edit workspace.
+    /// File ▸ Open in Edit: hand the pane's selected text file to the Edit workspace. ⌘O is the key
+    /// every Mac user tries, and not an `NSTextView` binding (as with ``saveDocument``).
     ///
-    /// **⌘O was unregistered, and it is the key every Mac user tries.** Nothing in this app had
-    /// claimed it: no `AppChord`, no literal `.keyboardShortcut("o")` anywhere. It is also not one
-    /// of `NSTextView`'s own key bindings, so it does not join `TextEditingChord`'s colliding set —
-    /// the same reasoning ``saveDocument`` and ``printDocument`` carry: a menu equivalent claims it
-    /// outright and the field editor never sees it.
-    ///
-    /// **The one chord in File ▸'s row-verb group, deliberately.** That group documents the
-    /// absence of keys on Rename and Download; this item is the exception because a window-level
-    /// menu item can carry a key that a per-row context menu cannot, and because the act it names
-    /// has four doors now and no keyboard route at all among them.
+    /// The one chord in File ▸'s row-verb group: a window-level menu item can carry a key a per-row
+    /// context menu can't, and this act had no keyboard route otherwise.
     static let openInEditor = AppChord("o", .command)
 
-    /// File ▸ New Text File… — opens the naming row in the editor's rail. The ellipsis is the
-    /// promise: nothing is on disk until Return.
-    ///
-    /// ⌘N, and the neighbour it wants: ⇧⌘N is already New Folder. The `.newItem` command group
-    /// carried a comment for two years saying ⌘N "had nothing to do" in a one-window app with no
-    /// New Window — true until there was a document to make.
+    /// File ▸ New Text File…: opens the naming row in the editor's rail. The ellipsis is the
+    /// promise: nothing is on disk until Return. ⌘N, beside ⇧⌘N's New Folder.
     static let newTextFile = AppChord("n", .command)
 
     // Differences
     /// ⌘← / ⌘→ copy the differences selection across; ⇧ makes it a move.
     ///
-    /// **Menu items since v4.2, and the chord is the same one it always was.** These lived as an
-    /// `.onKeyPress` inside the Differences table, scoped there because a window-level equivalent
-    /// is consulted before the first responder and would hijack ⌘→ typed into the search field.
-    /// The item now carries `chordBelongsToTextEditor`, which hands that keystroke back — the same
-    /// routing every colliding chord here uses — so the chord can be registered where it can also
-    /// be *read*. Before this it appeared in no menu and no ⌘/ row: four working verbs nobody
-    /// could find.
+    /// Menu items, so they can be found. A window-level equivalent is consulted before the first
+    /// responder and would hijack ⌘→ typed in the search field, so the items carry
+    /// `chordBelongsToTextEditor`, which hands that keystroke back.
     ///
-    /// **Four `static let`s and a resolver, not a constructor.** Built inline at first, which
-    /// broke the registry's own accounting: `everyDeclaredChordIsInTheRegistry` counts
-    /// `static let … = AppChord(` declarations in this file and requires the registry to hold
-    /// exactly that many, so four members that were registered without being *declared* left it
-    /// reading 27 against 31. The family is small and fixed, so declaring each member is both
-    /// possible and better than teaching the scan an exception — every member now gets its
-    /// display pinned by `everyChordRendersItsDocumentedDisplay` on the day it is declared,
-    /// which is the guarantee that exception would have quietly removed.
-    ///
-    /// (`workspace(_:)` stays a constructor because its membership is the workspace list's
-    /// length, which is not fixed and is documented as a range rather than as members.)
+    /// Four `static let`s and a resolver, not a constructor: `everyDeclaredChordIsInTheRegistry`
+    /// counts the declarations in this file, and each declared member gets its display pinned by
+    /// `everyChordRendersItsDocumentedDisplay`. (`workspace(_:)` stays a constructor because its
+    /// size follows the workspace list.)
     static let copyToLeft = AppChord(.leftArrow, .command)
     static let copyToRight = AppChord(.rightArrow, .command)
     static let moveToLeft = AppChord(.leftArrow, [.shift, .command])
     static let moveToRight = AppChord(.rightArrow, [.shift, .command])
 
-    /// The member for a direction and a mode — one lookup, so the badge and the menu item cannot
-    /// pick different members of the same family.
+    /// The member for a direction and a mode: one lookup, so the badge and the menu item can't
+    /// pick different members.
     static func transfer(toRight: Bool, isMove: Bool) -> AppChord {
         switch (toRight, isMove) {
         case (false, false): return copyToLeft
@@ -369,52 +274,36 @@ public extension AppChord {
     static let reviewDifferences = AppChord("r", [.shift, .command])
     static let verifyDifferences = AppChord("v", [.shift, .command])
     static let differencesList = AppChord("d", .command)
-    /// ⇧⌘F, deliberately NOT ⌥⌘F: an ⌥-chord is the one kind that can fire from inside the
-    /// ⌥-hold reveal, and the first cut shipped exactly that bug — a user reading the magnifier's
-    /// "⌘F" badge who pressed ⌘F while still holding ⌥ sent ⌥⌘F and folded every folder instead
-    /// of finding anything. With no ⌥-chords registered, nothing fires through the reveal at
-    /// all — the documented look-release-press contract, restored.
+    /// ⇧⌘F, **not** ⌥⌘F: an ⌥ chord can fire from inside the ⌥-hold reveal, so a user reading the
+    /// "⌘F" badge who pressed ⌘F while still holding ⌥ would fold every folder. With no ⌥ chords,
+    /// nothing fires through the reveal: look, release, press.
     static let foldAllDifferences = AppChord("f", [.shift, .command])
-    /// ⇧⌘C — compare two files. **Free, and checked rather than assumed**: `copy` binds the
-    /// unshifted ⌘C and nothing binds the shifted form. The app has no text formatting, so it does
-    /// not collide with the system's Show Colors either. It is the shifted partner of a verb the
-    /// reader already knows, in a menu that already holds the other Compare verbs.
+    /// ⇧⌘C, compare two files: the shifted partner of `copy`, in the menu with the other Compare
+    /// verbs. The app has no text formatting, so it doesn't collide with the system's Show Colors.
     static let compareTwoFiles = AppChord("c", [.shift, .command])
 
     // The progress capsule
-    /// ⌘. — the Mac's cancel-operation chord, on the toolbar progress capsule's stop button. A
-    /// copy, move, delete, sync or verify can run for minutes, and before this it could only be
-    /// stopped with the mouse.
+    /// ⌘., the Mac's cancel-operation chord, on the toolbar progress capsule's stop button, so a
+    /// long copy, move, delete, sync or verify can be stopped from the keyboard.
     ///
-    /// **The one member that is not a menu item**, and declared here anyway because it is a chord
-    /// rather than a role: a menu that later claimed ⌘. would outrank the button's key equivalent
-    /// and silently take it, and only `noTwoChordsCollide` can see that coming. It also belongs in
-    /// the ⌘/ reference, which this registry drives.
+    /// The one member that is not a menu item. Declared anyway: a menu that later claimed ⌘. would
+    /// silently outrank the button, and only `noTwoChordsCollide` can catch that. It also belongs
+    /// in the ⌘/ reference, which this registry drives.
     ///
-    /// **Not esc**, which is the role key the type's header leaves literal on a sheet's Cancel. The
-    /// capsule sits in the toolbar with the whole window still live around it, where esc clears a pane's
-    /// selection — a key pressed out of habit, and it must not abort a 7,000-item copy. ⌘. is
-    /// pressed on purpose. ⇧⌘. is `hiddenFiles`, a different chord.
+    /// Not esc: the window stays live around the capsule, where esc clears a pane's selection out
+    /// of habit, and that must not abort a long copy. ⇧⌘. is `hiddenFiles`, a different chord.
     static let cancelOperation = AppChord(".", .command)
 
-    /// **Every fixed chord declared as an `AppChord`, once.**
+    /// Every fixed chord declared as an `AppChord`, once, so the "for every chord" tests share one
+    /// list instead of each re-typing it.
     ///
-    /// Not every chord the app registers: ⌘? is written straight onto its menu item and has no
-    /// member here, which is exactly why `ShortcutsReferenceTests` reads the `.keyboardShortcut`
-    /// literals out of `MacApp/` as well as sweeping this list. A registry-driven test cannot see
-    /// a chord that is not in the registry.
+    /// Not every chord the app registers: ⌘? is written straight onto its menu item, so
+    /// `ShortcutsReferenceTests` also reads the `.keyboardShortcut` literals in `MacApp/`.
     ///
-    /// The type's whole argument is "one chord, one truth", and three "for every chord" tests were
-    /// each re-typing the list to make it — two in `AppChordTests` (the no-⌥ invariant and the
-    /// speakable-display one) and one in `ShortcutsReferenceTests`, which is how a registered ⌘?
-    /// came to have no row in the ⌘/ reference with everything green. A hand-copied list of the
-    /// members of a hand-copied-list-shaped bug is the wrong place to stop.
-    ///
-    /// A plain array rather than `CaseIterable`, because these are `static let`s on a struct and
-    /// there is nothing to enumerate; adding a member without adding it here is the residual gap,
-    /// and `everyDeclaredChordIsInTheRegistry` closes it by counting the declarations in the
-    /// source. `workspace(_:)` is excluded on purpose — it is a family, not a chord, and the
-    /// reference lists it as the range `⌘ 1 – ⌘ N`, which its own test pins.
+    /// A plain array, since `static let`s on a struct can't be enumerated;
+    /// `everyDeclaredChordIsInTheRegistry` counts the declarations in this file to catch a member
+    /// left out. `workspace(_:)` is excluded: a family, which the reference lists as the range
+    /// `⌘ 1 – ⌘ N`, pinned by its own test.
     static let registry: [AppChord] = [
         settings, infoInspector, askClaude, activityLog, shortcutsReference, commandPalette,
         selectAll, cut, copy, paste,
@@ -434,12 +323,9 @@ public extension AppChord {
         cancelOperation,
     ]
 
-    /// Registry members that belong to a **control rather than a menu item** — the menu-bar walk's
-    /// one sanctioned exception (`WindowMenuTests.everyDeclaredChordIsOnAMenuItem`).
-    ///
-    /// ⌘. is the toolbar progress capsule's stop button, which exists only while a long run goes;
-    /// a menu item for it would be a dead item the rest of the time. `ProgressCapsuleCancelKeyTests`
-    /// drives the key through a real window instead, which is the evidence the menu walk gives the
-    /// others.
+    /// Registry members that belong to a control rather than a menu item: the one exception to
+    /// `WindowMenuTests.everyDeclaredChordIsOnAMenuItem`. ⌘. is the progress capsule's stop button,
+    /// which exists only during a long run; `ProgressCapsuleCancelKeyTests` drives its key through
+    /// a real window instead.
     static let controlOnly: [AppChord] = [cancelOperation]
 }

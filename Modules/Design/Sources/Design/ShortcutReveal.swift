@@ -4,21 +4,19 @@ import SwiftUI
 // MARK: - Shortcut reveal
 //
 // Hold ⌥ alone for `ShortcutRevealMachine.holdDuration` and every control with a keyboard shortcut
-// grows a keycap badge;
-// release it and they vanish. This file is the ONE place that decides whether the reveal is on —
-// `ShortcutKeycap` is the one place that decides what a badge looks like. Same shape as
-// `HoverAffordanceStyle`: one choke point per affordance, so a change lands everywhere at once.
+// grows a keycap badge; release it and they vanish. This file decides whether the reveal is on, and
+// `ShortcutKeycap` decides what a badge looks like: one choke point per affordance, as
+// `HoverAffordanceStyle` is for hover.
 //
-// **Why ⌥ and not ⌘.** ⌘ appears *inside* most of the hints it would be revealing (⌘R, ⌘F, ⌘→),
-// and it is the app's move modifier (`ModifierTracker.isMoveModifier` is ⇧-or-⌘) — a ⌘ trigger
-// would flash badges through ⌘Z and ⌘-click and collide with the Copy→Move retitle. ⌥'s existing
-// in-app meanings are all read at *click* time (⌥-click acts on both panes; ⌥-click a disclosure
-// triangle collapses all), which a passive hold does not disturb.
+// ⌥, not ⌘: ⌘ appears inside most of the hints it would reveal, and it is the app's move modifier
+// (`ModifierTracker.isMoveModifier` is ⇧-or-⌘), so a ⌘ trigger would flash badges through ⌘Z and
+// ⌘-click and collide with the Copy→Move retitle. ⌥'s in-app meanings are all read at click time
+// (⌥-click acts on both panes, ⌥-click a disclosure triangle collapses all), which a hold doesn't
+// disturb.
 //
-// **Accepted, not a defect.** With ⌥ down, pressing ⌘R sends ⌥⌘R, which does not match the ⌘R key
-// equivalent — so a shortcut cannot be fired *through* the reveal. This is a look-release-press
-// flow, the same one iPadOS's ⌘-hold uses, and it is deliberate: making shortcuts fire through the
-// reveal would mean swallowing ⌥ out of chords the user may legitimately want. Do not "fix" it.
+// Deliberate: with ⌥ down, pressing ⌘R sends ⌥⌘R, which doesn't match ⌘R, so a shortcut can't be
+// fired through the reveal. It is a look-release-press flow, like iPadOS's ⌘-hold; firing through
+// would mean swallowing ⌥ out of chords the user may want. Do not "fix" it.
 
 /// The modifier keys the reveal reasons about, as a plain value type — so the state machine below
 /// can be driven and tested without AppKit or an event loop in the picture.
@@ -31,12 +29,9 @@ public struct ShortcutRevealModifiers: OptionSet, Sendable {
     public static let shift = ShortcutRevealModifiers(rawValue: 1 << 2)
     public static let control = ShortcutRevealModifiers(rawValue: 1 << 3)
 
-    /// Reads the four chord modifiers out of an AppKit flag set.
-    ///
-    /// Caps Lock and Fn are deliberately dropped rather than treated as "an additional modifier".
-    /// Caps Lock is a *latched* state: left on, it would make the `[.option]`-alone test below
-    /// unsatisfiable and the reveal simply would not exist for that user. Fn rides along with the
-    /// arrow keys and the function row rather than describing anything the user chose to hold.
+    /// Reads the four chord modifiers out of an AppKit flag set. Caps Lock and Fn are dropped: Caps
+    /// Lock is latched, and left on it would make the ⌥-alone test unsatisfiable; Fn rides along
+    /// with the arrow keys and function row rather than anything the user chose to hold.
     public init(_ flags: NSEvent.ModifierFlags) {
         var modifiers: ShortcutRevealModifiers = []
         if flags.contains(.option) { modifiers.insert(.option) }
@@ -47,31 +42,22 @@ public struct ShortcutRevealModifiers: OptionSet, Sendable {
     }
 }
 
-/// The hold rule, as a pure state machine over an injected clock.
+/// The hold rule, as a pure state machine over an injected clock. The duration is
+/// ``holdDuration``, named nowhere else in prose so no comment can go stale against it.
 ///
-/// The duration is ``holdDuration``, and is deliberately named nowhere else in prose: this line and
-/// the file header above both still said "700 ms" a release after the constant became 0.2 — a
-/// number `theHoldDurationIsWhatTheInterfacePromises` had been pinning the whole time.
-///
-/// Every transition is a function of (current phase, event, instant) — nothing here reads the
-/// wall clock, schedules anything, or touches AppKit, so the whole interaction is assertable in
-/// a unit test with `Date`s the test picks. `ShortcutRevealTracker` is the only thing that turns
-/// real events and a real timer into calls on this.
+/// Every transition is a function of (phase, event, instant): nothing here reads the wall clock,
+/// schedules anything or touches AppKit, so the whole interaction is testable with `Date`s the test
+/// picks. `ShortcutRevealTracker` is the only thing that turns real events and a timer into calls.
 public struct ShortcutRevealMachine: Equatable, Sendable {
 
-    /// How long ⌥ must be held **alone** before the keycaps appear.
+    /// How long ⌥ must be held alone before the keycaps appear.
     ///
-    /// Deliberately short — the reveal should feel like the window answering, not like a wait you
-    /// have to learn the length of. It is not zero because the ⌥ that *begins* an ⌥-click or an
-    /// ⌥-typed character is itself a brief ⌥-alone hold, and at zero every one of those would
-    /// flash the badges up for a frame before the click or keystroke cancelled them.
-    ///
-    /// So this is the only thing separating "looking" from "about to do something with ⌥", and it
-    /// buys that separation with the shortest delay that still reads as deliberate. Shorter is a
-    /// legitimate taste call; the cost is paid in flicker during ⌥-click, not in correctness —
-    /// every cancel rule holds at any duration. One constant, pinned by
-    /// `ShortcutRevealMachineTests.theHoldDurationIsWhatTheInterfacePromises`; every other test
-    /// derives its timings from it so changing this number cannot quietly invalidate them.
+    /// Short, so the reveal feels like the window answering, not a wait to learn. Not zero, because
+    /// the ⌥ that begins an ⌥-click or an ⌥-typed character is itself a brief ⌥-alone hold, and at
+    /// zero each would flash the badges for a frame. Shorter only costs flicker during ⌥-click:
+    /// every cancel rule holds at any duration. Pinned by
+    /// `ShortcutRevealMachineTests.theHoldDurationIsWhatTheInterfacePromises`; the other tests
+    /// derive their timings from it.
     public static let holdDuration: TimeInterval = 0.2
 
     public enum Phase: Equatable, Sendable {
@@ -81,13 +67,11 @@ public struct ShortcutRevealMachine: Equatable, Sendable {
         case arming(deadline: Date)
         /// The keycaps are showing.
         case revealed
-        /// This hold is disqualified — a key, a click, or a second modifier arrived — but ⌥ may
-        /// still be down. Only releasing ⌥ returns it to `idle`.
-        ///
-        /// Load-bearing, not bookkeeping. Without it the cancel rules would merely *defer* the
-        /// reveal: ⌥-typing `ø` and keeping ⌥ down would re-arm on the next `flagsChanged` and
-        /// flash badges a moment after the user stopped typing, and pressing ⌥⌘ then releasing only
-        /// ⌘ would open a reveal nobody asked for.
+        /// This hold is disqualified (a key, a click or a second modifier arrived), but ⌥ may still
+        /// be down. Only releasing ⌥ returns it to `idle`. Without it the cancel rules would only
+        /// defer the reveal: ⌥-typing `ø` and keeping ⌥ down would re-arm on the next
+        /// `flagsChanged` and flash badges, and releasing only ⌘ from ⌥⌘ would open a reveal nobody
+        /// asked for.
         case blocked
     }
 
@@ -135,20 +119,17 @@ public struct ShortcutRevealMachine: Equatable, Sendable {
     public mutating func mouseDown() { disqualify() }
 
     /// The driver calls this when the scheduled deadline arrives.
-    ///
-    /// Re-checks the deadline rather than trusting the timer, which is what makes a *stale* fire
-    /// harmless: a cancel-then-re-arm leaves a later deadline in place, so the old timer's call
-    /// lands with `now < deadline` and is ignored. No token bookkeeping needed.
+    /// The driver calls this when the scheduled deadline arrives. It re-checks the deadline rather
+    /// than trusting the timer, so a stale fire is harmless: after a cancel and re-arm, the old
+    /// timer's call lands with `now < deadline` and is ignored.
     public mutating func deadlineElapsed(at now: Date) {
         guard case .arming(let deadline) = phase, now >= deadline else { return }
         phase = .revealed
     }
 
-    /// Hard reset, for when the app stops receiving events at all (it resigned active).
-    ///
-    /// A *local* event monitor never sees the ⌥-up that happens in another app, so ⌥-⇥-ing away
-    /// mid-reveal would otherwise leave the keycaps up forever, over a window that isn't even
-    /// frontmost.
+    /// Hard reset, for when the app stops receiving events (it resigned active). A local monitor
+    /// never sees an ⌥-up in another app, so ⌥-⇥-ing away mid-reveal would otherwise leave the
+    /// keycaps up over a window that isn't frontmost.
     public mutating func reset() { phase = .idle }
 
     private mutating func disqualify() {
@@ -179,17 +160,12 @@ public final class ShortcutRevealTracker: ObservableObject {
     /// the main actor. Written once in `init`, never mutated afterwards.
     nonisolated(unsafe) private var monitors: [Any] = []
     private var deadline: Task<Void, Never>?
-    /// The wait most recently handed to the deadline timer; nil once a hold is cancelled.
+    /// The wait most recently handed to the deadline timer; nil once a hold is cancelled. A fire
+    /// doesn't clear it, only a cancel, when a leftover value would describe a timer that's gone.
     ///
-    /// Deliberately NOT cleared when a deadline actually fires — "last scheduled" is what it says
-    /// and what the tests read. Only a cancel nils it, because a cancel is the case where a
-    /// leftover value would describe a timer that no longer exists.
-    ///
-    /// Test observability, and it earns its keep: the whole job of `rescheduleDeadline` is that a
-    /// repeat `flagsChanged` — which a held ⌥ produces a stream of — SHORTENS the remaining wait
-    /// rather than restarting it. Restarting it would push the reveal permanently out of reach on
-    /// a real keyboard, and that bug is completely invisible from `isActive`, which eventually
-    /// goes true either way. A test written against `isActive` alone passed against it.
+    /// For tests: `rescheduleDeadline` must shorten the remaining wait on each repeat
+    /// `flagsChanged` (a held ⌥ sends a stream of them), not restart it, or the reveal would never
+    /// arrive on a real keyboard. `isActive` can't show that: it eventually goes true either way.
     private(set) var lastScheduledInterval: TimeInterval?
     nonisolated(unsafe) private var resignObserver: NSObjectProtocol?
     private let now: @MainActor () -> Date
@@ -199,9 +175,8 @@ public final class ShortcutRevealTracker: ObservableObject {
     public init(now: @escaping @MainActor () -> Date = Date.init) {
         self.now = now
 
-        // Local monitors only: the reveal is about *this* app's controls, and a global monitor
-        // would need Accessibility permission to watch the whole system's keystrokes — a
-        // spectacularly disproportionate ask for a hint overlay.
+        // Local monitors only: the reveal is about this app's controls, and a global monitor would
+        // need Accessibility permission to watch every keystroke, far too much for a hint overlay.
         add(matching: .flagsChanged) { [weak self] event in
             self?.noteModifiersChanged(to: ShortcutRevealModifiers(event.modifierFlags))
         }
@@ -219,12 +194,9 @@ public final class ShortcutRevealTracker: ObservableObject {
 
     // MARK: The transitions the monitors drive
     //
-    // Internal rather than private, and each a one-liner over the machine, purely so the tests can
-    // reach them: driving this class through real `NSEvent`s would mean synthesising events and
-    // running an app event loop, which is not something a `swift test` process has. Without this
-    // seam the entire driver — deadline scheduling, the `isActive` write, resign-active — is
-    // untested, and a break there means the feature never appears while every machine test still
-    // passes.
+    // Internal, and each a one-liner over the machine, so tests can reach them: driving this class
+    // through real `NSEvent`s needs an app event loop, which a `swift test` process lacks. Without
+    // this seam the driver (deadline scheduling, the `isActive` write, resign-active) is untested.
 
     func noteModifiersChanged(to modifiers: ShortcutRevealModifiers) {
         machine.modifiersChanged(to: modifiers, at: now())

@@ -2,50 +2,19 @@ import SwiftUI
 
 // MARK: - Selection lens
 //
-// **One marker that moves, made of the appearance you chose.** Every control that marks one choice
-// among siblings — the workspace bar, a pane's tabs, Organize's rail, the capsules, the rails, the
-// chips, the tiles, the swatches — draws that marker the same way under this seam:
+// One marker that moves, made of the appearance you chose, for every control that marks one
+// choice among siblings: the workspace bar, a pane's tabs, Organize's rail, the capsules, rails,
+// chips, tiles and swatches. Solid draws the control's own marker and motion untouched: no lens,
+// and the stops publish nothing (`SelectionLensTodayMarker`). Frosted and Clear draw one lens per
+// control, a flat fill of the marker's colour (`SelectionLensRule.lensFill`) whose strength
+// follows the Tint slider (`SelectionLensRule.fillStrength`). It glides between choices on
+// springs, its leading edge arriving first so it stretches a little, and settles once. Only
+// Increase Contrast gives it an edge. The search field (`ExpandingSearch`) and Organize's counts
+// (`SelectionLensArrival`) arrive on the same motion.
 //
-// - **Solid draws today's marker, untouched.** The control's own fill, wash or ring, and its own
-//   motion (the workspace bar's 0.22 s slide, the tab strip's 0.16 s slide, Organize's cross-fade,
-//   an instant switch everywhere else). Nothing here runs: the host draws no lens, the stops publish
-//   nothing, and `SelectionLensTodayMarker` shows the control's marker exactly as before.
-// - **Frosted and Clear draw a lens that moves.** One lens per control — a flat fill of the
-//   marker's colour (glass only for a marker with no colour, the swatch halo) — which glides
-//   between choices on springs — its leading edge arriving first, the trailing edge
-//   following, so it stretches a little on the way — and settles once on the new one.
-//
-// Three decisions shape it, all taken 2026-10-02 (roadmap RD46, "Glass That Moves"):
-//
-// 1. **Glass all the time** in Frosted and Clear — not a fill at rest that turns to glass while it
-//    moves, although that is what Apple's "avoid glass on glass" guidance points to (every one of
-//    these controls sits on glass already: the toolbar's, or a glass card). **Superseded 2026-11-04
-//    (TE325):** a coloured lens is a flat fill at rest and in motion, because tinted glass's own
-//    light left white bands along its edges (`SelectionLensRule.lensFill`).
-// 2. **Labels as today**, colour and weight — with one exception, taken 2026-10-03 on seeing it: a
-//    control whose marker is a solid fill puts its chosen label in white, and on light-mode glass
-//    that white all but vanished, so there it is `.primary`, black (`selectionLensLabelInk`). Dark
-//    mode keeps the white. Wash and ring markers never had white labels, and are untouched.
-// 3. **The Tint slider sets the lens's fill**, on the window background's ramp, between a soft
-//    floor and ceiling (`SelectionLensRule.fillStrength`: 18% at Tint 0, 35% at Tint 100, the same
-//    for every hue). Accent None stays at 18%, so the lens is never colourless and the chosen one
-//    is always marked by a fill. A wash (16–22%) is under the floor already, so its lens carries
-//    the wash's own strength at every Tint. (Until TE325 the lens was glass tinted from a quarter
-//    of the marker's colour to all of it, and colourless at None.)
-//
-// The fill replaced an edge (TE325, 2026-11-04, variant B). Clear used to draw a 1.5pt rim in the
-// accent always, and Frosted whenever the glass was colourless; with accent None both did, and three
-// accent outlines across the toolbar (the workspace bar, a pane's tab, the view capsule) read as
-// borders rather than as choices. Now only Increase Contrast, which asks for edges, draws one.
-//
-// Two things that ARRIVE ride the same motion and the same rule about appearances: the search
-// field, whose surface travels open (`ExpandingSearch`), and Organize's counts, which drop out of
-// their items (`SelectionLensArrival`).
-//
-// **Where the appearance comes from.** `selectionLensAppearance` defaults to Solid, and the window
-// roots replace it with the stored settings (`selectionLensAppearanceFromDefaults()`). So a control
-// rendered on its own — every render test in the packages — draws today's marker, and only the
-// running app's windows see glass. A root that forgot the modifier would fail safe to today's look.
+// `selectionLensAppearance` defaults to Solid and the window roots set it from the stored settings
+// (`selectionLensAppearanceFromDefaults()`), so a control rendered on its own, as in every render
+// test, draws today's marker, and a root that forgot the modifier fails safe to it.
 
 /// What the app's appearance settings say about selection markers, carried down the view tree.
 public struct SelectionLensAppearance: Equatable, Sendable {
@@ -53,12 +22,10 @@ public struct SelectionLensAppearance: Equatable, Sendable {
     public var hue: LiquidGlassHue
     /// The Tint slider, 0...1 (`LiquidGlass.tintKey`).
     public var tint: Double
-    /// **A test seam.** Glass draws nothing into an offscreen `cacheDisplay` capture (measured in
-    /// this file's tests: a Frosted lens left no pixel), so a render test could never see where the
-    /// lens is. With this set, Frosted and Clear draw a flat ``SelectionLensRule/probeColor`` shape in
-    /// the lens's place instead — same geometry, same motion, same ring and rule — and chrome glass
-    /// draws ``ChromeGlass/probeColor``. Not the rim, and not Frosted apart from Clear: both levels
-    /// draw the same probe. The rim is drawn outside the glass, so tests read it at real Clear.
+    /// A test seam. Glass draws nothing into an offscreen `cacheDisplay` capture, so with this set
+    /// Frosted and Clear both draw a flat ``SelectionLensRule/probeColor`` shape in the lens's place
+    /// (same geometry, motion, ring and rule), and chrome glass draws ``ChromeGlass/probeColor``.
+    /// The probe draws no rim; the rim is drawn outside the glass, so tests read it at real Clear.
     public var drawsProbe: Bool
 
     public init(level: GlassLevel, hue: LiquidGlassHue, tint: Double, drawsProbe: Bool = false) {
@@ -86,7 +53,7 @@ public enum SelectionLensMaterial: Equatable, Sendable {
     case today
     /// Frosted Liquid Glass (`Glass.regular`).
     case frosted
-    /// Clear Liquid Glass (`Glass.clear`), with a rim in the marker's colour.
+    /// Clear Liquid Glass (`Glass.clear`).
     case clear
     /// The render-test stand-in — see ``SelectionLensAppearance/drawsProbe``.
     case probe
@@ -97,10 +64,9 @@ public enum SelectionLensRule {
 
     /// Which material an appearance asks for.
     ///
-    /// **Reduce Transparency draws today's marker.** Apple's glass turns more opaque under the
-    /// setting by itself, but a lens's tint is this app's own translucency, and nothing else in the
-    /// app reads the setting — so the honest answer to "less transparency" is the opaque marker Solid
-    /// already draws, and the label on it is unchanged either way.
+    /// Reduce Transparency draws today's marker. Apple's glass turns more opaque under the setting
+    /// by itself, but the lens's fill is this app's own translucency, so the honest answer to "less
+    /// transparency" is the opaque marker Solid already draws.
     public static func material(for appearance: SelectionLensAppearance,
                                 reduceTransparency: Bool) -> SelectionLensMaterial {
         if reduceTransparency { return .today }
@@ -111,28 +77,27 @@ public enum SelectionLensRule {
         }
     }
 
-    /// The chosen one's fill at Tint 0, and at accent None at every Tint: 18%, the soft fill TE325
-    /// settled on (variant B, 2026-11-04). It is what marks the choice now that Clear and Frosted
-    /// draw no rim, so it never reaches 0 — accent None included, whose window carries no hue at all.
+    /// The chosen one's fill at Tint 0, and at accent None at every Tint. It is what marks the
+    /// choice, since Frosted and Clear draw no rim, so it never reaches 0, accent None included.
     public static let chosenFillFloor: Double = 0.18
 
-    /// The chosen one's fill at Tint 100. The lens is a flat fill (``lensFill(material:tintOpacity:)``)
-    /// with a `.primary` label in light mode, so it stays a soft wash at the top of the slider too:
-    /// a flat fill at the full accent would be Solid's opaque marker with the wrong ink on it.
+    /// The chosen one's fill at Tint 100, still a soft wash: the lens has a `.primary` label in
+    /// light mode, and a flat fill at the full accent would be Solid's opaque marker with the wrong
+    /// ink on it.
     public static let chosenFillCeiling: Double = 0.35
 
     /// How strong the lens's fill is for a marker that carries its full colour: the Tint slider on
-    /// the window background's ramp (`LiquidGlass.tintRamp`), from ``chosenFillFloor`` at Tint 0 to
-    /// ``chosenFillCeiling`` at Tint 100, the same for every hue. Accent None stays at the floor:
-    /// it has no hue for the slider to strengthen.
+    /// the window background's ramp (`LiquidGlass.tintRamp`), from ``chosenFillFloor`` to
+    /// ``chosenFillCeiling``, the same for every hue. Accent None stays at the floor, having no hue
+    /// for the slider to strengthen.
     public static func fillStrength(hue: LiquidGlassHue, tint: Double) -> Double {
         hue == .none ? chosenFillFloor
             : chosenFillFloor + (chosenFillCeiling - chosenFillFloor) * LiquidGlass.tintRamp(tint)
     }
 
     /// The opacity the lens fills its marker colour at: ``fillStrength(hue:tint:)``, but never more
-    /// than the marker's own opacity — so a wash (16–22%) stays exactly that wash at every Tint, and
-    /// a halo (opacity 0, a ring around a colour) stays unfilled.
+    /// than the marker's own opacity, so a wash is never stronger than itself and a halo (opacity 0,
+    /// a ring around a colour) stays unfilled.
     public static func tintOpacity(markerOpacity: Double, hue: LiquidGlassHue, tint: Double) -> Double {
         min(max(0, min(1, markerOpacity)), fillStrength(hue: hue, tint: tint))
     }
@@ -140,10 +105,9 @@ public enum SelectionLensRule {
     /// The rim Increase Contrast draws, in the marker's colour.
     public static let increasedContrastRimWidth: CGFloat = 2.5
 
-    /// The rim a lens draws, in its marker's colour: only under Increase Contrast, which asks for
-    /// edges, and never when the style carries a ring of its own (the ring already is that edge, and
-    /// two concentric strokes read as a double border). Otherwise the fill marks the choice
-    /// (``chosenFillFloor``) — Clear and Frosted alike.
+    /// The rim a lens draws in its marker's colour: only under Increase Contrast, which asks for
+    /// edges, and never when the style has a ring of its own (two concentric strokes read as a
+    /// double border). Otherwise the fill marks the choice (``chosenFillFloor``).
     public static func rimWidth(material: SelectionLensMaterial, hasRing: Bool, increasedContrast: Bool) -> CGFloat {
         guard !hasRing, increasedContrast else { return 0 }
         switch material {
@@ -175,11 +139,10 @@ public enum SelectionLensRule {
         case none
     }
 
-    /// **A coloured lens is a flat fill, not tinted glass** (TE325, 2026-11-04). Tinted glass keeps
-    /// its own specular light: at an 18% tint the bright bands along its top and bottom edges
-    /// outshone the tint, so the chosen item read as a pale stripe between two white ones rather than
-    /// as filled. A flat fill covers the whole shape evenly. Glass stays where there is no colour to
-    /// carry — the halo, whose ring is the mark and whose glass is the band around the swatch.
+    /// A coloured lens is a flat fill, not tinted glass. Tinted glass keeps its own specular light,
+    /// and at an 18% tint the bright bands along its top and bottom edges outshine the tint, so the
+    /// choice reads as a pale stripe between two white ones. Glass stays only where there is no
+    /// colour to carry: the halo, whose ring is the mark.
     public static func lensFill(material: SelectionLensMaterial, tintOpacity: Double) -> LensFill {
         switch material {
         case .today: return .none
@@ -192,7 +155,7 @@ public enum SelectionLensRule {
 
     /// Everything a host hands its lens beyond the stops: what it is drawn in, how much of the
     /// marker's colour it carries, and its rim. One function, so a test asserts what the host
-    /// actually passes — the halo's untinted glass, Increase Contrast's rim — not the parts.
+    /// actually passes, not the parts.
     public struct LensSpec: Equatable, Sendable {
         public var material: SelectionLensMaterial
         public var tintOpacity: Double
@@ -208,10 +171,9 @@ public enum SelectionLensRule {
             rimWidth: rimWidth(material: material, hasRing: style.ring != nil, increasedContrast: increasedContrast))
     }
 
-    /// The hover style of one choice in a lens control: `.filled` for the chosen one at Solid, as
-    /// the control always drew it; under a lens the chosen one takes `unselected`, because it has
-    /// no fill of its own for `.filled`'s lift and shadow to belong to. See
-    /// `selectionLensChoiceButtonStyle`.
+    /// The hover style of one choice in a lens control: `.filled` for the chosen one at Solid; under
+    /// a lens the chosen one takes `unselected`, having no fill of its own for `.filled`'s lift and
+    /// shadow to belong to. See `selectionLensChoiceButtonStyle`.
     public static func choiceVariant(isSelected: Bool, material: SelectionLensMaterial,
                                      unselected: HoverAffordanceVariant) -> HoverAffordanceVariant {
         isSelected && material == .today ? .filled : unselected
@@ -231,20 +193,13 @@ public enum SelectionLensRule {
 
 /// The motion, as pure geometry: where the lens is a given time into a move.
 ///
-/// **A glide on springs.** Each of the lens's four edges is its own damped spring. The edge leading
-/// the move is a touch quicker and a touch bouncy, so it arrives first and settles once; the edge
-/// behind it is critically damped and glides in after it; the two across the move follow without
-/// overshoot. The stretch between the two is the only "liquid" in it — no pinch, no clamp.
+/// Each of the lens's four edges is its own damped spring. The edge leading the move is a touch
+/// quicker and bouncier, so it arrives first and settles once; the edge behind is critically damped
+/// and glides in after it; the two across follow without overshoot. The stretch between them is
+/// the only "liquid" in it. A spring keeps position and speed continuous, so a second click mid-move
+/// carries the speed on (`velocity(from:velocity:to:elapsed:)`) instead of stopping dead.
 ///
-/// **Why springs.** The first version eased the leading edge with a back-curve CLAMPED at 6pt and
-/// started the trailing edge late on an ease-in-out, with a sine pinch across: three changes of
-/// speed that are not continuous, which read as a stutter rather than as a glide (his words,
-/// 2026-10-03: "not as smooth… not visually as pleasing"). A spring's position AND speed are
-/// continuous, so a move that is interrupted by a second click carries its speed into the next one
-/// instead of stopping dead — `velocity(from:velocity:to:elapsed:)` hands it over.
-///
-/// The springs are SwiftUI's own parameterisation — `Animation.spring(duration:bounce:)` — so the
-/// numbers mean what they mean everywhere else in SwiftUI.
+/// The springs use SwiftUI's own parameters (`Animation.spring(duration:bounce:)`).
 public enum SelectionLensMotion {
 
     /// A damped spring, as `Animation.spring(duration:bounce:)` defines one: `duration` is the
@@ -284,13 +239,10 @@ public enum SelectionLensMotion {
 
         /// The edge leading a move: arrives first, overshoots by about 1% of the trip, settles once.
         public static let lead = Spring(duration: 0.35, bounce: 0.18)
-        /// The edge behind it: critically damped, so it glides in without overshooting.
-        ///
-        /// The gap between the two springs IS the stretch, so it is chosen, not incidental —
-        /// simulated 2026-10-03: the workspace bar's 88pt segment reaches 103pt mid-move, a 28pt
-        /// sidebar row moving five rows reaches 50pt, and everything is within 0.3pt of its stop
-        /// by about 0.53 s. The first pairing tried (0.32/0.25 against 0.44) stretched that row to
-        /// 70pt — more than "slight".
+        /// The edge behind it: critically damped, so it glides in without overshooting. The gap
+        /// between the two springs is the stretch, chosen to stay slight: an 88pt workspace segment
+        /// reaches 103pt mid-move, a 28pt sidebar row moving five rows reaches 50pt, and all are
+        /// within 0.3pt of their stops by about 0.53 s.
         public static let trail = Spring(duration: 0.40, bounce: 0)
         /// The two edges across the move — they only change when the stops differ in size.
         public static let across = Spring(duration: 0.38, bounce: 0)
@@ -352,12 +304,11 @@ public enum SelectionLensMotion {
     }
 
     /// Where the lens is `elapsed` seconds into a move from `from` (moving at `velocity`) to `to`.
-    /// Either end may be nil: nil → the lens grows out of the new stop, nil target → it melts into
-    /// the old one. Past the move's `duration` it is exactly on its stop.
+    /// A nil `from` grows the lens out of the new stop; a nil `to` melts it into the old one. Past
+    /// the move's duration it is exactly on its stop.
     ///
-    /// `opacity` is how visible the lens already was when the move began — below 1 when a click
-    /// catches it mid-growth or mid-melt; a travel fades it the rest of the way in rather than
-    /// jumping it to full.
+    /// `opacity` is how visible the lens was when the move began, below 1 when a click catches it
+    /// mid-growth or mid-melt; a travel fades it the rest of the way in rather than jumping to full.
     public static func frame(from: CGRect?, velocity: EdgeVelocity = .zero, opacity: Double = 1,
                              to: CGRect?, elapsed: TimeInterval) -> Frame? {
         switch (from, to) {
@@ -385,10 +336,8 @@ public enum SelectionLensMotion {
         }
     }
 
-    /// How fast each edge is moving `elapsed` seconds into the same move — what a second click
-    /// mid-move carries into the next one.
-    /// A growth and a melt carry theirs too, so a click mid-growth moves on at the speed the lens
-    /// was already opening out at.
+    /// How fast each edge is moving `elapsed` seconds into the same move: what a second click
+    /// mid-move carries into the next one. A growth and a melt carry theirs too.
     public static func velocity(from: CGRect?, velocity: EdgeVelocity = .zero, to: CGRect?,
                                 elapsed: TimeInterval) -> EdgeVelocity {
         guard elapsed < travelDuration else { return .zero }
@@ -468,10 +417,9 @@ public enum SelectionLensMotion {
 
 /// How one control's marker looks, so its lens can look like it.
 ///
-/// Built from what the control draws today — the same shape, the same colour, the same opacity —
-/// so a control's lens and its Solid marker can never be two different designs. The selection
-/// *signature* survives into glass: a filled control's lens is filled, a ringed one keeps its
-/// ring, the tab strip keeps its rule.
+/// Built from what the control draws today (shape, colour, opacity), so a control's lens and its
+/// Solid marker can't become two designs. The selection signature carries into the lens: a filled
+/// control's lens is filled, a ringed one keeps its ring, the tab strip keeps its rule.
 public struct SelectionLensStyle: Equatable {
     /// A stroke drawn around the lens, in full colour — Organize's 2pt ring, a tile's border, a
     /// swatch's halo.
@@ -499,16 +447,16 @@ public struct SelectionLensStyle: Equatable {
     public var shape: HoverAffordanceShape
     /// The marker's colour today — `accentFillColor` for a fill, the accent for a wash.
     public var color: Color
-    /// The opacity the marker paints `color` at today: 1 for a fill, 0.16–0.22 for a wash, 0 for a
-    /// ring that carries no fill. The glass carries this much at Tint 100.
+    /// The opacity the marker paints `color` at today: 1 for a fill, 0.10–0.22 for a wash, 0 for a
+    /// ring that carries no fill. The lens never fills stronger than this.
     public var markerOpacity: Double
     public var ring: Ring?
     public var rule: Rule?
     /// How far the lens extends past its stop — a halo drawn around a swatch rather than on it.
     public var outset: CGFloat
-    /// How much of the lens shows — below 1 for a choice the control draws dimmed (a folder that
-    /// cannot be opened, a place that stopped answering), so the lens dims WITH the row the way
-    /// today's marker, drawn inside it, always did.
+    /// How much of the lens shows: below 1 for a choice the control draws dimmed (a folder that
+    /// can't be opened, a place that stopped answering), so the lens dims with the row as today's
+    /// marker, drawn inside it, does.
     public var opacity: Double
 
     public init(shape: HoverAffordanceShape, color: Color, markerOpacity: Double,
@@ -533,11 +481,9 @@ public struct SelectionLensStyle: Equatable {
     }
 }
 
-/// Names one control's lens, so its stops and its host find each other — and only each other.
-///
-/// A name rather than the host's position in the tree because one container can hold two lenses
-/// (the folder sidebar marks its current source AND its current folder), and stops cannot tell two
-/// hosts on the same view apart by anything else.
+/// Names one control's lens, so its stops and its host find each other and only each other. A
+/// name, not the host's place in the tree, because one container can hold two lenses (the folder
+/// sidebar marks its current source and its current folder).
 public struct SelectionLensChannel: Hashable, Sendable {
     public let name: String
     public init(_ name: String) { self.name = name }
@@ -595,11 +541,10 @@ public extension SelectionLensAppearance {
             tint: defaults.object(forKey: LiquidGlass.tintKey) as? Double ?? defaultTint)
     }
 
-    /// One line for `~/sync-cloud.log`, saying which path the session draws selection and bar
-    /// buttons on — glass or today's markers, gliding or instant, edged for Increase Contrast or not.
-    /// Logged at launch and again whenever it would read differently. Without it a report about the
-    /// lens or the glass cannot be told apart from one about Solid, or about an accessibility
-    /// setting, because nothing in the log said which was in force.
+    /// One line for `~/sync-cloud.log` saying how the session draws selection and bar buttons:
+    /// glass or today's markers, gliding or instant, edged for Increase Contrast or not. Logged at
+    /// launch and whenever it would read differently, so a report about the lens can be told apart
+    /// from one about Solid or an accessibility setting.
     func logLine(reduceTransparency: Bool, reduceMotion: Bool, increasedContrast: Bool = false) -> String {
         let accent = hue == .none ? "no accent" : "\(hue.displayName) accent"
         let settings = "\(level.displayName), \(accent), Tint \(Int((tint * 100).rounded()))%"
@@ -628,11 +573,10 @@ public extension View {
 
     /// Makes this container the home of one selection lens.
     ///
-    /// **A host must sit INSIDE any scoped animation that moves its stops** — a `.transaction` or
-    /// `.animation(_:value:)` that springs the control's own items. The lens is drawn in the
-    /// host's background, so an animation scoped to the items alone moves them and leaves the lens
-    /// to snap to where they end up (measured on Organize's rail, where a count arriving beside
-    /// the chosen item sprang the items and jumped the lens).
+    /// **A host must sit inside any scoped animation that moves its stops** (a `.transaction` or
+    /// `.animation(_:value:)` that springs the control's own items). The lens is drawn in the host's
+    /// background, so an animation scoped to the items alone moves them and leaves the lens to snap
+    /// to where they end up.
     ///
     /// - Parameters:
     ///   - channel: the name its stops publish under.
@@ -648,10 +592,10 @@ public extension View {
                                    style: style, visibleRegion: visibleRegion))
     }
 
-    /// Keeps `region` up to date with this scroll view's visible part — WITHOUT re-rendering: the
-    /// region is a reference the host reads only when a move starts. A `@State` rect here, the first
-    /// version, re-rendered the whole scrolling view on every scroll frame in every appearance,
-    /// Solid included, to feed a value read once per click.
+    /// Keeps `region` up to date with this scroll view's visible part without re-rendering: the
+    /// region is a reference the host reads only when a move starts. A `@State` rect would
+    /// re-render the whole scrolling view on every scroll frame, Solid included, for a value read
+    /// once per click.
     func selectionLensTracksVisibleRegion(_ region: SelectionLensVisibleRegion) -> some View {
         onScrollGeometryChange(for: CGRect.self, of: { $0.visibleRect }) { _, visible in
             region.rect = visible
@@ -674,13 +618,12 @@ public final class SelectionLensVisibleRegion {
     public init() {}
 }
 
-/// A choice's ground, drawn as ONE shape in every state, whose selected fill becomes the lens: at
-/// Solid it is exactly the fill the control drew, and under a lens the chosen one paints nothing —
-/// the lens is its ground — while the others keep theirs.
+/// A choice's ground, drawn as one shape in every state, whose selected fill becomes the lens: at
+/// Solid it is exactly the control's fill, and under a lens the chosen one paints nothing (the lens
+/// is its ground) while the others keep theirs.
 ///
-/// One shape rather than a branch per state, because a control that recolours one capsule on a
-/// change of selection TWEENS between the colours; split into branches, the same change becomes a
-/// cross-fade between two capsules, which is a change to Solid.
+/// One shape, not a branch per state, so a change of selection tweens one capsule's colour;
+/// branches would make it a cross-fade between two capsules, which changes Solid.
 public struct SelectionLensGround<S: Shape>: View {
     @Environment(\.selectionLensMaterial) private var material
     private let shape: S
@@ -702,15 +645,14 @@ public struct SelectionLensGround<S: Shape>: View {
 }
 
 public extension View {
-    /// The button style of one choice in a control that hosts a selection lens. At Solid, exactly
-    /// what the control used before: `.filled` for the chosen one. Under a lens the chosen one has
-    /// no fill of its own, so it takes `unselected` — `.filled`'s lift and shadow would be cast by
-    /// the label alone, a glow round the text, and its 1pt lift would move the stop the lens sits on.
-    /// Apply inside the host, where the lens material is known.
+    /// The button style of one choice in a control that hosts a selection lens: at Solid, `.filled`
+    /// for the chosen one. Under a lens the chosen one has no fill of its own, so it takes
+    /// `unselected`: `.filled`'s shadow would be cast by the label alone, and its 1pt lift would
+    /// move the stop the lens sits on. Apply inside the host, where the lens material is known.
     ///
-    /// - Parameter filledTint: the tint `.filled` takes on the chosen one at Solid, when it is not
-    ///   `tint` — the on-fill colour, for a control whose ring sits on its own fill. Under a lens the
-    ///   chosen one washes in `tint` like its neighbours: a white wash on glass is no hover at all.
+    /// - Parameter filledTint: the tint `.filled` takes on the chosen one at Solid when it isn't
+    ///   `tint`: the on-fill colour, for a control whose ring sits on its own fill. Under a lens the
+    ///   chosen one washes in `tint` like its neighbours: a white wash there is no hover at all.
     func selectionLensChoiceButtonStyle(isSelected: Bool, tint: Color, filledTint: Color? = nil,
                                         unselected: HoverAffordanceVariant = .segment,
                                         shape: HoverAffordanceShape? = nil) -> some View {
@@ -719,14 +661,12 @@ public extension View {
     }
 
     /// The ink of one choice's label in a control that hosts a selection lens. At Solid the chosen
-    /// one sits on the control's own opaque fill and takes `onFill` — the white, or the deepened
-    /// ink, that fill was chosen to carry. Under a lens in LIGHT mode there is no fill behind it,
-    /// only pale glass, and it takes `onGlass`: `.primary`, black. White there all but vanished
-    /// (reported 2026-10-03, on the workspace bar). In dark mode the glass is dark and the fill's
-    /// white reads, so it stays — the user's call, the same day.
+    /// one sits on the control's opaque fill and takes `onFill`, the white or deepened ink that fill
+    /// carries. Under a lens in light mode only the lens's pale fill or glass is behind it, where
+    /// white all but vanishes, so it takes `onGlass`: `.primary`, black. In dark mode white reads.
     ///
     /// The rest take `unselected` in every appearance. Apply inside the host, where the lens
-    /// material is known — the control's own body sits outside it.
+    /// material is known; the control's own body sits outside it.
     func selectionLensLabelInk(isSelected: Bool, onFill: some ShapeStyle,
                                unselected: some ShapeStyle) -> some View {
         modifier(SelectionLensLabelInk(isSelected: isSelected, onFill: AnyShapeStyle(onFill),
@@ -890,12 +830,11 @@ struct SelectionLensLayer: View {
     /// One move in progress: where it started, how fast and how visible it already was, which stop
     /// it is heading for, and when.
     ///
-    /// **No duration of its own.** The kind of move — travel, grow, melt — is re-derived on every
-    /// frame from whether its two stops exist, and a stop can arrive or leave mid-move (a row
-    /// inserted with the change that selects it). A duration fixed when the move began, the first
-    /// version, ended a melt-turned-travel at 0.25 s and jumped the lens the rest of the way. Every
-    /// leg now runs `travelDuration`, the longest; `SelectionLensMotion.frame` settles each kind at
-    /// its own time within it.
+    /// No duration of its own. The kind of move (travel, grow, melt) is re-derived every frame from
+    /// whether its two stops exist, and a stop can arrive or leave mid-move (a row inserted with the
+    /// change that selects it). A fixed duration would end a melt-turned-travel at 0.25 s and jump
+    /// the lens the rest of the way, so every leg runs `travelDuration`, the longest, and
+    /// `SelectionLensMotion.frame` settles each kind at its own time within it.
     struct Leg: Equatable {
         var from: CGRect?
         var velocity: SelectionLensMotion.EdgeVelocity
@@ -976,9 +915,9 @@ struct SelectionLensLayer: View {
         let now = Date()
         // From wherever the lens is right now, at the speed it is going — mid-move included, so a
         // second click while it travels carries it on from there instead of stopping it dead. At
-        // rest, from where it was last DRAWN rather than where the old stop is now: the same update
+        // rest, from where it was last drawn rather than where the old stop is now: the same update
         // can move that stop (a re-windowed tab strip) or remove it (the chip rung's one stop), and
-        // starting there jumped the lens before it glided.
+        // starting there would jump the lens before it glides.
         let current: SelectionLensMotion.Frame?
         var velocity = SelectionLensMotion.EdgeVelocity.zero
         if let leg {
@@ -1011,10 +950,10 @@ struct SelectionLensLayer: View {
                       opacity: current?.opacity ?? 0, styleOpacity: lastDrawn.styleOpacity, to: new, start: now)
         }
         guard leg?.start == now else { return }
-        // Ends the move, so the frame clock stops. Not `.task(id:)`: measured on the search field, a
-        // task on a view in the middle of an update can be cancelled at once, and a cancelled sleep
-        // ended the move before its first frame — the lens jumped to its stop. An unstructured task
-        // cannot be cancelled from under it; a later move simply finds the leg is not its own.
+        // Ends the move, so the frame clock stops. Not `.task(id:)`: a task on a view mid-update can
+        // be cancelled at once, and a cancelled sleep would end the move before its first frame,
+        // jumping the lens to its stop. An unstructured task can't be cancelled from under it; a
+        // later move simply finds the leg isn't its own.
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(SelectionLensMotion.travelDuration))
             if leg?.start == now { leg = nil }

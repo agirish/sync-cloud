@@ -3,19 +3,15 @@ import SwiftUI
 // MARK: - Shortcut keycap
 //
 // The badge half of the ⌥-hold reveal (`ShortcutReveal.swift` owns the state). One modifier,
-// `.shortcutKeycap(_:)`, so every adopter renders identically and there is exactly one place to
-// restyle — the same rule `HoverAffordanceStyle` follows for hover.
+// `.shortcutKeycap(_:)`, so every adopter renders identically and there is one place to restyle,
+// as `HoverAffordanceStyle` is for hover. It holds two invariants:
 //
-// Two invariants this file exists to hold:
-//
-// 1. **Zero layout shift.** The keycap is drawn in an `.overlay`, which is sized by its host and
-//    never contributes to it. A badged control's frame is pixel-identical with the reveal on and
-//    off, so nothing moves or resizes under a settled pointer. `ShortcutKeycapTests` measures it
-//    rather than trusting it.
-// 2. **The shortcut reaches assistive tech unconditionally.** The *visual* gating is a
-//    decluttering choice for people looking at the screen; a VoiceOver user has no ⌥-hold to
-//    discover. So the accessibility hint is applied whether or not the reveal is active, from the
-//    same call site — one modifier, both channels, impossible to adopt half of.
+// 1. Zero layout shift. The keycap is drawn in an `.overlay`, sized by its host and never
+//    contributing to it, so a badged control's frame is identical with the reveal on and off
+//    (`ShortcutKeycapTests` measures it).
+// 2. The shortcut reaches assistive tech unconditionally. The visual gating declutters the screen,
+//    but a VoiceOver user has no ⌥-hold to discover, so the hint is applied whether or not the
+//    reveal is active, from the same modifier.
 
 /// Every number the keycap paints, in one place so they can be asserted without rendering.
 public enum ShortcutKeycapMetrics {
@@ -24,39 +20,28 @@ public enum ShortcutKeycapMetrics {
     public static let verticalPadding: CGFloat = 4
     public static let borderWidth: CGFloat = 0.75
 
-    /// How far the control itself fades back while its keycap is showing.
-    ///
-    /// This is what makes the reveal read as an answer rather than as a collision. The keycap used
-    /// to be a small chip anchored to the control's trailing edge, and on anything whose content
-    /// already fills it — which is every control — that lands the chip ON the content: half over
-    /// the last word of "Copy 1 to Dropbox", or squarely on top of a 15pt magnifier glyph, which
-    /// looked like a rendering fault rather than a badge. Partial occlusion always does.
-    ///
-    /// Fading the whole control and centring an opaque key on it occludes nothing partially: the
-    /// control steps back, the key steps forward, and both are legible for what they are. Low
-    /// enough that the label underneath cannot be misread as still-active, high enough that the
-    /// control's shape, position and colour are all still there.
+    /// How far the control itself fades back while its keycap is showing. Content fills every
+    /// control, so a badge anchored to an edge lands on the content, and partial occlusion looks
+    /// like a rendering fault. Fading the whole control and centring an opaque key on it occludes
+    /// nothing partially. Low enough that the label can't be misread as still active, high enough
+    /// that the control's shape, position and colour still show.
     public static let contentOpacity: Double = 0.13
 
     /// Alpha of the drop shadow that lifts the key off the control — see `ShortcutKeycap.body`.
     public static let shadowOpacity: Double = 0.28
 
-    /// **The compact key's padding**, for a row of glyph buttons packed closer than the full key
-    /// is wide (TE194): the format bar's B, I and S sit 27pt apart and "⇧⌘X" is wider than that,
-    /// so two full keys met over the button between them. Smaller type and less padding, and still
-    /// the same opaque key.
+    /// The compact key's padding, for a row of glyph buttons packed closer than the full key is
+    /// wide: the format bar's B, I and S sit 27pt apart and "⇧⌘X" is wider, so two full keys would
+    /// meet over the button between them. Smaller type and less padding, still the same opaque key.
     public static let compactHorizontalPadding: CGFloat = 3
     public static let compactVerticalPadding: CGFloat = 2
 }
 
 /// The badge itself. Rendered only while the reveal is active; see `.shortcutKeycap(_:)`.
 ///
-/// **Opaque, and appearance-semantic rather than tinted.** It used to come in two variants so its
-/// contrast could be reasoned about against whatever fill it sat on — a translucent chip on a
-/// deepened accent, a different one elsewhere. An opaque key needs none of that: its legibility is
-/// a property of the key itself, `labelColor` on `controlBackgroundColor`, which AppKit pairs and
-/// which holds on a blue button, a white sheet and a dark window alike. One appearance everywhere
-/// is also what a key *is* — keys do not change colour with what they are sitting on.
+/// Opaque and appearance-semantic rather than tinted: `labelColor` on `controlBackgroundColor`,
+/// which AppKit pairs, holds on a blue button, a white sheet and a dark window alike, so its
+/// legibility doesn't depend on the fill below. Keys don't change colour with what they sit on.
 public struct ShortcutKeycap: View {
     private let symbol: String
     private let compact: Bool
@@ -72,10 +57,9 @@ public struct ShortcutKeycap: View {
         Text(symbol)
             .scaledFont(compact ? .caption2.monospaced().weight(.semibold)
                                 : .subheadline.monospaced().weight(.semibold))
-            // Pinned colours, not `.secondary`/`.quaternary`. Hierarchical styles resolve against
-            // the *enclosing* foreground style, which inside a filled button is white — so the
-            // hierarchical version rendered a white glyph on a light key the moment it was dropped
-            // onto the primary transfer button.
+            // Pinned colours, not `.secondary`/`.quaternary`: hierarchical styles resolve against
+            // the enclosing foreground style, which inside a filled button is white, giving a white
+            // glyph on a light key.
             .foregroundStyle(Color(nsColor: .labelColor))
             .lineLimit(1)
             .fixedSize()
@@ -86,24 +70,18 @@ public struct ShortcutKeycap: View {
             .background(shape.fill(Color(nsColor: .controlBackgroundColor)))
             .overlay(shape.strokeBorder(Color(nsColor: .separatorColor),
                                         lineWidth: ShortcutKeycapMetrics.borderWidth))
-            // Lifts the key off the control it is sitting on. Needed most in LIGHT mode, where the
-            // faded control cannot get out of the way on its own: a white label on a coloured fill
-            // converges to the white ground as it fades, so the letterforms stay visible as
-            // negative space no matter how far the fade goes. The shadow is what still separates
-            // "key on top" from "key embedded in the label" there. Dark mode fades properly and
-            // barely needs it.
+            // Lifts the key off the control. Needed most in light mode: a white label on a coloured
+            // fill converges to the white ground as it fades, so its letterforms stay visible as
+            // negative space, and the shadow is what separates the key from the label. Dark mode
+            // fades properly and barely needs it.
             .shadow(color: .black.opacity(ShortcutKeycapMetrics.shadowOpacity), radius: 2.5, y: 1)
-            // Not a hit target and not a second thing to announce: the shortcut reaches VoiceOver
-            // through the hint the modifier applies to the CONTROL, where it belongs.
+            // Not a hit target and not a second thing to announce: VoiceOver gets the shortcut
+            // through the hint the modifier applies to the control.
             //
-            // `allowsHitTesting(false)` is load-bearing — a SwiftUI overlay takes hits by default,
-            // and this one sits ON the control it describes, so without it the badge would swallow
-            // the click on exactly the button whose shortcut you just looked up.
-            //
-            // **Asserted by construction, not by test, and deliberately so.** A test was written
-            // for it and deleted: `NSHostingView.hitTest` does not decompose a SwiftUI overlay into
-            // its own view, so it returns the hosting view whether or not this line is here — the
-            // test passed with `allowsHitTesting(true)` and was proving nothing.
+            // `allowsHitTesting(false)` is load-bearing: a SwiftUI overlay takes hits by default,
+            // and this one sits on the control it describes, so it would swallow the click on the
+            // very button whose shortcut was looked up. No test can pin it: `NSHostingView.hitTest`
+            // doesn't decompose a SwiftUI overlay, so it returns the hosting view either way.
             .accessibilityHidden(true)
             .allowsHitTesting(false)
     }
@@ -120,36 +98,31 @@ public extension View {
     /// shortcut to VoiceOver unconditionally.
     ///
     /// While the reveal is on, the control fades back and an opaque key sits centred on it; the
-    /// control's frame never changes. Pass the shortcut in the form a user reads it (`"⌘R"`,
-    /// `"⇧⌘→"`, `"esc"`), which is also what the accessibility hint says.
+    /// control's frame never changes. Pass the shortcut as a user reads it (`"⌘R"`, `"⇧⌘→"`,
+    /// `"esc"`), which is also what the accessibility hint says.
     ///
-    /// **Apply this ABOVE any `.disabled(…)` on the control**, so the modifier sits inside that
-    /// scope and can read `isEnabled` — the same ordering rule `ChromeHoverModifier` documents,
-    /// and for the same reason: a badge on a greyed-out button advertises a shortcut that does
-    /// nothing when you press it.
-    /// `symbol` is Optional so a control that only *sometimes* has a chord — a rung that swaps
-    /// between two actions, one bound and one not — can say so. A `String` call site still reads
-    /// exactly as before; Swift promotes it.
+    /// **Apply this above any `.disabled(…)` on the control**, so the modifier sits inside that
+    /// scope and can read `isEnabled` (the ordering rule `ChromeHoverModifier` documents): a badge
+    /// on a greyed-out button advertises a shortcut that does nothing.
     ///
-    /// `nil` has to mean "no badge" rather than "an empty badge": the modifier draws a keycap
-    /// around whatever it is given, so `""` would produce a blank capsule, the same trap `.help("")`
-    /// sets one layer over. Applying the modifier conditionally at the call site instead would make
-    /// the two arms two structural identities, which is safe only for a control holding no state —
-    /// one identity that decides inside is safe for every control.
+    /// `symbol` is optional for a control that only sometimes has a chord, such as a rung that
+    /// swaps between a bound and an unbound action. `nil` means no badge: `""` would draw a blank
+    /// capsule (the trap `.help("")` sets one layer over), and applying the modifier conditionally
+    /// at the call site would give the two arms two structural identities, unsafe for a control
+    /// that holds state.
     ///
     /// `compact` draws the smaller key, for a control packed close among others that wear one.
-    /// `shown: false` keeps the badge off while the chord would go somewhere else — the format
-    /// bar's ⌘I is Italic only with the caret in the text — and keeps the VoiceOver hint, which
-    /// names what the control's key is, not where the keyboard happens to be.
+    /// `shown: false` keeps the badge off while the chord would go elsewhere (the format bar's ⌘I
+    /// is Italic only with the caret in the text) and keeps the VoiceOver hint, which names the
+    /// control's key, not where the keyboard is.
     func shortcutKeycap(_ symbol: String?, compact: Bool = false, shown: Bool = true) -> some View {
         modifier(ShortcutKeycapModifier(symbol: symbol, compact: compact, shown: shown))
     }
 }
 
 private struct ShortcutKeycapModifier: ViewModifier {
-    /// `nil` for a control that has no chord right now — see the optional `shortcutKeycap`
-    /// overload. It suppresses the badge and the hint together: a control with no shortcut must
-    /// not announce one to VoiceOver either, which a badge-only gate would leave it doing.
+    /// `nil` for a control with no chord right now. It suppresses the badge and the hint together:
+    /// a control with no shortcut must not announce one to VoiceOver either.
     let symbol: String?
     var compact = false
     /// The call site's own condition for the badge — see `shortcutKeycap(_:compact:shown:)`.
@@ -164,44 +137,37 @@ private struct ShortcutKeycapModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            // The control steps back so the key can be read against it rather than on top of it.
-            // Opacity, never `.hidden()` or a branch: both would take the control out of the
-            // layout and move everything beside it.
+            // The control steps back so the key reads against it rather than on top of it.
+            // Opacity, never `.hidden()` or a branch: both would take the control out of the layout
+            // and move everything beside it.
             .opacity(showsKeycap ? ShortcutKeycapMetrics.contentOpacity : 1)
-            // `.overlay` and not an `HStack`: an overlay takes its size FROM the host and gives
-            // none back, which is the zero-layout-shift guarantee in one modifier. The ternary
-            // swaps only what the overlay draws, never whether the overlay exists, so the host's
-            // measured size cannot depend on the reveal.
+            // `.overlay`, not an `HStack`: an overlay takes its size from the host and gives none
+            // back, which is the zero-layout-shift guarantee. The condition swaps only what the
+            // overlay draws, never whether it exists, so the host's size can't depend on the reveal.
             //
-            // Centred, with no alignment choice offered. A trailing anchor was the first design and
-            // it is wrong for every control the app actually has: it lands the key ON the content
-            // rather than beside it, because the content already fills the control. Centring is
-            // also the only placement that cannot overhang asymmetrically onto a neighbour.
+            // Centred, with no alignment option: content fills every control, so any other anchor
+            // lands the key on the content, and only centring can't overhang onto one neighbour.
             .overlay {
                 if showsKeycap, let symbol {
                     ShortcutKeycap(symbol, compact: compact).transition(.opacity)
                 }
             }
             .animation(.easeOut(duration: 0.12), value: showsKeycap)
-            // Ungated by the reveal, on purpose — see the file header. Applied to a DISABLED
-            // control too: "this button has a shortcut" stays true of the control even when it is
-            // momentarily unavailable, and unlike the badge it makes no promise about right now.
+            // Ungated by the reveal (see the file header), and applied to a disabled control too:
+            // "this button has a shortcut" stays true while it is momentarily unavailable, and
+            // unlike the badge the hint promises nothing about right now.
             //
-            // Ordering note: on macOS `.help(_:)` and `.accessibilityHint(_:)` both land on the
-            // element's accessibility help, so whichever is applied OUTERMOST wins. Every adopter
-            // puts `.help` outside this modifier and every adopter's help text names the shortcut,
-            // so the shortcut survives either way — but a call site that applied `.help` *inside*
-            // would lose its description to this line. Keep `.help` outside.
+            // On macOS `.help(_:)` and `.accessibilityHint(_:)` both land on the element's
+            // accessibility help, so the outermost wins. Keep `.help` outside this modifier: one
+            // applied inside would lose its description to this line.
             .accessibilityHint(symbol.map { "Keyboard shortcut: \(ShortcutKeycapSpeech.spoken($0))" } ?? "")
     }
 }
 
 // MARK: - Tooltips
 
-/// The tooltip half of the story, which is **not** gated on the reveal.
-///
-/// A tooltip is already an on-demand surface — you asked for it by resting the pointer — so there
-/// is nothing to declutter, and it is the discovery path for everyone who never finds the ⌥ hold.
+/// The tooltip half, which is not gated on the reveal. A tooltip is already on demand, so there
+/// is nothing to declutter, and it is how people who never find the ⌥ hold discover shortcuts.
 /// Every badged control's `.help(_:)` runs through here so the form stays uniform.
 public enum ShortcutHint {
     /// `"Rescan   ⌘R"`. Three spaces rather than a separator: macOS tooltips are plain strings
@@ -213,18 +179,13 @@ public enum ShortcutHint {
 
 // MARK: - Speech
 
-/// Turns a displayed shortcut into something VoiceOver reads as words.
-///
-/// The glyphs are the correct thing to *show* and close to useless to *speak*: a bare "⇧⌘→" is
-/// announced as its Unicode names or skipped entirely, depending on the voice. This is a plain
-/// substitution table rather than anything clever, and it stays in the Design module beside the
-/// keycap so the two forms of one shortcut cannot drift apart.
+/// Turns a displayed shortcut into words VoiceOver reads: a bare "⇧⌘→" is announced as Unicode
+/// names or skipped, depending on the voice. A plain substitution table, kept beside the keycap so
+/// the two forms of one shortcut can't drift apart.
 public enum ShortcutKeycapSpeech {
-    /// Ordered longest glyph first, so a multi-character name can never be half-eaten by a
-    /// single-character rule that runs before it. Nothing in the table overlaps today — the
-    /// modifier symbols are all one scalar and `esc` shares no character with them — so the order
-    /// is insurance rather than load-bearing. It is stated and held anyway, because the failure it
-    /// prevents is silent: a wrong substitution produces speech, just not the right speech.
+    /// Ordered longest glyph first, so a multi-character name can't be half-eaten by a
+    /// single-character rule before it. Nothing overlaps now, but a wrong substitution fails
+    /// silently, producing speech that just isn't the right speech, so the order is kept.
     private static let names: [(glyph: String, spoken: String)] = [
         ("esc", "Escape"),
         ("⇧", "Shift "),

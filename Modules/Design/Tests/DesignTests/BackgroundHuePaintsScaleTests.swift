@@ -4,17 +4,12 @@ import Foundation
 
 /// Every hue paint in the app background answers to the Tint slider.
 ///
-/// **This exists because the alternative was prose.** `LiquidGlassBackground` paints the hue in
-/// four separate places — the accent diagonal, Clear's even veil, Clear's titlebar boost, and
-/// dark's accent glow — and the change that put them all under the slider described that set in a
-/// comment. A comment cannot notice a fifth one. The failure it would hide is specific and quiet:
-/// a new accent paint added at full strength would sit at the same opacity whatever the slider
-/// said, so Tint 0 would look almost untouched in exactly the configuration the new paint applies
-/// to, and every numeric test in `TintCurveTests` would still pass — they test the curve, and the
-/// curve would be right.
-///
-/// So the set is DERIVED from the source rather than listed here. A paint added tomorrow is
-/// counted by the same scan that counts today's four, and has to carry the scale or fail.
+/// `LiquidGlassBackground` paints the hue in several places (the accent diagonal, Clear's even
+/// veil, Clear's titlebar boost, dark's accent glow). A new paint added at full strength would
+/// ignore the slider, so Tint 0 would look almost untouched where it applies, while every numeric
+/// test in `TintCurveTests` still passed, since the curve itself would be right. So the set is
+/// derived from the source, not listed: a new paint is counted by the same scan and must carry
+/// the scale or fail.
 struct BackgroundHuePaintsScaleTests {
 
     /// The `LiquidGlassBackground` modifier's source, from its declaration to its closing brace at
@@ -85,14 +80,10 @@ struct BackgroundHuePaintsScaleTests {
     }
 
     @Test func theAccentDiagonalIsScaledByTheTint() throws {
-        // The diagonal is the one hue paint that does not go through `accentColor.opacity` — it
-        // maps `hue.gradientColors` against its own opacity table — so the scan above cannot see
-        // it, and it is the paint that dominates every level but Clear.
-        //
-        // **Sliced to the end of the statement, not to a line or a character budget.** The first
-        // cut of this took "the anchor's line plus the one after it", which read the `.map` only
-        // because of where the line happens to break today; re-wrapping the expression would have
-        // moved the multiplication out of view and passed.
+        // The diagonal is the one hue paint that doesn't go through `accentColor.opacity` (it
+        // maps `hue.gradientColors` against its own opacity table), so the scan above can't see
+        // it, and it dominates every level but Clear. Sliced to the end of the statement, not to a
+        // line count, so re-wrapping the expression can't move the multiplication out of view.
         let statement = try Self.gradientAssignment()
         let opacities = Self.arguments(of: ".opacity(", in: statement)
         try #require(!opacities.isEmpty,

@@ -1,14 +1,10 @@
 import SwiftUI
 import AppKit
 
-/// The label color that stays legible on a raw `Color.accentColor` fill.
-///
-/// Why `NSColor.alternateSelectedControlTextColor` was insufficient (the round-4 attempt): AppKit
-/// returns WHITE for it under every accent — it is the companion to the system's *selection* fill
-/// (`selectedContentBackgroundColor`, a darkened accent), not to the raw accent our chips and rows
-/// fill with. Under the Yellow accent, white on raw accent is ~1.6:1 — unreadable. So the pairing
-/// is computed here from the accent's own luminance instead: dark text on light accents (Yellow),
-/// white on the rest.
+/// Label contrast on a solid fill, computed from the fill's own luminance: dark text on light
+/// fills, white on the rest. `NSColor.alternateSelectedControlTextColor` can't do this: it is
+/// white under every accent, paired with the system's darkened selection fill. Accent fills
+/// deepen instead (`AccentFill`) and always take white.
 public enum AccentLabel {
 
     /// Whether a fill with the given sRGB components needs dark text: true when white text on it
@@ -18,14 +14,11 @@ public enum AccentLabel {
         relativeLuminance(red: red, green: green, blue: blue) > 0.30
     }
 
-    /// The strongest dimming an on-fill label (`onFillLabel(_:)` / `onAccentLabelColor`) can take and
-    /// still clear the WCAG large-text 3:1 floor over every glass hue. The binding pair is white
-    /// on Graphite (L = 0.25, the lightest fill that still keeps white text): full-strength white
-    /// composites to ~3.5:1 there, 0.9 lands at ~3.14:1, and the old ad-hoc 0.85 fell to ~2.97:1 —
-    /// under the floor. Secondary runs on an accent fill (the Log window's selected-chip count)
-    /// must dim with THIS constant, never a local literal;
-    /// `AccentLabelColorTests.everyGlassHueDimmedLabelClearsLargeTextContrast` pins the pairing
-    /// against future hue additions.
+    /// The strongest dimming an on-fill label (`onFillLabel(_:)` / `onAccentLabelColor`) can take
+    /// and still clear WCAG's large-text 3:1 over every glass hue. White on Graphite binds: 0.9
+    /// lands at ~3.14:1, 0.85 falls under. Secondary runs on an accent fill must dim with this
+    /// constant, never a local literal;
+    /// `AccentLabelColorTests.everyGlassHueDimmedLabelClearsLargeTextContrast` checks every hue.
     public static let dimmedOnFillOpacity: CGFloat = 0.9
 
     /// WCAG relative luminance of sRGB components (linearized, Rec. 709 weights).
@@ -39,14 +32,12 @@ public enum AccentLabel {
 }
 
 public extension Color {
-    /// Text/glyph color for content drawn on an arbitrary solid `fill`, by its luminance:
-    /// near-black on light fills (amber, cyan), white on dark ones. Appearance-independent by
-    /// design — the fill is the background here, so the window's light/dark mode doesn't enter
-    /// into it. THE on-fill glyph path; nothing should hand-roll this pairing.
+    /// Text/glyph colour for content on an arbitrary solid `fill`, by its luminance: near-black on
+    /// light fills, white on dark ones. Ignores light/dark mode, since the fill is the background.
+    /// The one on-fill glyph path; nothing should hand-roll this pairing.
     ///
-    /// `fill` must be a *static* color. A dynamic one (`Color.accentColor`, a semantic `NSColor`)
-    /// collapses to whatever the current appearance resolves it to at call time and won't
-    /// re-resolve when that changes.
+    /// `fill` must be static. A dynamic one (`Color.accentColor`, a semantic `NSColor`) resolves
+    /// once at call time and won't follow an appearance change.
     static func onFillLabel(_ fill: Color) -> Color {
         guard let rgb = NSColor(fill).usingColorSpace(.sRGB) else { return .white }
         return AccentLabel.prefersDarkText(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent)

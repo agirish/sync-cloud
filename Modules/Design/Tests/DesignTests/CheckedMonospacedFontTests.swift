@@ -2,8 +2,8 @@ import AppKit
 import Testing
 @testable import Design
 
-/// `NSFont.monospacedSystemFont` answered nil once at launch and the toolbar's keycap measure
-/// aborted the app on it. These pin both halves of the guard that took its place.
+/// `NSFont.monospacedSystemFont` can answer nil, and measuring the toolbar's keycap with that nil
+/// aborts the app. These pin both halves of the guard.
 @Suite struct CheckedMonospacedFontTests {
 
     /// The nil AppKit handed back, which Swift's non-optional type cannot otherwise express.
@@ -18,9 +18,9 @@ import Testing
         try #require(unsafeBitCast(font, to: NSFont?.self) != nil)
         #expect(font.isFixedPitch)
         #expect(font.pointSize == 13)
-        // What crashed: measuring with it. A nil here throws inside CoreText and kills the process.
-        // The reference is AppKit's own answer, which can be that nil too: it took down a full
-        // Design run on 2026-11-02, so it is checked before anything measures with it.
+        // What would crash: measuring with it. A nil here throws inside CoreText and kills the
+        // process. The reference is AppKit's own answer, which can be that nil too, so it is
+        // checked before anything measures with it.
         let real = NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold)
         try #require(unsafeBitCast(real, to: NSFont?.self) != nil, "AppKit answered nil for the reference face")
         for key in ["⌘K", "esc"] {
@@ -29,7 +29,7 @@ import Testing
         }
     }
 
-    /// **The digits font has the same guard** (`ScaledFont.nsFont` measures every count pill with
+    /// The digits font has the same guard (`ScaledFont.nsFont` measures every count pill with
     /// it): a nil falls back to the system face with equal-width digits, measuring as AppKit's does.
     @Test func aNilDigitsAnswerFallsBackToEqualWidthDigits() throws {
         let font = NSFont.fallingBackToDigits(from: nilFont, size: 16, weight: .semibold)

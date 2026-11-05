@@ -3,12 +3,11 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// **A window's native controls fill with the app's hue, and its buttons' words stay label
-/// colour (DS4).**
+/// A window's native controls fill with the app's hue, and its buttons' words stay label colour.
 @Suite struct NativeControlAccentTests {
 
-    /// A named hue fills with its deepened accent — the colour its checkbox and radio marks are
-    /// white on — and `.none` sets nothing, leaving the Mac's own.
+    /// A named hue fills with its deepened accent, the colour its checkbox and radio marks are white
+    /// on, and `.none` sets nothing, leaving the Mac's own.
     @Test func eachHueFillsWithItsDeepenedAccentAndNoneLeavesTheMacs() throws {
         func srgb(_ c: Color?) -> [CGFloat]? {
             c.flatMap { NSColor($0).usingColorSpace(.sRGB) }.map { [$0.redComponent, $0.greenComponent, $0.blueComponent] }
@@ -24,8 +23,8 @@ import Testing
     }
 }
 
-/// Rendered and read back: under Coral a slider's track and a checkbox's box are the deepened coral
-/// — and a bordered button's label has none of it, which is what `.tint` would have done to it.
+/// Rendered and read back: under Coral a slider's track and a checkbox's box are the deepened
+/// coral, and a bordered button's label has none of it, as it would under `.tint`.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct NativeControlAccentRenderTests {
 
@@ -89,9 +88,8 @@ import Testing
         }
     }
 
-    /// **The reason this is the accent colour and not `.tint`**: a bordered button's words keep
-    /// their label colour. `.tint` turned them the hue — measured, about 950 hued pixels on this
-    /// button.
+    /// Why this is the accent colour and not `.tint`: a bordered button's words keep their label
+    /// colour, where `.tint` turns them the hue (about 950 hued pixels on this button).
     @Test func aBorderedButtonsWordsStayLabelColour() throws {
         let button = Button("Bordered button") {}.buttonStyle(.bordered)
         let rep = try Self.render(button, hue: .coral)
@@ -101,9 +99,9 @@ import Testing
         #expect(Self.count(tinted, near: Self.coral) > 60, "a tinted button shows no coral — the probe proves nothing")
     }
 
-    /// **The None swatch stays the Mac's accent inside a Coral window.** `LiquidGlassHue.none` was
-    /// `Color.accentColor`, which resolves to the accent the ENVIRONMENT carries — so under a root
-    /// that sets Coral, Setup's None swatch filled with Coral.
+    /// The None swatch stays the Mac's accent inside a Coral window. `Color.accentColor` resolves
+    /// to the accent the environment carries, so a None that used it would fill Setup's swatch with
+    /// Coral under a root that sets Coral.
     @Test func theNoneHueIsTheMacsAccentUnderAnotherHuesRoot() throws {
         let swatch = Circle().fill(LiquidGlassHue.none.accentColor).frame(width: 24, height: 24)
         let rep = try Self.render(swatch, hue: .coral)
@@ -111,9 +109,9 @@ import Testing
         #expect(Self.count(rep, near: Self.coral) == 0, "the None swatch took the window's Coral")
     }
 
-    /// Presents `content` as a sheet from a window whose root sets `hue`, and renders the SHEET's
-    /// window. The parent is ordered in — a sheet presents only from a visible window — and buried
-    /// under everything, so it never stands over the owner's screen.
+    /// Presents `content` as a sheet from a window whose root sets `hue`, and renders the sheet's
+    /// window. The parent is ordered in, since a sheet presents only from a visible window, and
+    /// buried under everything so it never stands over the owner's screen.
     static func renderSheet(_ content: some View, root hue: LiquidGlassHue) throws -> NSBitmapImageRep {
         let presenter = Color.clear
             .frame(width: 320, height: 160)
@@ -157,11 +155,10 @@ import Testing
         return rep
     }
 
-    /// **A control in a sheet takes the presenting window's hue** (RC1). The accent colour a root
-    /// sets stops at a presentation, so a sheet's slider drew the Mac's accent on a Coral window;
-    /// `presentedNativeControlAccent` carries the root's hue across. The hue is the presenter's,
-    /// not the stored one — Settings and Setup set their own — so the test picks one that is not
-    /// stored.
+    /// A control in a sheet takes the presenting window's hue. The accent colour a root sets stops
+    /// at a presentation, so `presentedNativeControlAccent` carries the root's hue across. The hue
+    /// is the presenter's, not the stored one (Settings and Setup set their own), so the test picks
+    /// one that isn't stored.
     @Test func aControlInASheetTakesThePresentersHue() throws {
         let hue: LiquidGlassHue = LiquidGlassHue.stored() == .coral ? .green : .coral
         let fill = hue.accentFillColor
@@ -175,7 +172,7 @@ import Testing
         #expect(Self.count(bare, near: Self.systemAccent) > 60, "a bare sheet's slider is not the Mac's accent")
     }
 
-    /// At None a sheet keeps the Mac's accent too — the carried hue sets nothing.
+    /// At None a sheet keeps the Mac's accent too: the carried hue sets nothing.
     @Test func aSheetUnderNoneKeepsTheMacsAccent() throws {
         let slider = Slider(value: .constant(0.6)).frame(width: 200)
         let rep = try Self.renderSheet(slider.presentedNativeControlAccent(), root: LiquidGlassHue.none)

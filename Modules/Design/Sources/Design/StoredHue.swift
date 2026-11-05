@@ -6,10 +6,10 @@ public extension LiquidGlassHue {
     /// The hue stored in Settings ▸ Appearance, read now — `.blue` when nothing is stored, the
     /// default every `@AppStorage(LiquidGlass.hueKey)` read in the app falls back to.
     ///
-    /// **What a colour parameter defaults to, never `Color.accentColor`.** That one is the SYSTEM
-    /// accent and ignores the hue the user picked, so a caller that forgot to pass the hue drew
-    /// the Mac's blue in a green window. A read, not a subscription: a view that has to redraw when
-    /// the hue changes holds `@AppStorage(LiquidGlass.hueKey)` or sits in a `StoredHueReader`.
+    /// What a colour parameter defaults to, never `Color.accentColor`: that is the system accent
+    /// and ignores the hue the user picked, drawing the Mac's blue in a green window. A read, not a
+    /// subscription: a view that must redraw when the hue changes holds
+    /// `@AppStorage(LiquidGlass.hueKey)` or sits in a `StoredHueReader`.
     static func stored(in defaults: UserDefaults = .standard) -> LiquidGlassHue {
         defaults.string(forKey: LiquidGlass.hueKey).flatMap(LiquidGlassHue.init(rawValue:)) ?? .blue
     }

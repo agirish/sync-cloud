@@ -2,87 +2,63 @@ import SwiftUI
 
 // MARK: - Hover affordance
 //
-// `.plain` and `.borderless` buttons draw their own chrome, so AppKit contributes no hover
-// state to them at all — which left ~46 controls in the window with nothing to say they were
-// clickable. This is the one place that answers it: a `ButtonStyle` that washes the hit shape
-// in the app hue on hover and sinks it slightly on press.
+// `.plain` and `.borderless` buttons draw their own chrome, so AppKit gives them no hover state
+// and nothing says they are clickable. This `ButtonStyle` answers that: it washes the hit shape in
+// the app hue on hover and sinks it slightly on press.
 //
-// The numbers live in `HoverAffordanceMetrics` rather than inline in the view so they can be
-// asserted directly — the style's job is only to paint what the metrics resolve to.
+// The numbers live in `HoverAffordanceMetrics` so they can be asserted directly; the style only
+// paints what the metrics resolve to.
 
 /// Which hover treatment a control wears. The variant picks the numbers *and* the default hit
 /// shape; a caller whose control isn't the usual shape for its variant overrides `shape`.
 public enum HoverAffordanceVariant: String, CaseIterable, Sendable {
-    /// A bare icon with no chrome of its own — toolbar glyphs, inspector toggles, row actions.
+    /// A bare icon with no chrome of its own: toolbar glyphs, inspector toggles, row actions.
     case glyph
     /// A chip or tab that fills when selected: hover previews the fill it would take.
     case segment
-    /// A control that already carries a solid fill. No wash (there's nothing to wash over) —
-    /// a hairline ring and a 1pt lift instead.
+    /// A control that already carries a solid fill. No wash (nothing to wash over): a hairline ring
+    /// and a 1pt lift instead.
     case filled
     /// A round floating control, like the seam's swap button.
     case circular
-    /// A full-width list row whose whole area is the target. Quieter wash: it covers far more
-    /// pixels than a glyph does, so the same alpha would shout.
+    /// A full-width list row whose whole area is the target. A quieter wash, since it covers far
+    /// more pixels than a glyph.
     case row
-    /// A small dismiss glyph riding inside a field or chip. Washes in *ink*, not the accent —
-    /// these clear or remove something, and an inviting accent bloom misreads the action.
+    /// A small dismiss glyph inside a field or chip. Washes in ink, not the accent: these clear or
+    /// remove something, and an inviting accent bloom misreads the action.
     case inline
-    /// A button keeping its **system** chrome — `.glass` or `.bordered`. See `ChromeHoverModifier`
-    /// for why this one can't be a `ButtonStyle`, and why its numbers are so much louder than
-    /// `.filled`'s: a macOS 26 glass capsule is nearly *transparent* at rest, so there is no fill
-    /// underneath to deepen — the wash has to supply the whole signal itself.
+    /// A button keeping its system chrome (`.glass` or `.bordered`). See `ChromeHoverModifier` for
+    /// why this can't be a `ButtonStyle`. Louder than `.filled`, because a macOS 26 glass capsule
+    /// is nearly transparent at rest, so there's no fill to deepen and the wash carries the whole
+    /// signal.
     case chrome
 }
 
-/// The hit shape the wash is drawn in. Deliberately a small closed enum rather than a generic
-/// `some Shape`: a `ButtonStyle` carrying a generic shape parameter can't be stored in the
-/// `static func` shorthand that makes call sites readable.
+/// The hit shape the wash is drawn in. A closed enum rather than a generic `some Shape`, which
+/// couldn't be carried through the `static func` shorthand call sites use.
 public enum HoverAffordanceShape: Equatable, Sendable {
     case capsule
     case circle
     case roundedRect(CGFloat)
 
-    /// What each variant wears unless the call site says otherwise.
+    /// What each variant wears unless the call site says otherwise. `.segment`'s capsule suits most
+    /// `.segment` controls (chips, pills, the workspace bar), so it stays the default.
     ///
-    /// **`.segment`'s capsule is right for a clear majority — so the rule for overriding it is
-    /// written here rather than rediscovered a third time.** Censused 2026-08-27 over all
-    /// twenty-six `.segment` call sites: sixteen draw a ground of their own, and **eleven of those
-    /// sixteen are genuine capsules** — the suggestion chips in `LogViewer` and `DifferencesView`,
-    /// `HelpBook`'s topic chips, all three `SetupSheet` chips, the log level chips, both
-    /// `DashboardViews` pills, `RuleOfferPrompt`'s match chips and the workspace bar. The other ten
-    /// paint nothing at rest and show only the affordance itself. Flipping this default to a
-    /// rounded rect would break eleven correct controls to fix three, which is why it stays a
-    /// capsule.
-    ///
-    /// Of the five that draw a non-capsule ground, **four had shipped wearing a capsule**: the tab
-    /// strip (fixed in `153b5ae7`) and all three of the destination picker's rows. Only
-    /// `SettingsLayout`'s tab row was written with the override from the start. That is the ratio
-    /// the rule below exists to change.
-    ///
-    /// **Count with the variant, not the call's opening.** Eight of those twenty-six spell it
-    /// `isSelected ? .filled : .segment`, so `grep 'hoverAffordance(\.segment'` finds eighteen of
-    /// them (plus this comment) and misses two live defects; `grep 'hoverAffordance(' |
-    /// grep '\.segment'` finds all twenty-six. Both
-    /// arms matter — `.filled` defaults to a capsule too, so a mis-shaped row is wrong selected
-    /// (a hairline ring tracing a pill round a rounded rectangle) as well as hovered.
+    /// Check both arms of `isSelected ? .filled : .segment`: `.filled` defaults to a capsule too,
+    /// so a mis-shaped control is wrong selected (a pill-shaped ring round a rounded rect) as well
+    /// as hovered.
     ///
     /// Override `shape:` when either is true of the control:
     ///
-    /// - **It draws a non-capsule ground.** The wash lands *on* that ground, so a capsule over a
+    /// - **It draws a non-capsule ground.** The wash lands on that ground, so a capsule over a
     ///   rounded rect pulls its ends in past the corners and leaves the fill showing round the
-    ///   outside of the wash. Invisible while the control has no resting ground — which is exactly
-    ///   how it hid in the tab strip until `153b5ae7` gave every chip a slab — and visible the
-    ///   moment one arrives. `PaneTabStrip` and all three of `DestinationPicker`'s row surfaces are
-    ///   this case, and each now names its outline once — `PaneTabStrip.chipShape` and
-    ///   `DestinationRowShape` — and draws its ground from the same value it hands this style, so
-    ///   the two cannot drift apart again (see `HoverAffordanceOutline`). The picker's hit shapes
-    ///   come from it too; the strip's does not, and should not — a tab's target is its whole frame
-    ///   including the padding around the chip.
-    /// - **It is tall relative to its width**, ground or no ground. A capsule's radius is half the
-    ///   short side, so on a squarish or upright control the wash is a lozenge rather than a hint of
-    ///   the control's own shape. `SettingsView`'s hue swatch — a disc stacked over its caption — is
-    ///   this case, and takes `.roundedRect(8)`.
+    ///   wash. Invisible until the control gets a resting ground. Name the outline once and draw
+    ///   the ground from the same value you hand this style (`PaneTabStrip.chipShape`,
+    ///   `DestinationRowShape`; see `HoverAffordanceOutline`). The hit shape may differ: a tab's
+    ///   target is its whole frame.
+    /// - **It is tall relative to its width.** A capsule's radius is half the short side, so on a
+    ///   squarish control the wash is a lozenge. `SettingsView`'s hue swatch (a disc over its
+    ///   caption) takes `.roundedRect(8)`.
     public static func `default`(for variant: HoverAffordanceVariant) -> HoverAffordanceShape {
         switch variant {
         case .glyph: return .roundedRect(8)
@@ -91,7 +67,7 @@ public enum HoverAffordanceShape: Equatable, Sendable {
         case .circular: return .circle
         case .row: return .roundedRect(7)
         case .inline: return .circle
-        // Unused — `chromeHover` never draws a shape, precisely because it can't know one.
+        // Unused: `chromeHover` never draws a shape, because it can't know one.
         case .chrome: return .capsule
         }
     }
@@ -99,12 +75,9 @@ public enum HoverAffordanceShape: Equatable, Sendable {
 
 /// The outline a ``HoverAffordanceShape`` names, as a real `InsettableShape`.
 ///
-/// **This is the seam that lets a control have exactly one outline.** The recurring defect here is
-/// not that a call site picks the wrong shape, it is that a control states its shape three times —
-/// once in the `.background` it fills, once in the `.contentShape` it declares, and once in the
-/// `shape:` it hands this style — and nothing makes the three agree. Two of the three are ordinary
-/// SwiftUI shapes and the third is an enum case, so they cannot even be compared. Given this type
-/// they can all be the *same value*:
+/// This lets a control state its outline once. Otherwise it states it three times (the
+/// `.background` it fills, the `.contentShape` it declares, the `shape:` it hands this style), and
+/// nothing makes them agree. With this type all three can be the same value:
 ///
 /// ```swift
 /// enum DestinationRowShape {
@@ -118,17 +91,15 @@ public enum HoverAffordanceShape: Equatable, Sendable {
 /// .buttonStyle(.hoverAffordance(.segment, tint: accent, shape: DestinationRowShape.kind))
 /// ```
 ///
-/// Drawing is delegated to the same three SwiftUI shapes the style used to switch over inline —
-/// `Capsule()`, `Circle()`, and a **continuous** `RoundedRectangle` — so this replaced those
-/// switches without changing a pixel. `HoverAffordanceOutlineTests` renders every case both
-/// ways and compares the bitmaps exactly, filled and `strokeBorder`-ed, because "it draws the same
-/// thing" is the one claim that would be worthless taken on trust.
+/// Drawing delegates to `Capsule()`, `Circle()` and a continuous `RoundedRectangle`.
+/// `HoverAffordanceOutlineTests` renders every case both ways, filled and `strokeBorder`-ed, and
+/// compares the bitmaps exactly.
 public struct HoverAffordanceOutline: InsettableShape {
-    /// Which outline this is. Named `kind` rather than `shape` so `.kind` reads correctly at the
-    /// call site that hands it back to `.hoverAffordance(_:tint:shape:)`.
+    /// Which outline this is. Named `kind` so `.kind` reads right when handed back to
+    /// `.hoverAffordance(_:tint:shape:)`.
     public var kind: HoverAffordanceShape
-    /// How far the outline has been pulled in, which is how `strokeBorder` keeps a stroke inside
-    /// the shape instead of straddling its edge.
+    /// How far the outline is pulled in, which is how `strokeBorder` keeps a stroke inside the
+    /// shape instead of straddling its edge.
     public var inset: CGFloat
 
     public init(kind: HoverAffordanceShape, inset: CGFloat = 0) {
@@ -140,19 +111,16 @@ public struct HoverAffordanceOutline: InsettableShape {
         let r = rect.insetBy(dx: inset, dy: inset)
         switch kind {
         case .capsule:
-            // Spelled exactly as the style spelled it. Not because the alternative would look
-            // different — `Capsule(style: .continuous)` renders byte-identically at every size
-            // measured, a capsule's corner being a full semicircle with nothing left to smooth —
-            // but because keeping the spelling is what makes the equivalence obvious to read as
-            // well as asserted. The render test cannot pin this one either way.
+            // Plain `Capsule()`. `Capsule(style: .continuous)` renders identically (a capsule's
+            // corner is a full semicircle with nothing to smooth), so the render test can't pin the
+            // spelling.
             return Capsule().path(in: r)
         case .circle:
             return Circle().path(in: r)
         case .roundedRect(let radius):
-            // The corner tightens with the inset, which is what keeps an inset rounded rect
-            // concentric with the one it came from rather than square-shouldered inside it. This
-            // is `RoundedRectangle.inset(by:)`'s own behaviour, and the render test is what says
-            // so — it is not documented anywhere that binds.
+            // The corner tightens with the inset, keeping an inset rounded rect concentric with its
+            // original rather than square-shouldered. That is `RoundedRectangle.inset(by:)`'s
+            // behaviour, undocumented; the render test pins it.
             return RoundedRectangle(cornerRadius: max(0, radius - inset), style: .continuous)
                 .path(in: r)
         }
@@ -164,13 +132,12 @@ public struct HoverAffordanceOutline: InsettableShape {
 }
 
 public extension HoverAffordanceShape {
-    /// This shape as something drawable — see ``HoverAffordanceOutline``.
+    /// This shape as something drawable; see ``HoverAffordanceOutline``.
     var outline: HoverAffordanceOutline { HoverAffordanceOutline(kind: self) }
 }
 
 /// Where a hover-affordance button currently is. Published into the environment so a label's
-/// own subviews — a chevron that slides, a fill that deepens — can react in step with the
-/// wash the style paints behind them.
+/// subviews (a chevron that slides, a fill that deepens) react in step with the style's wash.
 public enum HoverAffordancePhase: Sendable {
     case rest, hover, pressed
 
@@ -183,9 +150,9 @@ public enum HoverAffordancePhase: Sendable {
 /// The resolved appearance for one variant in one phase. Every number the style paints comes
 /// from here, so the whole affordance is assertable without rendering a view.
 public struct HoverAffordanceMetrics: Equatable, Sendable {
-    /// The same metrics for a control seated on glass — a chrome glass ground, or a selection lens
-    /// under its label. The glass does not move, so neither may the label: lifted, its wash and ring
-    /// rose 1pt off the capsule and its shadow fell on the glass. Wash, ring and press scale stay.
+    /// The same metrics for a control seated on glass (a chrome glass ground, or a selection lens
+    /// under its label). The glass doesn't move, so neither may the label: no lift and no shadow,
+    /// or its wash and ring would rise off the capsule. Wash, ring and press scale stay.
     public func seated(_ onGlass: Bool) -> HoverAffordanceMetrics {
         guard onGlass else { return self }
         var m = self
@@ -214,19 +181,18 @@ public struct HoverAffordanceMetrics: Equatable, Sendable {
         self.shadow = shadow
     }
 
-    /// Everything off — a control at rest, or one that's disabled in any phase.
+    /// Everything off: a control at rest, or a disabled one in any phase.
     public static let none = HoverAffordanceMetrics()
 
-    /// Standard intensity. Hover is a wash plus, on the two variants that float, a 1pt lift;
-    /// press deepens the wash and sinks the control. Nothing grows on hover: a target that
-    /// widens under a pointer already sitting on it is a misclick waiting to happen, so the
-    /// only scale in the table is the sub-1 press.
+    /// Standard intensity. Hover is a wash plus, on the two variants that float, a 1pt lift; press
+    /// deepens the wash and sinks the control. Nothing grows on hover: a target that widens under
+    /// the pointer invites misclicks, so the only scale is the sub-1 press.
     public static func resolve(variant: HoverAffordanceVariant,
                                phase: HoverAffordancePhase,
                                isEnabled: Bool = true,
                                reduceMotion: Bool = false) -> HoverAffordanceMetrics {
-        // A disabled control must look inert no matter what the pointer does. SwiftUI still
-        // delivers `onHover` to a disabled button, so this guard is load-bearing, not defensive.
+        // A disabled control must look inert whatever the pointer does. SwiftUI still delivers
+        // `onHover` to a disabled button, so this guard is load-bearing.
         guard isEnabled else { return .none }
 
         var m: HoverAffordanceMetrics
@@ -253,18 +219,16 @@ public struct HoverAffordanceMetrics: Equatable, Sendable {
         case (.inline, .hover):   m = .init(wash: 0.13)
         case (.inline, .pressed): m = .init(wash: 0.21, scale: 0.97)
 
-        // A real wash, like every other variant. The first two attempts here tried to light
-        // the control from outside — a halo, then a saturation filter — on the theory that a
-        // shape-free effect was safer than guessing the chrome's outline. Both were invisible:
-        // a macOS 26 glass button is close to transparent at rest, so there was nothing for a
-        // filter to act on, and forcing a filter pass over glass risks rendering nothing at all.
-        // Measuring the controls settled the outline question instead (see `PaneNavMetrics`).
+        // A real wash, like every other variant. Effects that light the control from outside (a
+        // halo, a saturation filter) are invisible here: a macOS 26 glass button is nearly
+        // transparent at rest, and a filter pass over glass can render nothing at all. See
+        // `PaneNavMetrics` for the measured outlines.
         case (.chrome, .hover):   m = .init(wash: 0.22, ring: 0.30, lift: -1, shadow: 0.20)
         case (.chrome, .pressed): m = .init(wash: 0.30, ring: 0.30)
         }
 
-        // Reduce Motion drops everything that moves and keeps everything that colors, so the
-        // affordance survives the accessibility setting instead of disappearing with it.
+        // Reduce Motion drops everything that moves and keeps everything that colours, so the
+        // affordance survives the setting.
         if reduceMotion {
             m.lift = 0
             m.scale = 1
@@ -272,20 +236,16 @@ public struct HoverAffordanceMetrics: Equatable, Sendable {
         return m
     }
 
-    /// Whether this variant can ever draw a shadow — i.e. whether the style needs to isolate its
-    /// content into a compositing group at all.
+    /// Whether this variant can ever draw a shadow, i.e. whether the style needs a compositing
+    /// group.
     ///
-    /// A shadow is applied to whatever the group flattens, so `.compositingGroup()` is what keeps
-    /// the label, its wash and its ring casting ONE shadow instead of three. But it also forces an
-    /// offscreen layer, and the style used to take that cost on every control it decorates —
-    /// including `.glyph` and `.row`, which are by far the most numerous and whose shadow alpha is
-    /// zero in every phase of the table above.
+    /// `.compositingGroup()` makes the label, wash and ring cast one shadow instead of three, but
+    /// it forces an offscreen layer, which `.glyph` and `.row` (the most numerous, never shadowed)
+    /// don't need.
     ///
-    /// Keyed on the VARIANT, deliberately, and not on `metrics.shadow > 0`. The variant is fixed
-    /// for the lifetime of a button, so this predicate picks one branch and stays there; branching
-    /// on the live phase would swap `_ConditionalContent` arms on hover, which destroys and
-    /// rebuilds the caller's label — losing any `@State` inside it and restarting the very
-    /// animation the affordance exists to run.
+    /// Keyed on the variant, not on `metrics.shadow > 0`: the variant is fixed per button, while
+    /// branching on the live phase would swap `_ConditionalContent` arms on hover, rebuilding the
+    /// caller's label, losing its `@State` and restarting the animation.
     public static func castsShadow(variant: HoverAffordanceVariant) -> Bool {
         switch variant {
         case .filled, .circular, .chrome: return true
@@ -312,8 +272,7 @@ public extension EnvironmentValues {
 
 /// The shared hover treatment for buttons that draw their own chrome.
 ///
-/// Replaces `.buttonStyle(.plain)` / `.buttonStyle(.borderless)`, which is what those call
-/// sites used to reach for — and which is exactly why they had no hover state.
+/// Replaces `.buttonStyle(.plain)` / `.buttonStyle(.borderless)`, which give no hover state.
 public struct HoverAffordanceStyle: ButtonStyle {
     let variant: HoverAffordanceVariant
     /// nil: the hue the user picked, read where the button is drawn (`StoredHueReader`).
@@ -322,8 +281,8 @@ public struct HoverAffordanceStyle: ButtonStyle {
 
     @ViewBuilder
     public func makeBody(configuration: Configuration) -> some View {
-        // The hover flag needs `@State`, and a `ButtonStyle` isn't a `View` — hence the nested
-        // body type. Standard SwiftUI shape, not a workaround.
+        // The hover flag needs `@State`, and a `ButtonStyle` isn't a `View`, hence the nested body
+        // type.
         if let tint {
             HoverAffordanceBody(variant: variant, tint: tint, shape: shape, configuration: configuration)
         } else {
@@ -362,9 +321,9 @@ private struct HoverAffordanceBody: View {
     private var washColor: Color { variant == .inline ? .primary : tint }
 
     var body: some View {
-        // The group + shadow only exist for the variants that can actually cast one — see
+        // The group and shadow exist only for variants that can cast one; see
         // `HoverAffordanceMetrics.castsShadow(variant:)` for why this branches on the variant
-        // (fixed per button) rather than on the live phase.
+        // (fixed per button), not the live phase.
         shadowed(configuration.label.background(washShape).overlay(ringShape))
             .offset(y: metrics.lift)
             .scaleEffect(metrics.scale)
@@ -374,14 +333,14 @@ private struct HoverAffordanceBody: View {
                 // repaint: SwiftUI keeps delivering `onHover` to disabled buttons.
                 isHovering = isEnabled && hovering
             }
-            // Asymmetric on purpose. Fast in reads as responsive; the slower out keeps a pointer
-            // crossing a row of toolbar glyphs from strobing behind it.
+            // Asymmetric on purpose: a fast in reads as responsive, and the slower out keeps a
+            // pointer crossing a row of toolbar glyphs from strobing.
             .animation(.easeOut(duration: phase == .rest ? 0.18 : 0.12), value: phase)
     }
 
-    /// Flattens `content` into one layer and drops the lift shadow under it — for the variants
-    /// that lift. Everything else is handed straight back, so no offscreen layer is allocated for
-    /// a shadow that is transparent in every phase.
+    /// Flattens `content` into one layer and drops the lift shadow under it, for the variants that
+    /// lift. Everything else is handed straight back, so no offscreen layer is spent on a shadow
+    /// that is always transparent.
     @ViewBuilder
     private func shadowed(_ content: some View) -> some View {
         if HoverAffordanceMetrics.castsShadow(variant: variant) {
@@ -393,10 +352,8 @@ private struct HoverAffordanceBody: View {
         }
     }
 
-    // Both of these used to switch over `shape` inline, which meant the wash the style paints and
-    // the ground a call site draws were two independent spellings of "the same" outline with
-    // nothing holding them together. They go through `HoverAffordanceOutline` now so a call site
-    // can hand its ground and this style one shared value.
+    // Both go through `HoverAffordanceOutline`, so a call site can hand its ground and this style
+    // one shared outline value.
     private var washShape: some View {
         shape.outline.fill(washColor.opacity(metrics.wash))
     }
@@ -407,7 +364,7 @@ private struct HoverAffordanceBody: View {
 }
 
 public extension ButtonStyle where Self == HoverAffordanceStyle {
-    /// The chrome-less button style with a hover state — the replacement for `.plain` and
+    /// The chrome-less button style with a hover state: the replacement for `.plain` and
     /// `.borderless` on any control that draws its own look.
     ///
     /// - Parameters:
@@ -430,8 +387,8 @@ public extension ButtonStyle where Self == HoverAffordanceStyle {
 /// engaged, and returns it to `rest` when the pointer leaves.
 ///
 /// This can't live in the style: the label's own `.foregroundStyle` is applied inside the
-/// style's body and would win the cascade. Call sites that want the ink to move opt in here,
-/// in place of the flat `.foregroundStyle(.secondary)` they used to carry.
+/// style's body and would win. Call sites that want the ink to move use this instead of a flat
+/// `.foregroundStyle(.secondary)`.
 public struct HoverInkModifier: ViewModifier {
     let rest: HierarchicalShapeStyle
     @Environment(\.hoverAffordancePhase) private var phase
@@ -448,10 +405,10 @@ public extension View {
     }
 
     /// Tints a glyph with `color` while its enclosing hover-affordance control is engaged, and
-    /// leaves its resting appearance **completely untouched** otherwise.
+    /// leaves its resting appearance untouched.
     ///
-    /// Unlike `hoverInk` this names no resting color, so it can be dropped onto a control whose
-    /// rest colour comes from somewhere else — a system button style, say — without disturbing it.
+    /// Unlike `hoverInk` it names no resting colour, so it can go on a control whose rest colour
+    /// comes from elsewhere (a system button style) without disturbing it.
     func hoverTint(_ color: Color) -> some View {
         modifier(HoverTintModifier(color: color))
     }
@@ -463,8 +420,8 @@ public struct HoverTintModifier: ViewModifier {
     @Environment(\.hoverAffordancePhase) private var phase
 
     public func body(content: Content) -> some View {
-        // Deliberately applies nothing at rest rather than re-stating a resting color — restating
-        // one would override whatever the enclosing button style had chosen.
+        // Applies nothing at rest: restating a resting colour would override the enclosing button
+        // style's choice.
         if phase.isEngaged {
             content.foregroundStyle(color)
         } else {
@@ -475,26 +432,23 @@ public struct HoverTintModifier: ViewModifier {
 
 // MARK: - System-chrome buttons
 
-/// Hover feedback for a button that **keeps its system chrome** — anything wearing
-/// `chromeButtonStyle` (`.glass` on macOS 26, `.bordered` below it) or a bare `.bordered`.
+/// Hover feedback for a button that keeps its system chrome: anything wearing
+/// `chromeButtonStyle`, or a bare `.bordered`.
 ///
-/// `HoverAffordanceStyle` can't help here: a `ButtonStyle` replaces the chrome rather than
-/// layering on it, and only one applies per button. So this is a plain view modifier, and it
-/// reaches for the two effects that need no knowledge of the control's outline — a lift, and
-/// shadows. A macOS 26 glass capsule and a `.bordered` rounded rect have different silhouettes
-/// at every control size, and a hand-drawn ring would trace neither correctly; a shadow traces
-/// whatever is actually rendered.
+/// `HoverAffordanceStyle` can't help here: a `ButtonStyle` replaces the chrome rather than layering
+/// on it, and only one applies per button. So this is a view modifier using effects that need no
+/// knowledge of the control's outline. A glass capsule and a `.bordered` rounded rect differ in
+/// silhouette at every control size, so a drawn ring would trace neither; a shadow traces whatever
+/// renders. The ring is therefore a tight zero-offset halo, with the numbers from the `.chrome` row
+/// of the same table.
 ///
-/// So the ring is a tight zero-offset halo rather than a stroke, and the numbers are still
-/// `.filled`'s, out of the same table as every other variant.
-///
-/// Apply it **above** any `.disabled(…)` on the button, so the modifier sits inside that scope
-/// and can read `isEnabled` — a greyed-out Back arrow must not lift.
+/// Apply it **above** any `.disabled(…)` on the button, so it can read `isEnabled`: a greyed-out
+/// Back arrow must not lift.
 public struct ChromeHoverModifier: ViewModifier {
     /// nil: the hue the user picked, read where the control is drawn (`StoredHueReader`).
     let tint: Color?
-    /// Whether a selection lens sits under this control right now — its chosen item. Seated on the
-    /// lens it does not lift: the lens is drawn by its host, outside the item, and stays put.
+    /// Whether a selection lens sits under this control right now (its chosen item). On the lens it
+    /// doesn't lift: the lens is drawn by its host, outside the item, and stays put.
     let onLens: Bool
 
     @State private var isHovering = false
@@ -522,20 +476,18 @@ public struct ChromeHoverModifier: ViewModifier {
 
     private func hovering(_ content: Content, tint: Color) -> some View {
         content
-            // A drawn wash, sized to the control's own frame. Capsule because that is the macOS
-            // 26 Liquid Glass button shape; `.bordered`'s rounded rect will show a little of it
-            // at the corners, which reads as a glow rather than a mistake.
+            // A drawn wash, sized to the control's frame. Capsule, the macOS 26 Liquid Glass button
+            // shape; on `.bordered`'s rounded rect a little shows at the corners, which reads as a
+            // glow.
             //
-            // No filters anywhere in here — no `compositingGroup()`, no `.saturation()`. Each
-            // forces an offscreen or filter pass, and Liquid Glass renders nothing through one.
-            // That is what made the first two versions of this modifier invisible.
+            // **No filters in here**: no `compositingGroup()`, no `.saturation()`. Each forces an
+            // offscreen or filter pass, and Liquid Glass renders nothing through one.
             .background(Capsule().fill(tint.opacity(metrics.wash)))
             .shadow(color: tint.opacity(metrics.ring), radius: 3)
             .shadow(color: tint.opacity(metrics.shadow), radius: 5, y: 3)
             .offset(y: metrics.lift)
-            // Published so the label can answer too. On Liquid Glass the wash has to survive a
-            // translucent chrome sampling its own backdrop, and that is exactly the kind of thing
-            // that quietly renders as nothing; a glyph taking the accent depends on none of it.
+            // Published so the label can answer too: a wash on translucent glass can render as
+            // nothing, but a glyph taking the accent depends on none of that.
             .environment(\.hoverAffordancePhase, isHovering && isEnabled ? .hover : .rest)
             .onHover { isHovering = isEnabled && $0 }
             .animation(.easeOut(duration: isHovering ? 0.12 : 0.18), value: isHovering)
@@ -543,8 +495,8 @@ public struct ChromeHoverModifier: ViewModifier {
 }
 
 public extension View {
-    /// See `ChromeHoverModifier`. Press feedback is left to the system style, which already
-    /// darkens a bordered or glass button convincingly — hover was the missing half.
+    /// See `ChromeHoverModifier`. Press feedback is left to the system style, which already darkens
+    /// a bordered or glass button.
     ///
     /// - Parameter onLens: true for a selection-lens control's chosen item, which sits on the lens
     ///   in Frosted and Clear and so must not lift off it. Apply inside the lens's host.
@@ -556,9 +508,8 @@ public extension View {
 /// The trailing disclosure chevron on a `.row` button: it takes the tint and slides a couple of
 /// points toward the edge while the row is engaged.
 ///
-/// A 11pt chevron parked at the far end of a wide row is a weak affordance on its own — the
-/// pointer usually enters hundreds of points away from it. Moving it in step with the row's wash
-/// ties the two ends of the target together, so the row reads as one thing.
+/// An 11pt chevron at the far end of a wide row is a weak affordance alone; the pointer usually
+/// enters far from it. Moving it with the row's wash ties the two ends of the target together.
 public struct HoverChevron: View {
     /// nil: the hue the user picked (`StoredHueReader`).
     private let tint: Color?
@@ -583,8 +534,8 @@ public struct HoverChevron: View {
             .scaledFont(.caption)
             .foregroundStyle(phase.isEngaged ? AnyShapeStyle(tint) : AnyShapeStyle(.tertiary))
             .offset(x: (phase.isEngaged && !reduceMotion) ? 2 : 0)
-            // Matched to the style's own asymmetric timing so the chevron and the wash behind it
-            // arrive and leave together instead of chasing each other.
+            // Matched to the style's asymmetric timing so the chevron and the wash arrive and leave
+            // together.
             .animation(.easeOut(duration: phase == .rest ? 0.18 : 0.12), value: phase)
     }
 }

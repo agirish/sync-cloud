@@ -2,10 +2,9 @@ import SwiftUI
 
 /// Which edge or corner of a floating card a drag is pulling.
 ///
-/// **Extracted from the Help card so a second resizable overlay does not re-derive it.** The
-/// direction table below is the whole rule — `.leading` grows the card when dragged LEFT, which is
-/// the sign error every hand-rolled resize makes once — and two copies of a sign table can only
-/// agree by luck. `HelpCardGrip` is now a thin forward to this.
+/// Shared by every resizable overlay (`HelpCardGrip` forwards to it) so the direction table is
+/// written once: `.leading` grows the card when dragged left, the sign every hand-rolled resize
+/// gets wrong, and two copies of a sign table agree only by luck.
 public enum ResizableCardGrip: CaseIterable, Sendable {
     case top, bottom, leading, trailing
     case topLeading, topTrailing, bottomLeading, bottomTrailing
@@ -63,18 +62,15 @@ public enum ResizableCardGrip: CaseIterable, Sendable {
 
 /// The arithmetic behind resizing a CENTRED floating card.
 ///
-/// **Pure, because the views around it cannot be built in a test.** A clamp written inline in a
-/// `View` with `@State` and `@AppStorage` is a clamp no test can flip — which is why the Help
-/// card's version was extracted, and why the second resizable overlay uses this one rather than a
-/// copy of it.
+/// Pure, because the views around it can't be built in a test: a clamp written inline in a `View`
+/// with `@State` and `@AppStorage` is one no test can flip. Every resizable overlay uses this one.
 public enum ResizableCardSize {
 
     /// The new size for a drag of `translation` that started with the card at `start`.
     ///
-    /// **The translation is doubled, and that is what keeps the pointer on the grip.** The card is
-    /// centred in its overlay, so half of any growth goes to each side: to move the trailing edge
-    /// 10pt right, the width has to grow 20. Adding the translation once would leave the edge
-    /// drifting at half the pointer's speed, which reads as lag rather than as a rule.
+    /// The translation is doubled, which keeps the pointer on the grip: the card is centred, so
+    /// half of any growth goes to each side, and moving the trailing edge 10pt right takes 20pt of
+    /// width. Adding it once would leave the edge drifting at half the pointer's speed.
     public static func resized(from start: CGSize, by translation: CGSize,
                                grip: ResizableCardGrip,
                                minimum: CGSize, within available: CGSize) -> CGSize {
@@ -85,11 +81,10 @@ public enum ResizableCardSize {
 
     /// A size held to the floor and to what the window can actually show.
     ///
-    /// **The `max(minimum, available)` is live, not defensive padding.** `GeometryReader` reports
-    /// `.zero` on its first layout pass, and clamping straight to `available` there would collapse
-    /// the card to nothing on the frame it appears. Preferring the floor when the window is
-    /// smaller than the card also fails in the safer direction: an overflowing card is legible and
-    /// a 0×0 one is gone.
+    /// The `max(minimum, available)` is live, not defensive: `GeometryReader` reports `.zero` on
+    /// its first layout pass, and clamping straight to `available` would collapse the card on the
+    /// frame it appears. Preferring the floor when the window is smaller also fails safe: an
+    /// overflowing card is legible, a 0×0 one is gone.
     public static func clamped(_ size: CGSize, minimum: CGSize,
                                within available: CGSize) -> CGSize {
         CGSize(width: min(max(minimum.width, size.width), max(minimum.width, available.width)),
@@ -99,14 +94,12 @@ public enum ResizableCardSize {
 
 /// The eight invisible grips laid over a card's edges and corners.
 ///
-/// **Corners after edges, deliberately.** An edge strip runs the card's whole side, so it sits
-/// under both corners at that end; declaring the corners last puts them on top, where a diagonal
-/// drag expects to find them.
+/// Corners come after edges on purpose: an edge strip runs the card's whole side, under both
+/// corners at that end, so declaring the corners last puts them on top for a diagonal drag.
 ///
-/// **The strips sit OVER the content, so anything they cover stops being clickable.** 6pt strips
-/// and 14pt corners here, against the compare surface's 16pt horizontal / 12pt vertical control
-/// insets — the close button and the mode picker both clear them. Thickening either without
-/// re-measuring those insets would take a control with it.
+/// The strips sit over the content, so anything they cover stops being clickable. 6pt strips and
+/// 14pt corners clear the compare surface's 16pt horizontal / 12pt vertical control insets (the
+/// close button, the mode picker); thickening either without re-measuring would cover a control.
 public struct ResizableCardGrips: View {
 
     private let onDrag: (CGSize, ResizableCardGrip) -> Void
@@ -141,9 +134,9 @@ public struct ResizableCardGrips: View {
             .contentShape(Rectangle())
             .pointerStyle(.frameResize(position: grip.pointer))
             .gesture(
-                // **NEVER `.local`.** The strip moves as the card it resizes grows, so in its own
-                // space the gesture feeds back on itself and the drag stutters. Every other
-                // resize in this app uses the global space for the same reason.
+                // **Never `.local`.** The strip moves as the card it resizes grows, so in its own
+                // space the gesture feeds back on itself and the drag stutters. Every resize in
+                // this app uses the global space for the same reason.
                 DragGesture(minimumDistance: 0, coordinateSpace: .global)
                     .onChanged { onDrag($0.translation, grip) }
                     .onEnded { _ in onCommit() }

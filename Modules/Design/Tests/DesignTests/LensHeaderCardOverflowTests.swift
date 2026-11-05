@@ -3,18 +3,15 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// The SwiftUI fact that made Organize's rail unable to ever shed its labels.
+/// The SwiftUI fact behind where Organize's rail measures its width.
 ///
 /// A geometry proxy answers "how big am I", never "how much was I offered". A `LensHeaderCard`
-/// whose row cannot compress does not shrink into the width it is given — it draws at the width it
-/// needs and overflows its container — so a `.onGeometryChange` on the card reports the *drawn*
-/// width. `LensWorkspaceView` fed exactly that number to `OrganizeRailMetrics.style(...)`, which then asked
-/// "does the width the rail forced hold the rail?", answered yes at every window size, and left the
-/// card hanging over the source pane on one side and off the window on the other.
+/// whose row can't compress draws at the width it needs and overflows its container, so
+/// `.onGeometryChange` on the card reports the drawn width. Fed to `OrganizeRailMetrics.style(...)`,
+/// that number would always say the rail fits, and the rail would never shed its labels.
 ///
-/// This pins the mechanism rather than the app: it is the reason the shedding decision is measured
-/// on a zero-height `Color.clear` probe (which takes the width it is *proposed*) and not on the
-/// card, and it is what fails if that reasoning is ever undone by a SwiftUI release that clamps.
+/// So `LensWorkspaceView` measures a zero-height `Color.clear` probe, which takes the width it is
+/// proposed. This pins the mechanism, and fails if a SwiftUI release starts clamping.
 @Suite struct LensHeaderCardOverflowTests {
 
     @MainActor
@@ -33,8 +30,8 @@ import Testing
         )
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { cardReported = $0 }
 
-        // The probe `LensWorkspaceView` measures instead: a zero-height, width-flexible sibling in the same
-        // stack, which takes the proposal and cannot be widened by what the card draws.
+        // The probe `LensWorkspaceView` measures instead: a zero-height, width-flexible sibling in
+        // the same stack, which takes the proposal and can't be widened by what the card draws.
         let stack = VStack(spacing: 0) {
             Color.clear.frame(height: 0)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { probeReported = $0 }
@@ -57,18 +54,15 @@ import Testing
                 "the probe reported \(probeReported) for an offered \(offered) — it is being widened by its sibling, which is the whole thing it exists not to be")
     }
 
-    /// **Row 2 keeps the width it is offered, however wide its readouts want to be.**
+    /// Row 2 keeps the width it is offered, however wide its readouts want to be.
     ///
-    /// This is the same mechanism as the test above, on the row that actually carries incompressible
-    /// content in production: every lens fills `summary` with `.fixedSize()` pills. Row 2 therefore
-    /// insisted, the card reported the insisted width, and the parent centred the oversized card —
-    /// so a Duplicates header at 492pt drew its scan-root chip off the leading edge and "Apply 31
-    /// recommended" off the trailing one, in the same render. A `layoutPriority` could not fix it:
-    /// priority decides who is asked to shrink, not who is able to.
+    /// The same mechanism on the row that carries incompressible content: every lens fills
+    /// `summary` with `.fixedSize()` pills. If row 2 insisted, the parent would centre the oversized
+    /// card and draw chips off both edges at once. A `layoutPriority` can't fix that: priority
+    /// decides who is asked to shrink, not who is able to.
     ///
-    /// The second assertion is the half that makes it a fix rather than a squeeze — the row's own
-    /// stated rule is that the readouts yield **before** the controls, so the trailing controls must
-    /// still measure their full width while the summary is the thing that gave way.
+    /// The second check makes it a fix rather than a squeeze: the readouts yield before the
+    /// controls, so the trailing controls keep their full width while the summary gives way.
     @MainActor
     @Test func aRigidSummaryYieldsInsteadOfWideningTheCard() {
         let offered: CGFloat = 400
@@ -83,7 +77,7 @@ import Testing
             accent: .blue, surfaceStyle: .unified, level: .frosted,
             title: { Color.clear.frame(width: 40, height: 20) },
             actions: { EmptyView() },
-            // Far wider than the card is offered — a run of pills that will not compress.
+            // Far wider than the card is offered: a run of pills that won't compress.
             summary: { Color.red.frame(width: 900, height: 20) },
             trailing: {
                 Color.blue.frame(width: trailingWidth, height: 20)
@@ -105,13 +99,11 @@ import Testing
                 "the controls were squeezed to \(trailingReported); the readouts are what must yield")
     }
 
-    /// **And where there IS room, the readouts take all of it and none of anyone else's.**
+    /// Where there is room, the readouts are drawn whole and take nothing from the trailing run.
     ///
-    /// The other half of the same fix, and the one a "does it still overflow?" test cannot see.
-    /// Making the summary flexible puts it in competition for the row's slack: give it too little
-    /// and the pills a wide window has ample room for are scrolled out of sight for no reason;
-    /// give it too much and it takes width from the trailing prose, which then stretches past its
-    /// own ideal. Both were reachable while getting this wrong, and neither looks like an overflow.
+    /// A flexible summary competes for the row's slack: too little and pills a wide window has room
+    /// for scroll out of sight; too much and it takes width from the trailing prose, or the prose
+    /// stretches past its ideal. Neither looks like an overflow, so an overflow test can't see it.
     @MainActor
     @Test func aSummaryThatFitsIsDrawnWholeAndTakesNothingFromTheTrailing() {
         let offered: CGFloat = 900
@@ -133,8 +125,8 @@ import Testing
                         summaryReported = $0
                     }
             },
-            // Flexible, like the survey report on To File's row 2 — the sibling that stretched to
-            // fill the slack when the summary and it were left competing for it as equals.
+            // Flexible, like the survey report on To File's row 2, which would stretch to fill the
+            // slack if it and the summary competed for it as equals.
             trailing: {
                 Color.blue.frame(maxWidth: trailingWidth, minHeight: 20)
                     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {

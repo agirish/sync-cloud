@@ -3,13 +3,11 @@ import AppKit
 import SwiftUI
 @testable import Design
 
-/// The selection lens (roadmap RD46) — its rules, its motion, and that a host really draws it where
-/// its stops are.
+/// The selection lens: its rules, its motion, and that a host really draws it where its stops are.
 ///
 /// Glass renders nothing offscreen, so the rendered half uses the probe (`drawsProbe`): the lens's
-/// exact geometry in flat magenta. The decisions it pins are the ones taken 2026-10-02 — glass all
-/// the time in Frosted and Clear, today's marker untouched in Solid, the Tint slider the only thing
-/// that tints, labels never touched.
+/// exact geometry in flat magenta. It pins glass all the time in Frosted and Clear, today's marker
+/// untouched in Solid, and the Tint slider as the only thing that tints.
 @MainActor
 @Suite(.serialized) struct SelectionLensTests {
 
@@ -239,8 +237,8 @@ import SwiftUI
         let peak = past.firstIndex(of: furthest)!
         let back = past[peak...].firstIndex { $0 <= 0.05 } ?? past.endIndex
         #expect(past[back...].allSatisfy { $0 < 0.1 }, "the leading edge bounced past its stop a second time")
-        // No hard stop: the old curve clamped the edge flat at its limit. A spring's speed is continuous,
-        // so no two neighbouring 5 ms samples differ by much more than their neighbours do.
+        // No hard stop, as a clamp at the limit would make: a spring's speed is continuous, so no
+        // two neighbouring 5 ms samples differ by much more than their neighbours do.
         let steps = zip(frames.dropFirst(), frames).map { $0.rect.maxX - $1.rect.maxX }
         for (a, b) in zip(steps.dropFirst(), steps) {
             #expect(abs(a - b) < 1.5, "the leading edge's speed jumped by \(abs(a - b))pt in 5 ms")
@@ -280,8 +278,8 @@ import SwiftUI
     }
 
     @Test func eachKindOfMoveSettlesOnItsOwnClock() {
-        // Grown by `appearDuration`, melted by `meltDuration`, travelled by `travelDuration` — the
-        // longest, which is what every leg in the layer now runs for.
+        // Grown by `appearDuration`, melted by `meltDuration`, travelled by `travelDuration`, the
+        // longest, which every leg in the layer runs for.
         #expect(SelectionLensMotion.frame(from: nil, to: right, elapsed: SelectionLensMotion.appearDuration)?.rect == right)
         #expect(SelectionLensMotion.frame(from: left, to: nil, elapsed: SelectionLensMotion.meltDuration) == nil)
         #expect(SelectionLensMotion.travelDuration >= SelectionLensMotion.appearDuration)
@@ -473,7 +471,7 @@ import SwiftUI
     }
 
     // One level, not both: the probe stands in for Frosted and Clear alike (`material(for:)`), so a
-    // Clear arm ran the same code again. The rim — Clear's difference — is read at real Clear below.
+    // Clear arm would run the same code again. Clear's rim is read at real Clear below.
     @Test(.machinePinned(.pixelSampling))
     func theGlassDrawsTheLensOnTheSelectedStopAndHidesTheOldMarker() {
         let rig = ProbeRig(Harness(selected: 2, appearance: Self.probe), size: Self.size)
@@ -575,8 +573,8 @@ import SwiftUI
     @Test(.machinePinned(.pixelSampling))
     func aMoveToAStopOffScreenArrivesAtOnce() {
         // Segment 2 lies outside the visible region, so the move switches instead of travelling.
-        // In the host's own coordinates — inside the padding — it starts at x = 100, so the region
-        // ends 10pt short of it rather than on its edge, where `intersects` would decide the test.
+        // In the host's coordinates (inside the padding) it starts at x = 100, so the region ends
+        // 10pt short of it rather than on its edge, where `intersects` would decide the test.
         let region = SelectionLensVisibleRegion()
         region.rect = CGRect(x: 0, y: 0, width: 90, height: 40)
         let rig = ProbeRig(Harness(selected: 0, appearance: Self.probe, region: region), size: Self.size)
@@ -584,11 +582,10 @@ import SwiftUI
         expectNear(rig.box(Pixel.lensProbe), segment(2))
     }
 
-    /// **A scroll view reports what it shows, and a move off it switches.** The region above is
-    /// handed in; here a real scroll view writes it (`selectionLensTracksVisibleRegion`), 100pt
-    /// wide over stops that run to 150, with the host on its padded content as every call site has
-    /// it. A move to the stop past its edge lands at once — out of sight; a move to one on screen
-    /// travels — its first frame still at the old stop.
+    /// A scroll view reports what it shows, and a move off it switches. Here a real scroll view
+    /// writes the region (`selectionLensTracksVisibleRegion`), 100pt wide over stops that run to
+    /// 150, with the host on its padded content as at every call site. A move to the stop past its
+    /// edge lands at once; a move to one on screen travels, its first frame still at the old stop.
     struct ScrollHarness: View {
         var selected: Int
         let region: SelectionLensVisibleRegion
@@ -666,9 +663,9 @@ import SwiftUI
 
     @Test(.machinePinned(.pixelSampling))
     func aLensWhoseOnlyStopChangesHandsStaysPut() {
-        // The chip rung: choosing another tab re-labels the one stop. The lens was drawn there and
-        // is wanted there; the first version found no rect for the old id, called it a growth, and
-        // blinked out to regrow from 40% on the same chip.
+        // The chip rung: choosing another tab re-labels the one stop. The lens is wanted where it
+        // was; treating the missing old id as a growth would blink it out to regrow on the same
+        // chip.
         let rig = ProbeRig(ShiftingHarness(selected: 0, onlyChosen: true), size: Self.size)
         expectNear(rig.box(Pixel.lensProbe), segment(0))
         rig.host.rootView = ShiftingHarness(selected: 7, onlyChosen: true)
@@ -678,7 +675,7 @@ import SwiftUI
     @Test(.machinePinned(.pixelSampling))
     func aMoveStartsWhereTheLensWasDrawnNotWhereTheOldStopWent() {
         // A compact rung re-windowed by the change: the active tab stays in slot 2 while its old id
-        // slides to slot 1. Started from the old stop, the lens dipped a slot left and came back.
+        // slides to slot 1. Starting from the old stop would dip the lens a slot left and back.
         let rig = ProbeRig(ShiftingHarness(selected: 2, window: 0), size: Self.size)
         expectNear(rig.box(Pixel.lensProbe), segment(2))
         rig.host.rootView = ShiftingHarness(selected: 3, window: 1)
@@ -701,8 +698,8 @@ import SwiftUI
 
     @Test(.machinePinned(.pixelSampling))
     func aSecondClickMidMoveCarriesOnFromWhereTheLensIs() {
-        // 0 → 2, and before it has gone anywhere, 2 → 1: the second move starts where the lens is —
-        // by segment 0 — not at segment 2, where the first was heading.
+        // 0 → 2, and before it has gone anywhere, 2 → 1: the second move starts where the lens is,
+        // by segment 0, not at segment 2, where the first was heading.
         let rig = ProbeRig(Harness(selected: 0, appearance: Self.probe), size: Self.size)
         rig.host.rootView = Harness(selected: 2, appearance: Self.probe)
         _ = rig.capture()
@@ -754,7 +751,7 @@ import SwiftUI
 
     // MARK: - A choice's label
 
-    /// Three choices whose "labels" are 20 × 8 bars in the label's ink — a flat shape rather than
+    /// Three choices whose "labels" are 20 × 8 bars in the label's ink: a flat shape rather than
     /// text, so the ink is read exactly instead of off anti-aliased glyphs. White on the fill, red
     /// for the rest, so each render says which ink each bar took.
     struct LabelHarness: View {
@@ -816,8 +813,8 @@ import SwiftUI
         #expect(Self.isRed(ink(view, 0)) && Self.isRed(ink(view, 2)), "the rest are not their own ink")
     }
 
-    /// **On a glass lens in light mode the chosen label is `.primary`, black.** White on a lens at
-    /// Tint 0 was all but invisible: there is no fill behind it any more, only pale glass.
+    /// On a glass lens in light mode the chosen label is `.primary`, black: with no fill behind it,
+    /// only pale glass, white at Tint 0 would be all but invisible.
     @Test(.machinePinned(.pixelSampling))
     func onGlassTheChosenLabelIsPrimary() {
         let view = LabelHarness(selected: 1, appearance: Self.probe)
@@ -826,9 +823,9 @@ import SwiftUI
         #expect(Self.isRed(ink(view, 0)) && Self.isRed(ink(view, 2)), "the rest are not their own ink")
     }
 
-    /// **In dark mode the chosen label keeps the fill's white** — the user's call. Dark glass carries
-    /// white well, and `.primary` would not be it: it is white at 85%, which over the probe reads
-    /// `(255, 217, 255)`, so this asks for the fill's ink exactly.
+    /// In dark mode the chosen label keeps the fill's white, by design: dark glass carries white
+    /// well. `.primary` is white at 85%, which over the probe reads `(255, 217, 255)`, so this asks
+    /// for the fill's ink exactly.
     @Test(.machinePinned(.pixelSampling))
     func inDarkTheChosenLabelOnGlassKeepsTheFillsWhite() {
         let chosen = ink(LabelHarness(selected: 0, appearance: Self.probe, scheme: .dark), 0)

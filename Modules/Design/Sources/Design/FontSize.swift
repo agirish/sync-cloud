@@ -1,141 +1,102 @@
 import SwiftUI
 
-/// The app-wide text size, orthogonal to `ListDensity`: density decides how tightly rows *pack*,
-/// this decides how large the type *is*. Stored in UserDefaults via `FontSize.defaultsKey`,
-/// mirroring the other appearance options in `LiquidGlass`.
+/// The app-wide text size, independent of `ListDensity`: density decides how tightly rows pack,
+/// this decides how large the type is. Stored under `FontSize.defaultsKey`.
 ///
-/// macOS has no Dynamic Type, so none of the system levers move SwiftUI text here: an app-wide
-/// `.dynamicTypeSize` — even `.accessibility3` — renders byte-identical on macOS 15 (verified by
-/// measuring `NSHostingView.fittingSize` across every `DynamicTypeSize` case; all 113×73).
-/// `.environment(\.font,)` only supplies a *default* for views that set no font of their own, and
-/// nearly every text view in SyncCloud sets one explicitly. So the size has to be threaded through
-/// the app's own font call sites, which is what `ScaledFont` and `View.scaledFont(_:)` are for.
+/// macOS has no Dynamic Type: an app-wide `.dynamicTypeSize`, even `.accessibility3`, renders
+/// identically, and `.environment(\.font,)` only reaches views that set no font, while nearly
+/// every text view here sets one. So the size is threaded through the app's own font call sites,
+/// via `ScaledFont` and `View.scaledFont(_:)`. The range is bounded so both ends stay legible.
 ///
-/// The steps are deliberately few and bounded rather than a free slider — both ends have to stay
-/// legible, and the picker matches the segmented controls the rest of the Appearance tab uses.
-///
-/// KNOWN LIMIT — AppKit-drawn controls do not follow this. A `Button` on `.bordered`,
-/// `.borderedProminent` or the default style is rendered by AppKit, which takes its label font
-/// from the control size and ignores the SwiftUI font entirely: measured, such a button lays out
-/// at 55×20 whether or not a 17pt font is applied, while the same label under a SwiftUI-drawn
-/// style goes 40×16 → 51×20. Nothing outside the control can change that (`.controlSize` is
-/// AppKit's own lever, and the call sites that set it mean it), and reaching around system chrome
-/// from outside is a known dead end in this codebase — see `HoverAffordanceStyle`. SyncCloud draws
-/// nearly all of its own chrome, so this affects only a handful of controls, which keep the
-/// system's metrics while everything around them scales.
+/// Known limit: AppKit-drawn controls don't follow this. A `Button` on `.bordered`,
+/// `.borderedProminent` or the default style takes its label font from the control size and
+/// ignores the SwiftUI font, and nothing outside the control can change that (see
+/// `HoverAffordanceStyle`). The app draws nearly all its own chrome, so only a few controls keep
+/// the system's metrics.
 public struct FontSize: Hashable, Identifiable, Sendable {
 
-    /// The percentage this size applies at and below the `knee` — 90 through 135, in whole
-    /// numbers. **This is the stored value**, and it is an integer rather than a `Double` so the
-    /// thing on disk is the thing on screen: a readout that says 115% is the number persisted,
-    /// with no rounding standing between them.
+    /// The percentage this size applies at and below the `knee`, 90 through 135. The stored value,
+    /// an integer so the readout's 115% is exactly what is persisted.
     public let percent: Int
 
-    /// The smallest selectable size. Below this the multiply is doing nothing useful — every
-    /// font the app draws at 9–11pt is already sitting on `legibilityFloor` by 85%, so the
-    /// remaining travel shrinks the large text alone and takes the type hierarchy with it.
+    /// The smallest selectable size. Below it, the 9–11pt fonts already sit on `legibilityFloor`,
+    /// so going further would shrink only the large text and flatten the hierarchy.
     public static let minimumPercent = 90
 
-    /// The largest selectable size, and a **hard constraint rather than a preference**.
-    ///
-    /// One line of system-font text is 18pt tall through 14.85pt and 19pt from 15.0pt. Header
-    /// chrome carries 11pt text inside pinned 28pt rows with exactly 18pt to give it (the
-    /// differences count pill's inset age capsule: 19 + 2×1 + 2×4 = 29 was the failure), so the
-    /// ceiling is the largest percentage keeping `knee`-sized text under 15pt — 136 would put
-    /// it at 14.96 and 137 at 15.07. 135 is the round number under that.
-    ///
-    /// `everySelectablePercentKeepsChromeUnderTheCliff` sweeps the whole range rather than the
-    /// four presets, because the range is now the thing a future edit widens.
+    /// The largest selectable size, and a hard constraint. A line of system text is 18pt tall up to
+    /// 14.85pt and 19pt from 15pt, and header chrome fits 11pt text into pinned 28pt rows with
+    /// exactly 18pt to spare (the count pill's inset age capsule would reach 29). So `knee`-sized
+    /// text must stay under 15pt; 136% reaches 14.96, 137% 15.07, and 135 is the round number
+    /// under. `everySelectablePercentKeepsChromeUnderTheCliff` sweeps the whole range.
     public static let maximumPercent = 135
 
-    /// The slider's increment. Ten stops rather than 46: measured against the app's own type,
-    /// a 1% change moves 11pt row text by 0.11pt, which is not a difference anybody chose on
-    /// purpose. Typing an exact number is still possible — `init(percent:)` clamps but does not
-    /// round — so the step constrains the *control*, not the value.
+    /// The slider's increment: a 1% change moves 11pt row text by 0.11pt, which nobody chooses on
+    /// purpose. `init(percent:)` clamps but doesn't round, so the step constrains the control, not
+    /// the value.
     public static let step = 5
 
-    /// Clamps to the selectable range. Deliberately does not snap to `step`: a value restored
-    /// from disk, or set before the range last moved, is honoured as written.
+    /// Clamps to the selectable range. Doesn't snap to `step`, so a value restored from disk is
+    /// honoured as written.
     public init(percent: Int) {
         self.percent = Swift.min(Swift.max(percent, Self.minimumPercent), Self.maximumPercent)
     }
 
     // MARK: - The named presets
 
-    /// The four sizes that carry names, unchanged in value from when they were the only choices.
-    /// They remain the detents on the slider and the vocabulary the release notes and Help use;
-    /// everything between them is reachable but unnamed.
+    /// The four sizes that carry names: the slider's detents and the vocabulary Help uses.
+    /// Everything between them is reachable but unnamed.
     public static let small = FontSize(percent: 90)
-    /// The app's unchanged default — every font renders exactly as it did before this setting
-    /// existed (see `ScaledFont.resolved(scale:)`).
+    /// The default: every font renders at its own size (see `ScaledFont.resolved(scale:)`).
     public static let medium = FontSize(percent: 100)
     public static let large = FontSize(percent: 125)
     public static let extraLarge = FontSize(percent: 135)
 
-    /// The named presets in ascending order. Named `allCases` because that is what it was when
-    /// every size was a case, and every caller iterating "the sizes the UI offers by name" still
-    /// means exactly this list.
+    /// The named presets in ascending order: the sizes the UI offers by name.
     public static let allCases: [FontSize] = [.small, .medium, .large, .extraLarge]
 
     /// Every value the slider can land on, ascending.
     ///
-    /// **Derived rather than listed, and its consumers are the guards** —
-    /// `everySelectablePercentKeepsChromeUnderTheCliff` sweeps it against the line-height cliff and
-    /// `everyPresetIsDistinctAndReachable` checks the named presets are on it. The control itself
-    /// takes a range and a step, so it cannot consume a list; what this exists for is asking
-    /// questions of the whole set that the range-and-step spelling cannot answer.
+    /// Derived, not listed. The control takes a range and step; this lets the guards ask about
+    /// the whole set: `everySelectablePercentKeepsChromeUnderTheCliff` sweeps it, and
+    /// `everyPresetIsDistinctAndReachable` checks the presets are on it.
     public static var selectablePercents: [Int] {
         Array(stride(from: minimumPercent, through: maximumPercent, by: step))
     }
 
     // MARK: - Stepping from the keyboard
 
-    /// The next selectable size up, or `nil` at the top of the range — which is what disables
-    /// View ▸ Text Size ▸ Bigger.
+    /// The next selectable size up, or `nil` at the top, which disables View ▸ Text Size ▸ Bigger.
     ///
-    /// **Through `selectablePercents`, never `percent + step`.** The menu items are the second route
-    /// to this setting after the slider, and the two must agree on where the stops are: the slider
-    /// cannot land between them, and neither may the keyboard. That is also what keeps the keyboard
-    /// inside the range the Settings rail's version line was measured against (see RELEASE.md, "The
-    /// version line has a width budget") — a stop the slider does not have is a width nobody checked.
-    ///
-    /// A value BETWEEN stops — `init(percent:)` clamps but does not snap, so a stored `102` survives —
-    /// steps to the nearest stop in the direction asked, rather than to `107`.
+    /// Through `selectablePercents`, never `percent + step`, so the keyboard lands only on the
+    /// slider's stops, the range the Settings rail's version line was measured against (RELEASE.md,
+    /// "The version line has a width budget"). A stored value between stops (`102`) steps to the
+    /// nearest stop in that direction, not to `107`.
     public var bigger: FontSize? {
         Self.selectablePercents.first { $0 > percent }.map(FontSize.init(percent:))
     }
 
-    /// The next selectable size down, or `nil` at the bottom — View ▸ Text Size ▸ Smaller's gate.
+    /// The next selectable size down, or `nil` at the bottom: View ▸ Text Size ▸ Smaller's gate.
     public var smaller: FontSize? {
         Self.selectablePercents.last { $0 < percent }.map(FontSize.init(percent:))
     }
 
     // MARK: - Storage
 
-    /// UserDefaults key for the selected size. Read via `@AppStorage` by the Settings Appearance
-    /// tab, the setup form and the root of every window — one shared constant so the setting has
-    /// a single source of truth.
+    /// UserDefaults key for the selected size, read via `@AppStorage` by the Settings Appearance
+    /// tab, the setup form and every window root.
     ///
-    /// **The key kept its name across the change of type**, because the alternative is worse: a
-    /// new key makes every existing user look like a fresh install and silently resets a size
-    /// they chose. What the value *is* changed — see ``migrateLegacyValue(in:)``.
+    /// The key name predates the percentage type and must stay: a new key would silently reset
+    /// every existing user's size. Old string values are converted by ``migrateLegacyValue(in:)``.
     public static let defaultsKey = "fontSize"
 
-    /// What the four sizes were stored as before this was a percentage.
-    ///
-    /// Kept as data rather than folded into a `switch`, so the table is one thing to read and
-    /// `everyLegacyRawValueStillMapsToTheSizeItNamed` derives its expectations from it rather
-    /// than restating them.
+    /// The legacy string values of the four named sizes. Data rather than a `switch`, so
+    /// `everyLegacyRawValueStillMapsToTheSizeItNamed` derives its expectations from it.
     static let legacyRawValues: [String: FontSize] = [
         "small": .small, "medium": .medium, "large": .large, "extraLarge": .extraLarge
     ]
 
-    /// What a migration did: the string that was on disk, and the size it now holds.
-    ///
-    /// **The raw value is carried out because the log needs it.** Reporting only the `FontSize`
-    /// made the launch line name the value's NEW label — a machine storing `extraLarge` logged
-    /// «migrated from the legacy "Largest" value», a string that was never on disk and that
-    /// nobody grepping for it would find.
+    /// What a migration did: the string that was on disk, and the size it now holds. The raw
+    /// string is carried so the launch log names what was on disk, not the size's current label.
     public struct LegacyMigration: Equatable, Sendable {
         public let raw: String
         public let size: FontSize
@@ -144,20 +105,17 @@ public struct FontSize: Hashable, Identifiable, Sendable {
     /// Rewrites a legacy string value to its percentage, in place. Returns what it resolved to,
     /// or nil when there was nothing to migrate.
     ///
-    /// **This has to run before anything reads the key**, which is why the app calls it at
-    /// launch rather than lazily. `@AppStorage(defaultsKey) var percent: Int` cannot see a
-    /// `String` on disk — it reports its own default and the user's chosen size is silently
-    /// gone, which is the exact failure this exists to prevent.
+    /// **This must run before anything reads the key**, so the app calls it at launch.
+    /// `@AppStorage(defaultsKey) var percent: Int` can't see a `String` on disk: it reports its own
+    /// default and the user's size is silently lost.
     ///
-    /// **It is the only path, on purpose.** A tolerant `resolved(_:)` reader stood beside this
-    /// for a while, claiming to protect callers that ran before migration; it had none, and the
-    /// attempt to give it one reached `UserDefaults.standard` from a view whose store might be a
-    /// scratch suite — machine-dependent. `theAppMigratesTheStoredTextSizeAtLaunch` is what keeps
-    /// this call where it has to be.
+    /// The only path, on purpose: a tolerant reader in a view would have to use
+    /// `UserDefaults.standard` even when the view's store is a scratch suite.
+    /// `theAppMigratesTheStoredTextSizeAtLaunch` keeps this call at launch.
     @discardableResult
     public static func migrateLegacyValue(in defaults: UserDefaults = .standard) -> LegacyMigration? {
-        // An Int already present is the current shape — nothing to do. Asked first because a
-        // migrated value must never be re-examined by the string branch below.
+        // An Int is the current shape: nothing to do. Checked first so a migrated value never
+        // reaches the string branch.
         if defaults.object(forKey: defaultsKey) as? Int != nil { return nil }
         guard let raw = defaults.string(forKey: defaultsKey),
               let size = legacyRawValues[raw] else { return nil }
@@ -175,11 +133,8 @@ public struct FontSize: Hashable, Identifiable, Sendable {
         case Self.small.percent: return "Small"
         case Self.medium.percent: return "Default"
         case Self.large.percent: return "Large"
-        // "Largest" rather than the "Larger" this shipped as: the slider physically stops here,
-        // so the superlative is now literally true and it explains the ceiling without a second
-        // sentence. It is also why the small end stayed "Small" instead of becoming "Compact" —
-        // that word names a row spacing one control below, and the two would have meant
-        // different things in the same panel.
+        // "Largest": the slider stops here, so the name explains the ceiling. The small end is
+        // "Small", not "Compact", which names a row spacing one control below.
         case Self.extraLarge.percent: return "Largest"
         default: return nil
         }
@@ -192,20 +147,15 @@ public struct FontSize: Hashable, Identifiable, Sendable {
     }
 
     /// Multiplier applied at and below the `knee`; above it growth is damped and then clamped
-    /// (see `scaledPointSize(_:scale:)`), so this is the *small-text* boost, not a uniform zoom.
+    /// (see `scaledPointSize(_:scale:)`), so this is a small-text boost, not a uniform zoom.
     ///
-    /// The presets are chosen against the type actually in the app: the fonts people struggle
-    /// with are the 10pt captions and 9–11pt secondary text, so the enlarged sizes spend their
-    /// budget there — 1.25 takes a caption to 12.5pt and the 11pt rows to 13.75pt, clearly
-    /// readable, while 13pt body only reaches 14.75pt and the 17pt+ titles barely move. A flat
-    /// multiplier big enough to rescue the captions (measured: it needs ~1.25) would drag the
-    /// titles to 21pt+ and blow the fixed chrome; the knee is what lets the small end have the
-    /// boost without that. 0.9 stays flat on the way down, with `legibilityFloor` as the guard.
+    /// The hard-to-read type is the 9–11pt secondary text and 10pt captions, so the boost goes
+    /// there: at 1.25 a caption reaches 12.5pt and 13pt body only 14.75pt, while titles barely
+    /// move. A flat 1.25 would push titles past 21pt and break the fixed chrome. Below 100% the
+    /// multiply is flat, guarded by `legibilityFloor`.
     ///
-    /// Exact for every selectable percentage: 90/100 is 0.9 and 125/100 is 1.25 with no
-    /// representation error, so `scaledPointSize(_:scale:)`'s `scale != 1` short-circuit still
-    /// fires precisely at 100% — which is what keeps the default size byte-identical to the
-    /// rendering that predates this setting.
+    /// Exactly 1 at 100%, so `scaledPointSize(_:scale:)`'s `scale != 1` short-circuit keeps the
+    /// default size byte-identical.
     public var scale: CGFloat { CGFloat(percent) / 100 }
 
     /// One-line explanation shown under the Settings control.
@@ -222,44 +172,31 @@ public struct FontSize: Hashable, Identifiable, Sendable {
         }
     }
 
-    /// The point size below which text stops being comfortably readable. Scaling *down* never
-    /// takes a font past this (see `scaledPointSize(_:scale:)`), which is what keeps the small
-    /// end legible no matter how small the original font was.
+    /// The point size below which text stops being comfortably readable. Scaling down never takes
+    /// a font past it (see `scaledPointSize(_:scale:)`).
     public static let legibilityFloor: CGFloat = 9
 
-    /// The base point size up to which the full multiplier applies when scaling *up*.
-    ///
-    /// 11pt because that is the app's workhorse row size and everything at or below it is the
-    /// text the larger settings exist for: the 10pt captions and 9pt badges that stay hard to
-    /// read under a flat multiplier unless the whole UI balloons with them. Above the knee each
-    /// extra point of base size adds only `surplusSlope` scaled points, so titles get a token
-    /// lift while the small text gets the real one.
+    /// The base point size up to which the full multiplier applies when scaling up. 11pt, the
+    /// app's row size: everything at or below it is the text the larger settings exist for. Above
+    /// it each base point adds only `surplusSlope`, so titles get a token lift.
     public static let knee: CGFloat = 11
 
-    /// How much of each base point above `knee` survives scaling up: 13pt body renders 1pt
-    /// closer to the captions at every enlarged size, and past the crossover (16.5pt at Large,
-    /// 18.7pt at Largest) the clamp in `scaledPointSize(_:scale:)` takes over and the font
-    /// simply keeps its default size. Below 1 on purpose — the whole point is compressing the
-    /// type ramp instead of magnifying it — and safe against hierarchy inversion because the
-    /// clamp keeps every curve monotonic in the base size.
+    /// How much of each base point above `knee` survives scaling up. Past the crossover (16.5pt at
+    /// Large, 18.7pt at Largest) the clamp in `scaledPointSize(_:scale:)` keeps the font at its
+    /// default size. Below 1 to compress the type ramp rather than magnify it; the clamp keeps
+    /// every curve monotonic, so the hierarchy can't invert.
     public static let surplusSlope: CGFloat = 0.5
 
     /// The point size `base` renders at under `scale`.
     ///
-    /// Scaling *down* is a plain multiply floored at `legibilityFloor`, so no font is ever
-    /// shrunk into illegibility — that's the whole guarantee of the small end. The floor is
-    /// `min(base, legibilityFloor)`, not `legibilityFloor` flat, because a font that already
-    /// starts below the floor (the 8pt badge glyphs) must be left at its own size rather than
-    /// *grown*: a "Small" setting that renders some text bigger than "Default" would be absurd.
+    /// Scaling down is a multiply floored at `min(base, legibilityFloor)`: no font shrinks into
+    /// illegibility, and one already below the floor (the 8pt badge glyphs) stays at its own size
+    /// rather than growing, so Small never renders text bigger than Default.
     ///
-    /// Scaling *up* is knee-shaped rather than flat, because a flat multiply spends its growth
-    /// on the text that needed it least: ×1.15 used to take a 10pt caption to a still-small
-    /// 11.5pt while pushing a 26pt title to 30pt. Instead the full multiplier applies through
-    /// `knee`, the surplus above it grows at `surplusSlope`, and the outer `max` guarantees no
-    /// font ever renders below its own default — which is what "titles barely move" means
-    /// concretely: past the crossover the damped curve dips under `base` and the clamp holds the
-    /// font at exactly its default size. The three pieces meet continuously and every branch is
-    /// nondecreasing in `base`, so the type hierarchy can never invert.
+    /// Scaling up is knee-shaped, since a flat multiply grows the text that needs it least: the
+    /// full multiplier through `knee`, the surplus above at `surplusSlope`, and an outer `max` so
+    /// no font renders below its default. The pieces meet continuously and never decrease in
+    /// `base`, so the hierarchy can't invert.
     public static func scaledPointSize(_ base: CGFloat, scale: CGFloat) -> CGFloat {
         guard scale != 1 else { return base }
         guard scale > 1 else { return max(base * scale, min(base, legibilityFloor)) }
@@ -267,35 +204,17 @@ public struct FontSize: Hashable, Identifiable, Sendable {
         return max(base, knee * scale + (base - knee) * surplusSlope)
     }
 
-    /// The size a **box drawn around a scaled glyph** should be at `scale`.
+    /// The size a box drawn around a scaled glyph should be at `scale`: `box` (the frame at the
+    /// default size) held in the same proportion to its `basePoint` glyph as at 100%.
     ///
-    /// `box` is the frame at the default text size and `basePoint` the point size of the glyph
-    /// inside it, so the answer is `box` held in the same proportion to the glyph it had at 100%.
+    /// A hard `.frame` around a `.scaledFont` glyph doesn't clip, so at larger sizes the glyph
+    /// silently draws past its box. Through `scaledPointSize`, not `box * scale`: above `knee` the
+    /// ramp clamps, and a flat multiply would grow a box whose glyph had stopped growing. Returns
+    /// `box` exactly at `scale == 1`.
     ///
-    /// **This exists because a hard `.frame` around a `.scaledFont` glyph is a bug that renders as
-    /// nothing until it renders as overflow.** `.frame` does not clip, so the box neither grows
-    /// with its glyph nor trims it: the glyph simply draws past its own edges. `EditorModeBar` and
-    /// `StorageSectionBar` shipped that way — a `13×13` frame whose rung measured 85pt and 113pt at
-    /// Small, Default, Large **and** Largest alike — and a sweep on 2026-08-31 found two more, in
-    /// `SetupSheet`'s step mark and Organize's pass-lens row.
-    ///
-    /// **Through `scaledPointSize`, deliberately, rather than a bare `box * scale`.** Above `knee`
-    /// the type ramp damps and then clamps, so a bare multiply would keep growing a box whose glyph
-    /// had stopped: `SetupSheet`'s mark is 22pt, which renders at 22pt for Default, Large and
-    /// Largest alike, and a flat `× 1.35` would open a 40pt disc around a glyph that never left
-    /// 22pt. Asking the ramp instead keeps the frame and its glyph locked together whatever either
-    /// constant becomes.
-    ///
-    /// Returns `box` exactly at `scale == 1`, so adopting this changes no shipped rendering at the
-    /// default text size — the fixes that use it are visible only away from 100%, except where the
-    /// call site also corrects a `box` that was too small to begin with.
-    ///
-    /// - Note: This sizes a box around a glyph. A **hit target** is a different thing and is not
-    ///   its business — a pointer does not grow with the text size, so a frame whose job is to be
-    ///   clickable is right to be a constant. The 2026-08-31 sweep measured six of those
-    ///   (`CloseButton`, the two `DifferencesView` toggles, the Editor rail's `plus`, the
-    ///   destination grip, Settings' disclosure chevron) and left every one alone: each still holds
-    ///   its glyph's ink at Largest, which is the test that tells a reservation from a pin.
+    /// - Note: This sizes a box around a glyph, not a hit target. A pointer doesn't grow with the
+    ///   text size, so a frame whose job is to be clickable is right to be a constant, as long as
+    ///   it still holds its glyph's ink at Largest.
     public static func scaledBox(_ box: CGFloat, basePoint: CGFloat, scale: CGFloat) -> CGFloat {
         guard basePoint > 0 else { return box }
         return box * scaledPointSize(basePoint, scale: scale) / basePoint
@@ -309,14 +228,11 @@ private struct AppFontScaleKey: EnvironmentKey {
 }
 
 public extension EnvironmentValues {
-    /// The multiplier `View.scaledFont(_:)` applies. Defaults to 1 (unscaled), so any view tree
-    /// that never opts in — a test host, a preview — renders exactly as it always did.
+    /// The multiplier `View.scaledFont(_:)` applies. Defaults to 1, so a view tree that never opts
+    /// in (a test host, a preview) renders unscaled.
     ///
-    /// A custom environment value is what makes this work inside a SwiftUI `Table`, where the
-    /// *built-in* text levers do not reach: `defaultMinListRowHeight`, `controlSize` and the
-    /// ambient `\.font` are all dropped at the Table boundary (see `listDensity(_:)`), but a
-    /// custom key propagates into the cell views normally — verified by reading it back from
-    /// inside a realized `TableColumn` cell.
+    /// A custom key because it reaches inside a SwiftUI `Table`, where `defaultMinListRowHeight`,
+    /// `controlSize` and the ambient `\.font` are dropped at the boundary (see `listDensity(_:)`).
     var appFontScale: CGFloat {
         get { self[AppFontScaleKey.self] }
         set { self[AppFontScaleKey.self] = newValue }
@@ -326,20 +242,15 @@ public extension EnvironmentValues {
 public extension View {
     /// Publishes `size`'s scale to this subtree, so every `scaledFont(_:)` beneath it resizes.
     ///
-    /// Applied at the root of each window rather than once app-wide because SwiftUI environment
-    /// flows down a view tree, not across scenes — the main window, Activity Log, Sync History,
-    /// Keyboard Shortcuts and Settings each need it.
+    /// Applied at the root of each window, because the SwiftUI environment flows down a view tree,
+    /// not across scenes.
     func appFontSize(_ size: FontSize) -> some View {
         environment(\.appFontScale, size.scale)
-            // Also supply a scaled *default* font, for the text that never names one — a plain
-            // `Label` in a button, a `TextField`'s contents. Those have no `.scaledFont(_:)` call
-            // site to migrate, so without this they would sit at 13pt while everything around
-            // them grew (the duplicate group card's action row did exactly that).
+            // Also a scaled default font, for text that names none (a plain `Label` in a button, a
+            // `TextField`'s contents), which would otherwise stay at 13pt while the rest grew.
             //
-            // Only when actually scaling. At the default size the environment font is left
-            // untouched — writing even `.body` into it would replace SwiftUI's own implicit
-            // default for every unstyled control in the app, which is precisely the kind of
-            // silent shift the default size must not have.
+            // Only when scaling: writing even `.body` at the default size would replace SwiftUI's
+            // implicit default for every unstyled control in the app.
             .transformEnvironment(\.font) { font in
                 guard size.scale != 1 else { return }
                 font = ScaledFont.body.resolved(scale: size.scale)
@@ -348,30 +259,22 @@ public extension View {
 
     /// Publishes the *persisted* size to this subtree, tracking changes live.
     ///
-    /// The one line each window root adds. Unlike `AppAppearance`, this cannot be set once on
-    /// `NSApp` and inherited — it rides the SwiftUI environment, so every scene has to opt in:
-    /// the main window, Activity Log, Sync History and Keyboard Shortcuts. (Settings is an
-    /// in-window overlay, so it inherits from the main window's root.)
+    /// The one line each window root adds. Unlike `AppAppearance` it can't be set once on `NSApp`:
+    /// it rides the SwiftUI environment, so every scene opts in (the main window, Activity Log,
+    /// Sync History, Keyboard Shortcuts). Settings is an in-window overlay and inherits it.
     func appFontSizeFromSettings() -> some View {
         modifier(PersistedAppFontSize())
     }
 }
 
-/// Bridges the `@AppStorage` default into the environment. A modifier rather than a call at each
-/// root so the storage is observed once per window and the picker takes effect immediately.
+/// Bridges the `@AppStorage` value into the environment, observed once per window so the picker
+/// takes effect immediately.
 private struct PersistedAppFontSize: ViewModifier {
-    /// **The default is a constant, deliberately.**
-    ///
-    /// The obvious-looking improvement is to default it to a tolerant read so a legacy `String`
-    /// still resolves — `@AppStorage(...) var percent: Int` cannot see one and reports its own
-    /// default. That was tried and reverted: the only tolerant read available here is against
-    /// `UserDefaults.standard`, because SwiftUI publishes `defaultAppStorage` as a modifier and
-    /// not as a readable environment value. So a view tree pointed at a scratch suite by
-    /// `.defaultAppStorage(_:)` would have fallen back to whatever size the developer running the
-    /// tests had chosen — machine-dependent, and invisible until two machines disagreed.
-    ///
-    /// What actually closes the legacy case is ``FontSize/migrateLegacyValue(in:)`` at launch,
-    /// before anything reads the key, which `theAppMigratesTheStoredTextSizeAtLaunch` pins.
+    /// The default is a constant, deliberately. A tolerant read of a legacy `String` could only
+    /// read `UserDefaults.standard` (SwiftUI's `defaultAppStorage` isn't readable from the
+    /// environment), so a tree pointed at a scratch suite would pick up the developer's own size.
+    /// ``FontSize/migrateLegacyValue(in:)`` at launch covers the legacy case instead, pinned by
+    /// `theAppMigratesTheStoredTextSizeAtLaunch`.
     @AppStorage(FontSize.defaultsKey) private var percent: Int = FontSize.medium.percent
 
     func body(content: Content) -> some View {
@@ -382,25 +285,19 @@ private struct PersistedAppFontSize: ViewModifier {
 // MARK: - ScaledFont
 
 /// A `Font` that has not been resolved yet, carrying enough of its own specification to be
-/// re-created at another point size.
+/// re-created at another point size. `Font` is opaque (no point size can be read back out), so this
+/// keeps both the original `Font` and the parts it was built from.
 ///
-/// It exists because `Font` is opaque — there is no way to read a point size back out of one, so
-/// a scaled variant cannot be derived from a `Font` value after the fact. `ScaledFont` therefore
-/// keeps both the original `Font` *and* the parts it was built from.
-///
-/// The API deliberately mirrors `Font`'s own (`.caption`, `.system(size:weight:design:)`,
-/// `.weight(_:)`, `.monospaced()`), which is what let the app's ~290 existing call sites migrate
-/// as a pure `.font(` → `.scaledFont(` rename with the compiler checking every one: the argument
-/// expressions type-check against `ScaledFont` exactly as they did against `Font`.
+/// The API mirrors `Font`'s (`.caption`, `.system(size:weight:design:)`, `.weight(_:)`,
+/// `.monospaced()`), so `.font(` → `.scaledFont(` is a rename the compiler checks.
 public struct ScaledFont: Sendable {
-    /// The exact `Font` the pre-scaling code used. Returned verbatim at scale 1 so the default
-    /// size is not merely equivalent to the old rendering but literally the same value.
+    /// The exact `Font` the call site asked for, returned verbatim at scale 1, so the default size
+    /// is literally the same value, not merely equivalent.
     private let base: Font
     /// Point size of `base`, the number the scale multiplies.
     private let pointSize: CGFloat
-    /// Weight to re-apply when synthesizing. Carries the *semantic* weight of a text style —
-    /// `.headline` is bold and `.caption2` is medium (both measured, not assumed), and a scaled
-    /// headline that came back regular would be a visible regression.
+    /// Weight to re-apply when synthesizing: the text style's semantic weight (`.headline` is bold,
+    /// `.caption2` medium), so a scaled headline doesn't come back regular.
     private let weight: Font.Weight
     private let design: Font.Design
     /// Whether `.monospacedDigit()` was applied; re-applied after synthesis.
@@ -417,11 +314,9 @@ public struct ScaledFont: Sendable {
 
     /// The concrete `Font` for a given scale.
     ///
-    /// Scale 1 short-circuits to the original `Font` rather than synthesizing an equivalent one.
-    /// That is the correctness guarantee this whole type is built around: at the default setting
-    /// the app cannot have shifted, because it is handing SwiftUI the identical value it did
-    /// before. Synthesis only ever runs when the user has actually chosen another size, so a
-    /// text style's slightly different leading is a cost paid only by the non-default sizes.
+    /// Scale 1 short-circuits to the original `Font`, so the default setting hands SwiftUI the
+    /// identical value. Synthesis runs only at other sizes, which alone pay for a text style's
+    /// slightly different leading.
     public func resolved(scale: CGFloat) -> Font {
         guard scale != 1 else { return base }
         let font = Font.system(size: FontSize.scaledPointSize(pointSize, scale: scale),
@@ -433,11 +328,10 @@ public struct ScaledFont: Sendable {
 public extension ScaledFont {
     // MARK: Constructors mirroring `Font`
 
-    /// `weight` and `design` are optional, and forwarded as given, precisely because `Font`
-    /// distinguishes "unspecified" from "explicitly the default": `.system(size: 11)` and
-    /// `.system(size: 11, weight: .regular, design: .default)` render identically but are not
-    /// `==`. Passing them straight through is what makes `resolved(scale: 1)` return the very
-    /// same `Font` value the pre-scaling call site built, not merely an equivalent one.
+    /// `weight` and `design` are optional and forwarded as given, because `Font` tells
+    /// "unspecified" from "explicitly the default": `.system(size: 11)` and
+    /// `.system(size: 11, weight: .regular, design: .default)` render alike but aren't `==`.
+    /// Forwarding keeps `resolved(scale: 1)` the identical value.
     static func system(size: CGFloat, weight: Font.Weight? = nil,
                        design: Font.Design? = nil) -> ScaledFont {
         ScaledFont(base: .system(size: size, weight: weight, design: design),
@@ -487,7 +381,7 @@ public extension ScaledFont {
 }
 
 /// Internal, not private, so `FontSizeTests` can pin the metrics table against the live system
-/// fonts — the numbers below are the one part of this type that an OS update could invalidate.
+/// fonts: these numbers are the part an OS update could invalidate.
 extension ScaledFont {
     /// Builds a text-style `ScaledFont` from the semantic style and its measured metrics.
     static func style(_ style: Font.TextStyle, base: Font) -> ScaledFont {
@@ -496,13 +390,14 @@ extension ScaledFont {
                           design: .default)
     }
 
-    /// The point size and weight macOS resolves each text style to.
+    /// The point size and weight macOS resolves each text style to. The point size and weight macOS
+    /// resolves each text style to.
     ///
-    /// Hardcoded rather than read from `NSFont.preferredFont(forTextStyle:)` so the numbers are
-    /// deterministic and testable — macOS has no Dynamic Type, so they do not vary per user.
+    /// Hardcoded rather than read from `NSFont.preferredFont(forTextStyle:)` so they are
+    /// deterministic; macOS has no Dynamic Type, so they don't vary per user.
     /// `FontSizeTests.textStyleMetricsMatchTheSystem` pins them against the live `NSFont` values
-    /// and against a rendered width per weight, so an OS change fails the suite instead of
-    /// silently re-weighting scaled text.
+    /// and a rendered width per weight, so an OS change fails the suite instead of silently
+    /// re-weighting scaled text.
     static func metrics(for style: Font.TextStyle) -> (size: CGFloat, weight: Font.Weight) {
         switch style {
         case .largeTitle: return (26, .regular)
@@ -522,11 +417,9 @@ extension ScaledFont {
 }
 
 /// The AppKit side of a `ScaledFont`, for measuring text without laying it out.
-///
-/// Kept next to `resolved(scale:)` rather than derived by a caller, and for the same reason the type
-/// exists at all: `Font` is opaque, so nothing outside this file can recover the point size and
-/// weight a `ScaledFont` was built from. A measurement that restated them would be a second opinion
-/// about the font, and would keep agreeing with the drawn text only by luck.
+/// Kept beside `resolved(scale:)` because `Font` is opaque: nothing outside this file can recover
+/// the point size and weight a `ScaledFont` was built from, and a measurement that restated them
+/// could drift from the drawn text.
 public extension ScaledFont {
     /// The point size this renders at under `scale` — what an `NSImageSymbolConfiguration` needs.
     func pointSize(scale: CGFloat) -> CGFloat {
@@ -535,50 +428,35 @@ public extension ScaledFont {
 
     /// The `NSFont` this resolves to at `scale`.
     ///
-    /// Both halves of a font's identity have to survive this, and the trap each time has been that
-    /// getting one right silently dropped the other.
+    /// Both halves of a font's identity must survive, and getting one right can silently drop the
+    /// other:
     ///
-    /// **The digit width.** `monospacedDigitSystemFont` is not a nicety: measured, "1" is 5.93pt in
-    /// the proportional face and 7.87pt in the monospaced-digit one, so a count pill measured with
-    /// the wrong face is out by 2pt per digit.
+    /// **The digit width.** "1" is 5.93pt proportional and 7.87pt monospaced-digit, so a count pill
+    /// measured in the wrong face is out by 2pt per digit.
     ///
-    /// **The face.** `.rounded` had been falling through to `systemFont`, so a rounded font measured
-    /// here silently reported the *default* face's width — "Birth Certificate" is 95.729pt in SF Pro
-    /// and 92.917pt in SF Rounded, and the 95.7 figure reached a release-notes draft as the width of
-    /// a row that draws `PaneRowFonts.name`, which is rounded.
-    ///
-    /// The fix for that left the same hole one level down, because `Font.monospacedDigit()`
-    /// *preserves* the design: a font that was both went out through the digits path above the
-    /// design switch and came back in the default face. "1234" at 16pt semibold — the shape the
-    /// filing-spend totals draw — is 40.745pt that way against 42.042pt in the rounded face SwiftUI
-    /// actually lays out. Hence design and digits are composed here rather than raced:
+    /// **The face.** A `.rounded` font must not measure in the default face (SF Rounded is narrower
+    /// than SF Pro). `Font.monospacedDigit()` preserves the design, so design and digits are
+    /// composed here rather than one path winning:
     ///
     /// - `.monospaced` answers a digit request on its own (the whole face is fixed-pitch), so it
-    ///   wins outright. `monospacedDigitSystemFont` would give the *proportional* face with
-    ///   equal-width digits — 41.0pt laid out for "1234" where the drawn text is 40.0pt, and the
-    ///   wrong glyph for every letter besides. It keeps `NSFont.monospacedSystemFont` rather than
-    ///   joining the descriptor transform below, which measures the same to the point that a width
-    ///   assertion cannot tell them apart: the difference is object identity. `withDesign` mints a
-    ///   font that is `!=` the canonical one at every weight but `.regular`, and `!=` its own
-    ///   no-digits sibling at all of them — and `LabelMetrics` keys its caches on `NSFont`, so
-    ///   that is a permanent miss rather than a cosmetic difference.
-    /// - `.rounded` and `.serif` are a descriptor transform applied *on top of* whichever base the
-    ///   digit flag chose. `withDesign` carries the descriptor's number-spacing feature across, so
-    ///   the digits stay equal-width through it — measured, "1" and "0" are both 10.510pt in the
-    ///   rounded 16pt semibold face. Every combination here was checked against a hosted `Text`.
-    /// - `.serif` is in that list on purpose. Nothing in SyncCloud draws it today, so it is latent
-    ///   rather than broken — but it is the same silent miss as `.rounded` was, and handling it
-    ///   costs one line and measures right (`NewYork-Semibold`, 34.5pt laid out for "1234" against
-    ///   38.0pt in the default face). The `default:` below is `.default` and nothing else.
+    ///   wins outright; `monospacedDigitSystemFont` would give the proportional face with
+    ///   equal-width digits. It keeps `NSFont.monospacedSystemFont` rather than the descriptor
+    ///   transform below, which measures the same but mints a font that is `!=` the canonical one
+    ///   at most weights. `LabelMetrics` keys its caches on `NSFont`, so that would be a permanent
+    ///   cache miss.
+    /// - `.rounded` and `.serif` are a descriptor transform on top of whichever base the digit flag
+    ///   chose. `withDesign` carries the number-spacing feature across, so the digits stay
+    ///   equal-width. Every combination was checked against a hosted `Text`.
+    /// - `.serif` is drawn nowhere yet, but is handled so it can't miss the way `.rounded` would.
+    ///   The `default:` below is `.default` and nothing else.
     func nsFont(scale: CGFloat) -> NSFont {
         let size = pointSize(scale: scale)
         let appKitWeight = Self.appKitWeight(weight)
         if case .monospaced = design {
             return NSFont.checkedMonospacedSystemFont(ofSize: size, weight: appKitWeight)
         }
-        // Digits first, then the design on top. The fallbacks below all return `base`, which is
-        // already the digits font — so a face this Mac does not have costs the *design*, never the
-        // digit-width guarantee that is the reason this branch exists.
+        // Digits first, then the design on top. Every fallback below returns `base`, already the
+        // digits font, so a face this Mac lacks costs the design, never the digit width.
         let base = usesMonospacedDigits
             ? NSFont.checkedMonospacedDigitSystemFont(ofSize: size, weight: appKitWeight)
             : NSFont.systemFont(ofSize: size, weight: appKitWeight)
@@ -591,10 +469,9 @@ public extension ScaledFont {
 
     /// The AppKit design `design` names, or nil when there is no face to switch to.
     ///
-    /// `.monospaced` is handled by `nsFont` before this is reached — it needs the whole face, not a
-    /// transform of the digits font — but it is listed so this stays a total answer to the question
-    /// it asks. `.default` and any design a future SDK adds return nil, which measures in the
-    /// default face rather than guessing at a mapping.
+    /// `.monospaced` is handled by `nsFont` before this (it needs the whole face, not a transform
+    /// of the digits font) but is listed so this stays a total answer. `.default` and any future
+    /// design return nil and measure in the default face.
     private static func systemDesign(_ design: Font.Design) -> NSFontDescriptor.SystemDesign? {
         switch design {
         case .rounded: return .rounded
@@ -639,22 +516,19 @@ public extension View {
 public extension Text {
     /// Applies `font` at `scale` while staying a `Text`.
     ///
-    /// For the handful of labels that feed AppKit-backed chrome — a `Menu`'s label above all.
-    /// Those render their label themselves and only honor a *plain* `Text`: wrapping it in a
-    /// modifier (which `View.scaledFont(_:)` necessarily does, to read the environment) makes
-    /// AppKit drop the caller's font AND foreground style and substitute its own. The pane
-    /// header's provider name lost both its weight and its accent color exactly that way.
+    /// For labels that feed AppKit-backed chrome, a `Menu`'s label above all. These honour only a
+    /// plain `Text`: wrapped in a modifier (as `View.scaledFont(_:)` must be, to read the
+    /// environment), AppKit drops the caller's font and foreground style for its own.
     ///
-    /// The scale has to be passed in because a `Text` method cannot read the environment. Callers
-    /// hold it with `@Environment(\.appFontScale)` and hand it over.
+    /// The scale is passed in because a `Text` method can't read the environment. Callers hold it
+    /// with `@Environment(\.appFontScale)`.
     func scaledFont(_ font: ScaledFont, scale: CGFloat) -> Text {
         self.font(font.resolved(scale: scale))
     }
 }
 
-/// Reads the scale from the environment so the font re-resolves when the setting changes —
-/// a plain `.font(font.resolved(scale:))` at the call site could not, since the call sites are
-/// not all views that observe the environment.
+/// Reads the scale from the environment so the font re-resolves when the setting changes, which
+/// a plain `.font(font.resolved(scale:))` at the call site couldn't.
 private struct ScaledFontModifier: ViewModifier {
     @Environment(\.appFontScale) private var scale
     let font: ScaledFont
@@ -667,22 +541,18 @@ private struct ScaledFontModifier: ViewModifier {
 // MARK: - The monospaced face, checked
 
 public extension NSFont {
-    /// `monospacedSystemFont(ofSize:weight:)`, safe for the time it answers nil.
-    ///
-    /// AppKit declares it non-null and Swift takes it at its word. It is not: on 2026-11-01 it
-    /// answered nil four seconds into a launch, the toolbar's first geometry pass put that nil in
-    /// an attribute dictionary (`CommandPaletteBarMetrics.keycapWidth`), CoreText's copy of the
-    /// dictionary threw on it, and the app aborted. The cause is unknown: the next launch drew
-    /// fine, and the same pass measured with `systemFont` twice without trouble. Every
-    /// `monospacedSystemFont` call outside the tests goes through here.
+    /// `monospacedSystemFont(ofSize:weight:)`, safe for the time it answers nil. AppKit declares it
+    /// non-null and Swift trusts that, but it can answer nil: a nil in an attribute dictionary
+    /// (such as `CommandPaletteBarMetrics.keycapWidth`'s) makes CoreText throw and the app abort.
+    /// The cause is unknown and it is rare. Every `monospacedSystemFont` call outside the tests
+    /// goes through here.
     static func checkedMonospacedSystemFont(ofSize size: CGFloat, weight: NSFont.Weight) -> NSFont {
         fallingBack(from: NSFont.monospacedSystemFont(ofSize: size, weight: weight),
                     size: size, weight: weight)
     }
 
-    /// `monospacedDigitSystemFont(ofSize:weight:)`, safe the same way: AppKit declares it
-    /// non-null too, and its answer goes into the same attribute dictionaries. Not seen to answer
-    /// nil; guarded because nothing says it can't, and a nil there aborts the app.
+    /// `monospacedDigitSystemFont(ofSize:weight:)`, safe the same way: also declared non-null, and
+    /// its answer goes into the same attribute dictionaries, where a nil aborts the app.
     static func checkedMonospacedDigitSystemFont(ofSize size: CGFloat, weight: NSFont.Weight) -> NSFont {
         fallingBackToDigits(from: NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight),
                             size: size, weight: weight)
@@ -691,18 +561,15 @@ public extension NSFont {
 
 extension NSFont {
     /// `answer`, or the closest face to it when AppKit's non-null answer was nil. Split out so a
-    /// test can hand it that nil without swizzling AppKit under every suite running beside it.
+    /// test can pass that nil without swizzling AppKit under every suite beside it.
     ///
-    /// **The bit-cast is required, not belt and braces.** `answer` is a non-optional parameter, so
-    /// `let font: NSFont? = answer` is `.some` by type, and under `-O` that check is folded away:
-    /// tried with a nil, the binding missed it and the cast caught it.
+    /// **The bit-cast is required.** `answer` is non-optional, so `let font: NSFont? = answer` is
+    /// `.some` by type and `-O` folds the check away; only the cast sees the nil.
     ///
-    /// **The fallbacks, closest first.** The same face reached through its descriptor measures
-    /// exactly what `monospacedSystemFont` does ("⌘K" 16.07pt at 13pt semibold), which matters
-    /// because under-measuring the keycap is what folds the toolbar behind its chevron. Then the
-    /// user's fixed-pitch font, which ignores weight and measures "⌘K" 0.4pt narrower but keeps the
-    /// editor's columns and the diff gutter's digits aligned. The system face is last and
-    /// unchecked: nothing is left to fall back to, and it is the one that kept working.
+    /// Fallbacks, closest first: the same face through its descriptor, which measures exactly the
+    /// same (under-measuring the keycap folds the toolbar behind its chevron); then the user's
+    /// fixed-pitch font, slightly narrower but keeping the editor's columns and the diff gutter's
+    /// digits aligned; last the system face, unchecked, with nothing left to fall back to.
     static func fallingBack(from answer: NSFont, size: CGFloat, weight: NSFont.Weight) -> NSFont {
         if let font = unsafeBitCast(answer, to: NSFont?.self) { return font }
         let base = NSFont.systemFont(ofSize: size, weight: weight)
@@ -714,8 +581,8 @@ extension NSFont {
     }
 
     /// `answer`, or the system face with equal-width digits asked of its descriptor, when AppKit's
-    /// non-null answer was nil — bit-cast to check, as ``fallingBack(from:size:weight:)`` is.
-    /// The system face itself is last: its digits are proportional, but it draws.
+    /// non-null answer was nil, bit-cast to check as ``fallingBack(from:size:weight:)`` is. The
+    /// plain system face is last: proportional digits, but it draws.
     static func fallingBackToDigits(from answer: NSFont, size: CGFloat, weight: NSFont.Weight) -> NSFont {
         if let font = unsafeBitCast(answer, to: NSFont?.self) { return font }
         let base = NSFont.systemFont(ofSize: size, weight: weight)

@@ -3,17 +3,12 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// **A semantic colour used as body text has to be readable as body text.**
+/// A semantic colour used as body text has to be readable as body text. Bare
+/// `SemanticColor.caution` is `Color.yellow`, near-invisible as ink on a near-white sheet.
 ///
-/// Found by rendering the People section and looking at the PNG: its one actionable line — the
-/// unclaimed-person row — used bare `SemanticColor.caution` as `.foregroundStyle`, which is
-/// `Color.yellow`, on a near-white sheet. Everywhere else in this app a caution is a fill behind a
-/// wash, and a sibling file says so; four other sites had drifted the same way.
-///
-/// The numbers are measured here rather than quoted, because the obvious fix is wrong by a margin
-/// too small to notice: `AccentFill.deepened` targets what a FILL needs to carry a white label, and
-/// re-used for coloured ink on a light ground it lands at 4.17:1 — under the 4.5:1 body-text floor,
-/// and close enough to it to look fine in a screenshot.
+/// The ratios are measured here rather than quoted because the obvious fix misses by too little to
+/// notice: `AccentFill.deepened` targets what a fill needs to carry a white label, and as coloured
+/// ink on a light ground it lands just under the 4.5:1 body-text floor.
 @Suite struct SemanticInkContrastTests {
 
     /// The lightest ground these sentences are drawn on — the Settings sheet.
@@ -22,11 +17,9 @@ import Testing
     static let darkSheet = NSColor(srgbRed: 0.13, green: 0.13, blue: 0.13, alpha: 1)
     static let bodyTextFloor: CGFloat = 4.5
 
-    /// **Read from the table, not restated beside it.** This was a hand-written copy of six
-    /// members, which is a registry sitting next to the type it describes: adding a seventh left
-    /// every measurement below running against the old six and passing, with nothing anywhere
-    /// saying the two had drifted apart. `neutral` was added precisely that way.
-    /// `everySemanticColorMemberIsInTheAllList` proves the list this reads is the whole set.
+    /// Read from the table, not restated beside it: a hand-written copy would let a new member go
+    /// unmeasured with every test still passing. `everySemanticColorMemberIsInTheAllList` proves
+    /// the list is the whole set.
     static let semantics: [(String, Color)] = SemanticColor.all.map { ($0.name, $0.color) }
 
     private func srgb(_ c: Color) -> NSColor {
@@ -43,15 +36,14 @@ import Testing
         return max(x, y) / min(x, y)
     }
 
-    /// **The fixture must reproduce the defect**, or the test below could pass with the fix removed.
+    /// The fixture must reproduce the defect, or the tests below could pass with the fix removed.
     @Test func rawCautionIsUnreadableAsText() {
         let raw = ratio(srgb(SemanticColor.caution), Self.sheet)
         #expect(raw < 2.0, "caution is no longer the near-invisible ink this exists for: \(raw):1")
     }
 
-    /// And the fill-target deepening — the transform already in the app, and the obvious thing to
-    /// reach for — does not clear the text floor either. Pinned so nobody "simplifies" the text
-    /// target back into the fill one.
+    /// The fill-target deepening, the obvious thing to reach for, doesn't clear the text floor.
+    /// Pinned so nobody folds the text target back into the fill one.
     @Test func theFillTargetIsNotEnoughForText() {
         let deep = ratio(AccentFill.deepened(srgb(SemanticColor.caution)), Self.sheet)
         #expect(deep < Self.bodyTextFloor,
@@ -66,13 +58,9 @@ import Testing
         }
     }
 
-    /// **The dark side, at the same bar — and it did not clear it on its own.**
-    ///
-    /// The first version of this asserted 3.0 in dark, which is the GLYPH bar, and passed. At the
-    /// text bar two of six colours miss untouched: `move` measures 3.86:1 on a 0.13 sheet and
-    /// `error` lands on 4.50 with nothing to spare. A member called `bodyText` that quietly misses
-    /// its own floor is the defect this file exists to prevent, arriving through the appearance
-    /// nobody re-measured.
+    /// The dark side, at the same body-text bar, not the 3:1 glyph bar. Untouched, `move` misses it
+    /// on the dark sheet and `error` has nothing to spare, so dark ink goes through
+    /// `lightenedForText`.
     @Test func everySemanticColourIsReadableAsInkInDark() {
         for (name, color) in Self.semantics {
             let ink = srgb(AccentFill.lightenedForText(color))
@@ -81,7 +69,7 @@ import Testing
         }
     }
 
-    /// **The fixture must still reproduce what the lift is for**, or the test above could pass with
+    /// The fixture must still reproduce what the lift is for, or the test above could pass with
     /// `lightenedForText` returning its input.
     @Test func theRawColoursDoNotAllClearTheDarkTextFloor() {
         let misses = Self.semantics.filter { ratio(srgb($0.1), Self.darkSheet) < Self.bodyTextFloor }
@@ -89,13 +77,9 @@ import Testing
                 "every raw semantic colour now clears the dark text floor; `lightenedForText` may be a no-op")
     }
 
-    /// The lift only ever lightens, and returns a colour already at the floor untouched — the
-    /// mirror of `deepened`'s own promise, and what keeps this from flattening the table toward one
-    /// luminance.
-    ///
-    /// **Gated on the LUMINANCE floor, not on a measured ratio against one sheet**, exactly as
-    /// `deepened` is. A ratio gate would make the transform's answer depend on which surface the
-    /// caller had in mind, and every one of these colours is drawn on more than one.
+    /// The lift only ever lightens and leaves a colour already at the floor untouched, mirroring
+    /// `deepened`, so the table isn't flattened toward one luminance. Gated on the luminance floor,
+    /// as `deepened` is, not a ratio against one sheet: these colours are drawn on several surfaces.
     @Test func theLiftNeverDarkensAndLeavesColoursAtTheFloorAlone() {
         for (name, color) in Self.semantics {
             let raw = srgb(color), lifted = srgb(AccentFill.lightenedForText(color))
@@ -114,13 +98,9 @@ import Testing
 
     // MARK: - The list is the whole set
 
-    /// **`SemanticColor.all` has to actually contain every member**, or moving the test's registry
-    /// into the source just moved the drift rather than ending it: a member added to the type and
-    /// forgotten in `all` would be measured by nothing, exactly as `.gray` was.
-    ///
-    /// A list cannot check itself for completeness, so this reads the declarations out of the
-    /// source file. That is the only place the truth exists — `SemanticColor` is a namespace of
-    /// static lets, not a `CaseIterable` enum, so there is nothing to enumerate at runtime.
+    /// `SemanticColor.all` must contain every member, or one added to the type and forgotten in
+    /// `all` is measured by nothing. `SemanticColor` is a namespace of static lets, not a
+    /// `CaseIterable` enum, so this reads the declarations out of the source file.
     @Test func everySemanticColorMemberIsInTheAllList() throws {
         let source = URL(fileURLWithPath: #filePath)     // …/Design/Tests/DesignTests/<this>.swift
             .deletingLastPathComponent()
@@ -129,8 +109,8 @@ import Testing
             .appendingPathComponent("Sources/Design/SemanticColor.swift")
         let text = try String(contentsOf: source, encoding: .utf8)
 
-        // `public static let <name> = Color.…` — the member declarations, and not `all`, which is
-        // an array of tuples rather than a Color.
+        // `public static let <name> = Color.…`: the member declarations, not `all`, which is an
+        // array of tuples rather than a Color.
         let declaration = try Regex(#"public static let (\w+) = Color\."#)
         let declared = text.matches(of: declaration).compactMap { $0[1].substring.map(String.init) }
 

@@ -1,21 +1,17 @@
 import SwiftUI
 
-/// The app's one blank-panel template (backlog H3): icon + title + message, an optional
-/// caption line for the safety contract ("Nothing is removed without your confirmation…"),
-/// and up to two actions. Every workspace's "nothing here" state — Compare, Organize, the
-/// Activity Log — renders through this so an empty panel always looks intentional and always
-/// offers the next step. Modeled on the Duplicates pre-scan (the L4 gold standard).
-///
-/// All copy is parameterized — this view hard-codes layout, never words.
+/// The app's one blank-panel template: icon, title and message, an optional caption for the
+/// safety contract ("Nothing is removed without your confirmation…"), and up to two actions.
+/// Every workspace's "nothing here" state renders through this, so an empty panel always looks
+/// intentional and offers the next step. All copy is passed in; this view owns only layout.
 public struct EmptyStateView: View {
-    /// One button an empty state offers. `primary` renders prominent and large (the single
-    /// obvious next step of a pre-scan state); `secondary` renders as a regular bordered
-    /// button (the quieter "Scan again" of a terminal state).
+    /// One button an empty state offers. `primary` is prominent and large (the obvious next step
+    /// of a pre-scan state); `secondary` is regular bordered (a terminal state's "Scan again").
     public struct Action {
         public let title: String
         public let systemImage: String?
-        /// The tooltip, for an action whose title alone does not say what it does or what it
-        /// touches. nil shows none — never an empty tooltip box.
+        /// The tooltip, for an action whose title doesn't say what it does or touches. nil shows
+        /// none, never an empty tooltip box.
         public let help: String?
         public let handler: () -> Void
 
@@ -28,9 +24,9 @@ public struct EmptyStateView: View {
         }
     }
 
-    /// How much room the state gets. `standard` is the full-tab blank panel; `compact`
-    /// shrinks the icon and tightens spacing for narrow hosts (the Details sidebar, a file
-    /// pane placeholder, the Help sidebar) where the standard layout would crowd its frame.
+    /// How much room the state gets. `standard` is the full-tab panel; `compact` shrinks the icon
+    /// and spacing for narrow hosts (the Details sidebar, a file pane placeholder, the Help
+    /// sidebar).
     public enum Layout: Sendable {
         case standard
         case compact
@@ -48,12 +44,12 @@ public struct EmptyStateView: View {
 
     /// - Parameters:
     ///   - icon: SF Symbol name, rendered large and hierarchical in `tint`.
-    ///   - tint: The icon's color — the state's mood (accent = ready, green = success,
+    ///   - tint: The icon's color, the state's mood (accent = ready, green = success,
     ///     secondary = neutral).
     ///   - title: One short line naming the state.
-    ///   - message: The job explanation — what this state means and what a scan would do.
-    ///   - path: A file-system path detail (the missing root, the offending folder) —
-    ///     rendered monospaced on one line, middle-truncated with the full path on hover.
+    ///   - message: What this state means and what a scan would do.
+    ///   - path: A file-system path (the missing root, the offending folder), monospaced on one
+    ///     line, middle-truncated with the full path on hover.
     ///   - caption: The safety contract, set slightly smaller and dimmer than the message.
     ///   - primary: The one prominent next step (large, filled). nil for passive states.
     ///   - secondary: A quieter companion action (regular, bordered).
@@ -84,8 +80,8 @@ public struct EmptyStateView: View {
 
     public var body: some View {
         VStack(spacing: isCompact ? 8 : 12) {
-            // The icon is the state's mood, which the title already names in words — VoiceOver
-            // reading "checkmark seal fill" ahead of "Everything is in sync" adds nothing.
+            // Hidden from VoiceOver: the title already names the state, and a symbol name read
+            // ahead of it adds nothing.
             Image(systemName: icon)
                 .scaledFont(.system(size: isCompact ? 28 : 40))
                 .foregroundStyle(tint)
@@ -104,9 +100,9 @@ public struct EmptyStateView: View {
                     .frame(maxWidth: 440)
             }
             if let path {
-                // Paths get their own slot instead of riding in `caption`: a caption wraps
-                // and centers (fine for prose, unreadable for a long path), while a path
-                // needs single-line middle truncation with the full value on hover.
+                // Its own slot, not `caption`: a caption wraps and centers, which suits prose but
+                // not a long path, which needs one middle-truncated line with the full value on
+                // hover.
                 Text(path)
                     .scaledFont(.caption.monospaced())
                     .foregroundStyle(.secondary)
@@ -138,11 +134,9 @@ public struct EmptyStateView: View {
                         Button(action: secondary.handler) {
                             label(for: secondary)
                         }
-                        // Same choke point as the primary, deliberately not a quieter variant of
-                        // it. These two sit side by side in one HStack, and a pair where only one
-                        // answers the pointer doesn't read as "loud and quiet" — it reads as one
-                        // live control and one dead label, which is exactly wrong for a button
-                        // whose whole job is to offer the alternative next step.
+                        // The same hover as the primary, not a quieter one: side by side, a pair
+                        // where only one answers the pointer reads as one live control and one
+                        // dead label.
                         .chromeHover()
                         .controlSize(isCompact ? .small : .regular)
                         .modifier(ActionHelp(text: secondary.help))

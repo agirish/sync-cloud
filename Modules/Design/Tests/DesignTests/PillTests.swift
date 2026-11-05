@@ -2,9 +2,9 @@ import Testing
 import Foundation
 @testable import Design
 
-/// Pins the two pill geometries (C1). Call sites across FileExplorer/Dashboard build on these
-/// constants; a drive-by tweak here silently restyles every badge in the app, so treat the
-/// numbers as a stable design contract.
+/// Pins the two pill geometries. Call sites across FileExplorer and Dashboard build on these
+/// constants, and a drive-by tweak silently restyles every badge in the app, so the numbers are a
+/// stable design contract.
 @Suite struct PillTests {
 
     @Test func standardGeometryMatchesTheStatPillSpec() {
@@ -25,8 +25,8 @@ import Foundation
         #expect(PillVariant.fillOpacity == 0.14)
         #expect(PillVariant.strokeOpacity == 0.45)
         #expect(PillVariant.strokeWidth == 0.5)
-        // The icon/number/label gap — the exact number whose unpinned change once forced a
-        // snapshot re-record. Hand-assembled mirrors (the Log level chips) bake it in too.
+        // The icon/number/label gap. Snapshots depend on it, and hand-assembled mirrors (the Log
+        // level chips) bake it in too.
         #expect(Pill.contentSpacing == 5)
     }
 }

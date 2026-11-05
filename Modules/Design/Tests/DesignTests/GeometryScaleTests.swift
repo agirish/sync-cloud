@@ -3,15 +3,12 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// The `Radius` scale, and the two things that can go wrong with a scale silently:
-/// the older names for the same stops drifting away from it, and new raw literals accumulating
-/// beside it until there are eleven radii again.
+/// The `Radius` scale, and the two ways a scale fails silently: older names for its stops drifting
+/// away from it, and raw literals accumulating beside it.
 ///
-/// The value assertions here deliberately pin *relationships* rather than echoing each number —
-/// a test reading `6` and finding `6` passes just as happily when `6` is the wrong answer. The
-/// one exception is `overlayShadow`, where the literal IS the claim: it has to keep painting what
-/// the four call sites painted before they were converted, and the only way to say that is to
-/// write down what they used to say.
+/// The value checks pin relationships rather than echo each number, since a test reading `6` and
+/// finding `6` passes just as well when `6` is wrong. The exception is `overlayShadow`, where the
+/// literal is the claim: the four panels that share it must keep painting exactly this shadow.
 @Suite struct GeometryScaleTests {
 
     // MARK: - The scales hold their shape
@@ -22,9 +19,8 @@ import Testing
         #expect(Radius.all.allSatisfy { $0 > 0 }, "a corner radius of zero is not a stop")
     }
 
-    /// Every gap between adjacent radius stops is big enough to SEE. This is the whole argument
-    /// for the scale: 5, 6 and 7 were three stops in everything but name, and no reader could tell
-    /// them apart on a chip. Two stops one point apart would recreate exactly that.
+    /// Every gap between adjacent radius stops is big enough to see. Stops one point apart, like
+    /// 5, 6 and 7, are one stop in all but name: nobody can tell them apart on a chip.
     @Test func adjacentRadiusStopsAreFarEnoughApartToDistinguish() {
         for (lower, upper) in zip(Radius.all, Radius.all.dropFirst()) {
             #expect(upper - lower >= 2,
@@ -34,9 +30,8 @@ import Testing
 
     // MARK: - The older names cannot drift from the scale
 
-    /// `cardCornerRadius` and `smallCornerRadius` predate the scale and are still spelled that way
-    /// at ~10 call sites. They now READ from the scale, and this is what stops someone re-typing a
-    /// literal into either one and quietly reintroducing a fifth stop.
+    /// `cardCornerRadius` and `smallCornerRadius` are older names still used at call sites. They
+    /// read from the scale, and this stops a literal typed into either from adding a stray stop.
     @Test func theOlderRadiusNamesAreTheScaleStops() {
         #expect(LiquidGlass.cardCornerRadius == Radius.card)
         #expect(LiquidGlass.smallCornerRadius == Radius.well)
@@ -44,9 +39,8 @@ import Testing
 
     // MARK: - Elevation
 
-    /// `overlayShadow` has to keep painting exactly what the setup sheet, the help book, the
-    /// destination picker and the settings overlay each wrote inline before they were converted.
-    /// The conversion claimed to be invisible; this is the claim.
+    /// `overlayShadow` is the one shadow the setup sheet, the help book, the destination picker and
+    /// the settings overlay share, pinned by value so none of them changes look unnoticed.
     @Test func theOverlayShadowIsWhatTheFourPanelsUsedToWriteInline() {
         let shadow = LiquidGlass.overlayShadow
         #expect(shadow.color == Color.black.opacity(0.3))
@@ -56,14 +50,14 @@ import Testing
     }
 
     /// An overlay floats over a dimmed window; a card floats over the window's own background.
-    /// The order is the point — if they ever meet, the elevation language has collapsed.
+    /// The order is the point: if they ever meet, the elevation language has collapsed.
     @Test func anOverlayReadsAsHigherThanACard() {
         #expect(LiquidGlass.overlayShadow.radius > LiquidGlass.cardShadow.radius)
         #expect(LiquidGlass.cardShadow.radius > LiquidGlass.subtleShadow.radius)
     }
 
-    /// `.overlayPanelShadow()` must not change what it is applied to beyond the shadow — it
-    /// replaced four inline `.shadow(...)` calls, and a shadow does not participate in layout.
+    /// `.overlayPanelShadow()` must change nothing but the shadow: a shadow takes no part in
+    /// layout, so the panel's footprint stays the same.
     @Test @MainActor func theOverlayShadowModifierDoesNotChangeLayout() {
         let bare = NSHostingView(rootView: Color.clear.frame(width: 120, height: 40))
         let shadowed = NSHostingView(rootView: Color.clear.frame(width: 120, height: 40)
@@ -74,17 +68,15 @@ import Testing
 
     // MARK: - No new strays
 
-    /// **The scale only holds if nothing writes past it.** Before this, 80 call sites hand-wrote a
-    /// radius in the 5…11 band and no two neighbours had to agree; the fix is only durable if a
-    /// new one fails here rather than being noticed by eye three releases later.
+    /// The scale only holds if nothing writes past it: a hand-written radius in the 5…11 band
+    /// fails here instead of being noticed by eye releases later.
     ///
-    /// Scoped to the band the scale actually covers. Radii of 1–4 are bar caps and hairline rules
-    /// (a 2pt progress bar's cap is half its height, not a corner) and 12 is a deliberate one-off —
-    /// both are documented on `Radius` as out of scope, so flagging them here would be this test
-    /// asserting something the design does not claim.
+    /// Scoped to the band the scale covers. Radii of 1–4 are bar caps and hairline rules (a 2pt
+    /// progress bar's cap is half its height, not a corner) and 12 is a deliberate one-off; `Radius`
+    /// documents both as out of scope.
     @Test func noSourceHandWritesARadiusInsideTheScalesBand() throws {
         let sources = try Self.appSwiftSources()
-        // `cornerRadius: <digits>` — the literal form. A named constant is exactly what this wants.
+        // `cornerRadius: <digits>`, the literal form. A named constant is what this wants.
         let literal = try Regex(#"cornerRadius: (\d+)(?![\d.])"#)
 
         var strays: [String] = []
@@ -107,37 +99,32 @@ import Testing
                 "\(strays.count) raw radii inside the scale's band — use a `Radius` stop:\n\(report)")
     }
 
-    /// The scan itself has to be able to fail. A regex that matches nothing would make the test
-    /// above pass on any tree at all, which is the failure mode source scans die of.
+    /// The scan itself has to be able to fail: a regex that matches nothing would pass the test
+    /// above on any tree.
     @Test func theStrayScanFindsAStrayWhenThereIsOne() throws {
         let literal = try Regex(#"cornerRadius: (\d+)(?![\d.])"#)
         let planted = "            RoundedRectangle(cornerRadius: 9, style: .continuous)"
         let match = try literal.firstMatch(in: planted)
         #expect(match != nil, "the pattern no longer matches a hand-written radius at all")
         #expect(Int(match?[1].substring ?? "") == 9)
-        // And that it does NOT fire on the converted form, which is what every call site now reads.
+        // And that it doesn't fire on the token form, which is what every call site reads.
         #expect(try literal.firstMatch(in: "RoundedRectangle(cornerRadius: Radius.well)") == nil,
                 "the pattern matches the token form — every converted site would be reported")
     }
 
     // MARK: - The first-run sheet answers the pointer
 
-    /// **`.buttonStyle(.plain)` means the control draws its own chrome, so AppKit contributes no
-    /// hover state at all** — which is what `HoverAffordanceStyle` was built to replace, and what
-    /// its own doc comment says it replaces. The 2026-07-25 sweep converted 44 of 46 sites, but
-    /// `SetupSheet` was written after it, so the app's FIRST impression was seven controls that
-    /// sit inert under the pointer: the accent swatches, "Make primary", "Remove", the person and
-    /// place capsules, "Change", and a chip's dismiss glyph.
+    /// With `.buttonStyle(.plain)` the control draws its own chrome and AppKit gives it no hover
+    /// state, which `HoverAffordanceStyle` exists to supply. The setup sheet is the app's first
+    /// impression, so none of its buttons may sit inert under the pointer.
     ///
-    /// Scoped to the setup sheet's own directory rather than the whole app because two sites
-    /// elsewhere are
-    /// deliberately unconverted (`TidyGroupCard`'s keeper radio pushes an `NSCursor`;
-    /// `DifferencesView`'s count pill gates hover on `hasScanned`), and an app-wide assertion
-    /// would need an allow-list — which is a registry, and a registry is exactly what stops
-    /// covering the whole set the moment someone adds a file to it.
+    /// Scoped to the setup sheet, not the whole app, because two sites elsewhere are plain on
+    /// purpose (`TidyGroupCard`'s keeper radio pushes an `NSCursor`; `DifferencesView`'s count pill
+    /// gates hover on `hasScanned`). An app-wide check would need an allow-list, and an allow-list
+    /// stops covering the whole set as soon as a file is added.
     @Test func theSetupSheetHasNoChromelessButtonWithoutAHoverAffordance() throws {
-        // **The sheet is a directory now.** Scanning only `SetupSheet.swift` after the split would
-        // read the host, which draws no button of its own, and report a clean sweep of nothing.
+        // The sheet is a directory. Scanning only `SetupSheet.swift` would read the host, which
+        // draws no button of its own, and report a clean sweep of nothing.
         let files = try Self.appSwiftSources().filter {
             $0.path.contains("/MacApp/Setup/") || $0.path.hasSuffix("MacApp/SetupSheet.swift")
         }
@@ -150,9 +137,9 @@ import Testing
         #expect(text.contains("struct SetupSheet"), "that is not the setup sheet")
         #expect(text.contains("struct SetupScreenCard"), "the sheet's chrome was not read")
         let affordances = text.components(separatedBy: ".buttonStyle(.hoverAffordance(").count - 1
-        // Re-derived from where the affordances actually ended up after the split: the accent
-        // swatch, the two chip rows (people and countries), the name forms, the outline rows in the
-        // tree, More options, the found-name chips and the Start-with buttons.
+        // Where the affordances live: the accent swatch, the two chip rows (people and countries),
+        // the name forms, the outline rows in the tree, More options, the found-name chips and the
+        // Start-with buttons.
         #expect(affordances >= 8,
                 "only \(affordances) hover affordances in the setup sheet — the conversion regressed")
 
@@ -161,10 +148,9 @@ import Testing
                 "\(plain) chrome-less button(s) in the setup sheet give no hover feedback")
     }
 
-    /// Every app source, with the vacuity guards. Same shape as `SegmentedAccentTests` — `MacApp/`
-    /// is a sibling of `Modules/` and in no SPM package, so it has to be added by hand or the
-    /// likeliest home for a stray is not scanned at all; and walking `Modules/` for `/Sources/`
-    /// rather than each module's own `Sources` sweeps in checked-out dependencies from `.build/`.
+    /// Every app source, with the vacuity guards; same shape as `SegmentedAccentTests`. `MacApp/` is
+    /// in no SPM package, so it is added by hand. Each module's own `Sources` is walked, because
+    /// searching `Modules/` for `/Sources/` would sweep in dependencies checked out in `.build/`.
     private static func appSwiftSources() throws -> [URL] {
         let repo = URL(fileURLWithPath: #filePath)      // …/Design/Tests/DesignTests/<this>.swift
             .deletingLastPathComponent()                // …/Design/Tests/DesignTests

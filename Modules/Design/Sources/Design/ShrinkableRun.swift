@@ -1,37 +1,25 @@
 import SwiftUI
 
-/// A run of content that is **exactly as wide as it needs, and no wider — but may be made
-/// narrower.**
+/// A run of content exactly as wide as it needs and no wider, but which may be made narrower.
 ///
-/// SwiftUI has no modifier for this shape, which is why it is a `Layout`. The three widths a
-/// container reports are ideal, minimum and maximum, and the ordinary tools each get one of them
-/// wrong for a row of readouts:
+/// SwiftUI has no modifier for this, hence a `Layout`. The ordinary tools each get one of the three
+/// widths (ideal, minimum, maximum) wrong for a row of readouts:
 ///
-/// - a plain run of `.fixedSize()` views has minimum == ideal, so it cannot yield at all. Its row
-///   then draws wider than the column it was offered, and a `.frame(maxWidth: .infinity)` ancestor
-///   reports that larger width rather than the proposal — which is how `LensHeaderCard` came to
-///   paint its scan-root chip and its "Apply" button off *both* edges of the pane at once.
-/// - a `ScrollView` fixes the minimum (it will accept any width) and breaks the maximum: it is
-///   greedy, so in an `HStack` it soaks up the row's slack like a `Spacer` and starves a flexible
-///   sibling. Measured on To File's row 2: the folder-survey sentence, which has room for its full
-///   490pt at a 1,400pt card, was cut to 414 at every width and every text size, because the
-///   readouts beside it had taken the surplus.
+/// - `.fixedSize()` views have minimum == ideal, so they can't yield: the row draws wider than its
+///   column, and a `.frame(maxWidth: .infinity)` ancestor reports that larger width, so the content
+///   paints off both edges of the pane.
+/// - a `ScrollView` accepts any width but is greedy: in an `HStack` it soaks up the row's slack like
+///   a `Spacer` and starves a flexible sibling, such as To File's folder-survey sentence.
 ///
-/// This reports the content's own width as both ideal and maximum, and zero as its minimum. An
-/// `HStack` therefore hands it precisely what the content needs while the row fits, gives the
-/// surplus to whichever sibling wants it, and takes width back from here — clipping the tail —
-/// only once the row is genuinely over-subscribed. Combined with a lower `layoutPriority` on a
-/// sibling, that sibling still yields first; this is the *last* thing to give, before the row would
-/// otherwise overflow.
+/// This reports the content's own width as ideal and maximum, and zero as minimum. An `HStack`
+/// gives it exactly what the content needs while the row fits, gives the surplus to whichever
+/// sibling wants it, and takes width back from here only once the row is over-subscribed. A sibling
+/// with a lower `layoutPriority` still yields first.
 ///
-/// The content keeps its natural size when squeezed rather than being compressed into the smaller
-/// frame, so pills stay legible and the run loses its tail instead — pair it with `.clipped()` (or
-/// a scroll view) to decide what the cut looks like.
-/// It replaces an `HStack`, so it must lay out **every** subview: a `@ViewBuilder` slot filled with
-/// a `Group` of pills arrives here as several subviews, not one. A first draft sized and placed
-/// `subviews.first` alone, which reported the width of the leading chip as the whole run's width
-/// and left the rest of the pills unplaced — the readouts drew in the wrong place and the prose
-/// beside them moved left to meet them.
+/// Squeezed, the content keeps its natural size and the run loses its tail, so pills stay legible;
+/// pair it with `.clipped()` (or a scroll view) to decide what the cut looks like. It replaces an
+/// `HStack`, so it lays out every subview: a `@ViewBuilder` slot holding a `Group` of pills arrives
+/// as several subviews, not one.
 public struct ShrinkableRun: Layout {
 
     /// Gap between the run's items — 8 to match the `HStack` this stands in for.
@@ -41,21 +29,14 @@ public struct ShrinkableRun: Layout {
         self.spacing = spacing
     }
 
-    /// **The measured run, held for the pass** — every item at its natural size, plus the two
-    /// totals derived from them.
+    /// The measured run, held for the pass: every item at its natural size, plus two totals.
     ///
-    /// A `Layout` that declares `cache: inout ()` has no cache at all, and this one was measuring
-    /// each subview **twice per layout pass**: `naturalSizes` was mapped in `sizeThatFits` and
-    /// mapped again in `placeSubviews`, and `sizeThatFits` is itself asked more than once per pass
-    /// (the container queries minimum, ideal and maximum). `sizeThatFits(.unspecified)` on a
-    /// subview is a full measurement of that subtree — a pill's text, its padding and its capsule —
-    /// and this layout sits on every lens header card, which re-lays out on hover, on a drag frame
-    /// and on every scan tick.
-    ///
-    /// Caching is sound here for a reason specific to this layout: the sizes are taken at
-    /// `.unspecified`, so they do not depend on the proposal the container happens to be asking
-    /// with. There is nothing for a second proposal to invalidate. The only thing that can change
-    /// them is the subviews themselves, which is exactly when SwiftUI calls ``updateCache(_:subviews:)``.
+    /// Without a cache each subview would be measured several times per pass (`sizeThatFits` is
+    /// asked for minimum, ideal and maximum, then `placeSubviews` measures again), and each is a
+    /// full subtree measurement on every lens header card, which re-lays out on hover, drag frames
+    /// and scan ticks. Sound because the sizes are taken at `.unspecified`, so no proposal can
+    /// invalidate them; only the subviews can, which is when SwiftUI calls
+    /// ``updateCache(_:subviews:)``.
     public struct Cache {
         /// Each item at its natural size — what the row would be if nothing were squeezing it.
         var naturalSizes: [CGSize]
@@ -77,10 +58,9 @@ public struct ShrinkableRun: Layout {
 
     public func makeCache(subviews: Subviews) -> Cache { measure(subviews) }
 
-    /// **Re-measured, not merely re-validated.** The default implementation does exactly this; it
-    /// is written out because the correctness of the whole cache rests on it — SwiftUI calls this
-    /// when the subviews may have changed, and a subview whose content grew must not be placed at
-    /// the width it had before. The saving is within a pass, not across passes.
+    /// Re-measures rather than re-validating. The default implementation does this too; it is
+    /// written out because the cache's correctness rests on it: a subview whose content grew must
+    /// not be placed at its old width. The saving is within a pass, not across passes.
     public func updateCache(_ cache: inout Cache, subviews: Subviews) {
         cache = measure(subviews)
     }

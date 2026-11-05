@@ -27,8 +27,8 @@ import Testing
         #expect(DesignAnimationRule.resolve(nil, reduceMotion: true) == nil)
     }
 
-    /// **The wrapper must not change layout.** It replaced `.animation(_:value:)` at fourteen
-    /// sites; if the modifier reserved so much as a different size, every one of them would shift.
+    /// The wrapper must not change layout: it stands in for `.animation(_:value:)` at many sites,
+    /// and a different footprint would shift every one.
     @Test @MainActor func theWrapperDoesNotChangeLayout() {
         let plain = NSHostingView(rootView: Color.clear.frame(width: 90, height: 30)
             .animation(.easeOut(duration: 0.2), value: 1))
@@ -40,15 +40,11 @@ import Testing
 
     // MARK: - The families deliberately left alone
 
-    /// **The three exempt families must stay exempt**, and this is the guard that says so out loud.
-    ///
-    /// A hover ladder, a numeric roll and an overlay cross-fade are all animation that Reduce
-    /// Motion should NOT remove — colour and content transitions are what the setting asks you to
-    /// substitute motion *with*. The risk this pins is a later sweep "finishing the job" by
-    /// converting every remaining `.animation(` in the app, which would read as tidiness and would
-    /// make a hovered control snap between two fills.
-    ///
-    /// Written as a source scan because the claim is about call sites, not about a function.
+    /// The three exempt families must stay exempt. A hover ladder, a numeric roll and an overlay
+    /// cross-fade are animation Reduce Motion should not remove: colour and content transitions
+    /// are what the setting asks motion to be replaced with. Converting every `.animation(` in the
+    /// app would look tidy and make a hovered control snap between two fills. A source scan,
+    /// because the claim is about call sites.
     @Test func theExemptFamiliesStillUseThePlainAnimationModifier() throws {
         let repo = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -80,16 +76,14 @@ import Testing
 
 /// What the two wrappers actually put in the transaction, read out of a live render.
 ///
-/// **The rule is a pure function and was tested as one, which cannot see the thing that matters.**
-/// `DesignAnimationRule.resolve` returning nil is only useful if nil then reaches the transaction —
-/// and SwiftUI has two animation doors that can disagree. This mounts a real view and reads
-/// `Transaction.animation` from beneath each wrapper while an ambient `withAnimation` is running.
+/// The rule is a pure function, which can't show that its nil reaches the transaction, and
+/// SwiftUI has two animation doors that can disagree. This mounts a real view and reads
+/// `Transaction.animation` beneath each wrapper while an ambient `withAnimation` runs.
 ///
-/// It exists because the answer decided a design: `.animation(_:value:)` DOES override an enclosing
-/// `withAnimation`, so a value that some ancestor gates is gated however it is written — which is
-/// why the panes, the inspector and the workspace switch are correctly covered despite every one of
-/// them being toggled inside a `withAnimation`. Had it gone the other way, twenty converted sites
-/// would have been decoration.
+/// It pins a fact a design rests on: `.animation(_:value:)` overrides an enclosing
+/// `withAnimation`, so a gated value stays gated however its mutation is wrapped. That is why the
+/// panes, the inspector and the workspace switch are covered although each is toggled inside a
+/// `withAnimation`.
 @MainActor
 @Suite(.serialized) struct AnimationTransactionTests {
 
@@ -148,11 +142,9 @@ import Testing
     /// The imperative half, measured the same way: a change driven by `withDesignAnimation` under
     /// the setting reaches an UNGATED subtree with no animation at all.
     ///
-    /// The ungated sibling is the probe on purpose — it is the one with nothing of its own to
-    /// suppress, so what it sees is whatever the driver put in the transaction and nothing else.
-    /// An earlier version of this test asked `Transaction().animation` inside the closure, which
-    /// constructs a fresh transaction rather than reading the ambient one and so answered nil
-    /// whatever the flag said: green, and about nothing.
+    /// The ungated sibling is the probe on purpose: with nothing of its own to suppress, it sees
+    /// only what the driver put in the transaction. Reading `Transaction().animation` inside the
+    /// closure would build a fresh transaction and answer nil whatever the flag said.
     @Test func withDesignAnimationUnderReduceMotionDrivesNoAnimation() async throws {
         func ambientSeenByAnUngatedSubtree(reduceMotion: Bool) async throws -> Animation? {
             let flag = Flag()

@@ -3,14 +3,13 @@ import AppKit
 import SwiftUI
 @testable import Design
 
-/// RD46.14 — the text-size tiles host a selection lens: in Frosted and Clear the lens lands exactly
-/// on the chosen tile, where Solid draws its accent border and wash, and wears today's border as
-/// its ring.
+/// The text-size tiles host a selection lens: in Frosted and Clear it lands exactly on the chosen
+/// tile, where Solid draws its accent border and wash, and wears that border as its ring.
 ///
-/// Rendered with the lens probe (glass draws nothing offscreen — see `SelectionLensTests`), whose
-/// ring the probe draws too, so the lens's box is the probe and its ring together. The accent is
-/// pinned to blue: the tiles paint `Color.accentColor`, and a Graphite system accent would
-/// otherwise leave nothing saturated to find.
+/// Rendered with the lens probe (glass draws nothing offscreen; see `SelectionLensTests`), which
+/// draws the ring too, so the lens's box is the probe and ring together. The accent is pinned to
+/// blue: the tiles paint `Color.accentColor`, and a Graphite system accent would leave nothing
+/// saturated to find.
 @MainActor
 @Suite(.serialized) struct SelectionLensSizePresetTests {
 
@@ -56,9 +55,9 @@ import SwiftUI
         // The lens and its ring together are the tile's border box.
         let lens = try #require(rig.box(rows: marker.minY...marker.maxY, Self.isLens))
         #expect(Pixel.same(marker, lens), "lens \(lens) is not the chosen tile \(marker)")
-        // Today's wash stepped aside: inside the ring, a point clear of the labels is the bare
-        // probe, (255, 0, 255), to within a couple of steps — exact, rather than `Pixel.lensProbe`'s
-        // loose match, which leaves room for a fainter film than the wash to pass unseen.
+        // Solid's wash steps aside: inside the ring, a point clear of the labels is the bare probe,
+        // (255, 0, 255), to a couple of steps. `Pixel.lensProbe`'s looser match would let a film
+        // fainter than the wash pass unseen.
         let rep = rig.capture()
         let inside = Pixel.at(rep, width: Self.canvas.width, CGPoint(x: probe.minX + 3, y: probe.midY))
         #expect(inside.0 > 252 && inside.1 < 3 && inside.2 > 252,

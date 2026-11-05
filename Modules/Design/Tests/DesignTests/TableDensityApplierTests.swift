@@ -2,22 +2,14 @@ import AppKit
 import Testing
 @testable import Design
 
-/// Pins the AppKit contract of `TableDensityApplierView` (the worker beneath
-/// `listDensity(_:)`) against bare `NSTableView`s — no SwiftUI mounting needed thanks to the
-/// internal `apply(to:)` seam:
+/// Pins the AppKit contract of `TableDensityApplierView` (the worker beneath `listDensity(_:)`)
+/// on bare `NSTableView`s through the internal `apply(to:)` seam: compact pins auto-heights off,
+/// rowHeight and spacing 0 and captures the originals; re-applying is idempotent; nil
+/// (comfortable) restores the originals and clears the capture; single-column tables (SwiftUI
+/// `List`s, the file panes) are refused; a new table resets the stale capture.
 ///
-/// - compact pins auto-heights off / rowHeight / spacing 0 and captures the originals,
-/// - re-applying is idempotent,
-/// - nil (comfortable) restores all three originals in place and clears the capture,
-/// - single-column tables (SwiftUI `List`s, i.e. the file panes) are refused outright,
-/// - a table-identity change resets the stale capture instead of writing it onto the
-///   new table.
-///
-/// The mounted-hierarchy tests below go further: they host a real (offscreen, borderless)
-/// `NSWindow` with the applier as a sibling of an `NSScrollView`-wrapped table — the shape
-/// SwiftUI actually mounts — and drive the FIND path (`layout()` → resolve → apply), pinning
-/// the finder's single-table requirement, the ambiguity refusal, the nil-window guard and
-/// the cross-window cache invalidation.
+/// The mounted tests host the applier beside an `NSScrollView`-wrapped table in an offscreen
+/// window, the shape SwiftUI mounts, and drive the find path (`layout()` → resolve → apply).
 @MainActor
 @Suite struct TableDensityApplierTests {
 
@@ -61,8 +53,8 @@ import Testing
         applier.apply(to: table)
         applier.apply(to: table)
 
-        // The capture still holds the FIRST apply's originals — a second pass must not
-        // re-capture the already-pinned values (that would poison the restore).
+        // The capture still holds the first apply's originals: re-capturing the pinned values
+        // would poison the restore.
         #expect(applier.original?.rowHeight == 24)
         #expect(applier.original?.spacing == NSSize(width: 3, height: 2))
         #expect(applier.original?.automaticHeights == true)
@@ -93,8 +85,8 @@ import Testing
     }
 
     @Test func singleColumnTableIsRefused() {
-        // A single-column NSTableView near the modifier is a SwiftUI `List` (the file
-        // panes) — the applier must never touch it, pinned or not.
+        // A single-column NSTableView near the modifier is a SwiftUI `List` (the file panes),
+        // which the applier must never touch.
         let applier = TableDensityApplierView()
         applier.desiredRowHeight = 20
         let list = makeTable(columns: 1)
@@ -118,23 +110,21 @@ import Testing
 
         applier.apply(to: tableB)
 
-        // B gets its OWN capture — A's stale originals were reset, never written onto B.
+        // B gets its own capture: A's stale originals are reset, never written onto B.
         #expect(applier.original?.rowHeight == 30)
         #expect(applier.original?.spacing == NSSize(width: 5, height: 4))
         #expect(tableB.rowHeight == 20)
         #expect(tableB.intercellSpacing.height == 0)
-        // Documented limitation: the previous table stays pinned once the applier moves on.
-        // The multi-column discriminator + window-scoped cache make this unreachable for
-        // the app's panes.
+        // Known limitation: the previous table stays pinned once the applier moves on. The
+        // multi-column check and window-scoped cache keep the app's panes out of reach of it.
         #expect(tableA.rowHeight == 20)
         #expect(tableA.usesAutomaticRowHeights == false)
     }
 
     // MARK: - Mounted hierarchy (the FIND path)
 
-    /// An offscreen borderless window hosting the shape SwiftUI mounts: a container whose
-    /// subviews are one `NSScrollView` per table (documentView = the table) plus the applier
-    /// as a background sibling. Never ordered in — no app activation needed.
+    /// An offscreen borderless window hosting the shape SwiftUI mounts: one `NSScrollView` per
+    /// table plus the applier as a background sibling. Never ordered in, so no activation needed.
     private func mount(tables: [NSTableView],
                        applier: TableDensityApplierView) -> (window: NSWindow, container: NSView) {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
@@ -172,10 +162,9 @@ import Testing
     }
 
     @Test func twoMultiColumnTablesInTheSameSubtreeAreRefused() {
-        // The transient an animated branch swap can produce: outgoing and incoming Table
-        // both alive under the same ancestor. Guessing by traversal order could capture the
-        // dying table's pinned values as "originals" — the finder must refuse instead and
-        // leave BOTH tables untouched until the coexistence ends.
+        // An animated branch swap can leave outgoing and incoming tables alive under one
+        // ancestor. Guessing by traversal order could capture the dying table's pinned values as
+        // originals, so the finder refuses and leaves both untouched until one goes.
         let applier = TableDensityApplierView()
         applier.desiredRowHeight = 20
         let tableA = makeTable()
@@ -195,8 +184,8 @@ import Testing
     }
 
     @Test func singleColumnTableAloneIsRefusedByTheFinder() {
-        // The FIND-path twin of `singleColumnTableIsRefused`: a lone SwiftUI `List` in the
-        // subtree must not even be resolved, let alone pinned.
+        // The find-path twin of `singleColumnTableIsRefused`: a lone SwiftUI `List` must not even
+        // be resolved.
         let applier = TableDensityApplierView()
         applier.desiredRowHeight = 20
         let list = makeTable(columns: 1)
@@ -212,9 +201,8 @@ import Testing
     }
 
     @Test func detachedApplierDoesNothingEvenWithAFindableTable() {
-        // No window: the nil-window guard must refuse outright. Without it the stale-cache
-        // check (`cached.window === window`) would vacuously pass on nil === nil, and a
-        // detached hierarchy would still get pinned.
+        // No window: the nil-window guard refuses. Without it the stale-cache check
+        // (`cached.window === window`) passes on nil === nil and a detached hierarchy is pinned.
         let applier = TableDensityApplierView()
         applier.desiredRowHeight = 20
         let table = makeTable()
@@ -242,9 +230,8 @@ import Testing
         applier.layout()
         #expect(applier.original?.rowHeight == 24)
 
-        // Rehome the applier into a second window with a different table. The cached first
-        // table is no longer in the applier's window, so resolve must re-find — and the
-        // identity change must reset A's capture instead of restoring it onto B.
+        // Rehome the applier into a second window with a different table: resolve must re-find,
+        // and the identity change must reset A's capture rather than restore it onto B.
         applier.removeFromSuperview()
         let tableB = makeTable(rowHeight: 30, spacing: NSSize(width: 5, height: 4))
         let mountedB = mount(tables: [tableB], applier: applier)
@@ -259,9 +246,8 @@ import Testing
     }
 
     @Test func spacingDriftIsRePinnedOnTheNextLayoutPass() {
-        // The guard's spacing leg, proven live through the mounted path: a SwiftUI re-tile
-        // can reset intercellSpacing alone, and the next layout pass must re-pin it without
-        // re-capturing (the original must still hold the FIRST apply's values).
+        // A SwiftUI re-tile can reset intercellSpacing alone; the next layout pass must re-pin it
+        // without re-capturing, so the original still holds the first apply's values.
         let applier = TableDensityApplierView()
         applier.desiredRowHeight = 20
         let table = makeTable()

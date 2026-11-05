@@ -4,27 +4,25 @@ import Foundation
 @MainActor
 public struct NativeAlerts {
     
-    /// The ⌘⌫ / row-menu confirmation. It says "Move to Trash" because that is what happens — the
-    /// same verb as the row menu and every other trash confirmation, as Finder names it. (The pane
-    /// bar's button keeps the short "Delete", as Finder's toolbar does.)
+    /// The ⌘⌫ / row-menu confirmation. It says "Move to Trash" because that is what happens, the
+    /// verb Finder and every other trash confirmation use (the pane bar's button keeps Finder's
+    /// short "Delete").
     ///
-    /// **No promise of ⌘Z.** It once said "You can put it back with ⌘Z, or from the Trash", which
-    /// is false on a volume with no Trash (a second alert follows, for a permanent delete) and in
-    /// Edit's file list, where ⌘Z may undo typing instead. The body says what the title cannot —
-    /// that the Trash gives it back — rather than repeating the title ("It goes to the Trash."). A
-    /// volume with no Trash asks again, in its own alert, before anything is deleted outright.
+    /// It promises no ⌘Z: that would be false on a volume with no Trash, which asks again in its
+    /// own alert before deleting outright, and in Edit's file list, where ⌘Z may undo typing. The
+    /// body says what the title can't: the Trash gives it back.
     /// - Parameters:
-    ///   - itemNames: The list of file or folder names selected for deletion.
-    /// - Returns: True if the user confirmed the deletion.
+    ///   - itemNames: The file or folder names selected for deletion.
     ///   - hiddenByFilter: Items inside the selected folders that the pane's type filter is hiding,
-    ///     which go to the Trash with them (RD70, FJ). Said in the body when above zero.
+    ///     which go to the Trash with them. Said in the body when above zero.
+    /// - Returns: True if the user confirmed the deletion.
     public static func confirmDelete(for itemNames: [String], hiddenByFilter: Int = 0) -> Bool {
         guard let alert = deleteAlert(for: itemNames, hiddenByFilter: hiddenByFilter) else { return false }
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    /// The alert `confirmDelete` presents, built but **not run** — internal so a test can pin its
-    /// words and buttons without entering a modal session it cannot dismiss. `nil` for no items.
+    /// The alert `confirmDelete` presents, built but not run, so a test can pin its words and
+    /// buttons without a modal session it can't dismiss. `nil` for no items.
     static func deleteAlert(for itemNames: [String], hiddenByFilter: Int = 0) -> NSAlert? {
         guard !itemNames.isEmpty else { return nil }
         let includes = hiddenByFilter > 0
@@ -44,32 +42,30 @@ public struct NativeAlerts {
         )
     }
 
-    /// A Finder-style destructive confirm/cancel alert whose summary is supplied by the caller.
-    /// Used by flows that build their own "what will happen" message (e.g. the Duplicates lens). The confirm
-    /// button is the destructive Return default, matching `confirmDelete`.
+    /// A Finder-style destructive confirm/cancel alert whose summary the caller supplies, for flows
+    /// that build their own "what will happen" message (the Duplicates lens). The confirm button is
+    /// the destructive Return default, as in `confirmDelete`.
     /// - Returns: True if the user chose the confirm button.
     public static func confirmDestructive(messageText: String, informativeText: String, confirmTitle: String) -> Bool {
         confirmAction(messageText: messageText, informativeText: informativeText, confirmTitle: confirmTitle)
     }
 
-    /// A confirm/cancel alert for a change that is **not destructive** — one that rearranges what
-    /// is on screen and can be undone by doing it again (the ⌘K route that offers to swap the
-    /// panes so Organize can open on the source you named).
+    /// A confirm/cancel alert for a change that is not destructive: one that rearranges the screen
+    /// and is undone by doing it again (⌘K offering to swap the panes so Organize opens on the
+    /// named source).
     ///
-    /// Deliberately not `confirmDestructive`: that one paints the caution icon and marks its
-    /// default button `hasDestructiveAction`, which is macOS's "this deletes something" signal.
-    /// Spending it on a reversible view change is how the signal stops meaning anything on the
-    /// dialog that really does move files to the Trash.
+    /// Not `confirmDestructive`, whose caution icon and `hasDestructiveAction` default are macOS's
+    /// "this deletes something" signal. Spent on a reversible view change, the signal stops meaning
+    /// anything on the dialogs that do move files to the Trash.
     /// - Returns: True if the user chose the confirm button.
     public static func confirmChange(messageText: String, informativeText: String, confirmTitle: String) -> Bool {
         changeAlert(messageText: messageText, informativeText: informativeText,
                     confirmTitle: confirmTitle).runModal() == .alertFirstButtonReturn
     }
 
-    /// The alert `confirmChange` presents, built but **not run** — internal so `NativeAlertsTests`
-    /// can pin its style and buttons. A test cannot go near `runModal()`: it blocks the test's own
-    /// main thread on a modal session nothing in the harness can dismiss, so the only reachable
-    /// half of this dialog is the one assembled here.
+    /// The alert `confirmChange` presents, built but not run, so `NativeAlertsTests` can pin its
+    /// style and buttons. A test can't go near `runModal()`: it blocks the test's main thread on a
+    /// modal session nothing in the harness can dismiss.
     static func changeAlert(messageText: String, informativeText: String, confirmTitle: String) -> NSAlert {
         let alert = NSAlert()
         // `.informational`, not `.warning`: nothing here is at risk.
@@ -85,14 +81,13 @@ public struct NativeAlerts {
         return alert
     }
 
-    /// A confirm/cancel alert for a deletion that **cannot be undone** — a record or a secret with
-    /// no Trash to come back from, such as the spend totals the budget caps count against, or the
-    /// API key in the Keychain.
+    /// A confirm/cancel alert for a deletion that can't be undone: a record or secret with no Trash
+    /// to come back from, such as the spend totals the budget caps count against, or the API key in
+    /// the Keychain.
     ///
-    /// Not `confirmDestructive`, whose destructive confirm answers Return: there the item goes to
-    /// the Trash and can come back. Here **Cancel is the default**, and the destructive button
-    /// takes no Return key — the convention Sync History's "Clear History" and Settings' "Reset
-    /// All Settings…" already follow.
+    /// Unlike `confirmDestructive`, where Return confirms because the item can come back from the
+    /// Trash, Cancel is the default here and the destructive button takes no Return key, as in Sync
+    /// History's "Clear History" and Settings' "Reset All Settings…".
     /// - Returns: True if the user chose the confirm button.
     public static func confirmIrreversible(messageText: String, informativeText: String,
                                            confirmTitle: String) -> Bool {
@@ -101,18 +96,14 @@ public struct NativeAlerts {
                                                      confirmTitle: confirmTitle)) == .alertFirstButtonReturn
     }
 
-    /// Runs `alert` modally, with Escape pressing the button that answers Return — Cancel, in every
-    /// alert that needs this.
+    /// Runs `alert` modally, with Escape pressing the button that answers Return (Cancel, in every
+    /// alert that needs this).
     ///
-    /// **An alert whose Cancel takes Return loses Escape.** NSAlert gives a button titled "Cancel"
-    /// the Escape key, and making Cancel the default replaces it with Return — one key equivalent
-    /// per button — so Escape did nothing at all in every Cancel-is-default alert. Measured
-    /// 2026-11-01 on this alert's exact buttons, with a key event through `NSApp.sendEvent`:
-    /// Escape left the alert up, Return cancelled. A local monitor runs inside the modal session,
-    /// so it can answer Escape without taking Return from Cancel.
-    ///
-    /// The button is found by its key rather than by its place, so the answer is whatever Return
-    /// would have given — the alert's own response, with no order assumed.
+    /// **An alert whose Cancel takes Return loses Escape.** NSAlert gives a "Cancel" button the
+    /// Escape key, and making it the default replaces that with Return (one key equivalent per
+    /// button), so Escape would do nothing. A local monitor runs inside the modal session, so it
+    /// can answer Escape without taking Return from Cancel. The button is found by its key, not its
+    /// place, so Escape gives whatever Return would.
     public static func runModalCancellingOnEscape(_ alert: NSAlert) -> NSApplication.ModalResponse {
         let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             guard let button = escapeAnswer(for: event, window: alert.window, buttons: alert.buttons)
@@ -125,12 +116,12 @@ public struct NativeAlerts {
     }
 
     /// The button Escape presses: the one that answers Return, for a first press of Escape or ⌘.
-    /// aimed at the alert's window — nil for anything else, which the monitor passes on, and nil
-    /// when a button already holds Escape. A repeat is passed on so a held key cannot press the
-    /// button again after the alert has answered.
+    /// aimed at the alert's window. Nil for anything else, which the monitor passes on, and nil
+    /// when a button already holds Escape. A repeat passes on, so a held key can't press the button
+    /// again after the alert has answered.
     ///
-    /// The window and buttons are taken apart because a test cannot stage them together: ordering
-    /// an alert's window in outside `runModal` clears its buttons' keys (measured 2026-11-01).
+    /// Window and buttons are separate parameters because a test can't stage them together:
+    /// ordering an alert's window in outside `runModal` clears its buttons' keys.
     static func escapeAnswer(for event: NSEvent, window: NSWindow, buttons: [NSButton]) -> NSButton? {
         guard event.type == .keyDown, !event.isARepeat, event.window === window else { return nil }
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
@@ -144,8 +135,8 @@ public struct NativeAlerts {
         return buttons.first { $0.keyEquivalent == "\r" }
     }
 
-    /// The alert `confirmIrreversible` presents, built but **not run** — internal so a test can
-    /// pin its default button without entering a modal session it cannot dismiss.
+    /// The alert `confirmIrreversible` presents, built but not run, so a test can pin its default
+    /// button without a modal session it can't dismiss.
     static func irreversibleAlert(messageText: String, informativeText: String,
                                   confirmTitle: String) -> NSAlert {
         let alert = NSAlert()
@@ -160,15 +151,15 @@ public struct NativeAlerts {
         return alert
     }
 
-    /// Shared confirm/cancel warning alert behind `confirmDelete` (following
-    /// the `promptForName` pattern below): the caller supplies only the strings that differ.
+    /// Runs the shared destructive confirm/cancel alert behind `confirmDestructive`; the caller
+    /// supplies only the strings that differ.
     /// - Returns: True if the user chose the confirm button.
     private static func confirmAction(messageText: String, informativeText: String, confirmTitle: String) -> Bool {
         destructiveAlert(messageText: messageText, informativeText: informativeText,
                          confirmTitle: confirmTitle).runModal() == .alertFirstButtonReturn
     }
 
-    /// The alert `confirmAction` presents, built but not run.
+    /// The destructive alert `confirmAction` and `deleteAlert` present, built but not run.
     private static func destructiveAlert(messageText: String, informativeText: String,
                                          confirmTitle: String) -> NSAlert {
         let alert = NSAlert()
@@ -179,7 +170,7 @@ public struct NativeAlerts {
         alert.addButton(withTitle: confirmTitle)
         alert.addButton(withTitle: "Cancel")
 
-        // Make the destructive confirm button the default rightmost
+        // The destructive confirm is the default button, answering Return.
         if let confirmButton = alert.buttons.first {
             confirmButton.hasDestructiveAction = true
             confirmButton.keyEquivalent = "\r"
@@ -219,37 +210,29 @@ public struct NativeAlerts {
         )
     }
 
-    /// Why the entered name can't be used, or nil when it's acceptable — the single gate the
-    /// name prompt re-prompts on.
+    /// Why the entered name can't be used, or nil when it's acceptable: the one gate the name
+    /// prompt re-prompts on.
     ///
-    /// A blank (or whitespace-only) entry is folded in with every other invalid name rather than
-    /// short-circuiting the loop. Confirming an empty field used to `return nil`, and nil is this
-    /// API's *Cancel* signal, so every caller read it as "the user backed out": the dialog closed
-    /// with no rename, no new folder, and no explanation — while literally any other bad name got
-    /// a reason and a second try.
+    /// A blank entry is rejected like any other bad name, never handed back: nil is this API's
+    /// Cancel signal, so an empty result would read as "the user backed out" and close the dialog
+    /// with no explanation. The empty check stays even though the app's validator rejects empty
+    /// names, so a validator that accepted one can't turn it into a phantom cancel. `validate` runs
+    /// first, so a caller's own wording wins.
     ///
-    /// The empty check stays here even though the app's own validator already rejects empty
-    /// names. Because nil is the Cancel channel, an empty string can never be handed back to a
-    /// caller no matter what `validate` says, so a validator that happened to accept one would
-    /// turn into a phantom cancel again. `validate` runs first so a caller that has its own
-    /// wording for this keeps it.
-    ///
-    /// Internal (not private) so `NativeAlertsNamePromptTests` can pin the rule without a modal.
+    /// Internal so `NativeAlertsNamePromptTests` can pin the rule without a modal.
     static func nameRejectionReason(for trimmedName: String, validate: (String) -> String?) -> String? {
         if let reason = validate(trimmedName) { return reason }
         return trimmedName.isEmpty ? "A name is required." : nil
     }
 
     /// The name-prompt control flow with the two modal presentations injected: `present` shows one
-    /// round of the entry sheet pre-filled with `draft` and returns the raw text the user confirmed
-    /// (nil = Cancel); `explain` shows the "can't be used" alert. Loops until the user cancels or
-    /// enters a name that clears `nameRejectionReason`, re-presenting pre-filled with the rejected
-    /// text so they can fix it rather than retype it.
+    /// round of the entry sheet pre-filled with `draft` and returns the raw text confirmed (nil =
+    /// Cancel); `explain` shows the "can't be used" alert. Loops until the user cancels or enters a
+    /// name that clears `nameRejectionReason`, re-presenting the rejected text so they can fix it.
     ///
-    /// Split out from `promptForName` because the interesting half — *which* entries re-prompt and
-    /// which end the loop — is otherwise reachable only by driving two nested `runModal()` calls.
-    /// A blank entry ending the loop looked identical to a cancel from the outside, which is
-    /// precisely how it went unnoticed. Internal so the tests can drive it with scripted entries.
+    /// Split from `promptForName` so tests can drive which entries re-prompt and which end the loop
+    /// with scripted entries, instead of two nested `runModal()` calls; a blank entry that ended
+    /// the loop would look exactly like a cancel from outside.
     static func runNamePrompt(
         initialValue: String,
         validate: (String) -> String?,
@@ -294,11 +277,10 @@ public struct NativeAlerts {
                 textField.lineBreakMode = .byTruncatingTail
                 alert.accessoryView = textField
 
-                // Select all text in the text field initially natively like Finder
+                // Select the whole name, as Finder does.
                 if selectAllInitially, let editor = alert.window.fieldEditor(true, for: textField) {
                     editor.selectAll(nil)
                 }
-                // Focus the text field
                 alert.window.initialFirstResponder = textField
 
                 guard alert.runModal() == .alertFirstButtonReturn else { return nil }
@@ -307,9 +289,8 @@ public struct NativeAlerts {
             explain: { value, reason in
                 let error = NSAlert()
                 error.alertStyle = .warning
-                // A blank entry re-prompts like any other rejection, but not in the same words:
-                // «The name "" can't be used. … Please choose a different name.» reads as
-                // nonsense when the user typed nothing at all.
+                // A blank entry re-prompts like any other rejection, but in its own words: «The
+                // name "" can't be used» reads as nonsense when the user typed nothing.
                 if value.isEmpty {
                     error.messageText = reason
                     error.informativeText = "Type a name, or press Cancel to stop."

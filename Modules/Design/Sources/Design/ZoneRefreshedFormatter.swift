@@ -3,45 +3,32 @@ import Foundation
 /// A shared `DateFormatter` that re-checks the system time zone on every use instead of capturing
 /// it once.
 ///
-/// **The defect this exists to prevent.** A `DateFormatter` whose `timeZone` is never set takes the
-/// system zone the first time it formats and keeps it for the life of the process. Every date
-/// column in this app is a `static let` built once for exactly the right reason — `DateFormatter`
-/// is expensive to construct and these run per row, per render — so every one of them kept
-/// whichever zone was current when its window first drew. These are windows people leave open, so
-/// after a Date & Time change or a flight the column went on reading in the old zone for the rest
-/// of the session, an hour or five and a half out, with nothing anywhere saying so.
+/// A `DateFormatter` whose `timeZone` is never set takes the system zone the first time it formats
+/// and keeps it for the life of the process. The app's date columns are `static let`s, because a
+/// `DateFormatter` is expensive and these run per row, per render; so after a Date & Time change or
+/// a flight, a window left open would silently read in the old zone for the rest of the session.
 ///
-/// **Why this is one type and not a rule copied eleven times.** Three types were fixed one at a
-/// time, then eight more sites turned up carrying the same defect, and the fix for each is the same
-/// three lines. Eleven types hold sixteen of these formatters between them — `LogGrouping` and
-/// `RestructureLens` have three each — so a per-type accessor meant eleven copies of one rule.
-/// The `LogViewer` fix already had to delete a verbatim duplicate of its own formatter for this
-/// reason: two copies of one rule is how a refresh gets half-applied — the entry rows following a
-/// Date & Time change while the folded-run headers directly above them do not, in the same list,
-/// with no version of the code saying which is right. Eleven copies is that hazard eleven times
-/// over. This is in Design for `ScanFreshness`' reason: Dashboard and FileExplorer both need it and
-/// neither can see the other.
+/// One type, not a rule copied per formatter: many types hold these formatters, and copies of one
+/// rule get half-applied (rows following a zone change while the headers above them don't). It
+/// lives in Design because Dashboard and FileExplorer both need it and neither can see the other.
+/// `CapturedTimeZoneScanTests` fails on a shipped file outside its allow-list that builds its own
+/// `DateFormatter`.
 ///
-/// **The one deliberate exception is `Events.LogTimestampFormatter`.** Events is a leaf module that
-/// must not depend on Design, and its formatter answers a harder question than these do — it writes
-/// `~/sync-cloud.log` and parses history lines back out of it, so the zone decision there is about
-/// the file rather than a column. Its doc comment carries that reasoning; do not fold it in here.
+/// The one exception is `Events.LogTimestampFormatter`: Events is a leaf module that must not
+/// depend on Design, and its formatter writes and parses `~/sync-cloud.log`, so its zone decision
+/// is about the file. Its doc comment carries that reasoning; do not fold it in here.
 ///
-/// **Locked, not merely shared.** Most callers are `View`s and reach this only from the main actor,
-/// but `DetailsSidebar` deliberately does not: its formatter is `nonisolated` so the stat that
-/// reads it can run off the main actor. Reading a `DateFormatter` concurrently is safe; writing
-/// `timeZone` on one thread while another formats is not. So the zone check and the use are both
-/// taken under the lock, and the formatter itself never escapes — `string(from:)` and
-/// `date(from:)` are the whole surface, so no caller can hold one across a zone change. Measured
-/// cost of the guard over 200k iterations: the lock is 0.009 µs and the zone compare 0.212 µs,
-/// against 1.29 µs for the format itself.
+/// Locked, not merely shared: `DetailsSidebar`'s formatter is `nonisolated` so its stat can run
+/// off the main actor, and writing `timeZone` while another thread formats is unsafe. The zone
+/// check and the use both happen under the lock, and the formatter never escapes (`string(from:)`
+/// and `date(from:)` are the whole surface). The guard costs about 0.2 µs against 1.3 µs for the
+/// format itself.
 ///
-/// (DST is not this question — a `TimeZone` handles its own transitions.)
+/// DST is not this question: a `TimeZone` handles its own transitions.
 ///
-/// **What this does NOT fix: the locale is still captured.** `DateFormatter` resolves `locale` at
-/// construction, so a region change mid-session goes unnoticed the same way a zone change used to.
-/// That is a real sibling defect and deliberately out of scope here; ``fixed(_:)`` is immune to it
-/// by pinning, and the two localized cases are not.
+/// The locale is still captured: `DateFormatter` resolves `locale` at construction, so a region
+/// change mid-session goes unnoticed. Deliberately out of scope; ``fixed(_:)`` is immune by
+/// pinning, the two localized cases are not.
 public final class ZoneRefreshedFormatter: @unchecked Sendable {
     private let lock = NSLock()
     private let formatter: DateFormatter
@@ -50,13 +37,11 @@ public final class ZoneRefreshedFormatter: @unchecked Sendable {
         self.formatter = formatter
     }
 
-    /// A fixed-format formatter with locale and calendar **pinned** (`en_US_POSIX` + Gregorian).
-    ///
-    /// Both pins matter and neither is about the zone. An unpinned fixed-format `DateFormatter`
-    /// follows the system region, which can rewrite even an explicit `HH` into a 12-hour clock; and
-    /// an unpinned calendar renders Gregorian dates as another calendar's years — a Buddhist region
-    /// showed 2569, an Islamic one 1448. Use this for anything that round-trips, is compared, or has
-    /// to agree byte-for-byte with a file or the clipboard.
+    /// A fixed-format formatter with locale and calendar pinned (`en_US_POSIX`, Gregorian).
+    /// Unpinned, the system region can rewrite even an explicit `HH` into a 12-hour clock, and
+    /// another calendar renders other years (a Buddhist region shows Buddhist-era years). Use this
+    /// for anything that round-trips, is compared, or must match a file or the clipboard byte for
+    /// byte.
     public static func fixed(_ format: String) -> ZoneRefreshedFormatter {
         let made = DateFormatter()
         made.locale = Locale(identifier: "en_US_POSIX")
@@ -83,17 +68,15 @@ public final class ZoneRefreshedFormatter: @unchecked Sendable {
         return ZoneRefreshedFormatter(made)
     }
 
-    /// Renders `date`, in `zone` — the system zone unless a caller names one.
+    /// Renders `date`, in `zone`: the system zone unless a caller names one. `zone` exists for
+    /// snapshot references, which would otherwise bake in the recording machine's zone and go red
+    /// on a frozen fixture when that machine moves (see `DashboardSnapshotTests.pinnedZone`).
     ///
-    /// The `zone` parameter exists for snapshot references, which otherwise bake in the recording
-    /// machine's zone and go red on a frozen fixture when that machine moves. That has happened and
-    /// cost a day; see `DashboardSnapshotTests.pinnedZone`.
-    ///
-    /// `locale` renders one string in another region and puts the formatter back, under the lock —
-    /// for tests that pin a 12-hour against a 24-hour reading of a ``localized(date:time:)``
-    /// formatter without depending on the region of the Mac they run on. A style-built formatter
-    /// re-derives its pattern from the new locale; a ``fixed(_:)`` one keeps its pattern, which is
-    /// what makes such a test fail against a fixed format.
+    /// `locale` renders one string in another region and puts the formatter back, under the lock,
+    /// so a test can pin a 12-hour against a 24-hour reading of a ``localized(date:time:)``
+    /// formatter whatever the Mac's region. A style-built formatter re-derives its pattern from the
+    /// new locale; a ``fixed(_:)`` one keeps its pattern, so such a test fails against a fixed
+    /// format.
     public func string(from date: Date, in zone: TimeZone = .current, locale: Locale? = nil) -> String {
         lock.lock()
         defer { lock.unlock() }

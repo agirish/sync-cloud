@@ -3,10 +3,10 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// `InlineSpinner` replaces `ProgressView().controlSize(.small).scaleEffect(0.7)` at three row
-/// sites, and the whole claim is that it is the same *size* drawn crisply rather than a smaller
-/// spinner. Both halves of that need measuring: a footprint that drifts would shift every row the
-/// spinner sits in, and it is the one thing a reviewer cannot check by reading the diff.
+/// `InlineSpinner` stands in for `ProgressView().controlSize(.small).scaleEffect(0.7)` in rows: the
+/// same footprint, drawn crisply at a smaller size instead of resampled. Both halves are measured,
+/// because a footprint that drifts shifts every row the spinner sits in, and reading the code
+/// can't show it.
 @Suite struct InlineSpinnerTests {
 
     @MainActor
@@ -14,13 +14,11 @@ import Testing
         NSHostingView(rootView: view).fittingSize
     }
 
-    /// **The old recipe and the new component must reserve exactly the same room.** Asserted
-    /// against the recipe rather than against `16`, so this keeps meaning the right thing if AppKit
-    /// ever resizes its controls — a literal would then be a second opinion rather than a check.
+    /// The recipe and the component must reserve exactly the same room. Checked against the
+    /// recipe, not a literal `16`, so it stays right if AppKit resizes its controls.
     ///
-    /// This is the assertion that earned the suite: `scaleEffect` does not participate in layout,
-    /// so the recipe reserves `.small`'s full box while drawing smaller, and the obvious
-    /// `.controlSize(.mini)` swap measured 16 → 10. Three rows would have moved.
+    /// `scaleEffect` takes no part in layout, so the recipe reserves `.small`'s full box while
+    /// drawing smaller; a plain `.controlSize(.mini)` swap shrinks the footprint and moves rows.
     @Test @MainActor func theFootprintMatchesTheRecipeItReplaces() {
         let old = fitting(ProgressView().controlSize(.small).scaleEffect(0.7))
         let new = fitting(InlineSpinner())
@@ -28,9 +26,9 @@ import Testing
                 "footprint moved \(old) → \(new); every row carrying this spinner shifts")
     }
 
-    /// The *drawn* control is genuinely smaller than `.small` — that is the difference between
-    /// drawing it small and resampling one drawn bigger. Measured without the frame, which exists
-    /// only to hold the row's space open.
+    /// The drawn control is smaller than `.small`, which is the difference between drawing it small
+    /// and resampling one drawn bigger. Measured without the frame, which only holds the row's space
+    /// open.
     @Test @MainActor func itIsDrawnSmallerThanTheSmallControlSize() {
         let small = fitting(ProgressView().controlSize(.small))
         let mini = fitting(ProgressView().controlSize(.mini))
@@ -40,8 +38,8 @@ import Testing
                 "the component should reserve exactly what .small does")
     }
 
-    /// No `scaleEffect` anywhere in the component. The resample is the defect being fixed, so a
-    /// later "just make it a bit smaller" that reaches for a scale would quietly reinstate it.
+    /// No `scaleEffect` anywhere in the component's code: a "make it a bit smaller" that reaches
+    /// for a scale would bring the blurry resample back.
     @Test func theComponentDoesNotScaleItsWayToSize() throws {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -50,7 +48,7 @@ import Testing
             .appendingPathComponent("Sources/Design/InlineSpinner.swift")
         let text = try String(contentsOf: source, encoding: .utf8)
         #expect(text.contains("struct InlineSpinner"), "that is not the component's source")
-        // Only the doc comment may name it — that is where the defect is explained.
+        // Only the doc comment may name it, to explain why it isn't used.
         let code = text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("///") }
         #expect(!code.contains { $0.contains("scaleEffect") },
                 "InlineSpinner resamples itself — the exact thing it replaced")

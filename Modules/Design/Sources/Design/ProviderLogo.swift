@@ -3,29 +3,16 @@ import SwiftUI
 import AppKit
 #endif
 
-/// A cloud provider's brand mark — the one place a provider logo is drawn.
+/// A cloud provider's brand mark, the one place a provider logo is drawn, so its sizes (pane
+/// header, Settings, single-source rail) and modes change together. A mark inside an AppKit-drawn
+/// label must be built differently or it draws at the asset's full 512pt (`inAppKitLabel`; see
+/// the initializer).
 ///
-/// Currently a plain image, and the value is the consolidation, not the drawing: this replaced
-/// three hand-rolled `Image`+`resizable`+`scaledToFit`+`frame` stacks at three sizes (pane header
-/// 28, Settings 26, single-source rail 16), which had to be edited in lockstep every time the mark's
-/// presentation was tried.
-///
-/// **That consolidation is what makes `inAppKitLabel` worth having as a mode rather than a fourth
-/// hand-rolled stack.** A mark inside an AppKit-drawn label has to be built a different way or it
-/// draws at the asset's full 512pt — see the initializer. Keeping that here means the fix is one
-/// place rather than a rule every future call site has to know.
-///
-/// It has been tried. These four assets share a property that only bites on a dark appearance:
-/// measured at their rendered size, **not one of them paints a single opaque near-white pixel**
-/// (0 of 113k-156k opaque, all four). The white in them — Dropbox's folded-box seams, Drive's
-/// triangle seams, the gap between OneDrive's lobes — is transparent, supplied by the page behind.
-/// Light mode supplies it; dark mode supplies nothing.
-///
-/// A light plate here was the obvious answer and was rejected on sight (`d9e9698`, reverted): a
-/// near-white chip punched into a hue-washed dark header reads as a sticker stuck on the surface,
-/// whatever it does for the seams. Note for whatever is tried next: **luminance is not the lever.**
-/// Against a stable dark surface these marks measure 2.0-5.0:1 median, *better* than they do in
-/// light mode, so brightening the artwork treats a symptom that was never there.
+/// These assets paint no opaque near-white pixels: the white in them (Dropbox's box seams, Drive's
+/// triangle seams, the gap between OneDrive's lobes) is transparent, supplied by the page behind,
+/// so a dark appearance shows dark there. A light plate behind them reads as a sticker on a
+/// hue-washed dark header, and luminance is not the lever: on a stable dark surface the marks
+/// measure 2.0–5.0:1 median, better than in light mode.
 public struct ProviderLogo: View {
     private let imageName: String
     private let size: CGFloat
@@ -34,36 +21,24 @@ public struct ProviderLogo: View {
     private let isMonochrome: Bool
     private let isInAppKitLabel: Bool
 
-    /// - Parameter monochrome: draws the mark as a template — its **shape** in whatever colour the
-    ///   caller's `foregroundStyle` supplies, rather than its brand colours.
+    /// - Parameter monochrome: draws the mark as a template, its shape in the caller's
+    ///   `foregroundStyle` rather than its brand colours. For the Browse sidebar, where a
+    ///   full-colour badge would be the loudest thing in a quiet column; Finder's sidebar draws
+    ///   every location in one ink for the same reason. It works because the marks' seams are
+    ///   transparent: a template masks on alpha, so the gaps stay gaps and each mark keeps its
+    ///   silhouette.
+    /// - Parameter inAppKitLabel: build the mark at a fixed intrinsic size instead of as a
+    ///   resizable image in a frame, for a label AppKit draws rather than SwiftUI (a
+    ///   `borderlessButton`-style `Menu`'s label, the only such caller).
     ///
-    ///   For the Browse sidebar, where a row is a line of text with a glyph and a full-colour badge
-    ///   halfway down a quiet column would be the loudest thing on screen — Finder's own sidebar
-    ///   draws every location in one ink for the same reason.
+    ///   A `.resizable()` image there ignores its frame and draws at the asset's native size, 512pt
+    /// on the long edge, so a 15pt request takes the row apart (`MenuLabelMarkTests`). Instead the
+    /// `NSImage` is copied and its own `size` set to the fitted box, so whoever draws it draws it
+    /// at 15. **The copy is load-bearing:** `NSImage(named:)` returns the catalog's shared
+    /// instance, and resizing that would resize every other mark in the app.
     ///
-    ///   **The seams survive, which is what makes this worth doing at all.** These marks carry no
-    ///   opaque near-white pixels (measured, all four): Dropbox's folded-box seams, Drive's triangle
-    ///   joins and the gap between OneDrive's lobes are all *transparent*, supplied by the page
-    ///   behind. A template render masks on alpha, so those gaps stay gaps and each mark keeps its
-    ///   silhouette instead of flattening into a blob — the failure that would make this idea not
-    ///   work. The same property is why a light plate was needed in dark mode; here it pays.
-    /// - Parameter inAppKitLabel: build the brand mark at a **fixed intrinsic size** instead of as a
-    ///   resizable image inside a frame, for a label that AppKit rather than SwiftUI draws — the
-    ///   label of a `Menu` in the `borderlessButton` style, which is the only such caller today.
-    ///
-    ///   A `.resizable()` image in one of those **ignores the frame around it and draws at the
-    ///   asset's native size**. These assets are 512pt on their long edge, so the mark that asks for
-    ///   15 comes out at 512 and takes the row apart around it. Measured on the real catalog
-    ///   (`MenuLabelMarkTests`): 531pt of ideal width for a 15pt request, against 34 for this mode.
-    ///
-    ///   The fix is to leave nothing for the frame to be ignored *of*: the `NSImage` is copied and
-    ///   its own `size` set to the fitted box, so the size is carried by the image rather than by a
-    ///   modifier, and whoever does the drawing draws it at 15. **The copy is load-bearing** —
-    ///   `NSImage(named:)` returns the catalog's shared instance, and resizing that one would resize
-    ///   every other mark in the app.
-    ///
-    ///   The SF-Symbol branch needs none of this and is shared unchanged: a symbol is not a catalog
-    ///   image and honours its frame in either context (measured, 37pt both ways).
+    ///   The SF Symbol branch needs none of this: a symbol isn't a catalog image and honours its
+    /// frame in either context.
     public init(_ imageName: String, size: CGFloat, monochrome: Bool = false,
                 inAppKitLabel: Bool = false) {
         self.imageName = imageName
@@ -73,18 +48,13 @@ public struct ProviderLogo: View {
         self.isInAppKitLabel = inAppKitLabel
     }
 
-    /// A mark fitted to a common **cap height**, in a column wide enough for the widest of them.
+    /// A mark fitted to a common cap height, in a column wide enough for the widest of them.
     ///
-    /// **`size:` fits a square, and these four marks are not one shape.** Measured at `size: 24`,
-    /// iCloud's cloud and OneDrive's come out 24×16 while Drive's triangle and Dropbox's box come
-    /// out 24×22 — the clouds are half again as wide as they are tall, so they hit the box's width
-    /// first and stop 6pt short of its height, 3pt below its top edge. A list carrying all four
-    /// draws two marks at one size and two at another, sitting on two different lines. That is
-    /// fine for a lone mark in a header; it is the whole impression in a column of them.
-    ///
-    /// Fitting inside `capHeight * columnAspect` by `capHeight` fixes it without a per-asset table:
-    /// a 1.5:1 cloud fills the width and the height together, and a squarer mark fits on height and
-    /// centres in what is left. Every mark then shares a cap height and a column.
+    /// `size:` fits a square, and the four marks aren't one shape: at `size: 24` the iCloud and
+    /// OneDrive clouds come out 24×16 and Drive's triangle and Dropbox's box 24×22, so a column of
+    /// them sits on two different lines. Fitting inside `capHeight * columnAspect` by `capHeight`
+    /// fixes that without a per-asset table: a 1.5:1 cloud fills both, and a squarer mark fits on
+    /// height and centres in the rest.
     public init(_ imageName: String, capHeight: CGFloat, monochrome: Bool = false) {
         self.imageName = imageName
         self.size = capHeight
@@ -97,10 +67,9 @@ public struct ProviderLogo: View {
     /// iCloud's and OneDrive's are 1.5:1; Drive's and Dropbox's are near 1.1:1.
     public static let columnAspect: CGFloat = 1.5
 
-    /// **Hidden from VoiceOver, here and once.** The mark is decoration beside a name that says the
-    /// same thing — every caller draws the source's name next to it — and an asset image read
-    /// aloud is its catalog name ("onedrive", "google drive logo"), or nothing useful at all.
-    /// Hiding it at each call site left some sites hiding it and others not.
+    /// Hidden from VoiceOver here, once for every caller: the mark is decoration beside the
+    /// source's name, and an asset image read aloud is its catalog name ("onedrive", "google drive
+    /// logo").
     public var body: some View {
         mark.accessibilityHidden(true)
     }
@@ -119,17 +88,14 @@ public struct ProviderLogo: View {
             resizableAsset
             #endif
         } else {
-            // A source with no bundled brand mark — a local folder wears `folder.fill`. Rendering
-            // the same field as a symbol (rather than adding a second, mutually-exclusive field to
-            // `CloudProvider` that every construction site would have to get right) keeps one
-            // "what mark does this source wear" answer, at all three call sites and all three
-            // sizes.
+            // A source with no bundled brand mark (a local folder wears `folder.fill`) is the same
+            // field drawn as a symbol, so `CloudProvider` keeps one "what mark does this source
+            // wear" answer rather than a second field every construction site must get right.
             //
-            // **Monochrome applies no style at all, rather than a different one.** The first cut
-            // passed `.foreground` here and it was wrong in a way only rendering showed: an
-            // explicit style *overrides* the caller's, so a `folder.fill` came out near-black in a
-            // row of grey brand marks. Inheriting means the sidebar's own
-            // `isCurrent ? accent : .secondary` reaches every mark, brand asset and symbol alike.
+            // Monochrome applies no style at all: an explicit style overrides the caller's, so the
+            // folder would come out near-black among grey brand marks. Inheriting lets the
+            // sidebar's own `isCurrent ? accent : .secondary` reach every mark, asset and symbol
+            // alike.
             let symbol = Image(systemName: imageName)
                 .resizable()
                 .scaledToFit()

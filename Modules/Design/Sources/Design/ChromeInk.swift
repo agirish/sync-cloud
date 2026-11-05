@@ -1,77 +1,48 @@
 import AppKit
 import SwiftUI
 
-/// The ink the app's chrome draws its glyphs and labels in — the pane nav cluster, the action
-/// bar's quiet and outline weights.
+/// The ink the app's chrome draws its glyphs and labels in: the pane nav cluster, the action bar's
+/// quiet and outline weights.
 ///
-/// Light keeps exactly what each control was designed with. Dark returns full-strength `.primary`,
-/// and the reason is the same one that took the brand tint off the provider name (`e5fdab5`): on a
-/// dark appearance this app's surfaces are not dark. They carry the window's hue wash, and every
-/// reduced-opacity or accent-coloured ink was tuned against a neutral dark that the app does not
-/// actually render. Sampled from the running app at the green hue the pane reads `#4d7f68`, and
-/// against it a `.quiet` label drawn in the accent measures about 1.4:1, a `.secondary` label about
-/// 2.5:1, and the nav cluster's `.primary.opacity(0.75)` about 3.4:1 — while plain white is 4.61:1.
-/// A control whose label you have to hunt for is not quieter, it is broken.
+/// Light keeps each control's designed ink. Dark returns full-strength `.primary`, because dark
+/// surfaces here carry the window's hue wash, not a neutral dark: on the green hue's pane an accent
+/// label measures ~1.4:1, `.secondary` ~2.5:1 and `.primary.opacity(0.75)` ~3.4:1, against white's
+/// 4.61:1.
 ///
-/// Deliberately only the INK. State keeps being carried by the fill: a hovered nav pill still
-/// washes to the accent, a hovered quiet button still warms toward it, and a disabled control still
-/// takes `ActionBarMetrics.disabledOpacity` over the whole capsule. So this brightens the chrome
-/// without touching the hover ladder `HoverAffordance` owns, and without letting a disabled control
-/// start looking live.
-///
-/// It also means dark stops tinting the ink on hover. That is the point rather than a casualty:
-/// an accent glyph on an accent wash has nothing to shift against — the same trap the freshness
-/// badge hit — so on a washed surface the fill is the only honest carrier of the hover anyway.
+/// Only the ink changes. The fill still carries state (hover washes, the disabled opacity), so the
+/// `HoverAffordance` ladder is untouched and a disabled control doesn't look live. Dark ink doesn't
+/// tint on hover: an accent glyph on an accent wash has nothing to shift against.
 public enum ChromeInk {
     /// - Parameter light: the colour this control uses on a light appearance, unchanged.
     public static func label(_ scheme: ColorScheme, light: Color) -> Color {
         scheme == .dark ? .primary : light
     }
 
-    /// A glyph whose COLOUR is the meaning — a destructive control's red — kept legible in both
-    /// appearances.
+    /// A glyph whose colour is the meaning (a destructive control's red), kept legible in both
+    /// appearances. `label(_:light:)` would flatten it to white in dark; here the colour survives
+    /// and only its depth changes, in light.
     ///
-    /// `label(_:light:)` is wrong for these: it flattens to white in dark, which is exactly right
-    /// for chrome whose job is legibility and throws away the one thing this glyph is saying. So
-    /// the colour survives, and what changes is its DEPTH in light.
-    ///
-    /// **Measured, because the obvious version ships a glyph nobody can see.** System red on the
-    /// pane bar's `.primary.opacity(0.075)` pill renders (1.000, 0.320, 0.298) on a 0.95 field —
-    /// **2.87:1**, under the 3:1 a non-text control carrying meaning needs, while the untinted
-    /// glyphs beside it measure 4.84:1 on the same surface. Deepening for light clears it. Dark
-    /// needs no help (3.71:1 measured) and must not be deepened: `AccentFill.deepened` never
-    /// lightens, so applying it there would push the same red down to ~2.5:1 — fixing one
-    /// appearance by breaking the other.
-    ///
-    /// `PaneBarInkContrastTests` measures both appearances against the floor rather than trusting
-    /// any of the numbers in this comment.
+    /// Raw system red on the pane bar's pill is 2.87:1 in light, under the 3:1 a meaningful glyph
+    /// needs, so light deepens. Dark clears 3:1 as it is and must not be deepened, which would push
+    /// it to ~2.5:1. `PaneBarInkContrastTests` measures both appearances.
     public static func semantic(_ scheme: ColorScheme, _ color: Color) -> Color {
         scheme == .dark ? color : AccentFill.deepened(color)
     }
 
-    /// A semantic colour used as **body text**, kept legible in both appearances.
+    /// A semantic colour used as body text, kept legible in both appearances. Text needs 4.5:1,
+    /// not the 3:1 `semantic(_:_:)` meets: bare `SemanticColor.caution` on the near-white Settings
+    /// sheet is 1.38:1. Light deepens to text depth, and dark is lifted, since `move` misses 4.5:1
+    /// on a dark sheet.
     ///
-    /// `semantic(_:_:)` above is the 3:1 bar a glyph or a non-text control needs; text needs 4.5:1,
-    /// and the difference is not academic. `SemanticColor.caution` as a bare `.foregroundStyle` on
-    /// the near-white Settings sheet measures **1.38:1** — the People section's one actionable line
-    /// was drawn that way — and the fill-target deepening only lifts it to 4.17:1. This clears the
-    /// text floor — and dark is LIFTED rather than left alone, which is where this parts company
-    /// with `semantic` above. Leaving dark untouched is right for a glyph, whose bar is 3:1 and
-    /// which every semantic colour clears; text needs 4.5, and on a 0.13 sheet `move` measures
-    /// **3.86:1** while `error` lands exactly on 4.50. Two of six missing a bar the member's own
-    /// name promises is not a rounding difference.
-    ///
-    /// Everywhere else in this app a caution is a **fill behind a wash**, which is the other correct
-    /// answer and the one to prefer for anything that is not a sentence. This exists for the
-    /// sentences.
+    /// Prefer a fill behind a wash for a caution that isn't a sentence; this is for sentences.
     public static func bodyText(_ scheme: ColorScheme, _ color: Color) -> Color {
         scheme == .dark ? AccentFill.lightenedForText(color) : AccentFill.deepenedForText(color)
     }
 
-    /// `bodyText(_:_:)` decided by the appearance the colour is DRAWN in rather than one read up
-    /// front — for AppKit text, which holds an `NSColor` across appearance changes. Editable
-    /// Preview's links (FE2) are the case: an `NSTextView` keeps its runs' colours, and a colour
-    /// resolved for light when the page was built would stay deepened after a switch to dark.
+    /// `bodyText(_:_:)` decided by the appearance the colour is drawn in, for AppKit text that
+    /// holds an `NSColor` across appearance changes. An `NSTextView` keeps its runs' colours
+    /// (editable Preview's links), so a colour resolved up front would stay deepened after a switch
+    /// to dark.
     public static func bodyText(_ color: Color) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -85,35 +56,30 @@ public enum ChromeInk {
         })
     }
 
-    /// **A button's words in a colour** — the `.tint` for a `.bordered` or `.borderless` button,
-    /// which draws its tint as the label's TEXT, on a bezel or on nothing.
+    /// A button's words in a colour: the `.tint` for a `.bordered` or `.borderless` button, which
+    /// draws its tint as the label's text.
     ///
-    /// Light deepens the colour to body-text depth (`bodyText`); dark takes label colour, as
-    /// `label(_:light:)` does for all chrome. **Measured on the rendered bezel** (`ButtonWordInkTests`):
-    /// a light `.bordered` bezel paints 0.92 grey, where the raw hue as words measured 1.74:1 (Cyan)
-    /// to 4.26:1 (Indigo) and the text depth measures 4.64:1 for every hue. The dark bezel paints
-    /// 0.19, and no shade of the hue the app has clears 4.5:1 on it for every hue — the text depth,
-    /// tuned to the 0.13 sheet, gives Blue and Purple 3.98:1 — so the words go white there, and the
-    /// hue stays in light. Always a colour, never no tint: an UNTINTED button under a sheet's root
-    /// tint (`accentedProminent`) draws its words in that deepened fill, measured 2.9:1 on the dark
-    /// bezel at Green and 3.8:1 on the light one.
+    /// Light deepens to body-text depth (`bodyText`), which clears 4.5:1 on the light bezel for
+    /// every hue where the raw hue doesn't. Dark takes label colour, as `label(_:light:)` does: no
+    /// shade of every hue clears 4.5:1 on the dark bezel. `ButtonWordInkTests` measures the
+    /// rendered bezel. Always pass a colour: an untinted button under a sheet's root tint
+    /// (`accentedProminent`) draws its words in the deepened fill, under 4.5:1 in both appearances.
     public static func buttonWords(_ scheme: ColorScheme, _ color: Color) -> Color {
         label(scheme, light: bodyText(scheme, color))
     }
 
-    /// The optional-tint form, for a control whose dark treatment is not a flat colour but a
-    /// *fallback to the standard label hierarchy* — `PaneBreadcrumb`'s root crumb, which without a
-    /// tint distinguishes the current folder from its ancestors by `.primary` vs `.secondary`.
-    /// Returning nil hands it back to that hierarchy instead of flattening both to one white.
+    /// The optional-tint form, for a control whose dark treatment falls back to the standard label
+    /// hierarchy: `PaneBreadcrumb`'s root crumb, which tells the current folder from its ancestors
+    /// by `.primary` vs `.secondary`. Nil keeps that hierarchy instead of flattening both to white.
     public static func tint(_ scheme: ColorScheme, light: Color?) -> Color? {
         scheme == .dark ? nil : light
     }
 }
 
 public extension View {
-    /// Tints a `.bordered` or `.borderless` button's words with `color` at a depth they read at on
-    /// the bezel — `ChromeInk.buttonWords`, for the appearance the button is drawn in. Nil leaves the
-    /// button untinted. The raw hue as a button's `.tint` is refused by `AccentFillScanTests` (rule 7).
+    /// Tints a `.bordered` or `.borderless` button's words with `color` at a depth that reads on
+    /// the bezel (`ChromeInk.buttonWords`, for the appearance it's drawn in). Nil leaves it
+    /// untinted. `AccentFillScanTests` refuses the raw hue as a button's `.tint`.
     func buttonWordsTint(_ color: Color?) -> some View {
         modifier(ButtonWordsTint(color: color))
     }

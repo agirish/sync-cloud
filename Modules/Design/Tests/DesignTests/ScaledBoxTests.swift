@@ -4,46 +4,36 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// The rule for sizing a box drawn around a scaled glyph — and the property that tells a
-/// **reservation** from a **pin**.
+/// The rule for sizing a box drawn around a scaled glyph, and the property that tells a
+/// reservation from a pin.
 ///
-/// **Written after a sweep that found the same defect three times.** `EditorModeBar` and
-/// `StorageSectionBar` drew their symbols inside a hard `13×13` frame; the glyphs were
-/// `.scaledFont`-ed and grew with Settings ▸ Text size, the boxes did not, and since `.frame` does
-/// not clip the surplus drew straight out of the box. A repo-wide scan for that shape on
-/// 2026-08-31 turned up roughly 45 `.scaledFont` + `.frame(width:)` pairs, of which fourteen were a
-/// square box around a single SF Symbol. Measuring every one of them is what this file's rules came
-/// out of, and the measurements matter as much as the verdict:
+/// A `.scaledFont` glyph grows with Settings ▸ Text size; a hard `.frame` around it doesn't, and
+/// since `.frame` doesn't clip, the surplus draws straight out of the box.
 ///
-/// - **`fittingSize` is not the overflow test.** `Image(systemName:)` reports its symbol's layout
-///   box, side bearings included, which overstates the drawn ink by 3–5pt at these sizes. Six of
-///   the fourteen sites look like overflows under `fittingSize` and are clean when the ink is
-///   actually rendered and read back. ``GlyphInk/outside(symbol:point:weight:box:shape:scale:)``
-///   below is the test that decides.
-/// - **A hit target is not a pinned box.** Six sites frame a glyph to give a pointer something to
-///   hit — `CloseButton`, both `DifferencesView` toggles, the Editor rail's `plus`, the destination
-///   grip, Settings' disclosure chevron. A pointer does not grow with the text size, so those
-///   frames are right to be constants. What makes them *reservations* rather than pins is that they
-///   still hold their glyph's ink at Largest, which is a property, not an opinion — so
-///   ``theCloseButtonsReservationStillHoldsItsGlyph`` asserts it rather than asserting nothing.
+/// - `fittingSize` is not the overflow test. `Image(systemName:)` reports its symbol's layout box,
+///   side bearings included, which overstates the drawn ink by 3–5pt at these sizes.
+///   ``GlyphInk/outside(symbol:point:weight:box:shape:scale:)`` renders the ink and decides.
+/// - A hit target is not a pinned box. Some sites frame a glyph to give a pointer something to hit
+///   (`CloseButton`, both `DifferencesView` toggles, the Editor rail's `plus`, the destination
+///   grip, Settings' disclosure chevron). A pointer doesn't grow with the text, so those frames
+///   are right to be constants, as long as they still hold their glyph's ink at Largest:
+///   ``theCloseButtonsReservationStillHoldsItsGlyph`` asserts that.
 @Suite @MainActor struct ScaledBoxTests {
 
-    /// The four named presets — the axis the arithmetic assertions move along.
+    /// The four named presets, the axis the arithmetic assertions move along.
     private var scales: [CGFloat] { FontSize.allCases.map(\.scale) }
 
-    /// **Every step the slider actually lands on**, for the ink check. `FontSize.allCases` is the
-    /// four named presets; this is all ten stops from 90 to 135. `docs/backports.md` records the
-    /// Editor capsule's shedding boundary turning over at 130 — not a preset — so a four-row table
-    /// reported "Large fits, Largest does not" and left the step that mattered unmeasured.
+    /// Every step the slider lands on, for the ink check: all ten stops from 90 to 135, not just
+    /// the four presets. A boundary can turn over between presets (`docs/backports.md` records one
+    /// at 130), which a four-row table would miss.
     private var everySelectableScale: [CGFloat] {
         FontSize.selectablePercents.map { FontSize(percent: $0).scale }
     }
 
     // MARK: The rule
 
-    /// **The default text size renders exactly what it rendered before.** Every site that adopts
-    /// `scaledBox` is a site whose 100% layout must not move, so this is the assertion that lets
-    /// the fixes land without re-auditing the shipped screens.
+    /// At the default text size the box is exactly its base size, so a site that adopts
+    /// `scaledBox` keeps its 100% layout and needs no re-audit.
     @Test func theDefaultSizeIsTheBoxUnchanged() {
         for box in [CGFloat(12), 13, 14, 21, 22, 26, 30, 34] {
             for point in [CGFloat(9), 10, 11, 12, 22] {
@@ -53,8 +43,8 @@ import Testing
         }
     }
 
-    /// **The box never goes backwards as the text grows**, which is the half a pinned frame passes
-    /// and the half below is the one it fails.
+    /// The box never shrinks as the text grows. A pinned frame passes this half and fails the one
+    /// below.
     @Test func theBoxNeverShrinksAsTheTextGrows() {
         for box in [CGFloat(13), 14, 21, 34] {
             for point in [CGFloat(9), 10, 11, 12, 22] {
@@ -65,13 +55,11 @@ import Testing
         }
     }
 
-    /// **The box and its glyph move together, or the whole exercise is theatre.**
-    ///
-    /// This is the assertion that rules out the obvious wrong fix — `box * scale`. Above
-    /// ``FontSize/knee`` the ramp damps and then clamps, so a bare multiply opens a box around a
-    /// glyph that has stopped growing: at 22pt and Largest it would draw a 40.5pt disc around a
-    /// symbol still rendering at 22pt, which is the `SetupSheet` mark's exact geometry. Asserting
-    /// the *ratio* rather than the value is what makes this independent of either constant.
+    /// The box and its glyph move together. This rules out the obvious wrong rule, `box * scale`:
+    /// above ``FontSize/knee`` the ramp damps and then clamps, so a bare multiply grows a box around
+    /// a glyph that has stopped growing (at 22pt and Largest, a 40.5pt disc around a 22pt symbol,
+    /// the `SetupSheet` mark's geometry). Asserting the ratio keeps this independent of both
+    /// constants.
     @Test func theBoxHoldsItsGlyphsProportionAtEverySize() {
         for box in [CGFloat(13), 14, 21, 34] {
             for point in [CGFloat(9), 10, 11, 12, 22] {
@@ -85,8 +73,8 @@ import Testing
         }
     }
 
-    /// The clamp above the knee, stated as the case it was written for: a 22pt glyph does not grow
-    /// past Default, so neither may its disc. `SetupStepGlyph`'s 34 is this row.
+    /// The clamp above the knee: a 22pt glyph doesn't grow past Default, so neither may its disc.
+    /// `SetupStepGlyph`'s 34 is this row.
     @Test func aGlyphThatStopsGrowingTakesItsBoxWithIt() {
         let discs = scales.map { FontSize.scaledBox(34, basePoint: 22, scale: $0) }
         #expect(discs[0] < discs[1], "the disc did not shrink at the small text size")
@@ -102,15 +90,13 @@ import Testing
 
     // MARK: The rule, laid out rather than computed
 
-    /// **The number is applied, not merely returned.** Every assertion above is arithmetic on a
-    /// static function, and a static function with no caller is exactly the failure this sweep
-    /// exists because of. This lays a frame out through `NSHostingView` and reads the width back,
-    /// so a `scaledBox` that computed correctly and was never wired to a `.frame` fails here.
+    /// The number is applied, not merely returned. Everything above is arithmetic on a static
+    /// function; this lays a frame out through `NSHostingView` and reads the width back, so a
+    /// `scaledBox` that computes correctly but never reaches a `.frame` fails here.
     ///
-    /// **Bounded above by a whole point, not by half of one**, because `fittingSize` rounds a
-    /// fractional frame *up* to the next point rather than to the nearer one: 26.25 comes back as
-    /// 27 and 28.35 as 29. A symmetric `± 0.51` fails on both, which is the renderer's rounding
-    /// and not the rule's answer — so the bound is asymmetric and says which direction it allows.
+    /// Bounded above by a whole point, not half of one, because `fittingSize` rounds a fractional
+    /// frame up to the next point: 26.25 comes back as 27 and 28.35 as 29. A symmetric `± 0.51`
+    /// would fail on the renderer's rounding, not the rule, so the bound is asymmetric.
     @Test func aFrameBuiltFromTheRuleReallyMeasuresIt() {
         for scale in scales {
             let want = FontSize.scaledBox(21, basePoint: 11, scale: scale)
@@ -123,8 +109,8 @@ import Testing
     }
 
     /// The companion to the tolerance above: the laid-out widths still tell the four sizes apart.
-    /// Rounding up to the next point is harmless here and would not be if it collapsed two sizes
-    /// onto one number — that would make every rendered growth assertion in this sweep vacuous.
+    /// Rounding that collapsed two sizes onto one number would make every rendered growth check
+    /// vacuous.
     @Test func roundingDoesNotCollapseTwoTextSizesOntoOneWidth() {
         let widths = scales.map { scale in
             NSHostingView(rootView: Color.clear
@@ -137,13 +123,9 @@ import Testing
 
     // MARK: A reservation, asserted rather than assumed
 
-    /// **`CloseButton`'s 26×26 is a hit target and stays a constant — this is why that is safe.**
-    ///
-    /// The sweep left six framed glyphs alone on the grounds that their boxes are pointer targets,
-    /// which have no reason to track the type ramp. That reasoning is only sound while the box is
-    /// still big enough for the glyph inside it, and nothing checked: measured 2026-08-31 the
-    /// `xmark` draws 8.0 · 9.0 · 11.0 · 12.0pt of ink inside 26pt, so the margin is large and the
-    /// verdict holds. Raise `CloseButton`'s 11pt glyph far enough and this is what says so.
+    /// `CloseButton`'s 26×26 is a hit target and stays a constant, which is safe only while the box
+    /// still holds the glyph inside it. The `xmark` draws 8.0 · 9.0 · 11.0 · 12.0pt of ink inside
+    /// 26pt across the presets, a large margin; raise its 11pt glyph far enough and this fails.
     @Test(.machinePinned(.pixelSampling))
     func theCloseButtonsReservationStillHoldsItsGlyph() {
         for scale in everySelectableScale {
@@ -154,23 +136,19 @@ import Testing
         }
     }
 
-    /// **The positive control for every "clean" verdict in this sweep.**
-    ///
-    /// `GlyphInk.outside` returning 0 is the answer six sites depend on, and a detector that had
-    /// silently stopped seeing ink — a threshold that stopped matching, a render that came back
-    /// blank — would return 0 for all of them and read as a clean bill of health. So it is shown a
-    /// box that is definitely too small, and required to say so. The numbers are the real ones:
-    /// `SetupSheet`'s mark drew 15pt² outside a 30pt disc before this branch, which is why the
-    /// control asks for meaningfully more than ``GlyphInk/tolerance``.
+    /// The positive control for every "clean" verdict here. A detector that silently stopped
+    /// seeing ink (a threshold that stopped matching, a blank render) would return 0 everywhere
+    /// and read as clean, so it is shown a box that is definitely too small and must say so. That
+    /// box draws about 15pt² outside, so the control asks for well over ``GlyphInk/tolerance``.
     @Test(.machinePinned(.pixelSampling))
     func theInkMeasurementCanActuallySeeAnOverflow() {
-        // `person.2` at 22pt in the 30pt disc SetupSheet shipped — the defect this sweep fixed.
+        // `person.2` at 22pt in a 30pt disc, too small for it.
         let shipped = GlyphInk.outside(symbol: "person.2", point: 22, weight: .regular,
                                        box: 30, shape: Circle(), scale: 1)
         #expect(shipped > 10,
                 "the shipped 30pt disc reports only \(shipped)pt² of ink outside it — the measurement is blind, so every clean verdict beside it is worthless")
 
-        // ...and the diameter this branch replaced it with is clean, measured the same way.
+        // ...and the 34pt disc `SetupSheet` uses is clean, measured the same way.
         let fixed = GlyphInk.outside(symbol: "person.2", point: 22, weight: .regular,
                                      box: 34, shape: Circle(), scale: 1)
         #expect(fixed <= GlyphInk.tolerance,
@@ -182,27 +160,21 @@ import Testing
 
 /// Reads glyph ink back out of a live renderer and asks whether any of it fell outside the box.
 ///
-/// **The measurement `fittingSize` cannot make.** A symbol's laid-out width includes its side
-/// bearings, so `Image(systemName: "house")` reports 23pt at Largest while drawing 18pt of ink —
-/// and six of the fourteen sites in the 2026-08-31 sweep are "overflows" by the first number and
-/// clean by the second. Overflow is a claim about ink, so it is measured as one: the box is painted
-/// once on its own, the glyph is drawn once on its own in the identical layout, and the answer is
-/// the ink the paint does not cover.
+/// A symbol's laid-out width includes its side bearings, so `Image(systemName: "house")` reports
+/// 23pt at Largest while drawing 18pt of ink; `fittingSize` can't tell an overflow. Overflow is a
+/// claim about ink, so it is measured as one: the box painted on its own, the glyph drawn on its
+/// own in the identical layout, and the answer is the ink the paint doesn't cover.
 enum GlyphInk {
 
-    /// **Set from the measured gap between the renderer's fringe and a real overflow, not by
-    /// taste.** A glyph is centred in a box whose scaled width is usually fractional, so its ink
-    /// lands a fraction of a point past the nominal edge and the outermost column of pixels is
-    /// partially covered. Swept on 2026-08-31 over every symbol the mode capsules, the storage
-    /// capsule and the pass-lens column can draw, at all four text sizes, the worst such fringe on
-    /// a **correctly sized** box was 2.5pt² — `clock.badge.exclamationmark`, at the default size,
-    /// spilling under a point on its right edge. `eye` shows the same 0.3–0.5pt edge at *every*
-    /// size including Small, which is what identifies it as the renderer rather than a fit problem.
+    /// Set from the measured gap between the renderer's fringe and a real overflow. A glyph is
+    /// centred in a box whose scaled width is usually fractional, so its ink lands a fraction of a
+    /// point past the nominal edge. Over every symbol the mode capsules, the storage capsule and the
+    /// pass-lens column draw, at all four sizes, the worst fringe on a correctly sized box is 2.5pt²
+    /// (`clock.badge.exclamationmark` at the default size); `eye` shows the same edge at every size,
+    /// which marks it as the renderer, not a fit problem.
     ///
-    /// The overflows this sweep actually fixed measured **10.8 and 21.0pt²** (the pass-lens column
-    /// at Large and Largest) and **13 and 15pt²** (`SetupSheet`'s mark at Default and above). So 4
-    /// sits with 1.6× clearance above the worst fringe and 2.7× below the smallest real defect —
-    /// wide on both sides, rather than tuned to whatever number made a test go green.
+    /// Real overflows measured 10.8 to 21.0pt², so 4 sits 1.6× above the worst fringe and 2.7×
+    /// below the smallest real overflow.
     static let tolerance: CGFloat = 4
 
     /// Area of glyph ink, in pt², falling outside `shape` drawn at `box`.
@@ -238,7 +210,7 @@ enum GlyphInk {
         for y in 0..<glyph.pixelsHigh {
             for x in 0..<glyph.pixelsWide {
                 guard let g = glyph.colorAt(x: x, y: y), let t = tile.colorAt(x: x, y: y) else { continue }
-                // Solid ink only — a faint antialiased fringe is not the thing being measured.
+                // Solid ink only: a faint antialiased fringe is not what is being measured.
                 guard g.redComponent < 0.5, g.greenComponent < 0.5, g.blueComponent < 0.5 else { continue }
                 if !(t.greenComponent > t.redComponent + 0.15) { loose += 1 }
             }

@@ -3,18 +3,14 @@ import SwiftUI
 import AppKit
 #endif
 
-/// Whether the app renders light or dark — the *theme* half of Appearance, orthogonal to both
-/// `GlassLevel` (material) and `SurfaceStyle` (shape). Every combination is valid: dark frosted
-/// cards, light solid unified, and so on.
+/// Whether the app renders light or dark: the theme half of Appearance, independent of
+/// `GlassLevel` (material) and `SurfaceStyle` (shape), so every combination is valid.
 ///
-/// `.system` is the default and the macOS-native behavior: the app follows System Settings ▸
-/// Appearance, including a mid-session switch and the Auto light/dark schedule. `.light` and
-/// `.dark` pin the app against the system, for the common cases of wanting a dark file manager
-/// on a light desktop (or the reverse) without changing the whole machine.
-///
-/// Stored in UserDefaults via `LiquidGlass.appearanceModeKey`.
+/// `.system`, the default, follows System Settings ▸ Appearance, including mid-session switches
+/// and the Auto schedule. `.light` and `.dark` pin the app against the system. Stored under
+/// `LiquidGlass.appearanceModeKey`.
 public enum AppearanceMode: String, CaseIterable, Identifiable, Sendable {
-    /// Follow macOS. The default — and the only case that tracks a mid-session system change.
+    /// Follow macOS. The default, and the only case that tracks a mid-session system change.
     case system
     /// Pin to light regardless of the system setting.
     case light
@@ -44,9 +40,8 @@ public enum AppearanceMode: String, CaseIterable, Identifiable, Sendable {
     }
 
     #if canImport(AppKit)
-    /// The appearance to pin `NSApplication` to. `nil` is not "no answer" — it is precisely how
-    /// AppKit spells *inherit the system setting*, which is why `.system` must assign it rather
-    /// than skip the write: switching Dark → System has to clear a previous override.
+    /// The appearance to pin `NSApplication` to. `nil` is how AppKit spells "inherit the system",
+    /// so `.system` must assign it rather than skip the write, or Dark → System keeps the override.
     public var nsAppearance: NSAppearance? {
         switch self {
         case .system: return nil
@@ -60,43 +55,30 @@ public enum AppearanceMode: String, CaseIterable, Identifiable, Sendable {
 #if canImport(AppKit)
 /// Applies `AppearanceMode` to the running app.
 ///
-/// This sets `NSApplication.appearance` rather than SwiftUI's `preferredColorScheme`, and the
-/// distinction is load-bearing: `preferredColorScheme` only reaches the SwiftUI view tree of the
-/// scene it is attached to. SyncCloud's theme has to cover the AppKit surfaces too — the
-/// `NSAlert` collision/confirmation prompts and `NSOpenPanel` in `NativeAlerts`, the standard
-/// About panel, and the separate Activity Log / Sync History / Keyboard Shortcuts windows. Those
-/// inherit from `NSApp` and would otherwise stay on the system appearance, so a "Dark" app would
-/// still throw a light alert.
-///
-/// Being an app-level property is also why no new key has to be threaded through the ~13 views
-/// that each re-derive `GlassLevel` from `@AppStorage`: the appearance is set once and every
-/// window, panel and alert inherits it.
+/// Sets `NSApplication.appearance`, not SwiftUI's `preferredColorScheme`, which reaches only the
+/// SwiftUI tree of its own scene. The theme must also cover AppKit surfaces that inherit from
+/// `NSApp`: the alerts and `NSOpenPanel` in `NativeAlerts`, the About panel, and the auxiliary
+/// windows. Otherwise a Dark app would still throw a light alert. Set once, every window inherits.
 @MainActor
 public enum AppAppearance {
-    /// The persisted mode, defaulting to `.system` for both a fresh install and an unrecognized
-    /// stored value.
+    /// The persisted mode; `.system` for a fresh install or an unrecognized stored value.
     public static func resolved(_ defaults: UserDefaults = .standard) -> AppearanceMode {
         AppearanceMode(rawValue: defaults.string(forKey: LiquidGlass.appearanceModeKey) ?? "") ?? .system
     }
 
     /// Pins (or, for `.system`, un-pins) the whole app's appearance.
     ///
-    /// The per-window pass exists because `NSApplication.appearance` alone is not enough for a
-    /// window that is already on screen: its SwiftUI content re-resolves, but the macOS 26 glass
-    /// title-bar band keeps drawing with the appearance it was created under, so a Dark → Light
-    /// switch left a dark toolbar strip on a light window until relaunch. Re-asserting the value
-    /// on each open window makes AppKit rebuild the title-bar backing. Windows created later
-    /// inherit from `NSApp` (their `appearance` stays nil under `.system`), so the pass never
-    /// needs re-running for them.
+    /// The per-window pass is needed for windows already on screen: their SwiftUI content follows
+    /// `NSApplication.appearance`, but the macOS 26 glass title-bar band keeps its creation-time
+    /// appearance, leaving a dark strip on a light window until relaunch. Re-asserting it per
+    /// window makes AppKit rebuild that band. Later windows inherit from `NSApp`.
     public static func apply(_ mode: AppearanceMode) {
         pin(mode, onto: NSApplication.shared, windows: NSApplication.shared.windows)
     }
 
-    /// The whole of `apply`, with its targets handed in. Internal for one reason: a test of the
-    /// per-window pass must run against ITS OWN windows — the production pass writes
-    /// `window.appearance` on every open window, and under a parallel test run that would clobber
-    /// the explicit appearance a render suite just pinned on its window, turning this test into a
-    /// flake vector for every pixel-measuring suite in the target.
+    /// The whole of `apply`, with its targets handed in, so a test can run the per-window pass on
+    /// its own windows. The production pass writes every open window, which under a parallel run
+    /// would clobber the appearance a render suite pinned on its window.
     static func pin(_ mode: AppearanceMode, onto app: NSApplication, windows: [NSWindow]) {
         let appearance = mode.nsAppearance
         app.appearance = appearance

@@ -2,10 +2,9 @@ import Testing
 import SwiftUI
 @testable import Design
 
-/// Pins the public shape of `EmptyStateView` (H3): the unified blank-panel template every tab
-/// renders through. These are API/behavior pins, not pixel tests — the component is pure
-/// layout, so what matters is that the parameterized slots exist, stay public, and carry the
-/// caller's copy and handlers through unchanged.
+/// Pins the public shape of `EmptyStateView`, the blank-panel template every tab renders through.
+/// API pins, not pixel tests: the component is pure layout, so what matters is that its slots
+/// exist, stay public, and carry the caller's copy and handlers through unchanged.
 @Suite struct EmptyStateViewTests {
 
     @Test func actionCarriesTitleImageAndHandler() {
@@ -24,12 +23,11 @@ import SwiftUI
         #expect(action.systemImage == nil)
     }
 
-    /// Every caller shape constructs — one compile-and-run pin per variant, in one test
-    /// (the view stores everything privately and renders pure layout, so there is nothing
-    /// further to assert here; the VISUAL contract, including the `path:` slot's middle
-    /// truncation, is pinned by `DesignSnapshotTests`).
+    /// Every caller shape constructs, one compile-and-run pin per variant. The view keeps
+    /// everything private, so there is nothing more to assert here; `DesignSnapshotTests` pins the
+    /// visual contract, including the `path:` slot's middle truncation.
     @Test func everyCallerShapeConstructs() {
-        // The full L4 template: provider-named title, job explanation, safety-contract
+        // The full template: provider-named title, job explanation, safety-contract
         // caption, one primary action plus a quieter secondary.
         _ = EmptyStateView(
             icon: "wand.and.stars",
@@ -49,7 +47,7 @@ import SwiftUI
                            message: "Select a file or folder in either pane.",
                            layout: .compact)
         // The missing-root shape: the `path:` slot (monospaced, middle-truncated file-system
-        // detail) — previously the one initializer slot no test ever exercised.
+        // detail).
         _ = EmptyStateView(
             icon: "externaldrive.badge.questionmark",
             title: "Folder not found",
@@ -59,14 +57,10 @@ import SwiftUI
         )
     }
 
-    /// BOTH action buttons must carry `chromeHover` — the one hover choke point in this codebase.
-    ///
-    /// The secondary used to have none, so an empty state offering two side-by-side actions had a
-    /// primary that lit up under the pointer and a companion that stayed completely inert: not
-    /// "loud and quiet" but "live and dead". `HoverAffordanceMetrics` is by design `.none` at rest
-    /// for every variant, and `chromeHover` drives itself from its own `onHover` state, so there
-    /// is nothing to render or drive from a test — what IS checkable is that the modifier is on
-    /// both buttons, which the body's static type spells out once per application site.
+    /// Both action buttons carry `chromeHover`, the codebase's one hover choke point. Without it
+    /// on the secondary, the primary lights under the pointer and its companion stays inert. Hover
+    /// is `.none` at rest and driven by the modifier's own `onHover` state, so a test can't render
+    /// it; instead it counts the modifier in the body's static type, once per application site.
     @MainActor
     @Test func bothActionButtonsCarryTheHoverChokePoint() {
         let view = EmptyStateView(

@@ -3,10 +3,9 @@ import AppKit
 import SwiftUI
 @testable import Design
 
-/// Pins the on-accent label pairing (round-5 fix): the round-4 attempt used
-/// `alternateSelectedControlTextColor`, which AppKit returns as white under EVERY accent, so
-/// white-on-Yellow (~1.6:1) shipped unchanged. The pairing is now derived from the accent's own
-/// luminance; these tests pin the decision function against the actual system accent values.
+/// Pins the on-accent label pairing, derived from the accent's own luminance:
+/// `alternateSelectedControlTextColor` is white under every accent, so it would put white on
+/// Yellow (~1.6:1). These tests pin the decision function against the system accent values.
 @Suite struct AccentLabelColorTests {
 
     @Test func lightAccentsGetDarkText() {
@@ -31,10 +30,7 @@ import SwiftUI
 
     @Test func theOnFillPairingSurvivesAnUnconvertibleColor() {
         // `onFillLabel` converts to sRGB before measuring; a colour that can't convert must fall
-        // back to white rather than trapping. (This replaces a test of the system-accent pairing
-        // `Color.onAccentLabel`, removed with that API: the accent-fill model f2f72f8 settled on
-        // pairs white against a DEEPENED fill for every hue, so a second, per-luminance on-accent
-        // path existed only to be rediscovered and reintroduce the split.)
+        // back to white rather than trapping.
         #expect(SwiftUI.Color.onFillLabel(Color(nsColor: .textBackgroundColor)) != nil)
     }
 
@@ -45,10 +41,9 @@ import SwiftUI
         #expect(SwiftUI.Color.onFillLabel(LiquidGlassHue.indigo.accentColor) == .white)
     }
 
-    /// The invariant the Settings swatch checkmark violated: it painted a hardcoded white on every
-    /// hue, which is ~2.1:1 on amber and ~2.5:1 on cyan. Every hue's label must clear the WCAG
-    /// large-text 3:1 minimum against the swatch fill it is drawn on — the composited contrast,
-    /// since the near-black branch is 85% opaque and the fill shows through it.
+    /// Every hue's label must clear the WCAG large-text 3:1 minimum against the swatch fill it is
+    /// drawn on (a hardcoded white is ~2.1:1 on amber, ~2.5:1 on cyan). Measured composited, since
+    /// the near-black branch is 85% opaque and the fill shows through it.
     @Test func everyGlassHueLabelClearsLargeTextContrast() {
         for hue in LiquidGlassHue.allCases where hue != .none {
             let fill = srgb(hue.accentColor)
@@ -62,9 +57,8 @@ import SwiftUI
     /// (the workspace bar pill, the pane action buttons, the differences count pill, the Log
     /// window's selected chip): `accentFillColor` under `onAccentLabelColor`.
     ///
-    /// Held to 4.5:1, not the 3:1 the old per-hue pairing settled for. That is the point of
-    /// deepening the fill — the label is a flat white now, so the fill has to earn it outright
-    /// rather than the pairing negotiating hue by hue, and body-text AA is what it earns.
+    /// Held to 4.5:1: with the fill deepened the label is a flat white, so the fill has to earn it
+    /// outright, and body-text AA is what it earns.
     @Test func everyHueOnAccentFillCarriesItsLabelAtBodyTextContrast() {
         for hue in LiquidGlassHue.allCases where hue != .none {
             let fill = srgb(hue.accentFillColor)
@@ -74,11 +68,9 @@ import SwiftUI
         }
     }
 
-    /// Why the fill has to be deepened, stated as a test rather than a comment. White on the RAW
-    /// accent is under the 3:1 floor on the MAJORITY of the palette — ~2.1:1 on cyan, ~2.2:1 on
-    /// amber — so "just make the label white" is not available without moving the fill. Anyone
-    /// tempted to fill with `accentColor` and write `.foregroundStyle(.white)` should land here first;
-    /// `accentFillColor` is the fill that makes white legal.
+    /// Why the fill has to be deepened. White on the raw accent is under the 3:1 floor on most of
+    /// the palette (~2.1:1 on cyan, ~2.2:1 on amber), so a white label needs `accentFillColor`, not
+    /// `accentColor` with `.foregroundStyle(.white)`.
     @Test func hardcodedWhiteOnAccentFailsOnMostHues() {
         let failing = LiquidGlassHue.allCases.filter { hue in
             guard hue != .none else { return false }
@@ -97,11 +89,8 @@ import SwiftUI
     /// window's selected-chip count, the count pill's chevron): the label dimmed to
     /// `AccentLabel.dimmedOnFillOpacity` must STILL clear 3:1 on every hue.
     ///
-    /// Deepening the fills moved the binding pair. It used to be white on Graphite, ~0.5 above the
-    /// floor at full strength and 3.14:1 once dimmed, which is where the 0.9 constant came from.
-    /// Now every fill is at or below the deepening ceiling, so the whole palette dims to ~4:1 and
-    /// the constant has slack it did not have before. Kept at 0.9 rather than loosened: nothing
-    /// wants a fainter secondary, and the slack is worth more as margin.
+    /// Deepening put every fill at or below the ceiling, so the whole palette dims to about 4:1.
+    /// The 0.9 constant keeps that slack as margin rather than buying a fainter secondary.
     @Test func everyGlassHueDimmedLabelClearsLargeTextContrast() {
         for hue in LiquidGlassHue.allCases where hue != .none {
             let fill = srgb(hue.accentFillColor)

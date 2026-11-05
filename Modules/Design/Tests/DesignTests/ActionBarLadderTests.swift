@@ -7,12 +7,10 @@ import AppKit
 /// `ViewThatFits` whose candidate rows contain a `Spacer` still advances down the ladder as the
 /// proposed width shrinks.
 ///
-/// This is worth a test rather than a comment because the intuition cuts the other way — a Spacer
-/// is infinitely *flexible*, so it reads as though it would let any row squeeze into any width and
-/// strand the header on its widest candidate forever. It doesn't: a Spacer's ideal width is its
-/// `minLength`, so each candidate reports a finite ideal that `ViewThatFits` can compare. If a
-/// future SDK changed that, the header would silently stop shedding and start clipping instead —
-/// which is exactly the failure this ladder was built to end.
+/// Worth a test because the intuition cuts the other way: a Spacer is infinitely flexible, so it
+/// looks as though any row could squeeze into any width and strand the header on its widest
+/// candidate. It doesn't, because a Spacer's ideal width is its `minLength`, giving each candidate
+/// a finite ideal. If an SDK changed that, the header would silently stop shedding and clip.
 @Suite struct ActionBarLadderTests {
 
     /// Lays out a two-rung ladder at `width` and reports which rung was chosen. The rungs differ
@@ -51,10 +49,9 @@ import AppKit
 
     @MainActor
     @Test func testTheMinimumGapDoesNotDecideWhetherTheLadderWorks() {
-        // A bare `Spacer()` sheds identically — its default minLength is the platform spacing, not
-        // zero. `standardHeaderRow` states a minLength to guarantee a visible seam between the
-        // scope and action zones, not to make the ladder function; recording that here so the
-        // constant doesn't acquire a load-bearing reputation it hasn't earned.
+        // A bare `Spacer()` sheds identically: its default minLength is the platform spacing, not
+        // zero. `standardHeaderRow`'s minLength guarantees a visible seam between the scope and
+        // action zones; the ladder doesn't depend on it.
         #expect(chosenRungHeight(width: 400, spacerMinLength: nil) == 40)
         #expect(chosenRungHeight(width: 200, spacerMinLength: nil) == 20)
     }

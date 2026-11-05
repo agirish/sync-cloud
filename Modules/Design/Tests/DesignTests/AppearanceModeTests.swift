@@ -9,8 +9,8 @@ struct AppearanceModeTests {
 
     // MARK: - Resolution from UserDefaults
 
-    /// A fresh install has no stored key. Following macOS is the only defensible default — it is
-    /// what the app did before this control existed, so upgrading installs see no visual change.
+    /// A fresh install has no stored key. Following macOS is the only defensible default, and it
+    /// means upgrading installs see no visual change.
     @MainActor
     @Test func freshInstallFollowsTheSystem() {
         let defaults = Self.emptyDefaults()
@@ -89,17 +89,14 @@ struct AppearanceModeTests {
 
     // MARK: - The per-window pass
 
-    /// The pass exists because of a shipped bug — the macOS 26 glass title-bar band kept the OLD
-    /// appearance on a Dark → Light switch until relaunch, so `apply` re-asserts the value on
-    /// every open window — and nothing pinned it: resolution was tested to the last raw value
-    /// while the one function that touches AppKit had zero coverage. Driven through the `pin`
-    /// seam with THIS test's own windows (never `NSApp.windows` — that would clobber the
-    /// appearance a parallel render suite just pinned on its window); `apply`'s only other line
-    /// is feeding `pin` the real app and window list, pinned by the scan below.
+    /// The per-window pass: the macOS 26 glass title-bar band keeps the old appearance on a
+    /// Dark → Light switch until relaunch unless `apply` re-asserts the value on every open window.
+    /// Driven through the `pin` seam with this test's own windows, never `NSApp.windows`, which
+    /// would clobber the appearance a parallel render suite pinned on its window; the scan below
+    /// pins `apply` feeding `pin` the real app and window list.
     ///
-    /// The un-pin half matters as much as the pin: `.system` must write nil onto every window,
-    /// or a once-pinned window stays stuck in its old appearance after the user returns to
-    /// following the system.
+    /// The un-pin half matters as much: `.system` must write nil onto every window, or a
+    /// once-pinned window stays stuck in its old appearance after the user returns to the system.
     @MainActor
     @Test func pinWritesEveryWindowAndSystemUnpins() {
         let app = NSApplication.shared
@@ -128,17 +125,16 @@ struct AppearanceModeTests {
                 "the un-pin must reach every window, or a once-pinned window is stuck until relaunch")
     }
 
-    /// The call-site half: `apply` must feed `pin` the real app and the real window list. One
-    /// line, but it is the line whose absence was the original bug (app-only, windows skipped).
+    /// The call-site half: `apply` must feed `pin` the real app and the real window list, or open
+    /// windows keep a stale title-bar appearance.
     @Test func applyFeedsPinTheRealAppAndItsWindows() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/Design/AppearanceMode.swift")
         let source = try #require(try? String(contentsOf: url, encoding: .utf8))
         try #require(source.count > 500, "AppearanceMode.swift read truncated — the scan would be vacuous")
-        // Scoped to apply's BODY, comments stripped — a whole-file `contains` would keep passing
-        // with apply gutted and the old line surviving as a comment, which is a routine refactor
-        // artifact and exactly the drift this pin exists to refuse.
+        // Scoped to apply's body, comments stripped: a whole-file `contains` would pass with apply
+        // gutted and the old line surviving as a comment.
         let code = source.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")

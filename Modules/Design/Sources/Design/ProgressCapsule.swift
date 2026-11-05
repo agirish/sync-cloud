@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// One run, as the toolbar's progress capsule draws it — a snapshot, taken again on every tick by
-/// whoever hosts the capsule, since an `NSProgress` is not observable.
+/// One run, as the toolbar's progress capsule draws it: a snapshot the host takes again on every
+/// tick, since an `NSProgress` isn't observable.
 public struct ProgressCapsuleRun: Equatable, Sendable {
     /// "Merging “Photos”" — the run's own description.
     public var title: String
@@ -14,10 +14,11 @@ public struct ProgressCapsuleRun: Equatable, Sendable {
     public var cancelTitle: String
     /// What the stop button's tooltip says it does.
     public var cancelHelp: String
-    /// A sentence said over the run for a moment — a second request refused while this one runs.
+    /// A sentence said over the run for a moment, such as a second request refused while this one
+    /// runs.
     public var note: String?
-    /// Nothing is running: the capsule stays only because Activity hangs from it (TE231), so it
-    /// neither spins nor fills.
+    /// Nothing is running: the capsule stays only because Activity hangs from it, so it neither
+    /// spins nor fills.
     public var isIdle: Bool
 
     public init(title: String, completed: Int64 = 0, total: Int64 = 0, detail: String? = nil,
@@ -51,7 +52,7 @@ public struct ProgressCapsuleRun: Equatable, Sendable {
         return min(1, max(0, Double(completed) / Double(total)))
     }
 
-    /// "Merging “Photos” · 3,336 of 7,363 · IMG_2034.jpg" — everything the capsule knows, for the
+    /// "Merging “Photos” · 3,336 of 7,363 · IMG_2034.jpg": everything the capsule knows, for the
     /// tooltip and VoiceOver, which see the ring alone at narrow widths.
     public var summary: String {
         var parts = [note ?? title]
@@ -61,9 +62,9 @@ public struct ProgressCapsuleRun: Equatable, Sendable {
     }
 }
 
-/// **A message in the capsule** (Run Room CG, TE233): the ending of a run that finished after the
-/// reader moved on, which the window shows here rather than in a pane they are not looking at — or
-/// a run's ending a pane shows, mirrored here for as long as the pane shows it.
+/// A message in the capsule: the ending of a run that finished after the reader moved on, shown
+/// here rather than in a pane they aren't looking at, or a run's ending a pane shows, mirrored
+/// here for as long as the pane shows it.
 public struct ProgressCapsuleMessage {
     public enum Weight: Equatable, Sendable {
         case success, warning, failure
@@ -92,8 +93,8 @@ public struct ProgressCapsuleMessage {
     public var onClose: () -> Void
     /// The pointer over the capsule holds the message, as over a pane's.
     public var onHover: (Bool) -> Void
-    /// **On its way into Activity** (``ProgressCapsuleFlight``): the words and buttons are gone and
-    /// the capsule has narrowed to its ring, which is about to lift out and fly to the button.
+    /// On its way into Activity (``ProgressCapsuleFlight``): the words and buttons are gone and the
+    /// capsule has narrowed to its ring, which is about to lift out and fly to the button.
     public var isFolding: Bool
     /// Whether it has its own ✕. A run's ending mirrored from a pane has none: its buttons, ✕
     /// included, are the pane's.
@@ -111,12 +112,12 @@ public struct ProgressCapsuleMessage {
     }
 }
 
-/// How much of the toolbar the capsule has — decided by the toolbar's width ladder, never by the
+/// How much of the toolbar the capsule has, decided by the toolbar's width ladder, never by the
 /// capsule (`WorkspaceBarMetrics`).
 public enum ProgressCapsuleStyle: Equatable, Sendable {
     /// Ring, title, bar, count and stop button.
     case full
-    /// The ring and the stop button; the rest is in the tooltip (TE206).
+    /// The ring and the stop button; the rest is in the tooltip.
     case ring
 }
 
@@ -131,34 +132,33 @@ public enum ProgressCapsuleMetrics {
     static let ringSide: CGFloat = 16
 }
 
-/// **A long run's progress, in the middle of the toolbar** (TE205, decision BY). It replaced the
-/// centred dialog whose dimming took every click until the run ended (TE208): the window stays
-/// usable for reading while the run goes on, and only the actions that write wait (decision BZ).
+/// A long run's progress, in the middle of the toolbar. Unlike a dimming dialog, it leaves the
+/// window usable for reading while the run goes on; only the actions that write wait.
 ///
-/// The stop button keeps the dialog's chord, ⌘. — and deliberately not Esc, since the whole window
-/// is live around it and Esc clears a pane's selection (`AppChord.cancelOperation`).
+/// The stop button takes ⌘., deliberately not Esc: the whole window is live around it, and Esc
+/// clears a pane's selection (`AppChord.cancelOperation`).
 ///
-/// **With two or more runs the stop button gives way to a count, "2 ⌄"** (TE218, TE219): the
-/// capsule draws the newest run, and a ✕ there would stop whichever run happened to be drawn —
-/// which changes under the pointer when one ends. The count opens the list where each run has its
-/// own Stop, and takes ⌘. with it (decision CJ: the key opens the list, never stops a run unseen).
+/// With two or more runs the stop button gives way to a count, "2 ⌄": the capsule draws the newest
+/// run, so a ✕ would stop whichever run is drawn, which changes under the pointer when one ends.
+/// The count opens the list where each run has its own Stop, and takes ⌘. with it, so the key
+/// never stops a run unseen.
 public struct ProgressCapsule: View {
     let run: ProgressCapsuleRun
     let style: ProgressCapsuleStyle
-    /// The other runs going beside this one, newest first — counted on the button, named in the
+    /// The other runs going beside this one, newest first: counted on the button, named in the
     /// tooltip.
     let othersRunning: [String]
     let onCancel: (() -> Void)?
-    /// Opens the list of every run — the count button's action, and ⌘.'s, while others run.
+    /// Opens the list of every run: the count button's action, and ⌘.'s, while others run.
     let onShowRuns: (() -> Void)?
-    /// A click anywhere else on the capsule: opens Activity (TE220).
+    /// A click anywhere else on the capsule: opens Activity.
     let onOpen: (() -> Void)?
-    /// A message taking the capsule for its time, over any run (decision CU): its words in
-    /// the run's place, ✓ or ✕ in the ring, and the count still saying how many runs go on.
+    /// A message taking the capsule for its time, over any run: its words in the run's place, ✓ or
+    /// ✕ in the ring, and the count still saying how many runs go on.
     let message: ProgressCapsuleMessage?
 
     @State private var hovering = false
-    /// The window's hue for the ring's arc — a line, so the raw accent, not the system's `.tint`.
+    /// The window's hue for the ring's arc: a line, so the raw accent, not the system's `.tint`.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
     public init(run: ProgressCapsuleRun, style: ProgressCapsuleStyle,
@@ -183,7 +183,7 @@ public struct ProgressCapsule: View {
     }
 
     var trailing: Trailing {
-        // Over a message the runs go on behind it: a count — even of one — says so, and opens them.
+        // Over a message the runs go on behind it: a count, even of one, says so and opens them.
         if message != nil {
             return run.isIdle || onShowRuns == nil ? .none : .count(othersRunning.count + 1)
         }
@@ -194,8 +194,8 @@ public struct ProgressCapsule: View {
     /// Folding into its ring on the way to Activity: the ring alone, in a capsule its own size.
     private var isFolding: Bool { message?.isFolding ?? false }
 
-    /// The toolbar's reservation for the item, which never changes — a fold narrows the drawn
-    /// capsule inside it, centred, so the toolbar's width ladder is not re-run mid-flight.
+    /// The toolbar's reservation for the item, which never changes: a fold narrows the drawn
+    /// capsule inside it, centred, so the toolbar's width ladder isn't re-run mid-flight.
     private var itemWidth: CGFloat {
         style == .full ? ProgressCapsuleMetrics.fullWidth : ProgressCapsuleMetrics.ringWidth
     }
@@ -283,8 +283,8 @@ public struct ProgressCapsule: View {
         .designAnimation(ProgressCapsuleFlight.foldAnimation, value: isFolding)
     }
 
-    /// Every run, newest first, one to a line — and the count ahead of them for VoiceOver, which
-    /// hears the capsule as one element (TE226).
+    /// The message, then every run, newest first, one to a line. `accessibilityText` puts the count
+    /// ahead of the runs, since VoiceOver hears the capsule as one element.
     private var tooltip: String {
         let runs = run.isIdle && message != nil ? [] : [run.summary] + othersRunning
         return ([message?.text].compactMap { $0 } + runs).joined(separator: "\n")
@@ -315,7 +315,7 @@ public struct ProgressCapsule: View {
     }
 
     /// The ✕, or the count: "2 ⌄" in the full capsule, a filled badge in the ring, where the
-    /// chevron has no room (TE225).
+    /// chevron has no room.
     @ViewBuilder private var trailingLabel: some View {
         switch trailing {
         case .count(let count) where style == .full:
@@ -391,16 +391,14 @@ public struct ProgressCapsule: View {
         }
     }
 
-    /// "3,336 of 7,363", grouped the way the reader's locale writes numbers — read each time, as
-    /// the title's `CountedNoun` is. A cached `NumberFormatter` with no locale set kept the region
-    /// it was first used in, so a region change left the counter grouped one way under a title
-    /// grouped another.
+    /// "3,336 of 7,363", grouped the way the reader's locale writes numbers, read each time as the
+    /// title's `CountedNoun` is, so a region change can't leave the counter grouped one way under a
+    /// title grouped another.
     /// - Parameter locale: the reader's unless a test pins one.
     nonisolated static func formattedCount(completed: Int64, total: Int64,
                                            locale: Locale = .autoupdatingCurrent) -> String {
-        // Clamp the shown count to the total for the same reason the bar is clamped: `completed`
-        // can briefly drift past `total` during cancel, which would otherwise read like
-        // "7,400 of 7,363".
+        // Clamped to the total, like the bar: `completed` can briefly drift past `total` during a
+        // cancel, which would read like "7,400 of 7,363".
         let shown = total > 0 ? min(completed, total) : completed
         let style = IntegerFormatStyle<Int64>.number.locale(locale)
         return "\(shown.formatted(style)) of \(total.formatted(style))"

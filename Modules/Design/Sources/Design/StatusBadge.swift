@@ -8,8 +8,8 @@ public struct StatusBadge: View {
         self.isValid = isValid
     }
     
-    /// Valid/invalid are meanings, not styles — paint them from the shared semantic table
-    /// (C3) so "valid" here can never drift from "success" elsewhere.
+    /// Valid/invalid are meanings, not styles: painted from the shared semantic table so "valid"
+    /// here can never drift from "success" elsewhere.
     private var color: Color { isValid ? SemanticColor.success : SemanticColor.error }
 
     public var body: some View {
@@ -18,7 +18,7 @@ public struct StatusBadge: View {
                 .fill(color)
                 .frame(width: 6, height: 6)
             
-            // The word in label colour, the meaning in the dot and the wash (DS1).
+            // The word in label colour, the meaning in the dot and the wash.
             Text(isValid ? "Valid path" : "Invalid path")
                 .scaledFont(.system(size: 10, weight: .semibold))
                 .foregroundStyle(PillVariant.labelInk(for: color))

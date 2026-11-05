@@ -3,18 +3,18 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// The three widths `ShrinkableRun` exists to report — ideal = content, maximum = content,
-/// minimum = 0 — measured through a real layout rather than asserted on the arithmetic.
+/// The three widths `ShrinkableRun` exists to report (ideal = content, maximum = content,
+/// minimum = 0), measured through a real layout rather than asserted on the arithmetic.
 ///
-/// Each is the thing some ordinary tool gets wrong: a run of `.fixedSize()` views has minimum ==
+/// Each is something an ordinary tool gets wrong: a run of `.fixedSize()` views has minimum ==
 /// ideal and overflows its row; a `ScrollView` has maximum = infinity and soaks up a row's slack.
-/// Getting either wrong is invisible in a screenshot at the width the author happened to try.
+/// Either is invisible in a screenshot at the width the author happened to try.
 @MainActor
 @Suite struct ShrinkableRunTests {
 
-    /// The natural width of the three-box fixture: the boxes plus two gaps. A `CGFloat` rather
-    /// than an integer expression — `#expect` type-checks the two sides independently, so an
-    /// untyped `50 + 60 + 70 + 8 * 2` becomes an `Int` and never equals the measured width.
+    /// The natural width of the three-box fixture: the boxes plus two gaps. Typed `CGFloat`:
+    /// `#expect` type-checks the two sides independently, so an untyped sum becomes an `Int` and
+    /// never equals the measured width.
     static let threeBoxIdeal: CGFloat = 50 + 60 + 70 + 8 * 2
 
     /// Lays out three rigid boxes in a row of the given width and reports what each one drew.
@@ -39,18 +39,18 @@ import Testing
         return (runWidth, xs)
     }
 
-    /// **The ideal: exactly the content, never more.** A row wide enough for everything must leave
-    /// the run at its natural width and hand the surplus to its siblings — the failure that starved
-    /// To File's survey sentence to a constant 414pt at every window width.
+    /// The ideal is exactly the content, never more: a roomy row leaves the run at its natural
+    /// width and hands the surplus to its siblings, or a sibling such as To File's survey sentence
+    /// is starved at every window width.
     @Test func aRoomyRowLeavesTheRunAtItsContentWidth() {
         let result = placed(rowWidth: 600, boxes: [50, 60, 70])
         #expect(result.run == Self.threeBoxIdeal)
         #expect(result.xs == [0, 58, 126], "the items are laid out in order at their own widths")
     }
 
-    /// **Every subview, not the first.** A `@ViewBuilder` slot filled with a `Group` arrives as
-    /// several subviews; sizing on `subviews.first` alone reports the leading item's width as the
-    /// whole run's and leaves the rest unplaced.
+    /// Every subview, not the first: a `@ViewBuilder` slot filled with a `Group` arrives as several
+    /// subviews, and sizing on `subviews.first` alone reports the leading item's width as the whole
+    /// run's and leaves the rest unplaced.
     @Test func aRunReportsAllOfItsItemsNotJustTheFirst() {
         let one = placed(rowWidth: 600, boxes: [50])
         let three = placed(rowWidth: 600, boxes: [50, 60, 70])
@@ -59,8 +59,8 @@ import Testing
                 "three items measured \(three.run) against one item's \(one.run)")
     }
 
-    /// **The minimum: zero.** A row too narrow for the run must squeeze it rather than be widened
-    /// by it — the whole reported defect, where the header card drew past both edges of its pane.
+    /// The minimum is zero: a row too narrow for the run squeezes it rather than being widened by
+    /// it, which would push a header card past both edges of its pane.
     @Test func aTightRowSqueezesTheRunInsteadOfBeingWidenedByIt() {
         for rowWidth: CGFloat in [120, 60, 10] {
             let result = placed(rowWidth: rowWidth, boxes: [50, 60, 70])
@@ -70,8 +70,8 @@ import Testing
         }
     }
 
-    /// What a squeeze cuts is the tail. The items keep their own widths and the run loses the end
-    /// of itself, so a pill is either fully legible or absent — never a compressed pill.
+    /// A squeeze cuts the tail. The items keep their own widths and the run loses its end, so a
+    /// pill is either fully legible or absent, never compressed.
     @Test func aSqueezeCutsTheTailRatherThanCompressingEachItem() {
         let roomy = placed(rowWidth: 600, boxes: [50, 60, 70])
         let tight = placed(rowWidth: 120, boxes: [50, 60, 70])
@@ -83,19 +83,14 @@ import Testing
         #expect(placed(rowWidth: 600, boxes: []).run == 0)
     }
 
-    /// **The cache re-measures when the content changes**, in the SAME host — which is the only
-    /// place a `Layout` cache can be wrong.
+    /// The cache re-measures when the content changes, in the same host, the only place a
+    /// `Layout` cache can be wrong. `ShrinkableRun` caches the subviews' natural sizes so a pass
+    /// measures each subtree once; that is sound because they are taken at `.unspecified`, so only
+    /// the subviews can change them, and SwiftUI calls `updateCache` exactly then.
     ///
-    /// `ShrinkableRun` holds the subviews' natural sizes so a pass measures each subtree once
-    /// instead of twice (`sizeThatFits` and `placeSubviews` each mapped them, and `sizeThatFits` is
-    /// itself asked more than once per pass). Caching is sound only because the sizes are taken at
-    /// `.unspecified` and so do not depend on the proposal — nothing but the subviews themselves
-    /// can change them, and SwiftUI calls `updateCache` exactly then.
-    ///
-    /// A fresh host would prove nothing: it builds a fresh cache, so `makeCache` alone would pass
-    /// it with `updateCache` gutted. The root view is replaced on the host that already laid out,
-    /// so the run has to notice through the update path — the run's width AND the second item's
-    /// origin both move, so a stale cache is caught in the size and in the placement.
+    /// A fresh host builds a fresh cache and would pass with `updateCache` gutted, so the root view
+    /// is replaced on the laid-out host. The run's width and the second item's origin both move,
+    /// so a stale cache is caught in size and placement.
     @Test func theCachedSizesAreRefreshedWhenAnItemChangesWidth() {
         final class Report { var run: CGFloat = -1; var secondX: CGFloat = -1 }
         let report = Report()
@@ -114,8 +109,7 @@ import Testing
             .frame(width: 600, height: 40)
         }
 
-        // Typed, for the reason `threeBoxIdeal` above is: `#expect` type-checks the two
-        // sides independently, so an untyped `50 + 60 + 8` is an `Int` and never equals a CGFloat.
+        // Typed, for the same reason as `threeBoxIdeal`.
         let narrowIdeal: CGFloat = 50 + 60 + 8
         let wideIdeal: CGFloat = 150 + 60 + 8
 

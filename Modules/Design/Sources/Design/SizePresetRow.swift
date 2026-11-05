@@ -1,27 +1,18 @@
 import SwiftUI
 
-/// The row of `SizePreset` tiles — the one control that answers "how much do you want on screen?"
+/// The row of `SizePreset` tiles: the one control that answers "how much do you want on screen?"
 /// in a click, in both places the app asks it.
 ///
-/// **A tile either names both settings it applies or draws them**, and which one depends on the
-/// surface — that is what `Style` is for.
+/// A tile either names the two settings it applies or draws them, depending on the surface
+/// (`Style`). In Settings it says `100%` over `Comfortable`: the reader has the app in front of
+/// them and the tab has the width. Setup runs before the person has seen a file list, so the words
+/// name nothing yet, and at that width they truncate; there a tile draws a miniature of the result
+/// instead (rows at the preset's type size and spacing). Same values, same order.
 ///
-/// In Settings a tile says `100%` over `Comfortable`: the reader has the app in front of them, has
-/// met both words, and the tab has the width to print them. On the setup form neither is true. It
-/// runs on step one of a first launch, before the person has seen a file list, so "Comfortable"
-/// and "Compact" name nothing yet — and shipping one style for both surfaces is not a hypothetical
-/// cost: framed at the width that step gave it, the words did not shrink, they **truncated**, to
-/// "Comfor…" on three of the five tiles.
-///
-/// So the setup form draws a miniature of the result instead — three rows at that preset's type
-/// size and row spacing — which needs no vocabulary and very little width. Same control, same
-/// values, same order; only the tile's face changes.
-///
-/// The row **does** scale with the text size it sets, which the segmented picker it replaced could
-/// not (`FontSize`'s KNOWN LIMIT — AppKit draws its own labels). A control that stayed small at
-/// 135% would be illegible exactly when somebody is using it to fix legibility. That is also where
-/// the named style runs out of room: five eleven-character words want 399pt against the 307pt the
-/// settings sheet's narrowest column offers, so there the labels shrink — see `tile(_:)`.
+/// The row scales with the text size it sets, unlike a segmented picker (`FontSize`'s known limit:
+/// AppKit draws its labels), since a control that stayed small at 135% would fail exactly when
+/// someone uses it to fix legibility. In the settings sheet's narrowest column the named labels
+/// then want 399pt of 307pt, so they shrink there (see `tile(_:)`).
 public struct SizePresetRow: View {
     /// How a tile labels itself.
     public enum Style: Sendable {
@@ -31,11 +22,8 @@ public struct SizePresetRow: View {
         case specimen
     }
 
-    /// How far a tile's label may shrink before SwiftUI would truncate it instead.
-    ///
-    /// Internal to the type rather than a literal at the call site because the settings-column fit
-    /// test has to measure against the same number — a test restating 0.7 would keep passing after
-    /// this moved.
+    /// How far a tile's label may shrink before SwiftUI would truncate it instead. A named constant
+    /// so the settings-column fit test measures against the same number, not a copy of it.
     public static let minimumLabelScale: CGFloat = 0.7
 
     @Binding private var fontSize: FontSize
@@ -63,7 +51,7 @@ public struct SizePresetRow: View {
             }
         }
         // Frosted and Clear: the chosen tile's wash and border as one glass lens that stretches
-        // between tiles (RD46).
+        // between tiles.
         .selectionLensHost(Self.lensChannel, selected: selected, style: Self.lensStyle(accent: accent))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Size and spacing")
@@ -97,22 +85,20 @@ public struct SizePresetRow: View {
                         .foregroundStyle(isSelected ? Color.primary : Color.secondary)
                 }
             }
-            // **Shrink rather than truncate.** Five tiles each carrying an eleven-character word
-            // want 399pt at 135%, and the settings sheet's narrowest column offers 307pt — the
-            // case that made an earlier draft drop the words entirely. Scaling the label down is
-            // what keeps them, and it only ever engages in that corner: at the sheet's normal
-            // width every tile draws at full size.
+            // Shrink rather than truncate: five eleven-character words want 399pt at 135%, and the
+            // settings sheet's narrowest column offers 307pt. Only that corner engages it; at the
+            // sheet's normal width every tile draws at full size.
             .lineLimit(1)
             .minimumScaleFactor(Self.minimumLabelScale)
-            // Label colour on the chosen tile too: the hue is its wash and border, and a word in the
-            // hue on a wash of it read at 2.7:1 on Green (DS1).
+            // Label colour on the chosen tile too: the hue is its wash and border, and a word in
+            // the hue on a wash of it reads at 2.7:1 on Green.
             .foregroundStyle(Color.primary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, style == .specimen ? 4 : 6)
             .padding(.horizontal, 4)
-            // The chosen tile's wash AND its accent border are today's marker: in Frosted and Clear
-            // the lens carries both, and the chosen tile draws no border at all — a border drawn
-            // over the lens would put a grey line on top of its accent ring.
+            // The chosen tile's wash and accent border are the Solid marker: in Frosted and Clear
+            // the lens carries both and the chosen tile draws no border, since a border over the
+            // lens would put a grey line on top of its accent ring.
             .background {
                 if isSelected {
                     SelectionLensTodayMarker {
@@ -145,12 +131,9 @@ public struct SizePresetRow: View {
     }
 }
 
-/// The detent labels under the text-size slider — the four named sizes, at their real positions.
-///
-/// A slider with a bare percentage readout gives no sense of where the shipped sizes are; these
-/// are what make 125% recognisably "Large" and the right-hand end recognisably the last stop.
-/// Positioned from the values themselves rather than laid out evenly, so a preset whose percentage
-/// moves takes its label with it instead of quietly pointing at the wrong place.
+/// The detent labels under the text-size slider: the four named sizes, at their real positions,
+/// so 125% reads as "Large" and the right-hand end as the last stop. Positioned from the values
+/// rather than evenly, so a size whose percentage moves takes its label with it.
 public struct FontSizeDetentLabels: View {
     private let selected: FontSize
     @AppStorage(LiquidGlass.hueKey) private var hueRaw: String = LiquidGlassHue.blue.rawValue
@@ -173,11 +156,9 @@ public struct FontSizeDetentLabels: View {
         GeometryReader { proxy in
             let usable = max(proxy.size.width - Self.knobInset * 2, 1)
             ForEach(FontSize.allCases) { size in
-                // **No tick mark of its own.** A `Slider` with a `step` draws the system's own
-                // ticks under the track at every stop, and an earlier draft added a second mark
-                // per detent directly on top of them — two tick rows saying different things at
-                // the same y. The label alone, positioned over the system tick it names, is what
-                // was missing.
+                // No tick mark of its own: a `Slider` with a `step` already draws the system's
+                // ticks at every stop, and a second mark would sit on top of them. The label sits
+                // over the system tick it names.
                 VStack(spacing: 2) {
                     Text(size.presetName ?? "\(size.percent)%")
                         .scaledFont(.system(size: 9.5,
@@ -194,21 +175,17 @@ public struct FontSizeDetentLabels: View {
     }
 }
 
-/// A few file rows drawn the way the panes draw them, at the chosen size and spacing — the way the
-/// Tree presentation does, with each file's size-and-date line; Columns shows names alone.
+/// A few file rows drawn as the panes draw them in Tree (with each file's size-and-date line;
+/// Columns shows names alone), at the chosen size and spacing.
 ///
-/// **This is the only part of the section that shows what the settings actually do.** Row spacing
-/// in particular cannot be read off its own name: going Compact drops each file's size and date
-/// entirely (`showsSecondaryDetail`), shrinks the icon 17pt → 14pt and cuts row padding 6pt → 2pt,
-/// and nobody choosing from the word alone would guess the date disappears.
+/// The only part of the section that shows what the settings do. Row spacing can't be read off its
+/// name: Compact drops each file's size and date (`showsSecondaryDetail`), shrinks the icon from
+/// 17pt to 14pt and cuts row padding from 6pt to 2pt.
 ///
-/// It takes its row metrics from `ListDensityMetrics` and its type from the same `ScaledFont`
-/// values `PaneRowFonts` builds — `.system(.body, design: .rounded)` for the name and `.caption`
-/// for the size-and-date line. That matters more than it looks: an earlier version drew plain
-/// 11pt and 10pt in the DEFAULT face while a real row is 13pt and ROUNDED, and its doc claimed
-/// the rows were what the panes draw. The two cannot be shared as one expression
-/// (`PaneRowFonts` lives in FileExplorer, which Design cannot see), so
-/// `thePreviewDrawsTheTypeThePanesDraw` is what keeps them from parting.
+/// Row metrics come from `ListDensityMetrics` and type from the same `ScaledFont` values
+/// `PaneRowFonts` builds (`.system(.body, design: .rounded)` for the name, `.caption` for the
+/// detail). They can't share one expression, since `PaneRowFonts` lives in FileExplorer, which
+/// Design can't see, so `thePreviewDrawsTheTypeThePanesDraw` keeps them from parting.
 public struct SizeSpacingPreview: View {
     private let fontSize: FontSize
     private let density: ListDensity
@@ -280,30 +257,20 @@ struct SizePresetSpecimen: View {
     let isSelected: Bool
     let accent: Color
 
-    /// The tile face's fixed height, so every `%` label in the row sits on one baseline no matter
-    /// what the preset draws above it.
+    /// The tile face's fixed height, so every `%` label in the row sits on one baseline whatever
+    /// the preset draws above it.
     ///
-    /// **26pt, and the number is a budget rather than a taste — it was 14 for a step that no
-    /// longer exists.** The 14 was bought from the retired setup *form*, where this row shared one
-    /// card with two other steps and 12pt of face was the difference between fitting a 1280×800
-    /// display and not. The guided sheet gives Appearance a screen of its own with 180pt spare
-    /// (`SetupSheetFitTests`), and 14pt was not paying for itself there: `SizePreset.all` holds two
-    /// presets at 100% — compact rows and comfortable ones — and the whole job of drawing the
-    /// difference rather than naming it falls on this picture, because the two tiles' labels both
-    /// read `100%`. At 14pt that difference is three bars against two, three pixels apart, and the
-    /// row offers the reader two tiles they cannot tell apart. At 24 — with `maximumRows` moved to
-    /// match — it is a stack of single bars against a stack of paired ones, which is what compact
-    /// rows and comfortable ones actually look like.
+    /// 24pt is a budget: `SizePreset.all` holds two presets at 100%, compact and comfortable, whose
+    /// labels both read `100%`, so this picture alone tells them apart. At 14pt the difference
+    /// would be three bars against two, three pixels apart; at 24 (with `maximumRows` to match) it
+    /// is a stack of single bars against a stack of paired ones. The setup sheet has the room
+    /// (`SetupSheetFitTests`).
     static let faceHeight: CGFloat = 24
 
-    /// Never draw more than this many rows, however small the type gets — past this the bars stop
-    /// reading as rows of text and start reading as a texture.
-    ///
-    /// **Seven, and it moves with `faceHeight`.** What the cap is really about is bars per point of
-    /// face, so raising the face without raising the cap does not make the picture bigger — it lets
-    /// the *comfortable* presets climb to the ceiling the compact ones were already sitting at, and
-    /// the two 100% tiles come out with four bars each. The pair (24, 7) holds the same texture the
-    /// pair (14, 4) did, at a size a person can actually read.
+    /// Never draw more than this many rows, however small the type gets: past this the bars read
+    /// as a texture, not rows of text. Moves with `faceHeight`, because the cap is really bars per
+    /// point of face: raising the face alone lets the comfortable presets climb to the cap the
+    /// compact ones already hit, and the two 100% tiles come out alike.
     static let maximumRows = 7
 
     /// The height of one miniature row at `preset`: a name bar, plus the size-and-date bar when
@@ -325,18 +292,11 @@ struct SizePresetSpecimen: View {
         preset.density.metrics.showsSecondaryDetail ? 2 : 1.5
     }
 
-    /// **How many rows fit the fixed face — which is the whole point of the picture.**
-    ///
-    /// The first version drew three rows at every preset and pinned the face at 14pt, so the
-    /// stack simply overflowed: six comfortable bars at 135% want 21.9pt in a 14pt frame, and
-    /// SwiftUI does not clip, it centres — the bars bled over the tile's border and towards the
-    /// percentage underneath. Rendering it is what caught that; every geometry test passed,
-    /// because the frame was the size it claimed and the overflow was outside it.
-    ///
-    /// Deriving the count instead fixes the overflow *and* makes the tile truthful: a fixed
-    /// height showing more rows is exactly what a tighter row spacing buys, and it is what a
-    /// person actually sees when they choose Compact. `theSpecimenNeverOverflowsItsFace` pins the
-    /// arithmetic.
+    /// How many rows fit the fixed face, which is the point of the picture. A fixed count would
+    /// overflow the face at large sizes, and SwiftUI centres rather than clips, so the bars would
+    /// bleed over the tile's border while every geometry test passed. Derived, the tile is also
+    /// truthful: more rows in a fixed height is what a tighter spacing buys.
+    /// `theSpecimenNeverOverflowsItsFace` pins the arithmetic.
     static func rowCount(for preset: SizePreset) -> Int {
         let row = rowHeight(for: preset)
         let gap = rowGap(for: preset)

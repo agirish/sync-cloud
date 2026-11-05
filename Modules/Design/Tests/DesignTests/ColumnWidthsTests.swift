@@ -37,8 +37,8 @@ import CoreGraphics
         #expect(untouched.overrides == ColumnWidthOverrides(), "a no-op gesture wrote an entry")
     }
 
-    /// "All columns together" is exactly the single shared width that shipped before: one width for
-    /// every column, and every column that was sized on its own released to it.
+    /// "All columns together" is one shared width: every column takes it, and every column that
+    /// was sized on its own is released to it.
     @Test func allTogetherIsOneWidthForEveryColumn() {
         let before = ColumnWidthOverrides(widths: [0: 250, 3: 500])
         let after = PaneViewMode.resizedColumnWidths(base: 210, overrides: before, depth: 1, to: 300, all: true)

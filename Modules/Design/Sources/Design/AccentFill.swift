@@ -1,34 +1,15 @@
 import AppKit
 import SwiftUI
 
-/// Deepening a colour until a white label on it clears WCAG AA.
+/// Deepening a colour until a white label on it clears WCAG AA. White on the raw light hues is
+/// illegible (Green 2.68:1, Amber 2.20:1, against 4.5:1), and flipping those labels to black would
+/// split filled controls into two families. So the label stays white and the fill moves: every
+/// solid accent surface fills with `LiquidGlassHue.accentFillColor`, the accent scaled down in
+/// LINEAR light, where scaling keeps hue and saturation exactly (in sRGB it would shift hue). The
+/// cost is darker fills on the light hues, which is the point.
 ///
-/// This exists because of the bind the app was in: half the hues are light enough that white
-/// text on the RAW accent is illegible — 2.68:1 on Green, 2.20:1 on Amber, against a 4.5:1 floor for
-/// body text — so `LiquidGlassHue.onAccentLabelColor` used to answer by flipping the *label* to
-/// near-black on those hues. That kept every pairing legible but made the filled controls read as
-/// two different button families: white-on-Blue next to black-on-Green.
-///
-/// The other way out is to fix the label at white and move the *fill* instead, which is what this
-/// does. Every solid accent surface fills with `LiquidGlassHue.accentFillColor` — the accent scaled
-/// down in LINEAR light until its luminance can carry white — so one label colour is correct
-/// everywhere by construction rather than by case analysis.
-///
-/// Scaling in linear space is the whole trick, and it is exact rather than approximate: luminance is
-/// a linear combination of the linear components, so multiplying all three by `k` multiplies
-/// luminance by exactly `k`, and the ratio between them — the chromaticity, i.e. the hue and
-/// saturation you perceive — is untouched. The result reads as the same colour turned down, not as a
-/// different colour. Doing the same arithmetic on the sRGB components (the obvious `r * k`) would
-/// shift hue, because sRGB encoding is not linear in light.
-///
-/// The cost, stated plainly: filled controls on the light hues get materially darker. Green goes
-/// rgb(0.20, 0.70, 0.50) → rgb(0.14, 0.53, 0.37); Amber and Cyan, which start lightest, move most.
-/// That is not a side effect to be minimised — it IS the change, and the only alternative that
-/// keeps white labels is shipping 2.2:1 text.
-///
-/// `Color.onFillLabel(_:)` and the luminance pairing behind it are still here and still correct for
-/// fills this type does not own: treemap tiles, provider hues, anything taking its colour from data
-/// rather than from the accent. Those are not buttons and cannot deepen their fills at will.
+/// `Color.onFillLabel(_:)` still serves fills taken from data (treemap tiles, provider hues), which
+/// cannot deepen at will.
 public enum AccentFill {
 
     /// Contrast a deepened fill is built to give a white label. 4.55 rather than a bare 4.5 so the
@@ -38,28 +19,20 @@ public enum AccentFill {
     /// The luminance ceiling implied by `whiteLabelContrast`, from white-on-fill = (1.05) / (L + 0.05).
     public static let targetLuminance: CGFloat = 1.05 / whiteLabelContrast - 0.05
 
-    /// `color` darkened just enough to carry a white label, or `color` unchanged when it already
-    /// does. Never lightens: a hue that is already dark (Blue, Indigo) is left exactly as it is, so
-    /// this is a no-op on roughly half the palette.
+    /// `color` darkened just enough to carry a white label, or unchanged when it already does.
+    /// Never lightens, so dark hues (Blue, Indigo) are left exactly as they are.
     ///
-    /// Stays DYNAMIC. A dynamic input (`Color.accentColor`, the `.none` hue's system accent) must
-    /// re-resolve when the appearance changes, so the deepening is deferred into an
-    /// `NSColor(name:dynamicProvider:)` block rather than computed once at call time — the same trap
-    /// `Color.onFillLabel(_:)` documents for static fills, met from the other side.
+    /// Stays dynamic: a dynamic input (`Color.accentColor`, the `.none` hue's system accent) must
+    /// re-resolve when the appearance changes, so the work runs inside an
+    /// `NSColor(name:dynamicProvider:)` block, not once at call time.
     public static func deepened(_ color: Color) -> Color {
         deepened(color, to: targetLuminance)
     }
 
-    /// The luminance a semantic colour has to reach to be read as BODY TEXT on the app's light
-    /// sheets, which is a stricter bar than carrying a white label.
-    ///
-    /// **Measured against the sheet, not asserted.** ``targetLuminance`` exists so a FILL can carry
-    /// white at 4.5:1; used the other way round — coloured ink on a near-white ground — it lands at
-    /// 4.17:1, because the two problems are not symmetric. Yellow is the case that shows it:
-    /// `SemanticColor.caution` as bare `.foregroundStyle` measures **1.38:1** on a 0.96 sheet, and
-    /// deepening to the fill target only reaches 4.17. This target clears 4.5 with margin.
-    /// `SemanticInkContrastTests` measures every semantic colour against the floor rather than
-    /// trusting this number.
+    /// The luminance a semantic colour must reach to be read as body text on the app's light
+    /// sheets, a stricter bar than carrying a white label: ``targetLuminance`` used as ink on a
+    /// near-white ground reaches only 4.17:1. This one clears 4.5 with margin, and
+    /// `SemanticInkContrastTests` measures every semantic colour against the floor.
     public static let textLuminance: CGFloat = 0.14
 
     /// `color` darkened enough to be read as text on a light sheet. See ``textLuminance``.
@@ -78,8 +51,8 @@ public enum AccentFill {
         })
     }
 
-    /// The scalar step, on already-resolved sRGB components. Exposed to the tests so they can assert
-    /// the contrast this type promises against real numbers instead of a rendered pixel.
+    /// The scalar step, on already-resolved sRGB components. Public so tests can check the promised
+    /// contrast on numbers rather than pixels.
     public static func deepened(_ srgb: NSColor) -> NSColor { deepened(srgb, to: targetLuminance) }
 
     /// The same step against an explicit target, so the text bar and the fill bar are one
@@ -93,18 +66,10 @@ public enum AccentFill {
         return NSColor(srgbRed: scaled(r), green: scaled(g), blue: scaled(b), alpha: srgb.alphaComponent)
     }
 
-    /// The luminance a semantic colour has to REACH to be read as body text on the app's dark
-    /// sheets — the mirror of ``textLuminance``, and needed for the same reason.
-    ///
-    /// **Measured, because the dark side is not automatically fine.** Leaving dark untouched is
-    /// right for a GLYPH (`ChromeInk.semantic` does exactly that, and every semantic colour clears
-    /// the 3:1 a glyph needs). It is not right for text: on a 0.13 sheet `SemanticColor.move`
-    /// measures **3.86:1** against the 4.5 floor and `error` lands on 4.50 with nothing to spare.
-    /// A member called `bodyText` that quietly misses its own bar for two of six colours is the
-    /// kind of guard whose name is wider than what it does.
-    /// 0.26, derived rather than picked: the app's darkest sheet is ~0.13 sRGB (linear 0.0144), and
-    /// 4.5:1 against it needs a luminance of 0.2398. The margin above that is the same shape as
-    /// ``textLuminance``'s on the light side.
+    /// The luminance a semantic colour must reach to be read as body text on the app's dark sheets,
+    /// the mirror of ``textLuminance``. Glyphs can stay untouched in dark (they need only 3:1, as
+    /// `ChromeInk.semantic` relies on), but text cannot: `SemanticColor.move` misses 4.5:1 on a
+    /// 0.13 sheet. Derived: 4.5:1 against that sheet (linear 0.0144) needs 0.2398, plus margin.
     public static let darkTextLuminance: CGFloat = 0.26
 
     /// `color` lightened enough to be read as text on a dark sheet, or unchanged when it already is.
@@ -119,10 +84,9 @@ public enum AccentFill {
         })
     }
 
-    /// The scalar step. **Blends toward white rather than scaling each channel**, because scaling up
-    /// clips: `SemanticColor.error` is already at full red, so a per-channel multiply raises green
-    /// and blue against a red that cannot move and swings the hue. A blend keeps the colour
-    /// recognisable, which is the whole reason a semantic colour is being used as ink.
+    /// The scalar step. Blends toward white rather than scaling each channel, because scaling up
+    /// clips: `SemanticColor.error` is already full red, so a multiply would swing its hue. A blend
+    /// keeps the colour recognisable.
     public static func lightened(_ srgb: NSColor, to target: CGFloat) -> NSColor {
         let (r, g, b) = (srgb.redComponent, srgb.greenComponent, srgb.blueComponent)
         guard AccentLabel.relativeLuminance(red: r, green: g, blue: b) < target else { return srgb }

@@ -1,50 +1,32 @@
 import SwiftUI
 
-/// Animation that respects **Reduce Motion**, without every call site having to read the
-/// environment to do it.
-///
-/// The app honoured the setting in ten files while twenty-eight animated, so most of its motion was
-/// unconditional — not by decision, but because opting in meant adding an `@Environment` property to
-/// whatever view owned the animation, and a modifier chain is a bad place to need one. This puts the
-/// read inside the modifier, so honouring the setting costs a call site nothing.
+/// Animation that respects Reduce Motion, with the environment read inside the modifier so a call
+/// site doesn't need its own `@Environment` property.
 ///
 /// ## What this is for, and what it is NOT for
 ///
-/// **Reduce Motion asks for less MOVEMENT, not less feedback.** Apple's own guidance replaces
-/// motion with a cross-fade rather than removing the change, and `HoverAffordanceMetrics` already
-/// strikes exactly that bargain: under the setting it zeroes `lift` and `scale` and keeps `wash`,
-/// `ring` and `shadow`. So this wrapper is for animation that moves something on screen — a pane
-/// sliding, a card springing in, a strip growing — and three families are deliberately left alone:
+/// Reduce Motion asks for less movement, not less feedback: Apple's guidance swaps motion for a
+/// cross-fade, as `HoverAffordanceMetrics` does (it zeroes `lift` and `scale`, keeps `wash`, `ring`
+/// and `shadow`). So this wrapper is for animation that moves something (a pane sliding, a card
+/// springing in, a strip growing), and three families stay raw on purpose:
 ///
-/// - **Hover and press ladders** (`HoverAffordance`, `ActionBarButtonStyle`). What animates there is
-///   a colour, and the parts that moved are already dropped by the metrics table. Gating the
-///   cross-fade as well would make a hovered control snap between two fills, which is more visually
-///   abrupt than the thing the setting exists to calm.
-/// - **Numeric content transitions** (`Pill`, `StatPill`, the reclaim tally). A rolling digit is a
-///   content transition, sanctioned in the reclaim pill's own comment as legible rather than
-///   decorative — it says a number changed, which is information a user with the setting on still
-///   needs.
-/// - **Opacity cross-fades on overlays** (the settings, help and setup panels). A cross-fade IS the
-///   Reduce Motion answer; replacing it with an instant swap would be a regression against the
-///   setting rather than a concession to it.
+/// - **Hover and press ladders** (`HoverAffordance`, `ActionBarButtonStyle`). Only a colour
+///   animates, the moving parts are already dropped, and gating the fade would make a hovered
+///   control snap between fills.
+/// - **Numeric content transitions** (`Pill`, `StatPill`, the reclaim tally). A rolling digit says
+///   a number changed, which a user with the setting on still needs.
+/// - **Opacity cross-fades on overlays** (the settings, help and setup panels). A cross-fade is the
+///   Reduce Motion answer; an instant swap would be worse.
 ///
-/// Do not "finish the job" by converting those. The audit that leaves them alone is the design.
-///
-/// **And the audit is enforced, because in prose alone it could not tell an exempted site from a
-/// missed one.** `ReduceMotionCoverageScanTests` reads every raw `.animation(_:value:)` in
-/// `Modules/*/Sources` and `MacApp` and fails unless each is listed with the family it belongs to.
-/// It was written after six movers turned up unconverted on the first sweep — both of
-/// `PaneTabStrip`'s drag animations, both of `LensWorkspaceView`'s list settles,
-/// `ActivePaneMark`'s focus ring and the selection bar's appear/disappear — none of which belonged
-/// to any of the three families above. A new raw `.animation` fails that test until it is
-/// classified, which is the step that did not happen before.
+/// Don't convert those. `ReduceMotionCoverageScanTests` enforces the split: every raw
+/// `.animation(_:value:)` in `Modules/*/Sources` and `MacApp` must be listed with its family, so a
+/// new one fails until it is classified.
 public extension View {
 
     /// Applies `animation` unless Reduce Motion is on, in which case the change arrives with no
     /// animation at all.
     ///
-    /// Same signature as `.animation(_:value:)`, so converting a site is a rename — which is the
-    /// point: a wrapper that needed its arguments rearranged would not get adopted.
+    /// Same signature as `.animation(_:value:)`, so converting a site is a rename.
     ///
     /// - Parameters:
     ///   - animation: the motion to use when the setting is off. Optional so a caller that already
@@ -55,9 +37,8 @@ public extension View {
     }
 }
 
-/// See `View.designAnimation(_:value:)`. A `ViewModifier` rather than a free function because
-/// `@Environment` can only be read by something that participates in the view graph — which is
-/// precisely the friction that kept call sites from honouring the setting by hand.
+/// See `View.designAnimation(_:value:)`. A `ViewModifier` because only something in the view graph
+/// can read `@Environment`.
 public struct DesignAnimationModifier<V: Equatable>: ViewModifier {
     let animation: Animation?
     let value: V
@@ -69,12 +50,8 @@ public struct DesignAnimationModifier<V: Equatable>: ViewModifier {
     }
 }
 
-/// The resolved decision, exposed so it can be tested without rendering anything.
-///
-/// The modifier above is three lines and the rule inside it is the whole design, so the rule lives
-/// here as a pure function and the modifier calls the same thing a test does — rather than a test
-/// asserting a duplicate of the logic, which would pass just as happily when the modifier stopped
-/// agreeing with it.
+/// The resolved decision, as a pure function the modifier and the tests both call, so a test
+/// can't pass on a copy of the logic the modifier no longer follows.
 public enum DesignAnimationRule {
     /// What `designAnimation` will actually apply.
     public static func resolve(_ animation: Animation?, reduceMotion: Bool) -> Animation? {
@@ -82,21 +59,14 @@ public enum DesignAnimationRule {
     }
 }
 
-/// `withAnimation`, honouring Reduce Motion — the imperative half of the wrapper above.
+/// `withAnimation`, honouring Reduce Motion: the imperative half of the wrapper above.
 ///
-/// **`designAnimation(_:value:)` covers only one of SwiftUI's two animation doors, and the scan
-/// that enforces it covered only that one too.** A change made inside `withAnimation` carries its
-/// own animation into the transaction, and while an `.animation(_:value:)` on the same value does
-/// win over it — measured, not assumed — a mover that *only* has a `withAnimation` behind it has
-/// nothing to override: no modifier names its value, so the setting never reaches it. Four such
-/// movers were live after the sweep that was supposed to have finished this work: the expanding
-/// search field's reveal (in three of its four hosts), Browse's folder sidebar, an Activity Log
-/// row's disclosure, and the Differences count pills.
+/// A change inside `withAnimation` carries its own animation. An `.animation(_:value:)` on the same
+/// value wins over it, but a mover with only a `withAnimation` behind it has no modifier for the
+/// setting to reach, so it needs this.
 ///
-/// The signature is `withAnimation`'s plus the flag, so converting a site is a rename and one
-/// argument — the same bargain `designAnimation` struck, for the same reason. The flag is passed
-/// rather than read because this is a free function: it does not participate in the view graph, so
-/// it cannot read `@Environment` itself. The caller is a `View` and can.
+/// `withAnimation`'s signature plus the flag, so converting a site is a rename and one argument.
+/// The flag is passed in because a free function can't read `@Environment`; the calling `View` can.
 public func withDesignAnimation<Result>(
     _ animation: Animation?,
     reduceMotion: Bool,

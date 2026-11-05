@@ -1,28 +1,21 @@
 import SwiftUI
 
-/// The app's one expand-on-demand search container: a magnifier that reveals a field, the field
-/// itself, and the focus / Escape / clear behaviour that ties the two together.
+/// The app's one expand-on-demand search: a magnifier that reveals a field, the field itself, and
+/// the focus / Escape / clear behaviour between them. Every surface with a token search uses it,
+/// so search behaves the same everywhere by construction.
 ///
-/// This mechanism existed only inside `DifferencesView` (Compare) — Organize's Duplicates search
-/// shared the *grammar* (`TokenQuery`) but had an always-visible compact field with no expansion
-/// and no Escape. Every surface with a token search drives this now, so "search behaves the same
-/// everywhere" holds by construction instead of by two copies happening to agree.
-///
-/// The toggle and the field are separate views because they sit on different rows of their host:
-/// the toggle rides the controls row (last item, far right), the field appears below it. They
-/// share `text` and `isExpanded`, which the host owns.
+/// The toggle and field are separate views on different rows of their host: the toggle ends the
+/// controls row, the field appears below it. The host owns their shared `text` and `isExpanded`.
 public enum ExpandingSearch {
     /// The reveal/collapse animation. One constant, so the toggle and any host layout that keys
     /// off `isExpanded` (a card growing to fit the field) move as one.
     public static let animation: Animation = .easeOut(duration: 0.15)
 
-    /// Collapses and clears in one animated transaction — what Escape and the toggle's second
-    /// click both do. Clearing on collapse is deliberate: a query left live behind a hidden field
-    /// is a filter you can't see or undo.
+    /// Collapses and clears in one animated transaction, as Escape and the toggle's second click
+    /// both do. A query left live behind a hidden field would be a filter you can't see or undo.
     ///
-    /// `reduceMotion` has no default on purpose: a defaulted `false` is how three of this
-    /// component's four hosts came to animate the reveal with the setting on, and a default is
-    /// exactly what stops a caller noticing it has a decision to make.
+    /// `reduceMotion` has no default on purpose: a default lets a caller animate with the setting
+    /// on without noticing it had a choice.
     public static func collapse(text: Binding<String>, isExpanded: Binding<Bool>, reduceMotion: Bool) {
         withDesignAnimation(animation, reduceMotion: reduceMotion) {
             text.wrappedValue = ""
@@ -32,26 +25,18 @@ public enum ExpandingSearch {
 
     // MARK: Opening in glass (RD46.10)
     //
-    // Solid — and Reduce Transparency, and Reduce Motion — keeps today's opening: the field fades
-    // in on the host's transition. In Frosted and Clear the field's surface TRAVELS out of the
-    // magnifier's end of the row, the way a selection lens travels: it starts as a magnifier-sized
-    // pill at the trailing edge and springs out to the full width on the lens's own springs, with
-    // the same small overshoot. The query fades in once there is room for it.
-    // Closing is today's fade in every appearance.
+    // Solid, Reduce Transparency and Reduce Motion fade the field in on the host's transition. In
+    // Frosted and Clear the surface travels out of the magnifier's end like a selection lens: a
+    // magnifier-sized pill at the trailing edge springs to full width on the lens's springs, and
+    // the query fades in once there is room. Closing fades in every appearance. The surface is the
+    // same wash every search field wears; glass changes only how it opens.
     //
-    // The surface itself is unchanged — the same wash every search field in the app wears. Glass
-    // changes how it opens, not what it is.
+    // Only an animated insertion travels (the magnifier and ⌘F make one). A view that comes back
+    // with a search already open inserts the field without animation, so it is simply there.
     //
-    // **Only an animated insertion travels** — which is what the magnifier and ⌘F both make. A
-    // view that comes back with a search already open (a workspace switch animates only its own
-    // bar) inserts the field without animation, and the field is simply there, at rest.
-    //
-    // **Why the field runs its own clock rather than being given a transition.** Measured while
-    // building this: a `Transition`'s modifiers animate, but nothing they write reaches the view
-    // inside — an environment value set there, even a constant one, is never read by the field —
-    // so a transition can fade the field but cannot travel its surface. The field reads the
-    // transaction that inserted it instead, and draws the travel on a frame clock, which is also
-    // how the lens draws its own.
+    // The field runs its own frame clock rather than a transition, because nothing a `Transition`'s
+    // modifiers write (even a constant environment value) reaches the view inside: a transition can
+    // fade the field but not move its surface. The field reads the transaction that inserted it.
 
     /// Whether the field opens by travelling rather than fading.
     public static func travels(appearance: SelectionLensAppearance, reduceTransparency: Bool,
@@ -60,15 +45,14 @@ public enum ExpandingSearch {
             && SelectionLensRule.material(for: appearance, reduceTransparency: reduceTransparency) != .today
     }
 
-    /// The surface `elapsed` seconds into opening, inside `bounds`: a lens travelling from a pill
-    /// as wide as the field's first row is tall, at the trailing edge, to the whole field — the
-    /// lens's own move (`SelectionLensMotion.frame`), so the leading edge springs out, overshoots a
-    /// little and settles once, while the magnifier's end stays put.
+    /// The surface `elapsed` seconds into opening, inside `bounds`: the lens's move
+    /// (`SelectionLensMotion.frame`) from a square pill at the trailing edge to the whole field, so
+    /// the leading edge springs out, overshoots a little and settles while the magnifier's end
+    /// stays put.
     ///
-    /// `rowHeight` is that first row, with its padding: the field's accessories grow it below the
-    /// row while it opens — a host's suggestions appear once the field takes the caret, one turn in —
-    /// and a pill sized from the whole field jumped from 28pt to 51pt part-way. Sized from the row,
-    /// the surface opens out of the magnifier and grows down into the suggestions as they arrive.
+    /// `rowHeight` is the first row with its padding. Accessories can grow the field below it
+    /// mid-opening (suggestions appear once the field takes the caret), so a pill sized from the
+    /// whole field would jump; sized from the row, it grows down into them instead.
     public static func surfaceFrame(in bounds: CGRect, rowHeight: CGFloat? = nil,
                                     elapsed: TimeInterval) -> SelectionLensMotion.Frame {
         let height = min(bounds.height, rowHeight ?? bounds.height)
@@ -81,17 +65,16 @@ public enum ExpandingSearch {
     /// How long the pill takes to become opaque as it starts out.
     static let surfaceFade: TimeInterval = 0.08
 
-    /// The query, its clear button and the field's accessories: invisible for the first 0.12 s, then
-    /// in over 0.15 s — the approved mockup's numbers. By 0.12 s the leading edge has covered most of
-    /// the field, so the query appears into room that is already there.
+    /// The query, its clear button and accessories: invisible for 0.12 s, then in over 0.15 s. By
+    /// 0.12 s the leading edge has covered most of the field, so the query appears into room.
     public static func contentOpacity(elapsed: TimeInterval) -> Double {
         SelectionLensMotion.clamp((elapsed - 0.12) / 0.15)
     }
 }
 
-/// Whether a field was inserted by an animated transaction — answered once, by the first
-/// transaction to reach it, which arrives before `onAppear`. A reference type so that recording
-/// the answer does not itself re-render the field.
+/// Whether a field was inserted by an animated transaction, answered once by the first
+/// transaction to reach it (which arrives before `onAppear`). A reference type so recording it
+/// doesn't re-render the field.
 final class ExpandingSearchInsertion {
     var wasAnimated: Bool?
 }
@@ -113,25 +96,23 @@ private struct ExpandingSearchRowKey: PreferenceKey {
 }
 
 extension EnvironmentValues {
-    /// How much slower than real time the field travels open. Always 1 in the app; internal so a
-    /// test can stretch it — sampling a sub-second travel from a test is at the mercy of whatever
-    /// else holds the main thread, and a full parallel run held it for longer than the travel lasts.
+    /// How much slower than real time the field travels open. Always 1 in the app; a test can
+    /// stretch it, since a busy main thread in a parallel run can outlast a sub-second travel.
     var expandingSearchTimeScale: Double {
         get { self[ExpandingSearchTimeScaleKey.self] }
         set { self[ExpandingSearchTimeScaleKey.self] = newValue }
     }
 
-    /// Holds an opening field at this many seconds in, however long it has really been. nil in the
-    /// app; a test sets it to render one instant of the travel exactly, rather than sampling a live
-    /// one and hoping a busy main thread let it see the instant it asks about.
+    /// Holds an opening field at this many seconds in. nil in the app; a test sets it to render one
+    /// instant of the travel exactly instead of sampling a live one.
     var expandingSearchFrozenElapsed: TimeInterval? {
         get { self[ExpandingSearchFrozenElapsedKey.self] }
         set { self[ExpandingSearchFrozenElapsedKey.self] = newValue }
     }
 }
 
-/// The magnifier that reveals the field — the last item of its host's controls row, mirroring
-/// where Compare's `standardHeaderControls` puts it.
+/// The magnifier that reveals the field: the last item of its host's controls row, where
+/// Compare's `standardHeaderControls` puts it.
 public struct ExpandingSearchToggle: View {
     @Binding private var text: String
     @Binding private var isExpanded: Bool
@@ -143,8 +124,8 @@ public struct ExpandingSearchToggle: View {
     ///   - text: the live query. Cleared when the toggle collapses the field.
     ///   - isExpanded: whether the field is showing. Host-owned so the host can size around it.
     ///   - accent: the tint worn while the field is open or a query is live.
-    ///   - help: the tooltip AND the accessibility label — it should name what this lens
-    ///     searches, since that differs per surface.
+    ///   - help: the tooltip and the accessibility label. Name what this lens searches, since that
+    ///     differs per surface.
     public init(text: Binding<String>, isExpanded: Binding<Bool>, accent: Color, help: String) {
         self._text = text
         self._isExpanded = isExpanded
@@ -159,18 +140,18 @@ public struct ExpandingSearchToggle: View {
                 if !isExpanded { text = "" }
             }
         } label: {
-            // Padded out so the hover wash has room around a 13pt glyph, then pulled back below
-            // so the toggle's footprint in the header is unchanged (TokenChipsRow's idiom).
+            // Padded so the hover wash has room around a 13pt glyph, then pulled back below so the
+            // footprint is unchanged (TokenChipsRow's idiom).
             Image(systemName: "magnifyingglass")
                 .padding(5)
                 .contentShape(Rectangle())
         }
         // Frosted and Clear: a glass circle with a round hover, like every bar button
-        // (`ChromeGlass`) — on the padded button, before the padding below takes the footprint back.
+        // (`ChromeGlass`), on the padded button before the padding below takes it back.
         .chromeGlassGlyphButton(tint: accent)
         .padding(-5)
-        // Tints whenever the field is open OR a query is live — so a filter narrowing the list
-        // can never be silently on behind a quiet, collapsed glyph.
+        // Tints while the field is open or a query is live, so a filter can't hide behind a
+        // quiet, collapsed glyph.
         .foregroundStyle((isExpanded || !text.isEmpty) ? accent : Color.secondary)
         .help(help)
         .accessibilityLabel(help)
@@ -199,9 +180,8 @@ public struct ExpandingSearchField<Trailing: View, Accessories: View>: View {
     @State private var openedAt: Date?
 
     /// - Parameters:
-    ///   - placeholder: this lens's vocabulary. It is the ONLY thing teaching which tokens bind
-    ///     here, so it must advertise exactly the tokens this surface's grammar declares and no
-    ///     others (see the per-lens grammar note in `LensSearch`).
+    ///   - placeholder: this lens's vocabulary, the only thing teaching which tokens bind here, so
+    ///     it must advertise exactly the tokens this surface's grammar declares (see `LensSearch`).
     ///   - trailing: content inside the field row, after the clear button (Compare's "N of M").
     ///   - accessories: content below the field row, inside the same surface. Receives whether
     ///     the field holds the caret, for suggestions that only show while focused.
@@ -225,10 +205,9 @@ public struct ExpandingSearchField<Trailing: View, Accessories: View>: View {
     }
 
     public var body: some View {
-        // The frame clock ticks only while the field travels open — at rest, and always in Solid,
-        // it is paused and costs nothing. It wraps the field in every appearance, and the surface
-        // below draws in a background rather than wrapping the field in a branch, so the field's
-        // identity — and with it the caret — never depends on the setting.
+        // The frame clock ticks only while the field travels open; at rest and in Solid it is
+        // paused. It wraps the field in every appearance, and the surface draws in a background,
+        // not a branch, so the field's identity (and its caret) never depends on the setting.
         TimelineView(AnimationTimelineSchedule(minimumInterval: nil, paused: openedAt == nil)) { context in
             let elapsed = openedAt.map { frozenElapsed ?? context.date.timeIntervalSince($0) / timeScale }
                 ?? SelectionLensMotion.travelDuration
@@ -242,15 +221,15 @@ public struct ExpandingSearchField<Trailing: View, Accessories: View>: View {
         }
         .onAppear {
             // Spent on every appearance, glass or not: an `onAppear` that fires again without the
-            // field being re-created (a lazy container re-attaching it) must not replay an opening
-            // nobody asked for — including one made at Solid before the setting changed.
+            // field being re-created (a lazy container re-attaching it) must not replay an opening,
+            // including one made at Solid before the setting changed.
             let animated = insertion.wasAnimated == true
             insertion.wasAnimated = false
             guard travels, animated else { return }
             let start = Date()
             openedAt = start
-            // Not `.task(id:)`: measured, a task started on a field mid-insertion is cancelled at
-            // once, and a cancelled sleep would end the travel before its first frame.
+            // Not `.task(id:)`: a task started on a field mid-insertion is cancelled at once, and a
+            // cancelled sleep would end the travel before its first frame.
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(SelectionLensMotion.travelDuration * timeScale))
                 if openedAt == start { openedAt = nil }
@@ -263,15 +242,14 @@ public struct ExpandingSearchField<Trailing: View, Accessories: View>: View {
             HStack(spacing: 6) {
                 TextField(placeholder, text: $text)
                     .textFieldStyle(.plain)
-                    // The placeholder is the only place a lens teaches its search words, and it
-                    // vanishes at the first keystroke — the tooltip keeps it a hover away.
+                    // The placeholder teaches the lens's search words and vanishes at the first
+                    // keystroke; the tooltip keeps it a hover away.
                     .help(placeholder)
                     .focused($focused)
-                    // Focus is claimed HERE, once the field exists — never by the toggle that
-                    // reveals it. A FocusState write landing in the same transaction that
-                    // inserts the field is silently dropped; the one-turn Task hop outlives that
-                    // transaction. This is load-bearing: inline it back into the toggle and the
-                    // field reveals unfocused, so you have to click it before typing.
+                    // Focus is claimed here, once the field exists, never by the toggle: a
+                    // FocusState write in the transaction that inserts the field is silently
+                    // dropped. The one-turn Task hop outlives it. Moved into the toggle, the field
+                    // would reveal unfocused.
                     .onAppear { Task { @MainActor in focused = true } }
                     .onExitCommand {
                         ExpandingSearch.collapse(text: $text, isExpanded: $isExpanded,
@@ -298,11 +276,9 @@ public struct ExpandingSearchField<Trailing: View, Accessories: View>: View {
     }
 }
 
-/// The field's surface: the wash `searchFieldSurface()` draws, in a background so the field itself
-/// is never inside a branch. At Solid (and under Reduce Transparency or Reduce Motion) it is that
-/// wash on the field's own bounds, pixel for pixel; where the field opens by travelling it is the
-/// same wash on the frame `ExpandingSearch.surfaceFrame` gives `elapsed` seconds into opening —
-/// the whole field once the opening is over.
+/// The field's surface: `searchFieldSurface()`'s wash, in a background so the field is never in a
+/// branch. Where the field doesn't travel, the wash fills its bounds; where it does, the wash takes
+/// the frame `ExpandingSearch.surfaceFrame` gives at `elapsed`, the whole field once open.
 private struct ExpandingSearchSurface: ViewModifier {
     let travels: Bool
     let elapsed: TimeInterval
@@ -312,14 +288,14 @@ private struct ExpandingSearchSurface: ViewModifier {
         content.backgroundPreferenceValue(ExpandingSearchRowKey.self) { row in
             if travels {
                 GeometryReader { proxy in
-                    // The row's bottom plus the field's own 6pt below it — the pill a closed field
+                    // The row's bottom plus the field's 6pt below it: the pill a closed field
                     // would be.
                     let rowHeight = row.map { proxy[$0].maxY + 6 }
                     let frame = ExpandingSearch.surfaceFrame(in: CGRect(origin: .zero, size: proxy.size),
                                                              rowHeight: rowHeight, elapsed: elapsed)
                     Group {
-                        // The probe (tests only) paints the surface magenta, so its travel can be
-                        // measured; today's wash is too faint to. Otherwise it IS today's wash.
+                        // The probe (tests only) paints the surface magenta so its travel can be
+                        // measured; the wash is too faint.
                         if drawsProbe {
                             RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                                 .fill(SelectionLensRule.probeColor)

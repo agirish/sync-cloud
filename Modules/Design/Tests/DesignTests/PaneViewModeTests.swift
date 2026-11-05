@@ -7,10 +7,9 @@ import SwiftUI
 /// column shrink past the point where a row stops carrying its difference badge.
 @Suite struct PaneViewModeTests {
 
-    /// A throwaway defaults domain, so these never touch the user's real preferences — the app is
-    /// routinely running while the tests are. `ScratchDefaults` rather than a bare
-    /// `UserDefaults(suiteName:)`: it wipes domain *and* plist on deinit, which is what stopped
-    /// these suites accumulating tens of thousands of files in `~/Library/Preferences`.
+    /// A throwaway defaults domain, so these never touch the user's real preferences while the app
+    /// is running. `ScratchDefaults` rather than a bare `UserDefaults(suiteName:)`: it wipes domain
+    /// and plist on deinit, so the suites don't pile up files in `~/Library/Preferences`.
     private func defaults() -> ScratchDefaults {
         ScratchDefaults("PaneViewModeTests")
     }
@@ -39,10 +38,9 @@ import SwiftUI
         #expect(PaneViewMode.stored(isLeft: true, in: d) == .columns)
     }
 
-    /// The single-source rail stores separately from both comparison panes. It shares the LEFT pane's
-    /// underlying state (focus, selection, history, browse path), so reading its presentation from
-    /// the left key would be the easy mistake — and would mean choosing Tree for a comparison
-    /// silently un-stacked the rail, and vice versa.
+    /// The single-source rail stores separately from both comparison panes. It shares the left
+    /// pane's state (focus, selection, history, browse path), so reading its mode from the left key
+    /// is the easy mistake, and choosing Tree for a comparison would then un-stack the rail.
     @Test func testTheRailStoresApartFromBothPanes() {
         #expect(PaneViewMode.railDefaultsKey != PaneViewMode.defaultsKey(isLeft: true))
         #expect(PaneViewMode.railDefaultsKey != PaneViewMode.defaultsKey(isLeft: false))
@@ -70,8 +68,8 @@ import SwiftUI
         #expect(PaneViewMode.defaultColumnWidth == 210)
     }
 
-    /// Push navigation starts where a second column stops fitting — pinned against the minimum
-    /// width it is derived from, so changing one without the other is caught.
+    /// Push navigation starts where a second column stops fitting, pinned against the minimum
+    /// width it is derived from so changing one without the other is caught.
     @Test func testPushNavigationThresholdIsTwoMinimumColumns() {
         #expect(PaneViewMode.pushNavigationBelowWidth == PaneViewMode.minimumColumnWidth * 2)
 
@@ -82,9 +80,9 @@ import SwiftUI
         #expect(PaneViewMode.usesPushNavigation(paneWidth: 660) == false)
     }
 
-    /// The drag regression: translation is cumulative, so the anchor must stay the width the drag
-    /// STARTED at. Walking a drag frame by frame is the only way to catch a moving anchor — a
-    /// single call looks correct either way.
+    /// Translation is cumulative, so the anchor must stay the width the drag started at. Walking a
+    /// drag frame by frame is the only way to catch a moving anchor; a single call looks right
+    /// either way.
     @Test func testDragWidthTracksTranslationFromAFixedAnchor() {
         let anchor: CGFloat = 210
         #expect(PaneViewMode.draggedColumnWidth(anchor: anchor, translation: 10) == 220)
@@ -98,8 +96,8 @@ import SwiftUI
         #expect(PaneViewMode.draggedColumnWidth(anchor: anchor, translation: -9_999) == PaneViewMode.minimumColumnWidth)
     }
 
-    /// ⌘ and ⇧ clicks belong to the list, not to navigation — otherwise every multi-selection
-    /// collapses to the row just clicked and the action bar can never act on more than one item.
+    /// ⌘ and ⇧ clicks belong to the list, not to navigation, or every multi-selection collapses to
+    /// the row just clicked and the action bar can never act on more than one item.
     @Test func testOnlyPlainClicksNavigate() {
         #expect(PaneViewMode.clickNavigates(modifiers: []))
         #expect(PaneViewMode.clickNavigates(modifiers: [.option]))
@@ -109,9 +107,9 @@ import SwiftUI
     }
 
     /// ⌃ is the secondary click, and it reaches a primary-button recognizer because macOS delivers
-    /// it as a button-1 event carrying `.control`. It used to be admitted here, so control-clicking
-    /// a column's empty space opened the context menu AND — in the same gesture — cleared both
-    /// panes' selections and closed every column to the right of the one clicked in.
+    /// it as a button-1 event carrying `.control`. Admitted here, a control-click in a column's
+    /// empty space would open the context menu and, in the same gesture, clear both panes'
+    /// selections and close every column to the right.
     @Test func testControlClickIsTheSecondaryClickAndNeverNavigates() {
         #expect(PaneViewMode.clickNavigates(modifiers: [.control]) == false)
         #expect(PaneViewMode.clickNavigates(modifiers: [.control, .option]) == false)
@@ -119,8 +117,7 @@ import SwiftUI
 
     // MARK: - Column-width floor lift
 
-    /// The repair: an install left pinned at the floor by the preview's old sizing rule comes back
-    /// to the default.
+    /// An install whose column width sits pinned at the floor is lifted back to the default.
     @Test func testAFlooredColumnWidthIsLiftedToTheDefault() {
         let d = defaults()
         d.set(Double(PaneViewMode.minimumColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
@@ -128,8 +125,8 @@ import SwiftUI
         #expect(d.double(forKey: PaneViewMode.columnWidthDefaultsKey) == Double(PaneViewMode.defaultColumnWidth))
     }
 
-    /// Once only. Someone who genuinely wants the minimum and drags back to it must keep it — a
-    /// repair that re-fires every launch is a preference the user cannot express.
+    /// Once only. Someone who wants the minimum and drags back to it must keep it: a repair that
+    /// re-fires every launch is a preference the user can't express.
     @Test func testTheLiftNeverFiresTwice() {
         let d = defaults()
         d.set(Double(PaneViewMode.minimumColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
@@ -139,8 +136,8 @@ import SwiftUI
         #expect(d.double(forKey: PaneViewMode.columnWidthDefaultsKey) == Double(PaneViewMode.minimumColumnWidth))
     }
 
-    /// Only a width sitting exactly at the floor is touched. A deliberate 141 — or any other width a
-    /// user chose — is left exactly as it is.
+    /// Only a width sitting exactly at the floor is touched. A deliberate 141, or any other width a
+    /// user chose, is left as it is.
     @Test func testTheLiftLeavesEveryDeliberateWidthAlone() {
         let d = defaults()
         d.set(Double(PaneViewMode.minimumColumnWidth + 1), forKey: PaneViewMode.columnWidthDefaultsKey)
@@ -149,7 +146,7 @@ import SwiftUI
     }
 
     /// An install that never set a width has nothing to repair, and must not be given an explicit
-    /// one — that would freeze today's default into a stored value for good.
+    /// one, which would freeze the current default into a stored value for good.
     @Test func testTheLiftLeavesAnUnsetWidthUnset() {
         let d = defaults()
         PaneViewMode.liftColumnWidthOffTheFloor(d)
@@ -158,17 +155,16 @@ import SwiftUI
 
     // MARK: - Trailing deselect filler
 
-    /// The load-bearing case. An overflowing stack must get a filler of exactly zero: the column
-    /// stack's scroll behaviour was tuned across four commits (`63bb6cf` … `a89aa40`) against a
-    /// stack that genuinely overflows, and padding its content in that state would move the very
-    /// condition those fixes — and their mounted test — depend on.
+    /// An overflowing stack gets a filler of exactly zero: the column stack's scroll behaviour, and
+    /// its mounted test, depend on a stack that really overflows, and padding its content would
+    /// move that condition.
     @Test func testAnOverflowingStackGetsNoFiller() {
         let width = PaneViewMode.trailingFillerWidth(
             paneWidth: 500, columnWidths: Array(repeating: 210, count: 3))
         #expect(width == 0)
     }
 
-    /// Exactly-full is the boundary of the same rule, and the one an off-by-one would land on.
+    /// Exactly full is the boundary of the same rule, where an off-by-one would land.
     @Test func testAnExactlyFullStackGetsNoFiller() {
         let width = PaneViewMode.trailingFillerWidth(
             paneWidth: 630, columnWidths: Array(repeating: 210, count: 3))
@@ -182,8 +178,8 @@ import SwiftUI
         #expect(width == 480)
     }
 
-    /// A resting pane's one column keeps its own width, so the slack after it — most of the pane —
-    /// is the filler's. It used to span the pane and get none.
+    /// A resting pane's one column keeps its own width, so the slack after it, most of the pane, is
+    /// the filler's.
     @Test func testARestingColumnLeavesTheRestToTheFiller() {
         let width = PaneViewMode.trailingFillerWidth(
             paneWidth: 900, columnWidths: Array(repeating: 210, count: 1))
@@ -191,7 +187,7 @@ import SwiftUI
     }
 
     /// Push mode renders exactly one column at any depth, framed to the whole viewport, so there is
-    /// no slack to fill — the general rule, with no case of its own.
+    /// no slack to fill: the general rule, with no case of its own.
     @Test func testPushModeGetsNoFiller() {
         let paneWidth = PaneViewMode.pushNavigationBelowWidth - 1
         #expect(PaneViewMode.usesPushNavigation(paneWidth: paneWidth))
@@ -205,18 +201,18 @@ import SwiftUI
         #expect(PaneViewMode.allCases.allSatisfy { !$0.displayName.isEmpty && !$0.help.isEmpty })
     }
 
-    /// The raw values are a wire format: three defaults keys store them. Every prior test here
-    /// wrote `.tree.rawValue` and read it back — a round trip that passes across any rename while
-    /// the rename silently restacks every user's panes. The literals are the pin.
+    /// The raw values are a wire format: three defaults keys store them. A `.tree.rawValue` round
+    /// trip passes across any rename while the rename silently restacks every user's panes, so the
+    /// literals are the pin.
     @Test func testRawValuesAreStableAndAnUnknownStoredValueFallsBack() {
         #expect(PaneViewMode.tree.rawValue == "tree")
         #expect(PaneViewMode.columns.rawValue == "columns")
         #expect(PaneViewMode.allCases == [.tree, .columns])
 
-        // The documented fallback in `stored(isLeft:in:)`. The absent and foreign-word halves were
-        // already pinned (`testColumnsIsTheDefault`, `testUnrecognisedValueFallsBackToTheDefault`);
-        // the case-NEAR-MISS is what this adds — "Tree" for "tree" is the shape a hand-edited
-        // plist or a case-renamed enum actually produces, and neither older test probes it.
+        // The documented fallback in `stored(isLeft:in:)`. Absent and foreign words are pinned by
+        // `testColumnsIsTheDefault` and `testUnrecognisedValueFallsBackToTheDefault`; this adds the
+        // case near-miss, "Tree" for "tree", which a hand-edited plist or a case-renamed enum
+        // produces.
         let defaults = ScratchDefaults("PaneViewModeRawValues")
         #expect(PaneViewMode.stored(isLeft: true, in: defaults) == .default)
         defaults.set("Tree", forKey: PaneViewMode.defaultsKey(isLeft: true))

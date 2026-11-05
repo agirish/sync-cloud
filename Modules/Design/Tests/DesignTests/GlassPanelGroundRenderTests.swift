@@ -4,7 +4,7 @@ import SwiftUI
 @testable import Design
 
 /// The ground under a floating panel's text (`glassPanelGround`): the window's tinted dark ground in
-/// dark at Frosted and Clear (HZ), and exactly the old `controlBackgroundColor` everywhere else.
+/// dark at Frosted and Clear, and exactly `controlBackgroundColor` everywhere else.
 ///
 /// The ground is rendered on its own, over black: the glass it sits on in a real panel draws
 /// nothing into an offscreen capture, and black keeps a ground that paints nothing from passing
@@ -37,7 +37,7 @@ import SwiftUI
                    dark: dark)
     }
 
-    /// What every level painted before HZ, verbatim.
+    /// The plain `controlBackgroundColor` ground, for comparison.
     private func controlBackground(_ level: GlassLevel, dark: Bool) throws -> NSBitmapImageRep {
         let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         return try render(Color.clear.background(shape.fill(Color(nsColor: .controlBackgroundColor)
@@ -61,7 +61,7 @@ import SwiftUI
         let none = try middle(ground(level, hue: .none, dark: true))
         let neutral = try middle(controlBackground(level, dark: true))
         // The cool base leans blue; Purple's share of the diagonal adds red and blue on top of it.
-        // The old charcoal is grey.
+        // The neutral charcoal is grey.
         #expect(purple.b > purple.g, "dark \(level) on Purple painted \(purple)")
         #expect(purple.r > none.r && purple.b > none.b,
                 "dark \(level) on Purple \(purple) carries no more of its hue than None \(none)")
@@ -70,8 +70,8 @@ import SwiftUI
 
     @Test(arguments: [GlassLevel.frosted, .clear])
     func darkGlassWithNoAccentIsTheDeepBase(level: GlassLevel) throws {
-        // None paints no hue, so what is left is the window's near-black, faintly-cool base —
-        // darker than the charcoal it replaces, and cool rather than grey.
+        // None paints no hue, so what is left is the window's near-black, faintly cool base:
+        // darker than the neutral charcoal, and cool rather than grey.
         let none = try middle(ground(level, hue: .none, dark: true))
         let neutral = try middle(controlBackground(level, dark: true))
         #expect(none.g < neutral.g, "None's dark \(level) ground \(none) is not below charcoal \(neutral)")

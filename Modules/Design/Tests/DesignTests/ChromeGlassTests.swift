@@ -3,12 +3,12 @@ import AppKit
 import SwiftUI
 @testable import Design
 
-/// Chrome glass (RD46 follow-up): in Frosted and Clear a bar button sits in a glass capsule, and
-/// Back/Forward share one; Solid draws the button's own ground exactly as before.
+/// Chrome glass: in Frosted and Clear a bar button sits in a glass capsule, and Back/Forward share
+/// one; Solid draws the button's own ground unchanged.
 ///
-/// Rendered with the probe — glass draws nothing into an offscreen capture, so under `drawsProbe`
-/// its place is painted cyan (`ChromeGlass.probeColor`) — against a pure-green "today's ground"
-/// the harness's buttons draw at rest, so each render says plainly which of the two is showing.
+/// Rendered with the probe (glass draws nothing into an offscreen capture, so under `drawsProbe`
+/// its place is painted cyan, `ChromeGlass.probeColor`) against a pure-green resting ground the
+/// harness's buttons draw, so each render says plainly which of the two is showing.
 @MainActor
 @Suite(.serialized) struct ChromeGlassTests {
 
@@ -253,9 +253,9 @@ import SwiftUI
         #expect(face.0 < 3 && face.1 > 252 && face.2 > 252, "the track's own grey is drawn over its glass: \(face)")
     }
 
-    /// **Two OUTSET capsules side by side keep `minimumCapsuleGap` between their glass** — the
-    /// clearance is derived from it, not typed beside it: at Edit's 6pt row spacing two 2pt outsets
-    /// leave 2pt, so the clearance is 2; at a spacing wide enough already it is nothing.
+    /// Two outset capsules side by side keep `minimumCapsuleGap` between their glass. The
+    /// clearance is derived from it: at Edit's 6pt row spacing two 2pt outsets leave 2pt, so the
+    /// clearance is 2; at a spacing wide enough already it is nothing.
     @Test func theClearanceMakesUpTheGapTwoOutsetsLeave() {
         #expect(ChromeGlass.clearance(rowSpacing: 6) == 2)
         #expect(6 + ChromeGlass.clearance(rowSpacing: 6) - 2 * ChromeGlass.smallGlyphOutset == ChromeGlass.minimumCapsuleGap)

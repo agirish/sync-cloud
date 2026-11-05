@@ -3,16 +3,9 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// **That the active-pane border actually paints, and in the app's accent.**
-///
-/// Inherited from `PaneFocusRingTests`, which measured exactly this about the ring around a pane's
-/// provider capsule — a second indicator of the same fact, removed on 2026-08-24 in favour of this
-/// border. That suite's standing lesson comes with it: **a focus cue that renders as nothing is the
-/// failure a green geometry suite cannot see**, and this feature has already shipped once with no
-/// indicator at all.
-///
-/// The size-neutrality half lives in `ActivePaneMarkTests` beside the modifier. Here is the half a
-/// layout assertion is blind to.
+/// That the active-pane border actually paints, and in the app's accent. A focus cue that renders
+/// as nothing is the failure a green geometry suite can't see. The size-neutrality half lives in
+/// `ActivePaneMarkTests` beside the modifier; this is the half a layout assertion is blind to.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct ActiveCardBorderRenderTests {
 
@@ -58,9 +51,8 @@ import Testing
         return count
     }
 
-    /// **It paints.** The border is quiet by design — 45% of the accent at 1.5pt — and "quiet" is
-    /// one edit away from "absent"; the wash that shipped alongside the first version of this mark
-    /// was invisible in both themes and nothing failed.
+    /// It paints. The border is quiet by design (45% of the accent at 1.5pt), and quiet is one edit
+    /// away from absent.
     @Test func aBorderedCardPaintsSomething() throws {
         let plain = try #require(bitmap(Self.card(nil)))
         let bordered = try #require(bitmap(Self.card(LiquidGlassHue.blue.accentColor)))
@@ -68,11 +60,9 @@ import Testing
                 "the accent border painted nothing — a cue that renders as nothing is the whole failure mode here")
     }
 
-    /// **In the app's accent, which the user chooses**, so it cannot be a hard-coded blue.
-    ///
-    /// Sampled as "does the render change at all", which is sound here only because the fixture is
-    /// an empty card: `PaneFocusRingTests` could not do this over a whole header, because the pane
-    /// bar's controls are accent-tinted too and would move a comparison on their own.
+    /// In the app's accent, which the user chooses, so it can't be a hard-coded blue. Sampled as
+    /// "does the render change at all", which is sound only because the fixture is an empty card:
+    /// over a whole header, accent-tinted controls would move the comparison on their own.
     @Test func theBorderTakesTheAppAccent() throws {
         let blue = try #require(bitmap(Self.card(LiquidGlassHue.blue.accentColor)))
         let amber = try #require(bitmap(Self.card(LiquidGlassHue.amber.accentColor)))
@@ -80,9 +70,9 @@ import Testing
                 "two far-apart accents rendered the same border — it is painting a fixed colour")
     }
 
-    /// The dimming is applied by the caller, so a border handed the RAW accent would be the loud
-    /// one that was reported. Distinguishable in pixels, which is the point: `activeBorder` could
-    /// be edited to return its argument unchanged and every constant assertion would still pass.
+    /// The dimming is applied by the caller, so a border handed the raw accent would be too loud.
+    /// Checked in pixels because `activeBorder` could return its argument unchanged and every
+    /// constant assertion would still pass.
     @Test func theDimmedAccentPaintsMoreFaintlyThanTheRaw() throws {
         let raw = LiquidGlassHue.blue.accentColor
         let full = try #require(bitmap(Self.card(raw)))

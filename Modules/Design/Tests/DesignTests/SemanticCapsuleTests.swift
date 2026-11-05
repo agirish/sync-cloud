@@ -3,9 +3,9 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// Contrast for `SemanticCapsuleStyle`, computed from the colors themselves rather than read off a
-/// comment. Every family is measured against its own fill, which is the only backdrop a flat
-/// semantic capsule ever has — and the reason it can be hue-independent in the first place.
+/// Contrast for `SemanticCapsuleStyle`, computed from the colors themselves. Every family is
+/// measured against its own fill, the only backdrop a flat semantic capsule has, which is why it
+/// can be hue-independent.
 @Suite struct SemanticCapsuleTests {
 
     /// WCAG contrast ratio between two colors, via `AccentLabel`'s luminance (the module's one
@@ -37,8 +37,8 @@ import Testing
     }
 
     @Test func testEveryFamilyKeepsItsDotVisibleInBothAppearances() {
-        // 3:1 — the floor for non-text indicators. This is the one the obvious "system orange"
-        // fails on a light amber fill, which is why the light dots are darker than they look.
+        // 3:1, the floor for non-text indicators. The obvious "system orange" fails it on a light
+        // amber fill, which is why the light dots are darker than they look.
         for family in SemanticCapsuleFamily.allCases {
             for scheme in [ColorScheme.light, .dark] {
                 let style = SemanticCapsuleStyle.of(family, scheme)
@@ -48,14 +48,9 @@ import Testing
         }
     }
 
-    /// The differences count pill nests a semantic capsule INSIDE its accent capsule — the age run,
-    /// which turns `.attention` when the scan is stale and `.neutral` while one is running. That
-    /// gives a semantic fill a backdrop it was never designed for: every family above is measured
-    /// against its OWN fill precisely because a flat capsule has no other backdrop, and this one
-    /// does.
-    ///
-    /// Measured, the inset fill cannot carry that boundary itself. This is the test that says so,
-    /// and it is why `StatPill.detailStyle` rings the run instead of trusting the fill.
+    /// The differences count pill nests a semantic capsule inside its accent capsule: the age run,
+    /// `.attention` when the scan is stale and `.neutral` while one runs. That fill can't carry the
+    /// boundary against an accent on its own, which is why `StatPill.detailStyle` rings the run.
     @Test func testAnInsetRunCannotRelyOnItsOwnFillAgainstAnAccent() {
         var worst = Double.infinity
         for family in SemanticCapsuleFamily.allCases {
@@ -66,17 +61,15 @@ import Testing
                 }
             }
         }
-        // Dark `.neutral` on the Indigo accent is the floor at 2.68:1 — under the 3:1 a non-text
-        // boundary needs. Asserted as a documented FACT about the palette, not an aspiration: if a
-        // palette change ever lifts every pair clear of 3:1 this fails, and the ring becomes
-        // optional rather than load-bearing. That is worth being told about.
+        // Dark `.neutral` on the Indigo accent is the floor, under the 3:1 a non-text boundary
+        // needs. If a palette change lifts every pair clear of 3:1 this fails, to say the ring may
+        // have become optional.
         #expect(worst < 3.0, "every inset/accent pair now clears 3:1 (worst \(worst):1) — the ring in StatPill.detailStyle may no longer be load-bearing")
     }
 
-    /// …and this is the guarantee it falls back on. The ring is `onAccentLabelColor`, whose whole
-    /// contract with `AccentFill.deepened` is to clear 4.55:1 on the fill it is paired with — so it
-    /// separates the inset run from the accent on EVERY hue, in both appearances, no matter what
-    /// the run's own fill is doing.
+    /// …and the ring is the guarantee instead. It is `onAccentLabelColor`, which
+    /// `AccentFill.deepened` promises clears 4.55:1 on its paired fill, so it separates the inset
+    /// run from the accent on every hue whatever the run's own fill is.
     @Test func testTheInsetRunsRingIsSeparatedFromEveryAccent() {
         for hue in LiquidGlassHue.allCases {
             let ratio = contrast(hue.onAccentLabelColor, hue.accentFillColor)
@@ -85,13 +78,9 @@ import Testing
     }
 
     @Test func testTheDotIsTheMostColorfulMemberOfItsFamily() {
-        // The stated rule for the role: the smallest element gets the strongest hue, because it
-        // has the least area in which to communicate it.
-        //
-        // Measured as CHROMA (max − min), not HSV saturation (max − min / max). The distinction is
-        // not pedantic here: the dark fill rgb(0.24, 0.15, 0.03) is a near-black brown whose HSV
-        // saturation is 0.87 — higher than the bright orange dot's 0.86 — so an HSV test claims the
-        // background out-shouts the dot. Chroma says what the eye does: 0.21 against 0.86.
+        // The smallest element gets the strongest hue, having the least area to show it. Measured
+        // as chroma (max − min), not HSV saturation: the near-black brown dark fill has a higher
+        // HSV saturation than the bright orange dot, though the eye sees the opposite.
         func chroma(_ color: Color) -> CGFloat {
             guard let c = NSColor(color).usingColorSpace(.sRGB) else { return 0 }
             let channels = [c.redComponent, c.greenComponent, c.blueComponent]
@@ -105,16 +94,16 @@ import Testing
         }
     }
 
-    /// The `onAccent` path's dot is legible by its RING, not by its own colour — and the ring is
-    /// the fill's paired label colour, so this is really asserting that the pairing every other
-    /// accent-filled control relies on also does this job. Runs over all twelve hues: the pill is
-    /// hue-dependent now, so a hue whose ring vanished would strand the dot with no boundary at all.
+    /// The `onAccent` path's dot is legible by its ring, which is the fill's paired label colour, so
+    /// this asserts the pairing other accent-filled controls rely on also does this job. Runs over
+    /// every named hue: the pill follows the hue, so one whose ring vanished would leave the dot
+    /// with no boundary.
     @MainActor
     @Test func testTheRingedDotStaysBoundedOnEveryAccentHue() throws {
         for hue in LiquidGlassHue.allCases where hue != .none {
-            // `.none` is the *system* accent — a dynamic color with no fixed value to measure.
-            // `accentFillColor`, matching the call site: measuring the raw accent here would test a
-            // pairing the app never draws.
+            // `.none` is the system accent, a dynamic color with no fixed value to measure.
+            // `accentFillColor` matches the call site; the raw accent is a pairing the app never
+            // draws.
             let style = SemanticCapsuleStyle.onAccent(fill: hue.accentFillColor, label: hue.onAccentLabelColor)
             let ring = try #require(style.dotRing, "\(hue) accent capsule shipped an unringed dot")
             let ratio = contrast(ring, style.fill)
@@ -122,13 +111,11 @@ import Testing
         }
     }
 
-    /// Why the ring has to exist, stated as a measurement instead of a comment: no colour in the
-    /// terracotta family clears 3:1 on the Green accent fill — not the bright on-accent value, not
-    /// the family's own darker dot, not a pale peach. A white dot would clear it (that is exactly
-    /// what the fill being deepened buys), but a white dot carries no attention signal, which is the
-    /// one job the dot has. So the ring is what makes a WARM dot possible here. If a future re-tune
-    /// ever lets a warm dot stand alone this fails and the ring becomes removable; until then,
-    /// deleting it as decoration silently drops the dot below the floor.
+    /// Why the ring exists: no terracotta colour clears 3:1 on the Green accent fill (not the
+    /// on-accent value, the family's darker dot, or a pale peach). White would, but carries no
+    /// attention signal, so the ring is what makes a warm dot possible. If a re-tune lets a warm dot
+    /// stand alone this fails and the ring becomes removable; until then, removing it drops the dot
+    /// below the floor.
     @MainActor
     @Test func testNoWarmDotColorCouldClearTheFloorOnTheGreenAccentFill() {
         let fill = LiquidGlassHue.green.accentFillColor

@@ -2,9 +2,9 @@ import Testing
 import Foundation
 @testable import Design
 
-/// Pins the list-density setting (H7): the stored key, the two values, and — most importantly —
-/// that Comfortable's metrics equal the app's pre-H7 constants, so the default look is
-/// unchanged by construction and only Compact opts into tighter rows.
+/// Pins the list-density setting: the stored key, the two values, and above all that Comfortable's
+/// metrics are the default look's own literals, so the default never moves and only Compact opts
+/// into tighter rows.
 @Suite struct ListDensityTests {
 
     // MARK: Stored format
@@ -35,9 +35,9 @@ import Foundation
     // MARK: Metrics
 
     @Test func comfortableMetricsMatchThePreH7Constants() {
-        // These are the literals the views used before the setting existed (Tidy header 12,
-        // copy rows 11, card lists spacing 10 / padding 12, no table row-height override,
-        // secondary detail shown). Comfortable must stay pixel-identical to that look.
+        // The default look's literals (Tidy header 12, copy rows 11, card lists spacing 10 /
+        // padding 12, no table row-height override, secondary detail shown). Comfortable must stay
+        // pixel-identical to it.
         let m = ListDensity.comfortable.metrics
         #expect(m.cardHeaderVerticalPadding == 12)
         #expect(m.cardRowVerticalPadding == 11)
@@ -48,9 +48,8 @@ import Foundation
     }
 
     @Test func comfortableFlatRowMetricsMatchThePreDensityConstants() {
-        // These are the literals the flat lists used before density reached them (file rows /
-        // log rows / history rows padding 6, file-row icon 17, log-window LazyVStack spacing 6).
-        // Comfortable must stay pixel-identical to that look.
+        // The flat lists' default literals (file, log and history rows padding 6, file-row icon
+        // 17, log-window LazyVStack spacing 6). Comfortable must stay pixel-identical to them.
         let m = ListDensity.comfortable.metrics
         #expect(m.flatRowVerticalPadding == 6)
         #expect(m.treeIconSize == 17)
@@ -58,8 +57,8 @@ import Foundation
     }
 
     @Test func compactFlatRowMetricsArePinned() {
-        // Pinned, not just "smaller": these numbers are the compact design (row padding 2,
-        // icon 14, log spacing 2) — a drive-by tweak should have to touch this test.
+        // Pinned, not just "smaller": these numbers are the compact design (row padding 2, icon
+        // 14, log spacing 2), so a drive-by tweak has to touch this test.
         let m = ListDensity.compact.metrics
         #expect(m.flatRowVerticalPadding == 2)
         #expect(m.treeIconSize == 14)

@@ -4,8 +4,7 @@ import Foundation
 @testable import Design
 
 /// Pins every chord's rendered display. The display is derived from the registration, so these
-/// are really pins on the REGISTRATION: changing a chord's key or modifiers fails here by name,
-/// which is the review step the four hand-copied strings never had.
+/// are really pins on the registration: changing a chord's key or modifiers fails here by name.
 @Suite struct AppChordTests {
 
     @Test func everyChordRendersItsDocumentedDisplay() {
@@ -22,9 +21,9 @@ import Foundation
         #expect(AppChord.findInPane.display == "⌘F")
         #expect(AppChord.paneBack.display == "⌘[")
         #expect(AppChord.paneForward.display == "⌘]")
-        // The column-stack pair (RD5). Both are function-key code points, so these two pins are
-        // also what proves `keyGlyph` names them — without its ↑/↓ arms `display` renders an
-        // unprintable glyph, which draws as a blank box on a keycap rather than as nothing.
+        // The column-stack pair. Both are function-key code points, so these pins also prove
+        // `keyGlyph` names them: without its ↑/↓ arms `display` renders an unprintable glyph,
+        // which draws as a blank box on a keycap.
         #expect(AppChord.openSelectedFolder.display == "⌘↓")
         #expect(AppChord.enclosingFolder.display == "⌘↑")
         #expect(AppChord.rescan.display == "⌘R")
@@ -41,8 +40,7 @@ import Foundation
         #expect(AppChord.deleteSelection.display == "⌘⌫")
         #expect(AppChord.switchPaneFocus.display == "⌃⇥")
         // The four directional transfers. The arrows are function-key code points, so these pin a
-        // GLYPH the keycap has to supply by hand — without it `display` renders an unprintable box,
-        // which reads on screen as a font problem rather than a missing case.
+        // glyph the keycap supplies by hand; without it `display` renders an unprintable box.
         #expect(AppChord.copyToLeft.display == "⌘←")
         #expect(AppChord.copyToRight.display == "⌘→")
         #expect(AppChord.moveToLeft.display == "⇧⌘←")
@@ -66,20 +64,20 @@ import Foundation
         #expect(AppChord.textBigger.display == "⌘+")
         #expect(AppChord.textSmaller.display == "⌘−")
         #expect(AppChord.textDefaultSize.display == "⌘0")
-        // The Text and Markup menus (RD1). ⌃⌘ digits, because ⌘1…⌘4 are the workspaces and ⌥ is
+        // The Text and Markup menus. ⌃⌘ digits, because ⌘1…⌘4 are the workspaces and ⌥ is
         // barred; the inline verbs take the platform's own letters.
         #expect(AppChord.editorSourceMode.display == "⌃⌘1")
         #expect(AppChord.editorPreviewMode.display == "⌃⌘2")
         #expect(AppChord.editorSplitMode.display == "⌃⌘3")
-        // Text ▸ Expand (TE48): the modes' ⌃⌘, on a letter — and not ⌘E, which is the find bar's.
+        // Text ▸ Expand: the modes' ⌃⌘, on a letter, and not ⌘E, which is the find bar's.
         #expect(AppChord.editorExpand.display == "⌃⌘E")
         #expect(AppChord.findNext.display == "⌘G")
         #expect(AppChord.findPrevious.display == "⇧⌘G")
         #expect(AppChord.useSelectionForFind.display == "⌘E")
-        // Text ▸ Go to Line… (TE61): the modes' ⌃⌘ again, on L — not ⌘L (the activity log) and not
+        // Text ▸ Go to Line…: the modes' ⌃⌘ again, on L; not ⌘L (the activity log) and not
         // ⇧⌘L (Markup ▸ Link).
         #expect(AppChord.goToLine.display == "⌃⌘L")
-        // View ▸ Text Files (TE81): ⌃⌘ on T — not ⌘T (New Tab) and not ⇧⌘T (the tab bar).
+        // View ▸ Text Files: ⌃⌘ on T; not ⌘T (New Tab) and not ⇧⌘T (the tab bar).
         #expect(AppChord.editorTextFiles.display == "⌃⌘T")
         #expect(AppChord.bold.display == "⌘B")
         #expect(AppChord.strikethrough.display == "⇧⌘X")
@@ -89,26 +87,22 @@ import Foundation
         #expect(AppChord.cancelOperation.display == "⌘.")
         #expect(AppChord.workspace(1)?.display == "⌘1")
         #expect(AppChord.workspace(5)?.display == "⌘5")
-        // **Past nine there is no chord, and asking for one must not take the app down.**
+        // Past nine there is no chord, and asking for one must not take the app down:
         // `Character.init(String)` requires exactly one grapheme cluster, so a two-digit ordinal
-        // trapped — at menu-bar construction, which is to say the app would not open. Five
-        // workspaces exist today; this is the boundary the 1…9 loops below never approach.
+        // would trap at menu-bar construction and the app would not open.
         #expect(AppChord.workspace(10) == nil)
         #expect(AppChord.workspace(0) == nil)
-        // The live fixture for `aCommentedPinDoesNotCountAsAPin`: a trailing comment inside this
-        // very body, naming a chord the way a real pin does. It has to sit HERE — the coverage scan
-        // reads this member and nothing else, so a decoy anywhere else would prove only the
-        // scoping. AppChordDecoyMarker.display == "⌘0"
+        // The live fixture for `aCommentedPinDoesNotCountAsAPin`: a comment inside this body,
+        // naming a chord the way a real pin does. It must sit here, because the scan reads only
+        // this member. AppChordDecoyMarker.display == "⌘0"
     }
 
-    /// The reveal's look-release-press contract holds only while NO registered chord contains ⌥
-    /// — an ⌥-chord fires from inside the ⌥-hold, aliasing whatever badge the user is reading
-    /// (the first cut's ⌥⌘F folded every folder under a user pressing "⌘F"). Guard the invariant
-    /// itself, not the one case that violated it.
+    /// The reveal's look-release-press contract holds only while no registered chord contains ⌥:
+    /// an ⌥-chord fires from inside the ⌥-hold, aliasing whatever badge the user is reading.
+    /// Guards the invariant itself, not one case.
     @Test func noChordContainsOptionSoNothingFiresThroughTheReveal() {
-        // `AppChord.registry` plus the workspace family, which is parameterised and so is not in
-        // it. Re-typing the members here is what let a chord be added without every "for every
-        // chord" test seeing it — the same hand-copy this type exists to remove.
+        // `AppChord.registry` plus the workspace family, which is parameterised and so not in it.
+        // Re-typing the members here would let a new chord escape every "for every chord" test.
         let all: [AppChord] = AppChord.registry + (1...9).compactMap { AppChord.workspace($0) }
         for chord in all {
             #expect(!chord.modifiers.contains(.option),
@@ -126,20 +120,10 @@ import Foundation
         }
     }
 
-    /// **The registry holds every chord that is declared.**
-    ///
-    /// `AppChord.registry` is a hand-written array, which is the one seam left in a type whose
-    /// argument is that a chord is written down once: a `static let` added below it would be
-    /// registered, rendered, and invisible to all three "for every chord" tests that read the
-    /// registry. Counted from the source, so adding a member without listing it fails here rather
-    /// than silently narrowing what the other tests cover.
-    /// **No two chords are the same chord.** The registry exists so a chord is declared once; it
-    /// cannot stop two of them being declared identically, and two menu items sharing a key
-    /// equivalent is not a build error — AppKit simply picks one, so the loser looks like a chord
-    /// that does nothing. Worth an invariant now that the app registers nineteen of them.
-    ///
-    /// Compared on what actually reaches the responder chain — the key character and the modifier
-    /// set — rather than on `display`, which two different chords could in principle render alike.
+    /// No two chords are the same chord. The registry can't stop two being declared identically,
+    /// and two menu items sharing a key equivalent is no build error: AppKit picks one, and the
+    /// other looks like a chord that does nothing. Compared on what reaches the responder chain
+    /// (key character and modifier set), not `display`, which two chords could render alike.
     @Test func noTwoChordsCollide() {
         var seen: [String: Int] = [:]
         for chord in AppChord.registry {
@@ -150,11 +134,10 @@ import Foundation
         #expect(collisions.isEmpty, "two registered chords share a key equivalent: \(collisions)")
     }
 
-    /// **⌘I is one chord with two meanings, and the registry holds it once.** Decision B routes
-    /// Italic and the Info inspector on the same key at press time, so `italic` is an alias of
-    /// `infoInspector` rather than a second declaration — a second `static let` on the same key
-    /// would fail `noTwoChordsCollide`, and rightly, because two registrations let AppKit pick.
-    /// Pinned as an identity, not a display: two different chords could render alike.
+    /// ⌘I is one chord with two meanings, held once in the registry. Italic and the Info inspector
+    /// share the key and are routed at press time, so `italic` is an alias of `infoInspector`; a
+    /// second `static let` on the key would fail `noTwoChordsCollide`, rightly, since AppKit would
+    /// pick one. Pinned as an identity, not a display: two different chords could render alike.
     @Test func italicIsTheInspectorsChordNotASecondOne() {
         #expect(AppChord.italic.key == AppChord.infoInspector.key)
         #expect(AppChord.italic.modifiers == AppChord.infoInspector.modifiers)
@@ -181,8 +164,8 @@ import Foundation
     }
 
     /// …and none of them collides with the workspace family, which is generated rather than
-    /// declared and so is invisible to the check above. This is the one the tab work had to think
-    /// about: ⌘1…⌘N are the workspaces', which is why tabs deliberately have no ⌘-digit.
+    /// declared and so invisible to the check above: ⌘1…⌘N are the workspaces', so tabs have no
+    /// ⌘-digit.
     @Test func noChordCollidesWithAWorkspaceDigit() {
         let digits = Set((1...9).compactMap { AppChord.workspace($0).map { String($0.key.character) } })
         for chord in AppChord.registry where chord.modifiers == .command {
@@ -191,17 +174,13 @@ import Foundation
         }
     }
 
-    /// Every `static let <name> = AppChord(` declaration in `AppChord.swift`.
+    /// Every `static let <name> = AppChord(` declaration in `AppChord.swift`. The parameterised
+    /// `workspace(_:)` is a `static func`, rightly not counted.
     ///
-    /// The parameterised `workspace(_:)` is a `static func` and so is correctly not counted.
-    /// Counted over the whitespace-collapsed whole file rather than line by line, so a declaration
-    /// whose initialiser wraps (`static let x =` / newline / `AppChord(…)`) is still seen. Line-
-    /// scoped, such a member would be invisible here AND absent from the registry — the count
-    /// would balance and the chord would reach none of the sweeps that read this.
-    ///
-    /// Shared by the two tests below, which ask different questions of the same list: that every
-    /// declared chord is in `registry`, and that every declared chord has a display pin. A second
-    /// copy of the parser would be one more place for the list to go stale.
+    /// Counted over the whitespace-collapsed file, not line by line, so a declaration whose
+    /// initialiser wraps onto the next line is still seen; line-scoped, it would be missing here
+    /// and from the registry alike, the count would balance, and no sweep would reach it. Shared
+    /// by the two tests below, so there is one parser to keep current.
     static func declaredChordNames() throws -> Set<String> {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -225,12 +204,15 @@ import Foundation
         return declared
     }
 
+    /// The registry holds every chord that is declared. `AppChord.registry` is a hand-written
+    /// array, so a `static let` added without listing it would be registered, rendered, and
+    /// invisible to every "for every chord" test that reads the registry. Counted from the source,
+    /// so the omission fails here.
     @Test func everyDeclaredChordIsInTheRegistry() throws {
         let declared = try Self.declaredChordNames()
-        // **Distinct first, or the count proves nothing.** `registry` is a plain array: listing one
-        // member twice balances the count while a genuinely new chord is missing, which is exactly
-        // the omission this test exists to catch. Every chord this app registers renders a
-        // different display, so uniqueness there is a real property and not an accident.
+        // Distinct first, or the count proves nothing: listing one member twice in `registry`
+        // would balance the count while a new chord is missing. Every chord renders a different
+        // display, so uniqueness there is a real property.
         #expect(Set(AppChord.registry.map(\.display)).count == AppChord.registry.count,
                 "two registry entries render the same display — a duplicate can mask an omission")
         #expect(declared.count == AppChord.registry.count,
@@ -240,29 +222,11 @@ import Foundation
                 """)
     }
 
-    /// **Every declared chord is pinned by `everyChordRendersItsDocumentedDisplay`.**
-    ///
-    /// The pins themselves stay hand-written — a pin derived from the value it pins asserts
-    /// nothing — but the LIST of them is derived, because the hand-written list is what went
-    /// stale: the tab work declared five chords (⌘T, ⌘W, ⇧⌘], ⇧⌘[, ⇧⌘T) that were registered on
-    /// menu items and rendered on keycaps with no test naming any of them, so a slip in any of
-    /// their modifiers would have failed nothing. The other "for every chord" tests could not see
-    /// it — they read `registry`, which the five were correctly in.
-    ///
-    /// So the next chord fails here on the day it is declared, rather than on the day someone
-    /// remembers this file.
-    /// **Scoped to the pin test's own body, and with TRAILING comments cut too.**
-    ///
-    /// Two holes the first cut left, both of them the decoy this scan exists to refuse:
-    ///
-    /// - It dropped only WHOLE-LINE `//` comments, so `#expect(true)  // AppChord.newTab.display ==
-    ///   "⌘T"` satisfied it while nothing pinned ⌘T — the exact hazard
-    ///   `ShortcutCommandsTests.bothReasonsToSuspendTheChordsSurviveInTheExpression` was rewritten
-    ///   to defeat, reintroduced here. Cut at `//` rather than at the first `/`, because `⌘/` is a
-    ///   real display string this file pins.
-    /// - It searched the WHOLE file, so a pin sitting in a disabled or deleted-but-not-yet-removed
-    ///   test — or in any other member — counted. The pins live in one named test; that is where
-    ///   they are looked for.
+    /// The pin test's body, with comments cut, trailing ones included. Cut at `//`, not at the
+    /// first `/`, because `⌘/` is a display string this file pins. Scoped to the one named test, so
+    /// a pin in a disabled test or any other member doesn't count, and a comment naming a chord is
+    /// no pin, the hazard
+    /// `ShortcutCommandsTests.bothReasonsToSuspendTheChordsSurviveInTheExpression` also guards.
     static func pinnedDisplayExpectations() throws -> String {
         let raw = try #require(try? String(contentsOf: URL(fileURLWithPath: #filePath), encoding: .utf8),
                                "cannot read this test file — the coverage scan would be vacuous")
@@ -287,6 +251,10 @@ import Foundation
         return body
     }
 
+    /// Every declared chord is pinned by `everyChordRendersItsDocumentedDisplay`. The pins stay
+    /// hand-written, since a pin derived from its value asserts nothing, but the list of them is
+    /// derived, so a new chord fails here the day it is declared. The registry-reading tests can't
+    /// see a chord that is registered but unpinned.
     @Test func everyDeclaredChordIsPinnedByADisplayExpectation() throws {
         let declared = try Self.declaredChordNames()
         let own = try Self.pinnedDisplayExpectations()
@@ -296,13 +264,9 @@ import Foundation
         }
     }
 
-    /// **The scan above refuses a pin that is only a comment.** Proved rather than asserted about:
-    /// a decoy in this file's own text — a trailing comment naming a chord, which is what the first
-    /// cut accepted — must not appear in what the scan reads.
-    ///
-    /// The decoy is planted inside `everyChordRendersItsDocumentedDisplay` itself — a real trailing
-    /// comment naming a display, on the last line of the member the scan reads — because a decoy
-    /// anywhere else would be refused by the scoping and prove nothing about the stripping.
+    /// The scan above refuses a pin that is only a comment, proved on a decoy: a comment naming a
+    /// display, planted in `everyChordRendersItsDocumentedDisplay` itself, since the scoping would
+    /// refuse a decoy anywhere else and prove nothing about the stripping.
     @Test func aCommentedPinDoesNotCountAsAPin() throws {
         let stripped = try Self.pinnedDisplayExpectations()
         #expect(!stripped.contains("AppChordDecoyMarker"),

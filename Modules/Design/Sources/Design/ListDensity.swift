@@ -2,16 +2,15 @@ import AppKit
 import SwiftUI
 
 /// How tightly the long lists (the Differences table, Duplicates group cards, Filing suggestions)
-/// pack their rows (backlog H7). Comfortable is the app's unchanged default look; Compact is
-/// the power user's opt-in for scanning 1,000+ rows. Stored in UserDefaults via
-/// `ListDensity.defaultsKey`, mirroring the other appearance options in `LiquidGlass`.
+/// pack their rows. Comfortable is the default look; Compact is the opt-in for scanning 1,000+
+/// rows. Stored under `ListDensity.defaultsKey`, like the other appearance options in
+/// `LiquidGlass`.
 public enum ListDensity: String, CaseIterable, Identifiable, Sendable {
     case comfortable
     case compact
 
-    /// UserDefaults key for the selected density (raw value of `ListDensity`). Read via
-    /// `@AppStorage` by the Settings Appearance tab and every list view that honors it —
-    /// one shared constant so the setting has a single source of truth.
+    /// UserDefaults key for the selected density (a raw value), read via `@AppStorage` by Settings'
+    /// Appearance tab and every list view that honours it.
     public static let defaultsKey = "listDensity"
 
     public var id: String { rawValue }
@@ -23,11 +22,8 @@ public enum ListDensity: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// One-line explanation shown under the Settings control.
-    ///
-    /// Says what compact actually *costs*, which the shipped caption did not: it hid each file's
-    /// size and date (`showsSecondaryDetail`) and nothing on screen said so. Somebody choosing
-    /// from the word alone would not guess the date disappears.
+    /// One-line explanation shown under the Settings control. It says what compact costs: it hides
+    /// each file's size and date (`showsSecondaryDetail`), which nobody would guess from the word.
     public var detail: String {
         switch self {
         case .comfortable:
@@ -38,9 +34,9 @@ public enum ListDensity: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// The concrete row measurements for this density. Comfortable's values ARE the app's
-    /// pre-H7 constants — comfortable must render pixel-identical to the look before the
-    /// setting existed (pinned by `ListDensityTests`).
+    /// The row measurements for this density. Comfortable's values are the app's original
+    /// constants, so it renders pixel-identical to the look before the setting existed
+    /// (`ListDensityTests`).
     public var metrics: ListDensityMetrics {
         switch self {
         case .comfortable:
@@ -71,8 +67,7 @@ public enum ListDensity: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// Pure row measurements per density — a small testable type so the numbers live in one
-/// place instead of scattered across view literals.
+/// Row measurements per density, in one small testable type instead of scattered view literals.
 public struct ListDensityMetrics: Equatable, Sendable {
     /// Vertical padding of a card's always-visible header row (Duplicates group header).
     public let cardHeaderVerticalPadding: CGFloat
@@ -82,8 +77,8 @@ public struct ListDensityMetrics: Equatable, Sendable {
     public let cardListSpacing: CGFloat
     /// Outer padding around a card list.
     public let cardListPadding: CGFloat
-    /// Minimum row height override for `Table`s; nil leaves the system default untouched
-    /// (comfortable must not alter the current table look).
+    /// Minimum row height override for `Table`s; nil leaves the system default untouched, so
+    /// comfortable doesn't alter the table look.
     public let tableMinRowHeight: CGFloat?
     /// Whether rows show their secondary size/date detail line; compact hides it.
     public let showsSecondaryDetail: Bool
@@ -98,15 +93,11 @@ public struct ListDensityMetrics: Equatable, Sendable {
 public extension ListDensity {
     /// A pinned table row height adjusted for the app's text size.
     ///
-    /// Only compact ever passes a non-nil `base`. Comfortable pins nothing, and a SwiftUI
-    /// `Table` left on `usesAutomaticRowHeights` measures its cells and grows on its own
-    /// (verified: rows went 24pt → 28pt when the cell font went 11pt → 17pt). Compact turns that
-    /// off to pin 20pt, so without this the larger text sizes would simply be clipped.
-    ///
-    /// The scale is clamped to `max(1, …)` — grow only, never shrink. This is a *text size*
-    /// setting, not a second density control: packing rows tighter is what compact already does,
-    /// and shrinking the pinned height further risks clipping the row content that is not text
-    /// (the icons keep their own size).
+    /// Only compact passes a non-nil `base`. Comfortable pins nothing, and a `Table` left on
+    /// `usesAutomaticRowHeights` grows with its cell font on its own; compact pins 20pt, so without
+    /// this the larger text sizes would be clipped. Grow only (`max(1, …)`): this is a text-size
+    /// setting, not a second density control, and shrinking further would clip the icons, which
+    /// keep their own size.
     static func tableRowHeight(_ base: CGFloat?, fontScale: CGFloat) -> CGFloat? {
         base.map { $0 * max(1, fontScale) }
     }
@@ -116,21 +107,16 @@ public extension View {
     /// Applies a density to a `Table`/`List` subtree. Comfortable restores the default look;
     /// compact tightens the rows.
     ///
-    /// A SwiftUI `Table` ignores every environment lever on macOS — `defaultMinListRowHeight`,
-    /// `controlSize`, and even the ambient font never reach its NSTableView or its hosted
-    /// cells (verified empirically against the Compare differences table; the original H7
-    /// row-minimum approach rendered pixel-identical rows). So compact reaches beneath the
-    /// Table and pins the AppKit `rowHeight` directly via `TableDensityApplier`; the
-    /// environment minimum is still set for any plain `List` under the same modifier. Cell
-    /// fonts don't inherit either — table cells opt in per-view (see `DifferenceNameCell`).
+    /// A SwiftUI `Table` ignores every environment lever on macOS: `defaultMinListRowHeight`,
+    /// `controlSize` and even the ambient font never reach its NSTableView or its cells. So compact
+    /// pins the AppKit `rowHeight` directly via `TableDensityApplier`; the environment minimum
+    /// still serves a plain `List`. Cell fonts don't inherit either; table cells opt in per view
+    /// (see `DifferenceNameCell`).
     ///
-    /// The structure is deliberately STABLE across densities — no `@ViewBuilder` branch.
-    /// A branch would make density toggles swap `_ConditionalContent` sides, recreating the
-    /// Table AND the applier, so the applier's captured originals (its restore path) would
-    /// never survive to run; with a stable structure the same applier — and the SAME
-    /// NSTableView — persists across toggles and is restored in place. `transformEnvironment`
-    /// leaves the value untouched when there is no override, so comfortable stays
-    /// pixel-identical to the pre-density look.
+    /// The structure stays the same across densities, with no `@ViewBuilder` branch: a branch would
+    /// recreate the Table and the applier on every toggle, so the applier's saved originals would
+    /// never be restored. `transformEnvironment` leaves the value alone when there is no override,
+    /// so comfortable stays pixel-identical to the default look.
     func listDensity(_ density: ListDensity) -> some View {
         modifier(ListDensityModifier(density: density))
     }
@@ -138,8 +124,8 @@ public extension View {
 
 /// Carries `listDensity(_:)`'s body so it can read the ambient `appFontScale`.
 ///
-/// A `ViewModifier` (not a `@ViewBuilder` branch) keeps the structure stable across both density
-/// AND text-size changes, which the applier's restore path depends on — see `listDensity(_:)`.
+/// A `ViewModifier`, not a `@ViewBuilder` branch, so the structure stays stable across density and
+/// text-size changes, which the applier's restore path depends on (see `listDensity(_:)`).
 private struct ListDensityModifier: ViewModifier {
     @Environment(\.appFontScale) private var fontScale
     let density: ListDensity

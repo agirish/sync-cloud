@@ -3,16 +3,13 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// The reason `ActionBarButtonStyle` exists, asserted rather than asserted-in-a-comment.
+/// The reason `ActionBarButtonStyle` exists: its weights survive the window losing focus.
 ///
-/// The offscreen window these tests render into is never key — the same condition as the live app
-/// when you click away from it, and the reason `SNAPSHOTS.md` warns that system controls render in
-/// their gray inactive style here. So this file is a ready-made rig for the exact question: does a
-/// weight survive the window losing focus?
-///
-/// The old header carried its hierarchy in `.borderedProminent` vs `.bordered`, which is precisely
-/// the difference the window's key state overrides — so the ordering it computed was visible only
-/// while the app was frontmost. These tests pin that the replacement isn't.
+/// The offscreen window these tests render into is never key, as in the live app after clicking
+/// away (and why `SNAPSHOTS.md` warns that system controls render in their gray inactive style
+/// here), so it is a ready rig for the question. `.borderedProminent` vs `.bordered` is exactly
+/// the difference a window's key state overrides, so a hierarchy built on them shows only while
+/// the app is frontmost.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct ActionBarFocusIndependenceTests {
 
@@ -76,12 +73,10 @@ import Testing
     }
 
     @Test func testTheStyleItReplacesDoesNotSurviveTheSameConditions() {
-        // The control, and the whole argument in one assertion: rendered side by side under
-        // identical never-key conditions, the system prominent capsule is markedly closer to gray
-        // than ours. Measured, not assumed: ours samples at saturation 1.0 and the system capsule
-        // at 0.0 — a flat gray — so the comparison has real room in it rather than passing by a
-        // hair. A failure here means AppKit's inactive treatment changed; read it as the premise
-        // moving, not as `ActionBarButtonStyle` breaking.
+        // The control: under identical never-key conditions the system prominent capsule is
+        // markedly closer to gray than ours (about 0.0 saturation against 1.0), so the comparison
+        // has real room. A failure here means AppKit's inactive treatment changed: the premise
+        // moved, not `ActionBarButtonStyle`.
         let ours = fillColor(of: Button("Copy") {}
             .buttonStyle(.actionBar(.primary, tint: Self.tint, onTint: .white)))
         let system = fillColor(of: Button("Copy") {}

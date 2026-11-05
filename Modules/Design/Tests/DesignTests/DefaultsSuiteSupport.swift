@@ -4,31 +4,21 @@ import Foundation
 
 /// Removes a throwaway defaults suite *and* its backing plist.
 ///
-/// `removePersistentDomain(forName:)` only empties the domain: cfprefsd still leaves an empty
-/// `~/Library/Preferences/<suite>.plist` behind, and neither `removeSuite(named:)` nor
-/// `CFPreferencesAppSynchronize` reclaims it either — all four combinations were measured on
-/// 2026-07-26 and every one left the file on disk. Because each scratch suite is named with a
-/// fresh UUID, that is one stray file per suite per run: 26,047 had accumulated across the six
-/// test targets before this was caught, at which point `defaults domains` — which enumerates the
-/// whole directory — took minutes. Unlinking the file is the only thing that actually reclaims it.
+/// `removePersistentDomain(forName:)`, `removeSuite(named:)` and `CFPreferencesAppSynchronize`
+/// all leave an empty `~/Library/Preferences/<suite>.plist` behind, one per UUID-named suite per
+/// run, until `defaults domains` takes minutes. Only unlinking the file reclaims it.
 ///
-/// **And the unlink only holds once cfprefsd has let go of the domain** (measured 2026-09-26).
-/// cfprefsd keeps its own copy of every domain a process writes and puts it back on disk on its
-/// own schedule — about every 10 s here — so an unlinked plist came back within one tick, as `{}`
-/// or with its old keys, whether the test process was still running or not: all 46 suites a run of
-/// four app-target suites wrote, and 68 across the full app target. Flushing cfprefsd's cache for
-/// the suite before the unlink is what keeps the file gone. That call is SPI — the `defaults` tool
-/// makes the same one, with the same two arguments — so it is looked up rather than linked, and an
-/// OS without it falls back to the ledger below.
+/// The unlink holds only once cfprefsd lets go of the domain: it keeps its own copy and writes it
+/// back on its own schedule (about every 10 s), even after the process exits. So its cache for the
+/// suite is flushed first, through the SPI the `defaults` tool calls, looked up rather than linked;
+/// an OS without it falls back to the ledger below.
 ///
 /// Mirrored verbatim in every test target, since they are separate SPM packages with no shared
 /// test-support module; keep the copies in step.
 func wipeDefaultsSuite(_ name: String) {
-    // Recorded here rather than at the call sites because this is the one funnel every cleanup
-    // path — `defer` and `ScratchDefaults.deinit` — already goes through.
-    // Recording only in `ScratchDefaults` missed the 46 `defer` sites, which build their suite
-    // with a plain `UserDefaults(suiteName:)`, and Sync's leftovers grew 58 -> 89 -> 135 over
-    // three runs because nothing was there to re-delete what cfprefsd had resurrected.
+    // Recorded here, not at the call sites, because every cleanup path (`defer` and
+    // `ScratchDefaults.deinit`) goes through this one funnel, including suites built with a plain
+    // `UserDefaults(suiteName:)`.
     scratchDefaultsLedger.record(name)
     UserDefaults.standard.removePersistentDomain(forName: name)
     UserDefaults.standard.removeSuite(named: name)
@@ -46,14 +36,11 @@ private let flushPreferencesCache =
 
 /// Finishes the cleanup that the previous test run could not.
 ///
-/// `wipeDefaultsSuite` reclaims the file for the great majority of suites, but cfprefsd is a
-/// separate daemon and may write a suite's plist back out *after* the test process has exited.
-/// That race is not winnable from inside the process: an `atexit` sweep that unlinked all 34 of a
-/// Dashboard run's suites still lost it for the two whose defaults object was held past the test
-/// by an undo registration. So every suite handed to `wipeDefaultsSuite` is recorded, and the next
-/// run deletes whatever the last one left behind, which keeps the directory bounded at about one
-/// run's stragglers instead of growing without limit. The gap this cannot close is a run that dies
-/// before its cleanup runs at all: those suites are never recorded, so they are never swept.
+/// cfprefsd may write a suite's plist back after the test process has exited, a race no sweep
+/// inside the process can win (even `atexit`). So every suite handed to `wipeDefaultsSuite` is
+/// recorded, and the next run deletes what the last one left, keeping the directory at about one
+/// run's stragglers. A run killed before its cleanup records nothing; see
+/// `sweepStaleScratchPlists`.
 let scratchDefaultsLedger = ScratchDefaultsLedger()
 
 final class ScratchDefaultsLedger: @unchecked Sendable {
@@ -76,10 +63,9 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
         guard let line = "\(name)\n".data(using: .utf8) else { return }
         if let handle = FileHandle(forWritingAtPath: ledgerPath) {
             defer { try? handle.close() }
-            // **The throwing forms**: `seekToEndOfFile()` and `write(_:)` raise an Objective-C
-            // exception when the write fails, which no Swift `catch` stops — on 2026-10-25 one
-            // took a whole FileExplorer run down. A ledger line that can't be written only costs
-            // the next run's sweep that one name.
+            // **The throwing forms only**: `seekToEndOfFile()` and `write(_:)` raise an
+            // Objective-C exception on failure, which no Swift `catch` stops, and would take the
+            // whole test process down. A lost ledger line costs the next sweep only that name.
             _ = try? handle.seekToEnd()
             try? handle.write(contentsOf: line)
         } else {
@@ -96,24 +82,14 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
         try? FileManager.default.removeItem(atPath: ledgerPath)
     }
 
-    /// Deletes scratch plists the ledger can never account for, matching by SHAPE rather than name.
+    /// Deletes scratch plists the ledger can't account for, matching by shape rather than name.
+    /// A name reaches the ledger only when its test gets to cleanup, so a killed run (a cancelled
+    /// CI job, an interrupted `swift test`) leaves suites no later run can name.
     ///
-    /// A name only reaches the ledger when the test owning it gets to its cleanup. Most creation
-    /// sites are a bare `UserDefaults(suiteName:)` paired with a `defer`, so a run that is KILLED
-    /// — a cancelled CI job, an interrupted `swift test`, a mutation experiment stopped by hand —
-    /// leaves suites that were never recorded and that no later run can name. That is not a
-    /// theoretical gap: 3,551 had accumulated by 2026-08-03, and a cold `defaults domains`, which
-    /// enumerates this directory, had gone from ~0.1s to 2.38s. Matching by shape closes it for
-    /// every creation site at once, recorded or not.
-    ///
-    /// The age floor is what makes this safe to run while other sessions are testing — this Mac
-    /// routinely has several worktrees running suites at once, and their live suites are minutes
-    /// old at most. An hour is far past any test's lifetime, and still bounds the directory at
-    /// about one hour of stragglers rather than letting it grow without limit.
-    /// Internal, not private, so its two dangerous edges can be tested directly: a stale scratch
-    /// plist really is deleted, and a real domain with a lowercase UUID really is not. Going
-    /// through `record`'s once-per-process trigger instead would make those tests depend on
-    /// which one ran first, and pass vacuously in whichever order lost.
+    /// The one-hour age floor makes this safe while other worktrees are testing: their live suites
+    /// are minutes old at most. Internal so tests can pin both dangerous edges directly (a stale
+    /// scratch plist is deleted, a real lowercase-UUID domain is not); going through `record`'s
+    /// once-per-process trigger would make them depend on test order.
     func sweepStaleScratchPlists() {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: preferencesDirectory) else { return }
@@ -126,22 +102,16 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
         }
     }
 
-    /// `<prefix><separator><UUID>.plist`, with the UUID in the UPPERCASE form `UUID().uuidString`
-    /// emits — which is what every scratch suite name here ends in. Both separators are in use:
-    /// `ScratchDefaults` joins with `-`, a few call sites with `.`.
-    ///
-    /// The uppercase requirement is the safety margin, not a detail: real preference domains that
-    /// carry a UUID write it lowercase (`com.openai.chat.RemoteFeatureFlags.164320f2-…`), so they
-    /// cannot match. Loosen this to case-insensitive and the sweep starts eating real domains.
-    /// Scratch suites belonging to OTHER projects that share this machine's preferences
-    /// directory. `pdfutils` is a separate project of the owner's; its test suites leak into the
-    /// same place and are tracked separately THERE. A SyncCloud test run quietly deleting them
-    /// would be destructive to someone else's investigation of their own leak, and invisible from
-    /// this repo. Ownership is not inferable from the shape — only from the prefix — so this list
-    /// is the only thing keeping the sweep inside its own house, and it must grow whenever another
-    /// project starts sharing the directory.
+    /// Scratch suites of other projects sharing this preferences directory, such as the owner's
+    /// `pdfutils`, which tracks its own leaks. Only the prefix tells them apart, so this list keeps
+    /// the sweep to SyncCloud's own suites; add to it when another project shares the directory.
     private static let foreignSuitePrefixes = ["pdfutils.", "PDFExportCoordinatorTests"]
 
+    /// `<prefix><separator><UUID>.plist`, the UUID in the uppercase form `UUID().uuidString`
+    /// emits. `ScratchDefaults` joins with `-`, a few call sites with `.`.
+    ///
+    /// **Never loosen this to case-insensitive**: real domains that carry a UUID write it lowercase
+    /// (`com.openai.chat.RemoteFeatureFlags.164320f2-…`), and the sweep would start deleting them.
     static func isScratchSuitePlist(_ name: String) -> Bool {
         guard name.hasSuffix(".plist") else { return false }
         guard !foreignSuitePrefixes.contains(where: name.hasPrefix) else { return false }
@@ -160,10 +130,9 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
 /// reference goes away. Prefer it to a bare `UserDefaults(suiteName:)`: teardown rides on the
 /// object's lifetime rather than on a `defer` that a test added later can forget.
 ///
-/// The lifetime is also what lets it outlast work the test started. A manager whose task is still
-/// running holds the suite, so that task's last write lands before the wipe instead of recreating
-/// the plist after it, which is the race a `defer` loses: 35 of the 42 plists a Settings run left
-/// on 2026-09-26 were suites a `SettingsManager` discovery pass wrote to after their test wiped.
+/// The lifetime also outlasts work the test started: a manager whose task is still running holds
+/// the suite, so its last write lands before the wipe instead of recreating the plist after it, a
+/// race a `defer` loses.
 final class ScratchDefaults: UserDefaults {
     let scratchSuiteName: String
 

@@ -2,12 +2,11 @@ import SwiftUI
 
 /// `A  A  A` — the text size, steppable from wherever it is in the way.
 ///
-/// **A stepper, not three stops.** The small `A` and the large `A` walk
-/// ``FontSize/smaller`` and ``FontSize/bigger``, which move through
-/// ``FontSize/selectablePercents`` — ten stops from 90% to 135% — so this control reaches every
-/// size View ▸ Text Size ▸ Bigger/Smaller and the Readability slider can reach. A control hard-wired
-/// to the four *named* sizes would strand the six percentages between them, and the app would have
-/// two disagreeing ideas of where the stops are.
+/// A stepper, not three stops: the small and large `A` walk ``FontSize/smaller`` and
+/// ``FontSize/bigger`` through ``FontSize/selectablePercents`` (ten stops, 90% to 135%), so it
+/// reaches every size View ▸ Text Size and the Readability slider can. Hard-wiring the four named
+/// sizes would strand the percentages between them and give the app two ideas of where the stops
+/// are.
 ///
 /// The middle cell shows the size the app is at, drawn at that size, so the control is its own
 /// specimen. It says nothing about row spacing — that is the Appearance screen's tiles, which set

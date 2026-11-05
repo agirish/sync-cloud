@@ -1,67 +1,57 @@
 import Foundation
 
-/// Pure relative-age text + stale flag for the "Scanned N ago" readout on the differences
-/// count pill, kept out of the view so the buckets and the stale threshold are unit-testable.
+/// Relative-age text and a stale flag for the "Scanned N ago" readout on the differences count
+/// pill, kept out of the view so the buckets and the stale threshold are unit-testable.
 ///
-/// Lives in Design rather than beside its one caller: it used to sit in Dashboard next to the
-/// pane-header badge it fed, and the readout it feeds now is composed in FileExplorer, which
-/// cannot see Dashboard. Design is what both can see, and it is where the `.attention` family
-/// that colours a stale scan already lives.
+/// It lives in Design because the readout is composed in FileExplorer, which can't see Dashboard,
+/// and Design also holds the `.attention` family that colours a stale scan.
 public enum ScanFreshness {
-    /// Past this age the pill's AGE RUN turns terracotta — the diff you're looking at may no longer
-    /// match disk. The capsule around it does not change; see `DifferencesView.countPillDressing`.
+    /// Past this age the pill's age run turns terracotta: the diff on screen may no longer match
+    /// disk. The capsule around it doesn't change; see `DifferencesView.countPillDressing`.
     ///
-    /// One hour, up from ten minutes. Ten was tuned when freshness was a small badge in a pane
-    /// header, and it did not survive the move onto the differences bar's most prominent control:
-    /// this app gets left open for hours, so "older than ten minutes" was the state the pill was in
-    /// almost all the time. A warning that is on almost always is furniture, not a warning. An hour
-    /// is long enough that an ordinary working session never trips it and short enough that coming
-    /// back to a diff from before lunch still says so.
+    /// One hour: the app is left open for hours, so a shorter threshold would keep the warning on
+    /// almost all the time, and a warning that is always on is furniture. An hour clears an
+    /// ordinary working session yet still flags a diff from before lunch.
     ///
-    /// Independent of `relative()`'s display buckets: `describe` derives the age from the buckets
-    /// and the flag from this constant separately, so moving this line never requires touching them.
+    /// Independent of `relative()`'s display buckets: `describe` takes the age from the buckets and
+    /// the flag from this constant, so changing this never touches them.
     public static let staleAfter: TimeInterval = 60 * 60 // 1 hour
 
     public struct Result: Equatable, Sendable {
-        /// The full sentence — "Scanned 29m ago". What the tooltip and the all-in-sync empty
-        /// state say, where there is room for a subject.
+        /// The full sentence, "Scanned 29m ago": what the tooltip and the all-in-sync empty state
+        /// say, where there is room for a subject.
         public let text: String
-        /// The bare age — "29m ago". What rides inside the count pill, where the pill's own
-        /// label ("576 Differences") is already the subject and repeating "Scanned" would make
-        /// the capsule a sentence fragment about two different things.
+        /// The bare age, "29m ago", for inside the count pill, whose own label ("576 Differences")
+        /// is already the subject.
         public let age: String
-        /// The age in words — "29 minutes ago" — for VoiceOver, which can read the compact "29m"
-        /// as metres. Same buckets as `age`, so the eye and the ear never disagree.
+        /// The age in words, "29 minutes ago", for VoiceOver, which can read "29m" as metres. Same
+        /// buckets as `age`, so the eye and the ear never disagree.
         public let spokenAge: String
-        /// Past `staleAfter`, OR changed on disk since the scan — either way the listing may no
+        /// Past `staleAfter`, or changed on disk since the scan: either way the listing may no
         /// longer match the disk, and the readout says so in the same terracotta.
         public let isStale: Bool
-        /// The folder watcher saw a change after this scan began (ROADMAP item 5). The age alone
-        /// cannot carry it — a two-minute-old scan of a folder that changed a minute ago reads
-        /// "2m ago" — so it has its own words in `text` and `spoken`.
+        /// The folder watcher saw a change after this scan began. The age alone can't say so (a
+        /// two-minute-old scan of a folder that changed a minute ago reads "2m ago"), so it has its
+        /// own words in `text` and `spoken`.
         public var changedOnDisk: Bool = false
 
-        /// What VoiceOver is told in the age run's place — and the ONE place staleness is put
-        /// into words.
+        /// What VoiceOver hears in the age run's place, and the one place staleness is put into
+        /// words.
         ///
-        /// The age alone reads identically fresh or stale ("scanned 2h ago" is not a warning),
-        /// and every other channel carrying the state is visual or silent: the run's terracotta
-        /// capsule is colour, and `.help` is not announced. Colour as the sole carrier of a
-        /// warning is exactly what the contrast work around this pill exists to avoid, so the
-        /// spoken form says it outright.
-        ///
-        /// Derived here rather than composed at the call site so the fresh and stale phrasings
-        /// cannot drift — they differ by one clause, which is the easiest kind of pair to let rot.
+        /// The age reads the same fresh or stale, and every other channel for the state is visual
+        /// or silent: the terracotta is colour, and `.help` isn't announced. Colour must not be a
+        /// warning's only carrier, so the spoken form says it outright. Derived here, not at the
+        /// call site, so the fresh and stale phrasings can't drift apart.
         public var spoken: String {
             if changedOnDisk { return "scanned \(spokenAge), changed on disk since" }
             return isStale ? "scanned \(spokenAge), may be out of date" : "scanned \(spokenAge)"
         }
     }
 
-    /// - Parameter changedOnDisk: the folder watcher saw a change since the scan began. **Only
-    ///   ever adds**: it can make a fresh scan stale, never an old one fresh — a watcher that misses
-    ///   a change (an idle Mac's iCloud, a Dropbox app that is not running) must leave the clock's
-    ///   warning standing.
+    /// - Parameter changedOnDisk: the folder watcher saw a change since the scan began. It only
+    ///   ever adds: it can make a fresh scan stale, never an old one fresh, because a watcher that
+    ///   misses a change (an idle Mac's iCloud, a Dropbox app that isn't running) must leave the
+    ///   clock's warning standing.
     public static func describe(scanDate: Date, now: Date, staleAfter: TimeInterval = staleAfter,
                                 changedOnDisk: Bool = false) -> Result {
         let elapsed = max(0, now.timeIntervalSince(scanDate))
@@ -71,33 +61,23 @@ public enum ScanFreshness {
                       isStale: elapsed >= staleAfter || changedOnDisk, changedOnDisk: changedOnDisk)
     }
 
-    /// The tooltip's timestamp: the time alone while the scan is from today, with the date once
-    /// it is not. Taking `now` rather than asking the wall clock is what lets
-    /// `ScanFreshnessSchedule` promise the stamp changes only at the midnight it ticks on.
+    /// The tooltip's timestamp: the time alone while the scan is from today, with the date once it
+    /// isn't. It takes `now` rather than reading the clock, so `ScanFreshnessSchedule` can promise
+    /// the stamp changes only at the midnight it ticks on.
     public static func stamp(scanDate: Date, now: Date, calendar: Calendar = .current) -> String {
         calendar.isDate(scanDate, inSameDayAs: now)
             ? scanDate.formatted(date: .omitted, time: .standard)
             : scanDate.formatted(date: .abbreviated, time: .standard)
     }
 
-    /// Coarse, glanceable buckets — half a minute, minutes, hours, days. Deliberately not
-    /// second-precise (the badge answers "is this fresh?", not "exactly how old?"), and the two
-    /// sub-minute steps cost one tick each: the view ticks only where a label changes
-    /// (`ScanFreshnessSchedule`).
+    /// Coarse, glanceable buckets: half a minute, minutes, hours, days. Not second-precise, since
+    /// the badge answers "is this fresh?", and the two sub-minute steps cost one tick each: the
+    /// view ticks only where a label changes (`ScanFreshnessSchedule`).
     ///
-    /// Units FLOOR rather than round, so "N <unit> ago" always means at least N of that unit has
-    /// elapsed and a label can never contradict the next coarser one. Rounding produced seam
-    /// artifacts: "Scanned 60m ago" at 3570–3599s (an hour that isn't "1h"), "24h ago" just shy of
-    /// a day, and a "1m → 2m" jump at 89→90s when only 1.5 minutes had passed.
-    ///
-    /// The old ladder BROKE that invariant at its very first step: "just now" spanned 0–44s and
-    /// "1m ago" began at 45s, claiming a minute that had not elapsed. Now "just now" covers only
-    /// 0–29s — it claims no amount of time, so it cannot contradict the floor rule — then "30s
-    /// ago", so 1m starts at a genuine 60s. It was "0s ago" for a while, which read as a clock
-    /// rather than an answer.
-    ///
-    /// **Days are compact too**: "1d ago", after "23h ago". The ladder used to switch to words at
-    /// the last step, so one readout ran "23h ago" then "1 day ago".
+    /// Units floor rather than round, so "N <unit> ago" always means at least N of that unit has
+    /// passed and a label never contradicts the next coarser one; rounding would show "60m ago"
+    /// just short of an hour. "just now" covers only 0–29s, claiming no amount of time, then "30s
+    /// ago", so "1m" starts at a genuine 60s. Days are compact too: "1d ago" follows "23h ago".
     public static func relative(_ seconds: TimeInterval) -> String {
         let s = Int(seconds)
         switch s {
@@ -109,12 +89,11 @@ public enum ScanFreshness {
         }
     }
 
-    /// `relative`'s buckets in words, for VoiceOver: "just now", "30 seconds ago",
-    /// "1 minute ago", "29 minutes ago", "2 hours ago", "3 days ago".
+    /// `relative`'s buckets in words, for VoiceOver: "just now", "30 seconds ago", "1 minute ago",
+    /// "29 minutes ago", "2 hours ago", "3 days ago".
     ///
-    /// Also the form for prose. The compact "3d ago" is pill shorthand; inside a full sentence
-    /// (Compare's "Last scanned …", the divergence overlay's "written …") it reads as a fragment
-    /// and VoiceOver says "3 d". Those callers use this, so the eye and the ear get one string.
+    /// Also the form for prose: inside a sentence (Compare's "Last scanned …", the divergence
+    /// overlay's "written …") the compact "3d ago" reads as a fragment and VoiceOver says "3 d".
     public static func spokenRelative(_ seconds: TimeInterval) -> String {
         let s = Int(seconds)
         func ago(_ n: Int, _ unit: String) -> String { "\(n) \(unit)\(n == 1 ? "" : "s") ago" }

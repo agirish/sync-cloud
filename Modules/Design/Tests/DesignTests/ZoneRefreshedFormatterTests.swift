@@ -2,14 +2,14 @@ import Foundation
 import Testing
 @testable import Design
 
-/// The one rule eleven date columns now share: the system zone is re-checked on every use, never
+/// The rule the app's date columns share: the system zone is re-checked on every use, never
 /// captured.
 ///
 /// Driven through `stageZoneForTesting` rather than by moving `NSTimeZone.default`, which is
 /// process-wide and would race every other suite in the run.
 @Suite(.serialized) struct ZoneRefreshedFormatterTests {
 
-    /// 2026-06-01 12:00:00.000 UTC — whole seconds, so a round-tripped stamp compares exactly.
+    /// 2026-06-01 12:00:00.000 UTC: whole seconds, so a round-tripped stamp compares exactly.
     private static let instant = Date(timeIntervalSince1970: 1_780_315_200)
 
     private static func elsewhere() throws -> TimeZone {
@@ -28,8 +28,8 @@ import Testing
         return f
     }
 
-    /// **The refresh itself.** Stage the stale state the bug leaves behind, then format: the result
-    /// must be the system zone's reading, and the formatter must have been put back.
+    /// The refresh itself: stage a stale zone, then format. The result must be the system zone's
+    /// reading, and the formatter must have been put back.
     @Test func aStagedZoneIsRefreshedAwayBeforeTheNextUse() throws {
         let away = try Self.elsewhere()
         let subject = ZoneRefreshedFormatter.fixed("yyyy-MM-dd HH:mm:ss")
@@ -45,8 +45,8 @@ import Testing
         #expect(subject.zone == TimeZone.current)
     }
 
-    /// **An explicitly named zone survives the refresh** — the seam snapshot references use so they
-    /// stop baking in the recording machine's zone.
+    /// An explicitly named zone survives the refresh: the seam snapshot references use so they
+    /// don't bake in the recording machine's zone.
     @Test func anExplicitZoneIsHonouredRatherThanOverwritten() throws {
         let utc = try #require(TimeZone(identifier: "UTC"))
         let kolkata = try #require(TimeZone(identifier: "Asia/Kolkata"))
@@ -57,8 +57,8 @@ import Testing
         #expect(subject.zone == kolkata)
     }
 
-    /// **Reading and writing share a zone**, which is what any round trip depends on. Both sides are
-    /// staged stale, so both refreshes have to fire for the text to survive.
+    /// Reading and writing share a zone, which any round trip depends on. Both sides are staged
+    /// stale, so both refreshes have to fire for the text to survive.
     @Test func aStampReadsBackOnTheZoneItWasWrittenOn() throws {
         let away = try Self.elsewhere()
         let subject = ZoneRefreshedFormatter.fixed("yyyy-MM-dd HH:mm:ss")
@@ -71,9 +71,8 @@ import Testing
         #expect(parsed == Self.instant)
     }
 
-    /// **`fixed` pins the calendar as well as the locale.** The zone is this type's subject, but the
-    /// pins are why callers can use it for text that round-trips, and a fixed-format formatter that
-    /// quietly followed the system calendar would render Gregorian dates as 2569 or 1448.
+    /// `fixed` pins the calendar as well as the locale, which is why callers can use it for text
+    /// that round-trips: following the system calendar would render Gregorian dates as 2569 or 1448.
     @Test func fixedPinsLocaleAndCalendarAgainstTheSystemRegion() throws {
         let subject = ZoneRefreshedFormatter.fixed("yyyy-MM-dd")
         let buddhist = Calendar(identifier: .buddhist)
@@ -90,9 +89,8 @@ import Testing
         #expect(subject.string(from: Self.instant).hasPrefix("2026"))
     }
 
-    /// **The localized cases still refresh.** `localized` and `template` build their format from the
-    /// reader's region rather than a literal, and the refresh has to reach them the same way — a
-    /// styled Modified column is exactly where this defect was found seven more times.
+    /// The localized cases still refresh: `localized` and `template` build their format from the
+    /// reader's region rather than a literal, and styled columns such as Modified rely on them.
     @Test func theLocalizedAndTemplateCasesRefreshToo() throws {
         let away = try Self.elsewhere()
         for subject in [ZoneRefreshedFormatter.localized(date: .medium, time: .short),
@@ -103,9 +101,9 @@ import Testing
         }
     }
 
-    /// **Concurrent use does not race.** Most callers are main-actor `View`s, but `DetailsSidebar`
-    /// reads its formatter off the main actor by design, which is the whole reason the zone check
-    /// and the format are taken under one lock rather than left as a bare compare-and-assign.
+    /// Concurrent use does not race. Most callers are main-actor `View`s, but `DetailsSidebar` reads
+    /// its formatter off the main actor by design, so the zone check and the format are taken under
+    /// one lock rather than a bare compare-and-assign.
     @Test func manyThreadsMayFormatAtOnce() async throws {
         let subject = ZoneRefreshedFormatter.fixed("yyyy-MM-dd HH:mm:ss")
         let expected = Self.control("yyyy-MM-dd HH:mm:ss", .current).string(from: Self.instant)

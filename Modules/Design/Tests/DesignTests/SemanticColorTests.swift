@@ -2,10 +2,9 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// Pins the semantic color table (C3). These assignments are a design contract — Sync History
-/// once painted move = orange (colliding with warning) and copy = accent, which is exactly the
-/// drift this table exists to prevent. A hue change here restyles every meaning-colored view
-/// in the app, so it should have to touch this test.
+/// Pins the semantic color table, a design contract: each meaning keeps its own hue, so a move
+/// never reads as a warning. A hue change here restyles every meaning-colored view in the app, so
+/// it should have to touch this test.
 @Suite struct SemanticColorTests {
 
     @Test func semanticTableIsPinned() {

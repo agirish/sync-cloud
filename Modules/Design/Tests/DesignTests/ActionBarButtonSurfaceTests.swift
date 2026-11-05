@@ -3,15 +3,13 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// `actionBarButtonSurface` promises to be the SAME paint `.actionBar(_:tint:onTint:)` puts on a
-/// real button, at rest. That promise is the whole reason a caller is allowed to render a picture
-/// of a control instead of hand-drawing one, so it is asserted here rather than trusted.
+/// `actionBarButtonSurface` promises the same paint `.actionBar(_:tint:onTint:)` puts on a real
+/// button at rest; that promise is what lets a caller render a picture of a control instead of
+/// hand-drawing one, so it is asserted here.
 ///
-/// Rendered rather than reasoned about: both paths now run through `ActionBarButtonSurface`, so a
-/// property-by-property comparison would only be re-reading one struct twice. What can still drift
-/// is what the two WRAPPERS add around it — `ButtonStyle.makeBody` gaining a modifier the surface
-/// path never sees, or SwiftUI's `Button` contributing something of its own (its label style, its
-/// own padding) that only shows up in pixels.
+/// Rendered, not reasoned about: both paths run through `ActionBarButtonSurface`, so what can
+/// drift is what the two wrappers add around it (a modifier in `ButtonStyle.makeBody`, or the
+/// `Button`'s own label style or padding), which only shows in pixels.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct ActionBarButtonSurfaceTests {
 
@@ -41,9 +39,9 @@ import Testing
         return rep
     }
 
-    /// Fraction of sampled pixels where the two bitmaps differ by more than a hair. A grid rather
-    /// than every pixel: 8pt steps over a 200×44 canvas still cross the fill, both capsule caps,
-    /// the hairline and the label, and keeps the assertion fast.
+    /// Fraction of sampled pixels where the two bitmaps differ by more than a hair. A 2pt grid
+    /// rather than every pixel still crosses the fill, both capsule caps, the hairline and the
+    /// label, and keeps the assertion fast.
     private func fractionDiffering(_ lhs: NSBitmapImageRep, _ rhs: NSBitmapImageRep) -> Double {
         let scale = CGFloat(lhs.pixelsWide) / Self.canvas.width
         var sampled = 0
@@ -79,11 +77,10 @@ import Testing
             Issue.record("no bitmap rep")
             return
         }
-        // Not exact equality: text anti-aliasing is not bit-stable between two hosting views even
-        // for identical glyphs. A drifted fill, a missing hairline or a shifted capsule would move
-        // far more than a few percent of the sampled grid. Mutation-checked: pinning the public
-        // modifier at `.hover` instead of `.rest` — the smallest wrong answer it could give — fails
-        // all three weights at 18–26% of sampled pixels, two orders of magnitude past this floor.
+        // Not exact equality: text anti-aliasing isn't bit-stable between two hosting views even
+        // for identical glyphs, while a drifted fill, hairline or capsule moves far more of the
+        // grid. Pinning the public modifier at `.hover` instead of `.rest` must fail all three
+        // weights.
         let differing = fractionDiffering(button, surface)
         #expect(differing < 0.02,
                 "\(weight): surface and button style disagree on \(differing * 100)% of pixels")

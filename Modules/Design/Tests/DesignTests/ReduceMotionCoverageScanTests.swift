@@ -5,18 +5,11 @@ import Testing
 /// Every raw `.animation(_:value:)` in the app is either converted to `designAnimation` or named
 /// here with the reason it is exempt.
 ///
-/// **`designAnimation` shipped with its exemptions written in prose and nothing enforcing them.**
-/// The wrapper's doc names three families that are deliberately left alone — hover/press ladders,
-/// numeric content transitions, and opacity cross-fades on overlays — and says "the audit that
-/// leaves them alone is the design". But an audit that lives only in a doc comment cannot tell a
-/// site that was CONSIDERED and exempted from one that was simply missed, and six were missed: both
-/// of `PaneTabStrip`'s drag animations, both of `LensWorkspaceView`'s list settles,
-/// `ActivePaneMark`'s focus ring — whose own comment called it "the only thing on screen that
-/// moves" — and the selection bar's appear/disappear, which rides a `.move` transition.
-///
-/// So the list is the test. A new raw `.animation` fails here until its author either converts it
-/// or writes down which family it belongs to, which is the classification step that did not happen
-/// the first time.
+/// `designAnimation`'s doc names three families deliberately left alone: hover/press ladders,
+/// numeric content transitions, and opacity cross-fades on overlays. An audit that lives only in
+/// prose can't tell a site that was considered and exempted from one that was missed, so the list
+/// is the test: a new raw `.animation` fails here until its author converts it or names its
+/// family.
 @Suite struct ReduceMotionCoverageScanTests {
 
     /// Why a raw `.animation` is allowed to stay raw. The cases are the three families in
@@ -25,12 +18,12 @@ import Testing
         /// A hover or press ladder: what animates is a colour, and the parts that moved are
         /// already dropped by `HoverAffordanceMetrics` under the setting.
         case hoverOrPressLadder
-        /// A numeric content transition — a rolling digit says a number changed, which is
-        /// information a user with the setting on still needs.
+        /// A numeric content transition: a rolling digit says a number changed, which a user with
+        /// the setting on still needs to know.
         case numericContentTransition
-        /// An opacity cross-fade on an overlay. A cross-fade IS the Reduce Motion answer.
+        /// An opacity cross-fade on an overlay. A cross-fade is the Reduce Motion answer.
         case overlayCrossFade
-        /// The site reads `accessibilityReduceMotion` itself and picks the animation by hand —
+        /// The site reads `accessibilityReduceMotion` itself and picks the animation by hand:
         /// honoured, just not through the wrapper.
         case gatedByHand
         /// `.animation(nil, …)`, which suppresses animation rather than adding any.
@@ -38,7 +31,7 @@ import Testing
     }
 
     /// Keyed by the `value:` expression, which is what distinguishes sites within one file.
-    /// Deliberately not keyed by line number — that would need editing on every unrelated edit.
+    /// Not keyed by line number, which would need editing on every unrelated edit.
     static let exempt: [String: Exemption] = [
         "phase": .hoverOrPressLadder,                 // HoverAffordance ×2, ActionBarButtonStyle
         "isHovering": .hoverOrPressLadder,            // HoverAffordance, DuplicateGroupCard
@@ -80,7 +73,7 @@ import Testing
             for case let url as URL in walker {
                 guard url.pathExtension == "swift" else { continue }
                 let path = url.path
-                // Sources only — a test may animate whatever it likes — and never the wrapper.
+                // Sources only (a test may animate whatever it likes), and never the wrapper.
                 guard path.contains("/Sources/") || path.contains("/MacApp/") else { continue }
                 guard !path.contains(".build/"), !path.hasSuffix("DesignAnimation.swift") else { continue }
                 files.append(url)
@@ -90,16 +83,11 @@ import Testing
     }
 
     /// `.animation(` occurrences that are real modifier applications, with the `value:` they key on.
-    /// Comment lines are skipped — this codebase explains a modifier directly above it, and one of
-    /// those explanations quotes `.animation(value:)` verbatim.
-    /// `.animation(` occurrences that are real modifier applications, with the `value:` they key on.
     ///
-    /// Two things this has to get right, both learned by getting them wrong:
-    /// - **Comment lines are skipped.** This codebase explains a modifier directly above it, and one
-    ///   of those explanations quotes `.animation(value:)` verbatim.
-    /// - **The call may span lines.** `SetupArtwork` writes `.animation(reduceMotion ? nil` and puts
-    ///   the `value:` two lines down, so a line-at-a-time reader reports three sites it cannot name.
-    ///   Continuation lines are joined until the `value:` is found.
+    /// - Comment lines are skipped: this codebase explains a modifier directly above it, and an
+    ///   explanation may quote `.animation(value:)` verbatim.
+    /// - The call may span lines: `SetupArtwork` writes `.animation(reduceMotion ? nil` with the
+    ///   `value:` two lines down, so continuation lines are joined until the `value:` is found.
     static func rawAnimationSites() -> [(file: String, value: String)] {
         var found: [(String, String)] = []
         for url in appSources() {
@@ -144,25 +132,25 @@ import Testing
             """)
     }
 
-    /// The scan must be able to SEE an unclassified site, or the assertion above is decoration.
+    /// The scan must be able to see an unclassified site, or the assertion above is decoration.
     @Test func theScanFindsAnUnclassifiedSite() {
-        // Asserts only that the FIXTURE is seen. Pinning the total would re-report whatever
-        // `everyRawAnimationIsClassified` is already reporting, which reads as two findings.
+        // Asserts only that the fixture is seen. Pinning the total would re-report whatever
+        // `everyRawAnimationIsClassified` already reports, which reads as two findings.
         let sites = Self.rawAnimationSites() + [(file: "Fixture.swift", value: "somethingBrandNew")]
         let unclassified = sites.filter { Self.exempt[$0.value] == nil }
         #expect(unclassified.contains { $0.value == "somethingBrandNew" })
     }
 
-    /// Every exemption is still earning its place — an entry for a site that no longer exists is a
-    /// stale permission, and the next reader would take it as precedent.
+    /// Every exemption still earns its place: an entry for a site that no longer exists is a stale
+    /// permission, and the next reader would take it as precedent.
     @Test func noExemptionIsUnused() {
         let live = Set(Self.rawAnimationSites().map(\.value))
         let unused = Self.exempt.keys.filter { !live.contains($0) }.sorted()
         #expect(unused.isEmpty, "exemption(s) with no matching site left in the app: \(unused)")
     }
 
-    /// The six that were converted must stay converted — this is the regression the scan exists for,
-    /// and the `exempt` table alone cannot express "must NOT be raw".
+    /// These movers use `designAnimation` and must stay that way; the `exempt` table alone can't
+    /// express "must not be raw".
     @Test func theConvertedMoversAreNotRawAgain() {
         let live = Set(Self.rawAnimationSites().map(\.value))
         for moved in ["draggingTab", "dragOffset", "RowIdentities(rows: dupGroups)",
@@ -177,42 +165,33 @@ import Testing
 
 /// The same audit for `withAnimation`, which the scan above cannot see at all.
 ///
-/// **`.animation(_:value:)` and `withAnimation` are two independent ways to animate, and only one
-/// of them was being checked.** A change made inside `withAnimation` carries its own animation into
-/// the transaction. An `.animation(_:value:)` naming the same value does override it — measured
-/// with a probe that read `Transaction.animation` beneath both modifiers, so this is not an
-/// assumption — which is why the inspector really is gated even though it is toggled inside a
-/// `withAnimation`. (The panes and the workspace switch were too, until they stopped animating at
-/// all — speed audit 11.) But a mover whose ONLY
-/// driver is `withAnimation` has nothing to override it: no modifier names its value, so the
-/// setting never reaches it, and the scan above stays green because there is no `.animation(` to
-/// read.
+/// `.animation(_:value:)` and `withAnimation` are two independent ways to animate. A change inside
+/// `withAnimation` carries its own animation into the transaction, and an `.animation(_:value:)`
+/// naming the same value overrides it (measured with a probe reading `Transaction.animation`), which
+/// is why the inspector is gated though it is toggled inside a `withAnimation`. A mover driven only
+/// by `withAnimation` has nothing to override it, so the setting never reaches it and the scan
+/// above, with no `.animation(` to read, stays green.
 ///
-/// Four were live when this was written, after the sweep that was meant to have finished the work:
-/// the expanding search field's reveal — in three of its four hosts, since only the Activity Log
-/// happened to key a `designAnimation` off `isSearchExpanded` — Browse's folder sidebar, an
-/// Activity Log run's disclosure, and the Differences count pills.
-///
-/// Keyed by the first thing the closure touches rather than by line number, for the reason the
-/// list above gives: a line-numbered list needs editing on every unrelated edit.
+/// Keyed by the first thing the closure touches rather than by line number, which would need
+/// editing on every unrelated edit.
 @Suite struct WithAnimationCoverageScanTests {
 
     /// Why a raw `withAnimation` is allowed to stay raw.
     enum Exemption: String {
-        /// An ancestor applies `.animation(_:value:)`/`designAnimation` to the SAME value, and that
+        /// An ancestor applies `.animation(_:value:)`/`designAnimation` to the same value, and that
         /// wins over the transaction's animation. Verified by probe, not by reading the docs.
         case gatedByAModifier
-        /// The site resolves its own animation against `accessibilityReduceMotion` before calling —
+        /// The site resolves its own animation against `accessibilityReduceMotion` before calling:
         /// `SetupArtwork`'s ternaries, `LensWorkspaceView.listSettle`.
         case gatedByHand
-        /// `scrollTo` — this moves the viewport to something the user asked to see. Reduce Motion
-        /// asks for less decorative movement, not for navigation to stop happening.
+        /// `scrollTo` moves the viewport to something the user asked to see. Reduce Motion asks
+        /// for less decorative movement, not for navigation to stop.
         case scrollToDestination
         /// Reports rather than travels: a spinner appearing, a countdown draining, a glow fading.
         case reportsRatherThanTravels
-        /// An opacity cross-fade, which IS the Reduce Motion answer.
+        /// An opacity cross-fade, which is the Reduce Motion answer.
         case overlayCrossFade
-        /// A hover or press ladder — what animates is a colour.
+        /// A hover or press ladder: what animates is a colour.
         case hoverOrPressLadder
     }
 
@@ -258,10 +237,10 @@ import Testing
                 guard let call = trimmed.range(of: "withAnimation") else { continue }
                 guard !trimmed.contains("withDesignAnimation") else { continue }
 
-                // The first identifier of ITS closure — found by scanning forward from the call,
+                // The first identifier of its own closure, found by scanning forward from the call,
                 // not from the start of the line. A site written inline behind another closure
-                // (`? { withAnimation(…) { … } }`) puts an earlier `{` on the same line, and taking
-                // that one names every such site "withAnimation".
+                // (`? { withAnimation(…) { … } }`) has an earlier `{` on the same line, which would
+                // name every such site "withAnimation".
                 let afterCall = String(trimmed[call.upperBound...])
                 var body = ""
                 if let brace = afterCall.range(of: "{") { body = String(afterCall[brace.upperBound...]) }

@@ -5,10 +5,9 @@ private struct RunWriteLockKey: EnvironmentKey {
 }
 
 public extension EnvironmentValues {
-    /// **Why writes wait right now** — "Wait for the copy to finish" — or `nil` when nothing is
-    /// running. Set once at the window's root from the run on `FileSyncManager.activeProgress`
-    /// (decision BZ): the window stays usable for reading during a long run, and every control
-    /// that would write to disk reads this, greys itself, and says why.
+    /// Why writes wait right now ("Wait for the copy to finish"), or `nil` when nothing is running.
+    /// Set at the window's root from `FileSyncManager.activeProgress`, so the window stays readable
+    /// during a long run while every control that would write to disk greys itself and says why.
     var runWriteLock: String? {
         get { self[RunWriteLockKey.self] }
         set { self[RunWriteLockKey.self] = newValue }
@@ -16,10 +15,10 @@ public extension EnvironmentValues {
 }
 
 public extension View {
-    /// **A control that writes to disk**: disabled while a run is going, its tooltip the reason.
+    /// For a control that writes to disk: disabled while a run is going, the reason its tooltip.
     ///
-    /// Apply it INSIDE the control's own `.help`: the innermost tooltip is the one macOS shows, so
-    /// the reason replaces the control's usual words only while the lock holds.
+    /// Apply it inside the control's own `.help`: macOS shows the innermost tooltip, so the reason
+    /// replaces the usual words only while the lock holds.
     /// - Parameter applies: `false` for a control built by a shared helper that writes only
     ///   sometimes — Compare beside Copy in one bar.
     func lockedDuringRun(_ applies: Bool = true) -> some View {

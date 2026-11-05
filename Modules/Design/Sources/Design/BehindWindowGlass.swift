@@ -2,26 +2,19 @@ import SwiftUI
 import AppKit
 
 /// Clears the hosting window's opacity and paints a behind-window vibrancy layer, so the desktop
-/// reads through the app the way it does through Control Center or Notification Center.
+/// reads through the app as it does through Control Center.
 ///
-/// This is the only way `GlassLevel.clear` can look clear. SyncCloud's window is otherwise a stock
-/// opaque SwiftUI window (`.windowStyle(.hiddenTitleBar)` and nothing else), so the "glass" had
-/// nothing behind it but a flat wash — turning frost off just revealed more flat colour, which is
-/// why Clear and Frosted were hard to tell apart. Glass only reads as glass when there is
-/// something behind it worth seeing.
-///
-/// Only `.clear` uses this: at `.frosted` and `.solid` the window stays opaque, and this view is
-/// inert (see `isEnabled`). Trade-off accepted deliberately — at `.clear` the app's appearance is
-/// no longer its own, it's whatever the wallpaper behind it happens to be.
+/// The only way `GlassLevel.clear` can look clear: the window is otherwise a stock opaque SwiftUI
+/// window, so glass over it has only a flat wash behind it. At `.frosted` and `.solid` this view
+/// is inert (see `isEnabled`). The accepted cost: at `.clear` the app looks like its wallpaper.
 struct BehindWindowGlass: NSViewRepresentable {
-    /// When false this is inert: the layer hides and the window is handed back its opacity, so
-    /// switching off `.clear` restores the normal window rather than stranding it transparent.
+    /// When false the layer hides and the window gets its opacity back, so leaving `.clear` doesn't
+    /// strand it transparent.
     let isEnabled: Bool
 
-    /// How much of the blur layer to composite, 0...1. This is the knob that decides whether Clear
-    /// reads as frost or as glass — at 1 the material is effectively opaque in light, at 0 the
-    /// desktop reaches the screen unblurred. The window stays transparent either way; see
-    /// `LiquidGlass.clearVibrancyAlpha` for why Clear settles just under 1.
+    /// How much of the blur layer to composite, 0...1: whether Clear reads as frost or glass. At 1
+    /// the material is near opaque in light; at 0 the desktop shows unblurred. The window stays
+    /// transparent either way; `LiquidGlass.clearVibrancyAlpha` says why Clear sits just under 1.
     var vibrancyAlpha: Double = 1.0
 
     /// The behind-window material. `.underWindowBackground` everywhere but None in light, which
@@ -29,10 +22,8 @@ struct BehindWindowGlass: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .underWindowBackground
 
     /// Carries the desired window transparency across the gap where `view.window` is still nil.
-    /// A plain `updateNSView` that defers a tick and bails on a nil window drops the launch-time
-    /// application entirely when the deferred block outruns window attachment — with `.clear`
-    /// stored and no later state change, the window would stay opaque until the user next
-    /// touched the setting. `viewDidMoveToWindow` re-applies whatever was last requested.
+    /// A deferred write that bails on a nil window can lose the launch-time value, leaving a stored
+    /// `.clear` window opaque until the setting is touched; `viewDidMoveToWindow` re-applies it.
     final class Backing: NSVisualEffectView {
         var wantsTransparentWindow = false {
             didSet { applyWindowFlags() }
@@ -45,9 +36,8 @@ struct BehindWindowGlass: NSViewRepresentable {
 
         private func applyWindowFlags() {
             let transparent = wantsTransparentWindow
-            // Window flags set during a SwiftUI update pass are liable to be overwritten by
-            // AppKit's own layout — so defer a tick. `viewDidMoveToWindow` above catches the
-            // case where this block runs before the view is windowed.
+            // AppKit's layout can overwrite window flags set during a SwiftUI update, so defer a
+            // tick. `viewDidMoveToWindow` covers a block that runs before the view is windowed.
             DispatchQueue.main.async { [weak self] in
                 guard let window = self?.window else { return }
                 window.isOpaque = !transparent
@@ -59,9 +49,8 @@ struct BehindWindowGlass: NSViewRepresentable {
     func makeNSView(context: Context) -> Backing {
         let view = Backing()
         view.blendingMode = .behindWindow
-        // `.underWindowBackground` over the alternatives: `.hudWindow` is more see-through but
-        // applies its own vibrancy to the content on top, bleaching the folder icons from blue to
-        // pale outlines; no layer at all leaves the desktop unblurred and the file list unusable.
+        // Not `.hudWindow`: it is more see-through but applies vibrancy to the content on top,
+        // bleaching the folder icons. No layer at all leaves the file list unreadable.
         view.material = .underWindowBackground
         // `.followsWindowActiveState` would drop the vibrancy whenever the window loses key,
         // which reads as the glass "switching off" every time you tab away.

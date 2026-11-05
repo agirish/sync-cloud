@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Design
 
-/// The Compare scan's running clock. Pure formatting, so every case is a fixture — and each one
-/// here exists because it is a boundary the naive version got wrong.
+/// The Compare scan's running clock. Pure formatting, so every case is a fixture, each at a
+/// boundary a naive formatter gets wrong.
 @Suite struct ScanElapsedTests {
 
     /// A fixed instant rather than `Date()`: a clock read inside the test would make every
@@ -24,7 +24,7 @@ import Testing
         #expect(text(after: 59) == "59s")
     }
 
-    /// The seam. 60s is the first minute — not "60s", which would contradict the minute form that
+    /// The seam: 60s is the first minute, not "60s", which would contradict the minute form that
     /// takes over one second later.
     @Test func testTheMinuteSeamDoesNotRepeatItself() {
         #expect(text(after: 60) == "1m 00s")
@@ -33,7 +33,7 @@ import Testing
         #expect(text(after: 120) == "2m 00s")
     }
 
-    /// Zero-padded so the string keeps ONE width for a whole minute. Unpadded, a `monospacedDigit`
+    /// Zero-padded so the string keeps one width for a whole minute. Unpadded, a `monospacedDigit`
     /// label still changes width at :09→:10 and back at :59→:00, nudging the layout twice a minute.
     @Test func testMinutesKeepAConstantWidth() {
         #expect(text(after: 63).count == text(after: 73).count)

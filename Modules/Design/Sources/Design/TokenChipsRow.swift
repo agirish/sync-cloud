@@ -6,9 +6,9 @@ import SwiftUI
 /// A chip superseded by a later same-family word (the grammars parse last-wins) renders dimmed
 /// and struck through, so the chips read as the query the filter actually runs.
 ///
-/// Renders JUST the chips in a 6pt HStack — no surrounding spacers — so call sites keep their
-/// own alignment (Compare/Log lead-align with a trailing Spacer; the lens workspace right-aligns the row under
-/// its compact field and appends its suggestions).
+/// Renders just the chips in a 6pt HStack, with no spacers, so call sites keep their own alignment
+/// (Compare and the Log lead-align with a trailing Spacer; the lens workspace right-aligns the row
+/// under its compact field and appends its suggestions).
 public struct TokenChipsRow: View {
 
     /// One chip: the display label, the exact raw word the ✕ removes, and whether the chip is
@@ -72,7 +72,7 @@ public struct TokenChipsRow: View {
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 2)
-        // The word and its ✕ in label colour; the tint stays in the wash and the hairline (DS1).
+        // The word and its ✕ in label colour; the tint stays in the wash and the hairline.
         .foregroundStyle(PillVariant.labelInk(for: tint))
         .background(Capsule().fill(tint.opacity(item.isActive ? 0.16 : 0.08)))
         .overlay(Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 0.5))

@@ -2,25 +2,22 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// The instants at which `ScanFreshness`'s readout can change, as a `TimelineSchedule`: 30 s, 1 min,
-/// each minute to an hour, each hour to a day, each day after — the ladder's seams — plus
-/// `ScanFreshness.staleAfter` and the first local midnight, where the tooltip's stamp drops "today"
-/// for a date. Counted from `anchor`, the date the age is measured from.
+/// The instants at which `ScanFreshness`'s readout can change, as a `TimelineSchedule`: 30 s, 1
+/// min, each minute to an hour, each hour to a day, each day after, plus `ScanFreshness.staleAfter`
+/// and the first local midnight, where the tooltip's stamp switches to a date. Counted from
+/// `anchor`, the date the age is measured from.
 ///
-/// **Why not `.periodic(by: 30)`.** The Compare header wraps its whole ladder in this timeline (see
-/// `DifferencesView.withScanFreshness`), and a 30 s period rebuilt it 120 times an hour, idle or
-/// behind other windows, for a label that changes once an hour after the first. The longest
-/// stalls on record began within 0.3 s of that tick. This yields the same label at the same
-/// moments and nothing in between.
+/// Not `.periodic(by: 30)`: the Compare header wraps its whole ladder in this timeline (see
+/// `DifferencesView.withScanFreshness`), and a 30 s period would rebuild it 120 times an hour, idle
+/// or hidden, for a label that changes hourly after the first. This draws the same labels at the
+/// same moments and nothing in between.
 ///
-/// Each point is `nudge` past its seam, a cheap guard: `relative` floors, so a tick delivered a hair
-/// before its seam would draw the OLD label and leave it showing until the next one. (Whole-second
-/// offsets from today's dates are exact in floating point, so this is not routine rounding.)
+/// Each point is `nudge` past its seam: `relative` floors, so a tick a hair early would draw the
+/// old label and leave it until the next tick.
 ///
-/// **Sparse ticks need restarting when the clock moves under them.** A 30 s period was wrong by
-/// at most 30 s after a sleep, a clock change or a time-zone change; a schedule an hour or a day
-/// between ticks could leave the age or the stamp wrong for that long. `epoch` is bumped on each
-/// of those (`clockChanges`), and a schedule with a new epoch restarts from now.
+/// Sparse ticks must restart when the clock moves under them: with an hour or a day between ticks,
+/// a sleep, clock change or time-zone change could leave the age or stamp wrong that long. `epoch`
+/// is bumped on each of those (`clockChanges`), and a schedule with a new epoch restarts from now.
 public struct ScanFreshnessSchedule: TimelineSchedule, Sendable, Equatable {
     public let anchor: Date
     public let staleAfter: TimeInterval
@@ -39,9 +36,9 @@ public struct ScanFreshnessSchedule: TimelineSchedule, Sendable, Equatable {
     }
 
     /// Fires when a schedule's ticks may no longer fall where its readout changes: the Mac woke
-    /// (timers may have counted only awake time), the clock was set, or the time zone changed
-    /// (the stamp's midnight and its wording move). On the main queue.
-    /// One publisher, built once: a view body reads it on every run, twice in the Compare header.
+    /// (timers may have counted only awake time), the clock was set, or the time zone changed (the
+    /// stamp's midnight and wording move). Delivered on the main queue. Built once, because a view
+    /// body reads it on every run, twice in the Compare header.
     @MainActor
     public static let clockChanges: AnyPublisher<Void, Never> = {
         Publishers.MergeMany(

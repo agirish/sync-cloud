@@ -3,16 +3,13 @@ import SwiftUI
 import AppKit
 #endif
 
-/// UX H2: each provider's brand hue, so the two panes stop blurring together. Every
-/// provider-identity element (sidebar name, pane-header name, root breadcrumb) used to wear
-/// the one app accent; classifying the display name here lets iCloud/Dropbox/Drive panes read
-/// as themselves at a glance — and it does double duty when both panes show the *same*
-/// provider (D3), because the matching hues say so instantly.
+/// Each provider's brand hue, so the two panes don't blur together: the sidebar name, pane-header
+/// name and root breadcrumb read as iCloud, Dropbox or Drive at a glance, and matching hues say at
+/// once when both panes show the same provider.
 ///
-/// Design deliberately has no Sync dependency, so this classifies by case-insensitive
-/// substring of the provider's *display name* (which users can rename) rather than by
-/// `CloudProvider.ProviderType`. Unrecognized/custom providers fall back to the app accent,
-/// so custom setups keep the user's chosen look.
+/// Design has no Sync dependency, so this classifies by case-insensitive substring of the
+/// provider's display name (which users can rename), not by `CloudProvider.ProviderType`.
+/// Unrecognized and custom providers fall back to the app accent.
 ///
 /// `public` is load-bearing: this crosses module boundaries, and an internal symbol passes
 /// `swift test` but breaks the xcodebuild app build.
@@ -22,8 +19,8 @@ public enum ProviderHue: String, CaseIterable, Sendable {
     case googleDrive
     case oneDrive
     case box
-    /// A plain folder the user added as a source. Not classifiable from a name — a folder is
-    /// called whatever its owner calls it — so callers pass `isLocalFolder:` instead.
+    /// A plain folder the user added as a source. A folder is called whatever its owner calls it,
+    /// so callers pass `isLocalFolder:` instead of relying on the name.
     case folder
     /// Unrecognized/custom providers: follow the app accent instead of inventing a hue.
     case neutral
@@ -33,11 +30,9 @@ public enum ProviderHue: String, CaseIterable, Sendable {
     /// - "OneDrive" contains "drive", so OneDrive must also precede the Drive check.
     /// - "Dropbox" contains "box", so Dropbox must precede the Box check.
     ///
-    /// - Parameter isLocalFolder: True for a folder source, which short-circuits the name match
-    ///   entirely. It has to: a folder named "Drive" or "Dropbox" is an ordinary thing to have, and
-    ///   name-matching it would paint it in a brand's colours and claim an account it isn't. The
-    ///   flag is a `Bool` rather than the `CloudProvider.ProviderType` it comes from because Design
-    ///   deliberately has no Sync dependency. Defaulted, so every existing call site is unchanged.
+    /// - Parameter isLocalFolder: True for a folder source, which skips the name match: a folder
+    ///   named "Drive" or "Dropbox" would otherwise wear a brand's colours and claim an account it
+    ///   isn't. A `Bool`, not `CloudProvider.ProviderType`, because Design has no Sync dependency.
     public static func classify(_ displayName: String, isLocalFolder: Bool = false) -> ProviderHue {
         if isLocalFolder { return .folder }
         let name = displayName.lowercased()
@@ -49,8 +44,8 @@ public enum ProviderHue: String, CaseIterable, Sendable {
         return .neutral
     }
 
-    /// One appearance's brand RGB, 0…1. Pure data so the dark-mode contrast audit (H6) can
-    /// assert luminances without rendering.
+    /// One appearance's brand RGB, 0…1. Pure data, so the dark-mode contrast audit can assert
+    /// luminances without rendering.
     public struct RGB: Equatable, Sendable {
         public let r, g, b: Double
         public init(_ r: Double, _ g: Double, _ b: Double) { self.r = r; self.g = g; self.b = b }
@@ -62,11 +57,10 @@ public enum ProviderHue: String, CaseIterable, Sendable {
         }
     }
 
-    /// The light- and dark-appearance brand hues. Light values are the on-brand hexes tuned
-    /// against a light ground; dark values are lifted toward the top of each hue so tinted
-    /// provider text clears WCAG AA on the app's dark surfaces — the darker brand blues
-    /// (Dropbox #0061FF ≈ 3.4:1, OneDrive #0364B8, Google Drive #1EA362) failed as static text
-    /// in dark mode. Blues stay pulled apart so iCloud and Dropbox never read as one colour.
+    /// The light- and dark-appearance brand hues. Light values are the on-brand hexes; dark values
+    /// are lifted so tinted provider text clears WCAG AA on the dark surfaces, where the darker
+    /// brand blues (Dropbox #0061FF ≈ 3.4:1) fail. The blues stay pulled apart so iCloud and
+    /// Dropbox never read as one colour.
     public var brand: (light: RGB, dark: RGB)? {
         switch self {
         case .iCloud:      return (RGB(0.231, 0.612, 1.0),   RGB(0.435, 0.714, 1.0))   // #3B9CFF → #6FB6FF
@@ -74,26 +68,22 @@ public enum ProviderHue: String, CaseIterable, Sendable {
         case .googleDrive: return (RGB(0.118, 0.639, 0.384), RGB(0.235, 0.796, 0.525)) // #1EA362 → #3CCB86
         case .oneDrive:    return (RGB(0.012, 0.392, 0.722), RGB(0.243, 0.608, 0.878)) // #0364B8 → #3E9BE0
         case .box:         return (RGB(0.141, 0.525, 0.988), RGB(0.353, 0.627, 1.0))   // #2486FC → #5AA0FF
-        // Graphite, the app's own colourless accent (`LiquidGlassStyle.graphite`, #878A8F), pulled
-        // apart per appearance the way the brand blues are. A folder source has no brand to wear,
-        // and it must not wear the app accent either: `.neutral` already means "follows the accent"
-        // and is what an unrecognized CLOUD provider gets, so a folder painted the same would be
-        // indistinguishable from a NAS someone named "Archive". Colourless says "not a cloud".
-        // Both ends clear WCAG AA as static text on the appearance they belong to (4.8:1 on white,
-        // 7.6:1 on the dark surface) — the light brand hexes do not, which is why this pair is
-        // darker in light mode than #878A8F itself.
+        // Graphite, the app's colourless accent (`LiquidGlassStyle.graphite`, #878A8F), pulled
+        // apart per appearance like the brand blues. A folder has no brand, and it can't wear the
+        // app accent either: that is `.neutral`, an unrecognized cloud provider, and colourless
+        // says "not a cloud". Darker than #878A8F in light mode so both ends clear WCAG AA as
+        // static text (4.8:1 on white, 7.6:1 on the dark surface).
         case .folder:      return (RGB(0.431, 0.447, 0.471), RGB(0.659, 0.678, 0.710)) // #6E7278 → #A8ADB5
         case .neutral:     return nil
         }
     }
 
-    /// The full-strength brand hue, for tinting a provider's name text or glyph. Adaptive:
-    /// light mode keeps the on-brand hex; dark mode uses the lifted variant so the text passes
-    /// contrast. `neutral` follows the user's chosen app accent in both appearances — the stored
-    /// hue, read now (`LiquidGlassHue.stored`); `Color.accentColor` here was the SYSTEM accent.
+    /// The full-strength brand hue, for a provider's name text or glyph: the on-brand hex in light
+    /// mode, the lifted variant in dark. `neutral` follows the stored app hue
+    /// (`LiquidGlassHue.stored`), never `Color.accentColor`, which is the system accent.
     ///
-    /// Cached per case: a dynamic `NSColor` is built once (not on every render), and a stable
-    /// instance also lets `soft` stay `== tint.opacity(0.12)`.
+    /// Cached per case, so a dynamic `NSColor` is built once rather than on every render, and the
+    /// stable instance keeps `soft` equal to `tint.opacity(0.12)`.
     public var tint: Color { Self.tintCache[self] ?? LiquidGlassHue.stored().accentColor }
 
     private static let tintCache: [ProviderHue: Color] = {
@@ -113,9 +103,8 @@ public enum ProviderHue: String, CaseIterable, Sendable {
         return table
     }()
 
-    /// Low-opacity companion for background washes, in the same family as the app's soft-tint chips
-    /// (StatusBadge wears `PillVariant.fillOpacity`, 0.14, under full-strength foregrounds — this
-    /// one is deliberately a touch lighter; the comment used to claim the two were identical).
+    /// Low-opacity companion for background washes, a touch lighter than the soft-tint chips
+    /// (StatusBadge's `PillVariant.fillOpacity` is 0.14).
     public var soft: Color {
         tint.opacity(0.12)
     }

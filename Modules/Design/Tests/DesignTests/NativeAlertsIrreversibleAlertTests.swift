@@ -2,7 +2,7 @@ import AppKit
 import Testing
 @testable import Design
 
-/// `NativeAlerts.confirmIrreversible` — the confirm/cancel alert for a deletion with no Trash to
+/// `NativeAlerts.confirmIrreversible`, the confirm/cancel alert for a deletion with no Trash to
 /// come back from (the API key, the spend totals the caps count against).
 ///
 /// Asked of the alert `irreversibleAlert` builds, never of `confirmIrreversible`, whose
@@ -15,10 +15,9 @@ import Testing
                                        confirmTitle: "Remove Key")
     }
 
-    /// **Return cancels.** The destructive button comes first, is marked destructive, and takes no
-    /// key at all; Cancel answers Return — the convention of Sync History's Clear History and
-    /// Settings' Reset All Settings…, and the opposite of `confirmDelete`, whose items go to the
-    /// Trash and can come back.
+    /// Return cancels. The destructive button comes first, is marked destructive and takes no key;
+    /// Cancel answers Return, as in Sync History's Clear History and Settings' Reset All Settings….
+    /// The opposite of `confirmDelete`, whose items go to the Trash and can come back.
     @Test func cancelIsTheDefaultAndTheDestructionTakesNoKey() throws {
         let built = alert()
         #expect(built.alertStyle == .warning)
@@ -39,13 +38,12 @@ import Testing
     }
 }
 
-/// **Escape cancels a Cancel-is-default alert.** Making Cancel answer Return takes Escape from it —
-/// NSAlert gives a button titled "Cancel" Escape, and a button holds one key equivalent — so Escape
-/// did nothing in every such alert (measured 2026-11-01 with a real key event through
-/// `NSApp.sendEvent`: Escape left the alert up, Return cancelled; with the monitor, both cancelled).
+/// Escape cancels a Cancel-is-default alert. NSAlert gives a button titled "Cancel" Escape, but a
+/// button holds one key equivalent, so making Cancel answer Return takes Escape from it, and
+/// without the monitor Escape does nothing.
 ///
-/// The modal session itself cannot be run here, so this pins the monitor's decision on real key
-/// events, and the scan holds every Cancel-takes-Return alert in the app to the monitor.
+/// The modal session can't be run here, so this pins the monitor's decision on real key events,
+/// and the scan holds every Cancel-takes-Return alert in the app to the monitor.
 @Suite @MainActor struct EscapeCancelsTests {
 
     private func key(_ characters: String, code: UInt16, in window: NSWindow,
@@ -56,8 +54,8 @@ import Testing
                                       isARepeat: isARepeat, keyCode: code))
     }
 
-    /// The alert is built but never ordered in — doing that outside `runModal` clears its buttons'
-    /// keys — so the events are aimed at a stand-in window in its place.
+    /// The alert is built but never ordered in (doing that outside `runModal` clears its buttons'
+    /// keys), so the events are aimed at a stand-in window in its place.
     @Test func plainEscapeAtTheAlertIsAnsweredAndNothingElseIs() throws {
         let alert = NativeAlerts.irreversibleAlert(messageText: "Clear?", informativeText: "",
                                                    confirmTitle: "Clear All")
@@ -98,7 +96,7 @@ import Testing
                 "⌘. does not cancel")
         #expect(answer(try key(".", code: 47, in: standIn)) == nil, "a plain period cancelled the alert")
 
-        // **By key, not by place.** Cancel first and holding Return: Escape presses it, not the
+        // By key, not by place: with Cancel first and holding Return, Escape presses it, not the
         // last button.
         let cancelFirst = NSAlert()
         cancelFirst.addButton(withTitle: "Cancel").keyEquivalent = "\r"
@@ -106,8 +104,8 @@ import Testing
         #expect(NativeAlerts.escapeAnswer(for: escape, window: standIn, buttons: cancelFirst.buttons)
                     === cancelFirst.buttons.first, "Escape pressed the button by its place")
 
-        // **Never the confirm.** Where the confirm takes Return, Cancel still holds Escape and
-        // answers it itself; the monitor must stay out, or Escape would mean yes.
+        // Never the confirm: where the confirm takes Return, Cancel still holds Escape and answers
+        // it itself. The monitor must stay out, or Escape would mean yes.
         let confirmTakesReturn = NativeAlerts.changeAlert(messageText: "Switch?", informativeText: "",
                                                           confirmTitle: "Switch")
         try #require(confirmTakesReturn.buttons.contains { $0.keyEquivalent == "\u{1b}" },
@@ -117,12 +115,12 @@ import Testing
                 "Escape pressed the confirm of an alert whose Cancel holds Escape")
     }
 
-    /// Every alert whose Cancel answers Return runs through an Escape monitor — one call per such
-    /// alert, counted, so a new alert built the same way without it fails here.
+    /// Every alert whose Cancel answers Return runs through an Escape monitor, one call per such
+    /// alert, so a new alert built the same way without it fails here.
     ///
     /// Any line giving a button Return counts, whatever the button is called, unless the button is
-    /// the confirm (Return confirms there, and Escape stays on Cancel). Comment lines count for
-    /// neither side, so a call named in a comment cannot stand in for one.
+    /// the confirm (Return confirms there, and Escape stays on Cancel). Comments count for neither
+    /// side, so a call named in a comment can't stand in for one.
     @Test func everyCancelDefaultAlertAnswersEscape() throws {
         let repo = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -159,8 +157,8 @@ import Testing
         #expect(cancelTakesReturn >= 5, "found \(cancelTakesReturn) Cancel-takes-Return alerts — the pattern moved")
     }
 
-    /// A line with its `//` comment removed, whole or trailing, string literals respected — so a
-    /// call named in a comment cannot stand in for the call.
+    /// A line with its `//` comment removed, whole or trailing, respecting string literals, so a
+    /// call named in a comment can't stand in for the call.
     static func withoutComment(_ line: Substring) -> Substring {
         var inString = false
         var previous: Character = " "

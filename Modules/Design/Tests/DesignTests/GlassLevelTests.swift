@@ -4,11 +4,9 @@ import AppKit
 import SwiftUI
 @testable import Design
 
-/// The Appearance model's two controls and the migration onto them.
-///
-/// These pin the fix for the bug that motivated the rework: a stored intensity of 0.15 fell below
-/// `glassCardStyle`'s `> 0.33` threshold, so the Settings modal resolved to `.clear` glass and the
-/// app behind it read straight through — its only fill was the ~9% accent tint wash.
+/// The Appearance model's two controls (glass level and surface style), the migration of older
+/// stored values onto them, and the card insets the gap model rests on. A stored value must never
+/// leave an overlay card on clear glass with the app reading straight through it.
 struct GlassLevelTests {
 
     // MARK: - The chrome legibility floor
@@ -28,9 +26,8 @@ struct GlassLevelTests {
     }
 
     @Test func onlyClearNeedsChromeFrosting() {
-        // Pins the branch `chromeButtonStyle` keys off — the property that helper actually
-        // reads, so a level added later must decide its chrome treatment here and can't silently
-        // render faint controls (or stack materials) on its cards.
+        // Pins the property `chromeButtonStyle` reads, so a new level must decide its chrome
+        // treatment here and can't silently render faint controls (or stack materials).
         #expect(GlassLevel.allCases.filter(\.needsChromeFrosting) == [.clear])
         // And the two escalations agree: the level that frosts its controls is the level whose
         // overlays get floored.
@@ -47,15 +44,15 @@ struct GlassLevelTests {
 
     @Test(arguments: [false, true])
     func clearLightensTheOverlayScrim(dark: Bool) {
-        // The cards above the scrim take Clear at face value now, so a deeper scrim at Clear
-        // greyed the window and hid the setting (TE293).
+        // The cards above the scrim take Clear at face value, so a deeper scrim at Clear would
+        // grey the window and hide the setting.
         #expect(GlassLevel.clear.overlayScrimOpacity(dark: dark) < GlassLevel.frosted.overlayScrimOpacity(dark: dark))
         #expect(GlassLevel.frosted.overlayScrimOpacity(dark: dark) == GlassLevel.solid.overlayScrimOpacity(dark: dark))
     }
 
     @Test func lightClearDimsNothingAndDarkClearStillDims() {
-        // Any black over Light's near-white window read as grey, down to 0.05 (TE316); over
-        // Dark's deep base it reads as depth, and still focuses the card. Only Clear splits.
+        // Any black over Light's near-white window reads as grey, even at 0.05; over Dark's deep
+        // base it reads as depth and still focuses the card. Only Clear splits.
         #expect(GlassLevel.clear.overlayScrimOpacity(dark: false) == 0)
         #expect(GlassLevel.clear.overlayScrimOpacity(dark: true) > 0)
         #expect(GlassLevel.frosted.overlayScrimOpacity(dark: false) == GlassLevel.frosted.overlayScrimOpacity(dark: true))
@@ -63,9 +60,8 @@ struct GlassLevelTests {
 
     @Test func clearGroundsTheCardAtLeastAsThickAsFrosted() {
         // At Clear the card is clear glass in both schemes, so its ground is all that keeps the
-        // window behind from reading through the card's text. TE293 thinned it to 0.45 while
-        // Light's card still sat on a blur; on clear glass that left Dark's rows readable through
-        // Settings (TE316). Frosted and Solid share theirs.
+        // window behind from reading through the card's text. A thinner ground leaves the rows
+        // behind readable through Settings. Frosted and Solid share theirs.
         #expect(GlassLevel.clear.groundedBackingOpacity >= GlassLevel.frosted.groundedBackingOpacity)
         #expect(GlassLevel.clear.groundedBackingOpacity < 1)
         #expect(GlassLevel.frosted.groundedBackingOpacity == GlassLevel.solid.groundedBackingOpacity)
@@ -74,7 +70,7 @@ struct GlassLevelTests {
     @Test func onlyNoneInLightAtClearTakesTheWindowsGlass() {
         // Every accent keeps the panels' ground: its hue is what the window shows, and the ground
         // is neutral. None in light at Clear has no hue, so its panels take the window's own white
-        // glass instead (TE316). Dark keeps its tinted ground at every accent.
+        // glass instead. Dark keeps its tinted ground at every accent.
         #expect(LiquidGlass.panelTakesWindowGlass(level: .clear, hue: .none, dark: false))
         #expect(!LiquidGlass.panelTakesWindowGlass(level: .clear, hue: .none, dark: true))
         #expect(!LiquidGlass.panelTakesWindowGlass(level: .frosted, hue: .none, dark: false))
@@ -86,10 +82,8 @@ struct GlassLevelTests {
     // MARK: - Background intensity
 
     @Test func frostedKeepsTheRetiredSliderDefault() {
-        // 0.65 was the old `liquidGlassIntensity` default. It used to be the whole story — a
-        // migrated install's window background was pixel-identical to what it rendered before the
-        // rework. It is now only half of it: the Tint slider scales this, so the background is
-        // pixel-identical at Tint 100 and fainter below it, which is what the slider is for.
+        // 0.65 is the retired `liquidGlassIntensity` default, so a migrated install's background
+        // matches what it rendered at Tint 100; the Tint slider scales it fainter below that.
         #expect(GlassLevel.frosted.backgroundIntensity == 0.65)
     }
 
@@ -111,17 +105,14 @@ struct GlassLevelTests {
 
     // MARK: - Raw values are a wire format
 
-    /// `SurfaceStyle` below has carried this pin all along; its siblings in the same file did not,
-    /// which is the only reason renaming a case here compiled clean while silently resetting every
-    /// user's stored choice at the `?? .frosted` / `?? .blue` read sites. The literal LIST is the
-    /// pin (order included — case-adds must append, per the graphite precedent), and the
-    /// unknown-value probes keep the tolerant fallbacks honest about being fallbacks.
+    /// Renaming a case compiles clean but silently resets every user's stored choice at the
+    /// `?? .frosted` / `?? .blue` read sites, so the literal list is the pin, order included (new
+    /// cases append). The unknown-value probes keep the fallbacks honest about being fallbacks.
     @Test func glassLevelRawValuesAreStable() {
         #expect(GlassLevel.allCases.map(\.rawValue) == ["clear", "frosted", "solid"])
-        // Honest scope: for a synthesized String raw-value init these two can only fail if
-        // someone later adds a custom case-insensitive `init(rawValue:)` — they are tripwires
-        // for that, not coverage of the `?? .frosted` destinations, which live in private view
-        // properties this suite cannot reach.
+        // With a synthesized `init(rawValue:)` these can only fail if a custom case-insensitive
+        // one is added; they are tripwires for that, not coverage of the `?? .frosted` reads,
+        // which live in private view properties this suite can't reach.
         #expect(GlassLevel(rawValue: "Frosted") == nil, "raw values are case-exact — a near-miss must fall back, not match")
         #expect(GlassLevel(rawValue: "medium") == nil)
     }
@@ -135,8 +126,8 @@ struct GlassLevelTests {
     }
 
     @Test func aStoredSlateMovesToGraphite() {
-        // Slate was removed (2026-11-03). An install that chose it keeps the nearest neutral
-        // rather than reading an unknown raw value as the Blue default, and the move happens once.
+        // Slate is retired. An install that chose it gets the nearest neutral rather than reading
+        // an unknown raw value as the Blue default, and the move happens once.
         let defaults = ScratchDefaults("GlassLevelTests.slate")
         defaults.set("slate", forKey: LiquidGlass.hueKey)
         let moved = LiquidGlass.migrateRetiredHue(defaults)
@@ -153,8 +144,8 @@ struct GlassLevelTests {
     // MARK: - Shape is shape
 
     @Test func surfaceStyleIsShapeOnly() {
-        // `solid` was a material answer inside the shape control: it silently overrode the glass
-        // setting, so "Solid" meant two different things in two pickers. It lives on GlassLevel now.
+        // Solid is a material, so it lives on GlassLevel; as a shape too, "Solid" would mean two
+        // different things in two pickers.
         #expect(SurfaceStyle.allCases.map(\.rawValue) == ["unified", "cards"])
         #expect(SurfaceStyle(rawValue: "solid") == nil)
     }
@@ -179,9 +170,8 @@ struct GlassLevelTests {
     }
 
     @Test func anyStoredIntensityBecomesFrosted() {
-        // The old value can't be read as a number: `surfaceCard` hard-coded `.regular` and ignored
-        // it, so the panes rendered frosted at EVERY setting. Frosted preserves what installs
-        // actually looked like — including this user's 0.15, which is what surfaced the bug.
+        // The old intensity can't be read as a number: the panes rendered frosted whatever it
+        // said, so Frosted preserves what every install looked like.
         for intensity in [0.0, 0.15, 0.33, 0.65, 1.0] {
             let d = makeDefaults()
             d.set(intensity, forKey: LiquidGlass.intensityKey)
@@ -199,8 +189,8 @@ struct GlassLevelTests {
 
     @Test func retiredSolidSurfaceStyleBecomesSolidGlassOnUnified() {
         // A stored `SurfaceStyle.solid` was a material choice. It becomes `GlassLevel.solid` with
-        // the shape reset to unified — which is what those installs already rendered, since the
-        // opaque fill hid whether cards floated underneath.
+        // the shape reset to unified, which is what those installs rendered anyway: the opaque
+        // fill hid whether cards floated underneath.
         let d = makeDefaults()
         d.set("solid", forKey: LiquidGlass.surfaceStyleKey)
         LiquidGlass.migrateLegacyAppearance(d)
@@ -219,8 +209,8 @@ struct GlassLevelTests {
     }
 
     @Test func migrationNeverOverwritesAChosenLevel() {
-        // Runs on every launch (App.init can re-run), so it must be a no-op once the key exists —
-        // otherwise it would stamp Frosted back over the user's pick on the next launch.
+        // Runs on every launch (App.init can re-run), so it must be a no-op once the key exists,
+        // or it would stamp Frosted back over the user's pick.
         let d = makeDefaults()
         d.set(GlassLevel.clear.rawValue, forKey: LiquidGlass.levelKey)
         d.set(0.9, forKey: LiquidGlass.intensityKey)
@@ -250,30 +240,28 @@ struct GlassLevelTests {
     // MARK: - Gutter
 
     @Test func cardInsetIsHalfAGutterSoEveryGapMatches() {
-        // The gaps used to be non-uniform by construction: a card padded ITSELF by the full gutter,
-        // so two touching cards showed 2x what a window edge showed, and the bottom stack
-        // hard-coded a third value. Halving it is what makes card↔card and card↔edge agree —
-        // each pairing contributes two insets.
+        // Each card pads itself by half a gutter, so card↔card and card↔edge gaps agree: each
+        // pairing contributes two insets. A full-gutter inset would show touching cards twice
+        // as far apart as a card and the window edge.
         #expect(LiquidGlass.cardInset * 2 == LiquidGlass.cardGutter)
     }
 
     @Test func cardGutterIsVisibleButTight() {
-        // Big enough to read as separation against the 14pt radius (3pt did not), small enough not
-        // to make a dense file view airy.
+        // Big enough to read as separation against the 14pt radius (3pt doesn't), small enough
+        // not to make a dense file view airy.
         #expect(LiquidGlass.cardGutter >= 4)
         #expect(LiquidGlass.cardGutter <= 8)
     }
 
     // MARK: - Every card helper actually applies the inset
     //
-    // `cardInsetIsHalfAGutterSoEveryGapMatches` above only checks arithmetic on the constant. It
-    // stayed green for the whole time `bottomSectionCard` applied no inset at all — the Differences,
-    // Organize and Storage stacks rendered flush at 0 and nothing failed. These measure the laid-out
-    // result instead: a card helper must grow its subject by exactly one gutter (two insets), which
-    // is the property the gap model actually depends on.
+    // `cardInsetIsHalfAGutterSoEveryGapMatches` above checks only arithmetic on the constant, and
+    // stays green if a helper applies no inset at all. These measure the laid-out result: a card
+    // helper must grow its subject by exactly one gutter (two insets), the property the gap model
+    // depends on.
 
-    /// Lays a view out through a real `NSHostingView` — the same path the snapshot harness uses —
-    /// and reports the size SwiftUI settles on.
+    /// Lays a view out through a real `NSHostingView`, as the snapshot harness does, and reports
+    /// the size SwiftUI settles on.
     @MainActor
     private func laidOutSize(_ view: some View) -> CGSize {
         NSHostingView(rootView: AnyView(view)).fittingSize
@@ -299,7 +287,7 @@ struct GlassLevelTests {
     }
 
     // Each of these sweeps every level rather than taking `@Test(arguments:)`, which would need
-    // `GlassLevel: Sendable` — a production change to suit a test.
+    // `GlassLevel: Sendable`, a production change to suit a test.
 
     @MainActor
     @Test func surfaceCardInsetsItselfByHalfAGutter() {
@@ -310,8 +298,7 @@ struct GlassLevelTests {
 
     @MainActor
     @Test func bottomSectionCardInsetsItselfInCards() {
-        // The regression: this helper was the only one 62ef02d never gave an inset, while
-        // DifferencesView had already dropped to `spacing: 0` on the promise that it had one.
+        // DifferencesView stacks these at `spacing: 0`, relying on the helper's own inset.
         for level in GlassLevel.allCases {
             expectGrowsByOneGutter(
                 bare.bottomSectionCard(.cards, level: level), "bottomSectionCard(.cards) at \(level)")
@@ -323,8 +310,8 @@ struct GlassLevelTests {
     @MainActor
     @Test func theWindowRegionIsUnifiedsOnlyInset() {
         // The one outline Unified draws, round everything under the toolbar, takes the window-edge
-        // half of a gutter on every side — where a card's edge sits in Cards — and Cards has no
-        // such region at all.
+        // half of a gutter on every side, where a card's edge sits in Cards. Cards has no such
+        // region at all.
         for level in GlassLevel.allCases {
             expectGrowsByOneGutter(
                 bare.windowRegionFrame(.unified, level: level), "windowRegionFrame(.unified) at \(level)")
@@ -334,9 +321,8 @@ struct GlassLevelTests {
 
     @MainActor
     @Test func unifiedSectionsInsetNothing() {
-        // Inside the window's one region, areas sit flush and meet at a hairline. An inset here is
-        // a gutter between two areas, which is a box per area — Edit's strip, rail and document were
-        // three of them until 2026-10-17.
+        // Inside the window's one region, areas sit flush and meet at a hairline. An inset here
+        // would be a gutter between two areas, which is a box per area.
         for level in GlassLevel.allCases {
             #expect(laidOutSize(bare.bottomSectionCard(.unified, level: level)) == Self.subject,
                     "bottomSectionCard(.unified) at \(level)")
@@ -348,7 +334,7 @@ struct GlassLevelTests {
     @MainActor
     @Test func twoUnifiedAreasSideBySideTouch() {
         // The end-to-end property: two neighbours, as the sidebar and the pane or Edit's rail and
-        // document are laid, come to exactly their own widths — no gutter between, none outside.
+        // document are laid, come to exactly their own widths: no gutter between, none outside.
         let row = HStack(spacing: 0) {
             bare.bottomSectionCard(.unified, level: .solid).unifiedSeam(.unified, edge: .trailing)
             bare.panesRegionFrame(.unified, level: .solid)
@@ -375,8 +361,8 @@ struct GlassLevelTests {
 
     @MainActor
     @Test func cardsOnlyHelpersAreNoOpsInUnified() {
-        // `paneCardIfNeeded` no-ops in Unified — which is what keeps the provider-header split a
-        // Cards-only idiom, and what makes Cards read as the more separated of the two styles.
+        // `paneCardIfNeeded` no-ops in Unified, which keeps the provider-header split a Cards-only
+        // idiom and makes Cards read as the more separated of the two styles.
         #expect(laidOutSize(bare.paneCardIfNeeded(.unified, level: .frosted)) == Self.subject)
         #expect(laidOutSize(bare.panesRegionFrame(.cards, level: .frosted)) == Self.subject)
     }
@@ -399,14 +385,14 @@ struct GlassLevelTests {
         #expect(height == cardHeight * 2)
         // Total padding across the stack is two gutters, laid out as: half a gutter above, the two
         // facing insets meeting as one full gutter between the subjects, half a gutter below. That
-        // decomposition is what makes card↔card and card↔window-edge agree. Pre-fix this was 0.
+        // is what makes card↔card and card↔window-edge agree.
         #expect(height - Self.subject.height * 2 == LiquidGlass.cardGutter * 2)
     }
 
     // MARK: - A workspace column: one rule in both styles
 
-    /// A header section over a content section, stacked the way every workspace column stacks
-    /// them — the file pane aside, which has its own pair.
+    /// A header section over a content section, stacked as every workspace column stacks them
+    /// (the file pane aside, which has its own pair).
     @MainActor
     private func column(_ style: SurfaceStyle, level: GlassLevel) -> some View {
         VStack(spacing: 0) {
@@ -418,8 +404,8 @@ struct GlassLevelTests {
 
     @MainActor
     @Test func aCardsColumnIsTwoCardsAGutterApart() {
-        // The bottom stack's own property, unchanged: two cards, their facing insets summing to
-        // one gutter, and the region adding nothing.
+        // The bottom stack's property: two cards, their facing insets summing to one gutter, and
+        // the region adding nothing.
         for level in GlassLevel.allCases {
             let height = laidOutSize(column(.cards, level: level)).height
             #expect(height == Self.subject.height * 2 + LiquidGlass.cardGutter * 2, "cards at \(level)")
@@ -428,10 +414,9 @@ struct GlassLevelTests {
 
     @MainActor
     @Test func aUnifiedColumnIsOneAreaWithTheContentFlushUnderTheHeader() {
-        // Nothing between the sections and nothing round them — the window's one region is the
-        // frame. A column that still drew per-section boxes in Unified — the shape the Organize
-        // lenses and the Differences area had until 2026-10-17 — comes to two gutters here, and its
-        // content starts one gutter below the file list beside it.
+        // Nothing between the sections and nothing round them: the window's one region is the
+        // frame. A column drawing per-section boxes in Unified would come to two gutters here, and
+        // its content would start one gutter below the file list beside it.
         for level in GlassLevel.allCases {
             let height = laidOutSize(column(.unified, level: level)).height
             #expect(height == Self.subject.height * 2, "unified at \(level)")

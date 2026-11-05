@@ -1,10 +1,10 @@
 import Testing
 @testable import Design
 
-/// **The reading estimate scales with the count** (FC7, RD1): minutes for a small library, tens of
-/// minutes for a middling one, hours for a large one — from the one measured rate. Organize's
-/// survey card and setup's Structure screen both say it through `DocumentSurveyCost`, so each
-/// boundary is pinned here, in each of its two forms.
+/// The reading estimate scales with the count: minutes for a small library, tens of minutes for a
+/// middling one, hours for a large one, all from the one measured rate. Organize's survey card and
+/// setup's Structure screen both say it through `DocumentSurveyCost`, so each boundary is pinned
+/// here in both of its forms.
 @Suite struct DocumentSurveyCostTests {
 
     /// The premise every figure below rests on: 6,140 documents in about three hours.
@@ -21,8 +21,8 @@ import Testing
                 == "A few minutes for 199 documents, in the background.")
     }
 
-    /// **200 documents are minutes, not the three hours 6,140 take.** About six minutes, said in
-    /// the coarse ten-minute step; a mid-sized library rounds to its own ten minutes.
+    /// 200 documents take minutes, not the three hours 6,140 take: about six, said in the coarse
+    /// ten-minute step. A mid-sized library rounds to its own ten minutes.
     @Test func belowAnHourItSaysTensOfMinutes() {
         #expect(DocumentSurveyCost.phrase(documents: 200) == "About 10 min for 200 documents.")
         #expect(DocumentSurveyCost.offerClause(documents: 200)

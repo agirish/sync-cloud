@@ -3,7 +3,7 @@ import AppKit
 import SwiftUI
 @testable import Design
 
-/// `LiquidGlassHue.stored(in:)` — what a colour parameter defaults to now that none may default to
+/// `LiquidGlassHue.stored(in:)`: what a colour parameter defaults to, since none may default to
 /// `Color.accentColor` (`AccentFillScanTests`, rule 4).
 @Suite struct StoredHueTests {
 
@@ -17,14 +17,11 @@ import SwiftUI
     }
 }
 
-/// **A control handed no colour draws in the hue the user picked.**
-///
-/// Settings' size tiles and every `hoverAffordance`, `chromeHover`, `HoverChevron` and
-/// `TextSizeStepper` left untinted drew SwiftUI's `Color.accentColor` — the SYSTEM accent — so in a
-/// Coral window they stayed the Mac's blue. Each now reads the stored hue where it is drawn. The hue
-/// comes from a scratch suite through `defaultAppStorage`, and the pixels are read back, because
-/// only they say which accent a border or a glyph took. Coral, since it is nowhere near any system
-/// accent; Green as the control, so a reading cannot pass by Coral being hard-wired.
+/// A control handed no colour draws in the hue the user picked, not SwiftUI's
+/// `Color.accentColor`, the system accent, which would stay the Mac's blue in a Coral window. The
+/// hue comes from a scratch suite through `defaultAppStorage`, and the pixels are read back, since
+/// only they say which accent a border or glyph took. Coral because it is nowhere near any system
+/// accent; Green as the control, so Coral being hard-wired can't pass.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct StoredHueAccentTests {
 

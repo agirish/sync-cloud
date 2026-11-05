@@ -1,8 +1,8 @@
 import Testing
 @testable import Design
 
-/// Read Documents' sheet for a source (mockup 52b6b1ed): the count, what downloads (GO: and stays),
-/// what cannot be read, and the cost — with his two Google Drives' real counts of 2026-10-31.
+/// Read Documents' sheet for a source: the count, what downloads (and stays), what can't be read,
+/// and the cost. The figures are real counts from two Google Drives.
 @Suite struct SourceDocumentsTextTests {
 
     @Test func nothingCloudOnlySaysNothingDownloads() {

@@ -1,13 +1,12 @@
 import Foundation
 import Testing
 
-/// **No word drawn in a colour on a wash of that same colour (DS1).**
+/// No word drawn in a colour on a wash of that same colour.
 ///
 /// `Pill`, `StatusBadge`, `TokenChipsRow` and the size tiles take their words' ink from
-/// `PillVariant.labelInk(for:)`, which `PillLabelInkTests` measures. A hand-built pill does not:
-/// it writes `.foregroundStyle(tint)` and `.background(Capsule().fill(tint.opacity(…)))` itself,
-/// and a dozen did — the duplicates card's reclaim pill, Person's "N to review", the review
-/// card's delta, Compare's "Keeping this". This scan is what keeps a new one from arriving.
+/// `PillVariant.labelInk(for:)`, which `PillLabelInkTests` measures. A hand-built pill that writes
+/// `.foregroundStyle(tint)` and `.background(Capsule().fill(tint.opacity(…)))` itself does not;
+/// this scan keeps one from arriving.
 ///
 /// The rule, per view: a `Text`, `Label`, `HStack`, `VStack`, `ZStack` or `Group` whose modifier
 /// chain washes it with a colour — `.background`/`.fill` of that colour turned down with
@@ -19,11 +18,9 @@ import Testing
 /// `PillVariant.labelInk` are the fix and never match. An `Image` root is not scanned: a glyph tile
 /// (Person's group headers, the strip buttons) carries no words.
 ///
-/// **The first version read only one modifier chain**, and five fixed components could be
-/// reverted under it with the scan green: StatusBadge (ink on the child `Text`), the size tiles (a
-/// `VStack` root), StatPill (the wash inside `StatPillSurface`), the differences header's review
-/// pill (ink on the child, `.pillSurface` on the parent) and the risky-name marker (an
-/// `AttributedString` run). Three live chips were invisible to it the same way (RB1, RB2).
+/// Reading only one modifier chain is not enough: ink on a child `Text`, a `VStack` root, a wash
+/// inside a `…Surface` modifier, a surface on the parent, and an `AttributedString` run all hide a
+/// coloured word from it.
 @Suite struct PillLabelInkScanTests {
 
     typealias Scan = AccentFillScanTests
@@ -34,9 +31,9 @@ import Testing
         pattern: #"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*"#)
 
     static func isColourName(_ name: String) -> Bool {
-        // The label colours — `onAccent` is the label on an accent FILL, white by construction —
-        // the type's own name (`Color(red:…)` is a literal, not a variable) and the shared rule are
-        // never "the same colour as the wash".
+        // Never "the same colour as the wash": the label colours (`onAccent` is the label on an
+        // accent fill, white by construction), the type's own name (`Color(red:…)` is a literal,
+        // not a variable) and the shared rule.
         let notAColourName: Set<String> = ["Color.primary", "Color.secondary", "Color.clear", "Color.white",
                                            "Color.black", "primary", "secondary", "tertiary", "quaternary",
                                            "Color", "AnyShapeStyle", "onAccent", "onTint"]
@@ -56,8 +53,8 @@ import Testing
     /// The modifiers that turn a colour into a wash.
     static let washCalls = [".opacity(", ".withAlphaComponent("]
 
-    /// The colours `argument` turns down to a wash: the receiver of each `.opacity(…)` — a dotted
-    /// name (`SemanticColor.error.opacity`), or a bracketed one, every arm of it
+    /// The colours `argument` turns down to a wash: the receiver of each `.opacity(…)`, a dotted
+    /// name (`SemanticColor.error.opacity`) or every arm of a bracketed one
     /// (`(empty ? Color.primary : accent).opacity`). `on ? accent.opacity(0.14) : Color.primary
     /// .opacity(0.06)` washes with `accent`, whichever arm is last.
     static func washedNames(in argument: [Character]) -> Set<String> {
@@ -66,8 +63,8 @@ import Testing
         for call in washCalls {
             for start in Scan.occurrences(of: call, in: argument) where start > 0 {
                 // The receiver ends at the last non-blank before the call: a chain written one
-                // modifier to a line puts a newline and an indent there, which read as a receiver
-                // with no name and an inverted range.
+                // modifier to a line puts a newline and an indent there, which would read as a
+                // receiver with no name and an inverted range.
                 var end = start - 1
                 while end >= 0, argument[end].isWhitespace { end -= 1 }
                 guard end >= 0 else { continue }
@@ -111,7 +108,7 @@ import Testing
     static let inkModifiers: Set<String> = ["foregroundStyle", "foregroundColor"]
 
     /// `AccentFillScanTests.chain`, but a trailing closure is read as part of its modifier's
-    /// argument — a wash is as often `.background { Capsule().fill(tint.opacity(…)) }` as
+    /// argument: a wash is as often `.background { Capsule().fill(tint.opacity(…)) }` as
     /// `.background(…)`.
     static func chain(_ text: [Character], after index: Int) -> [(name: String, argument: [Character])] {
         var modifiers: [(String, [Character])] = []
@@ -159,7 +156,7 @@ import Testing
             .reduce(into: Set<String>()) { $0.formUnion(names(in: withoutReadableInks($1.argument))) }
     }
 
-    /// The colours the WORDS inside `body` are inked with — each `Text` and `Label` in it, by its
+    /// The colours the words inside `body` are inked with: each `Text` and `Label` in it, by its
     /// own chain. A glyph inside a washed card (a lens card's accent icon) is not a word, and is
     /// left alone.
     static func wordInks(in body: [Character]) -> Set<String> {
@@ -179,8 +176,7 @@ import Testing
     }
 
     /// A coloured word on its own wash that is right, named with why. Each must match exactly one
-    /// finding, so a stale entry fails too. Empty since RB2: the format bar's lit button, the one
-    /// entry, measured 2.3:1 (Green) and 1.9:1 (Amber) and now draws label-colour words.
+    /// finding, so a stale entry fails too. Empty: every such word draws in label colour.
     static let exemptions: [(file: String, root: String, why: String)] = []
 
     static let roots = ["Text(", "Label(", "HStack(", "HStack {", "VStack(", "VStack {",
@@ -251,37 +247,37 @@ import Testing
         }
     }
 
-    /// Broken once and kept once per shape, so a matcher that stopped matching cannot pass the
-    /// real scan on a tree that has the bug. The broken shapes are the real ones: each of the five
-    /// components the first version could not see, and the three chips it missed in the app.
+    /// Broken once and kept once per shape, so a matcher that stopped matching can't pass the real
+    /// scan on a tree that has the bug. The broken shapes are real ones from the app, including
+    /// each shape a single-chain reader would miss.
     @Test func theScanCatchesAColouredWordOnItsOwnWash() {
         func count(_ source: String) -> Int { Self.findings(in: source).count }
-        // Broken, the first version's shapes: the reclaim pill, Person's capsule, the NEW tag
-        // (wash first), a ternary ink, an HStack pill, a Label chip.
+        // Broken, one chain: the reclaim pill, Person's capsule, the NEW tag (wash first), a
+        // ternary ink, an HStack pill, a Label chip.
         #expect(count("Text(f).scaledFont(x).foregroundStyle(SemanticColor.success).pillSurface(.mini, tint: SemanticColor.success)") == 1)
         #expect(count("Text(\"\\(n) to review\").foregroundStyle(SemanticColor.warning)\n.padding(.horizontal, 7)\n.background(Capsule().fill(SemanticColor.warning.opacity(0.14)))") == 1)
         #expect(count("Text(\"NEW\").padding(4).background(Capsule().fill(hueAccent.opacity(PillVariant.fillOpacity))).foregroundStyle(hueAccent)") == 1)
         #expect(count("HStack { Image(systemName: \"a\"); Text(t) }.foregroundStyle(template.isEmpty ? Color.secondary : accent).background(Capsule().fill((template.isEmpty ? Color.primary : accent).opacity(0.14)))") == 1)
         #expect(count("HStack(spacing: 6) { Circle(); Text(r) }.foregroundStyle(glassHue.accentColor).pillSurface(.standard, tint: glassHue.accentColor)") == 1)
         #expect(count("Label(\"Keeping this\", systemImage: \"c\").foregroundStyle(accent).background { Capsule().fill(accent.opacity(0.13)) }") == 1)
-        // Broken, the five components reverted: StatusBadge (ink on the child), the size tile (a
-        // VStack root inside a Button label), StatPill (the wash in a Surface modifier), the
-        // review pill (ink on the child, the surface on the parent), the risky-name run.
+        // Broken, five components: StatusBadge (ink on the child), the size tile (a VStack root
+        // inside a Button label), StatPill (the wash in a Surface modifier), the review pill (ink
+        // on the child, the surface on the parent), the risky-name run.
         #expect(count("HStack(spacing: 5) { Circle().fill(color).frame(width: 6, height: 6)\n Text(isValid ? \"Valid path\" : \"Invalid path\").scaledFont(x).foregroundStyle(color) }.padding(.horizontal, 10).background(color.opacity(PillVariant.fillOpacity)).clipShape(Capsule())") == 1)
         #expect(count("Button { go() } label: { VStack(spacing: 3) { Text(p).foregroundStyle(isSelected ? accent : Color.secondary) }.lineLimit(1).foregroundStyle(isSelected ? accent : Color.primary).background { if isSelected { SelectionLensTodayMarker { RoundedRectangle(cornerRadius: 4).fill(accent.opacity(Self.selectedWash)) } } } }") == 1)
         #expect(count("HStack(spacing: 5) { Text(count.formatted()); Text(label) }.foregroundStyle(semantic?.content ?? color).modifier(StatPillSurface(semantic: semantic, tint: color)).fixedSize()") == 1)
         #expect(count("HStack(spacing: 6) { Circle().fill(glassHue.accentColor).frame(width: 7, height: 7)\n Text(\"Reviewing\").monospacedDigit().foregroundStyle(glassHue.accentColor) }.pillSurface(.standard, tint: glassHue.accentColor)") == 1)
         #expect(count("var piece = AttributedString(cell.glyph)\nif cell.isMarker {\n piece.foregroundColor = SemanticColor.error\n piece.backgroundColor = SemanticColor.error.opacity(PillVariant.fillOpacity)\n}") == 1)
-        // Broken, the three live chips: a ternary wash whose last `.opacity` is the other arm, an
-        // ink on the child of a washed HStack, a Group root, and `.foregroundColor`.
+        // Broken, chips: a ternary wash whose last `.opacity` is the other arm, an ink on the child
+        // of a washed HStack, a Group root, and `.foregroundColor`.
         #expect(count("Text(variant.chipLabel).padding(.horizontal, 8).background(Capsule().fill(on ? accent.opacity(0.14) : Color.primary.opacity(0.06))).foregroundStyle(on ? accent : Color.secondary)") == 1)
         #expect(count("HStack(spacing: 4) { Text(\"\\(index + 1)\").foregroundStyle(isCurrent ? accent : Color.secondary) }.padding(.horizontal, 7).background { Capsule().fill(isCurrent ? accent.opacity(0.14) : Color.clear) }") == 1)
         #expect(count("Group { if worded { HStack { Text(t) } } else { Image(systemName: s) } }.foregroundStyle(railIsHidden ? accent : .primary).background(Capsule().fill(railIsHidden ? accent.opacity(0.18) : .clear))") == 1)
         #expect(count("ZStack { Text(t).foregroundColor(tint) }.background(tint.opacity(0.2))") == 1)
         // A wash written one modifier to a line: the newline before `.opacity(` is not the receiver.
         #expect(count("Text(t).foregroundStyle(tint)\n.background(tint\n    .opacity(0.2))") == 1)
-        // …and a hidden button in a `.background { }` — an `.opacity(0)` after a call on its own line,
-        // which crashed the scan's process (2026-10-27) — is no word on a wash.
+        // …and a hidden button in a `.background { }`, an `.opacity(0)` after a call on its own
+        // line, is no word on a wash and must not crash the scan.
         #expect(count("VStack { Text(t) }\n.background {\n    Button(\"\", action: stop)\n        .keyboardShortcut(k)\n        .opacity(0)\n}") == 0)
         // Kept: label ink, the shared rule, a different colour, a glyph tile, a wash with no word,
         // a dot in the colour beside label-colour words, a glyph in the colour inside a washed card,
@@ -302,7 +298,7 @@ import Testing
         #expect(count("piece.foregroundColor = SemanticColor.error\nother.backgroundColor = SemanticColor.error.opacity(0.2)") == 0)
     }
 
-    /// **Every shipping source**, less the named exemptions.
+    /// Every shipping source, less the named exemptions.
     @Test func noWordInTheAppIsInkedInItsOwnWash() throws {
         var findings: [String] = []
         var exempted: [String: Int] = [:]
@@ -327,7 +323,7 @@ import Testing
             colour in the wash (DS1):
             \(findings.joined(separator: "\n"))
             """)
-        // A tripwire, so the scan cannot pass on files that no longer hold the pills.
+        // A tripwire, so the scan can't pass on files that no longer hold the pills.
         #expect(pills >= 8, "only \(pills) `.pillSurface(` calls in the app — is the scan reading the right files?")
     }
 }

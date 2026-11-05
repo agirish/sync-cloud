@@ -8,9 +8,8 @@ import SwiftUI
 @Suite struct SizePresetTests {
 
     @Test func theDefaultPresetIsTheShippingLook() {
-        // Derived, not restated: if the two settings' own defaults move, or the list is reordered
-        // so that another entry becomes the identity pairing, this fails rather than quietly
-        // changing what the Settings caption calls "Default".
+        // If the two settings' defaults move, or a reorder makes another entry the identity pairing,
+        // this fails rather than quietly changing what the Settings caption calls "Default".
         #expect(SizePreset.default.fontSize == FontSize.medium)
         #expect(SizePreset.default.density == ListDensity.comfortable)
         #expect(SizePreset.medium.scale == 1, "the default preset must be the unscaled rendering")
@@ -19,9 +18,9 @@ import SwiftUI
     }
 
     @Test func theLadderIsMonotonicInBothHalves() {
-        // The property that makes five tiles legible without a legend: every step to the right
-        // reads bigger and shows less, and neither half ever moves backwards. It is also what
-        // fixes where the density flip goes — anywhere but between entries 2 and 3 breaks this.
+        // What makes five tiles legible without a legend: every step right reads bigger and shows
+        // less, and neither half moves backwards. It also fixes the density flip between entries 2
+        // and 3.
         for (earlier, later) in zip(SizePreset.all, SizePreset.all.dropFirst()) {
             #expect(earlier.fontSize.percent <= later.fontSize.percent,
                     "text size goes backwards at \(earlier.id) → \(later.id)")
@@ -44,8 +43,8 @@ import SwiftUI
     }
 
     @Test func aCombinationOffTheLadderMatchesNothing() {
-        // The combination this design deliberately does not offer, and the reason the fine
-        // controls have to survive the fold: large text with compact rows.
+        // Large text with compact rows: the pairing the ladder doesn't offer, and why the fine
+        // controls stay.
         #expect(SizePreset.matching(fontSize: .extraLarge, density: .compact) == nil)
         #expect(SizePreset.matching(fontSize: FontSize(percent: 115), density: .comfortable) == nil)
     }
@@ -78,12 +77,10 @@ import SwiftUI
 
     // MARK: - The slider's detent labels
 
-    /// The detent rail maps a percentage onto the track the same way the slider does.
-    ///
-    /// Pure arithmetic, which is the half that can be wrong silently: an inverted or mis-scaled
-    /// mapping puts every label under the wrong tick and still renders a tidy-looking row. The
-    /// remaining unknown is `knobInset` — half a slider knob, which SwiftUI does not expose — and
-    /// that one is settled by rendering the tab and looking, not by arithmetic.
+    /// The detent rail maps a percentage onto the track the same way the slider does. Pure
+    /// arithmetic, the half that can be wrong silently: a mis-scaled mapping puts every label under
+    /// the wrong tick and still looks tidy. `knobInset`, half a knob SwiftUI doesn't expose, is
+    /// settled by rendering the tab and looking.
     @Test func theDetentRailMapsThePercentagesOntoTheTrack() {
         #expect(FontSizeDetentLabels.position(FontSize.minimumPercent) == 0)
         #expect(FontSizeDetentLabels.position(FontSize.maximumPercent) == 1)
@@ -92,8 +89,8 @@ import SwiftUI
         #expect(positions == positions.sorted())
         #expect(Set(positions).count == positions.count, "two detents share a position")
 
-        // Default sits at 10/45 of the way along, not at a third — the tell for an evenly-spaced
-        // layout quietly replacing the value-derived one. The four presets are NOT evenly spaced.
+        // Default sits at 10/45 of the way along, not a third, so an evenly spaced layout replacing
+        // the value-derived one fails. The four sizes are not evenly spaced.
         let expected = CGFloat(FontSize.medium.percent - FontSize.minimumPercent)
             / CGFloat(FontSize.maximumPercent - FontSize.minimumPercent)
         #expect(abs(FontSizeDetentLabels.position(FontSize.medium.percent) - expected) < 0.0001)
@@ -101,13 +98,9 @@ import SwiftUI
 
     // MARK: - The specimen tile (the setup form's face)
 
-    /// The drawn stack never exceeds the fixed face, at any preset.
-    ///
-    /// **The defect this pins was invisible to every other test.** The specimen drew three rows at
-    /// a pinned 14pt face, which six comfortable bars at 135% overflow by 7.9pt — and SwiftUI does
-    /// not clip, it centres, so the bars bled over the tile border toward the percentage below.
-    /// The frame was exactly the size it claimed, so geometry saw nothing; only rendering it and
-    /// looking did.
+    /// The drawn stack never exceeds the fixed face, at any preset. SwiftUI doesn't clip, it
+    /// centres, so an overflow bleeds over the tile border toward the percentage below while the
+    /// frame still reports the size it claims, invisible to geometry.
     @Test func theSpecimenNeverOverflowsItsFace() {
         for preset in SizePreset.all {
             let rows = SizePresetSpecimen.rowCount(for: preset)
@@ -123,9 +116,8 @@ import SwiftUI
         }
     }
 
-    /// A tighter row spacing has to *show* more rows in the same space — otherwise the picture is
-    /// decoration rather than a miniature of the outcome, and the two 100% tiles on the setup
-    /// form, which carry identical percentages and no words, become indistinguishable.
+    /// A tighter row spacing has to show more rows in the same space, or the picture is decoration
+    /// and the setup form's two 100% tiles, same percentage and no words, look the same.
     @Test func compactFitsMoreRowsThanComfortableAtTheSameTextSize() {
         let compact = SizePreset(fontSize: .medium, density: .compact)
         let comfortable = SizePreset(fontSize: .medium, density: .comfortable)
@@ -144,11 +136,9 @@ import SwiftUI
                 < SizePresetSpecimen.barHeight(for: SizePreset(fontSize: .extraLarge, density: .comfortable)))
     }
 
-    /// What the tiles and the preview claim about row spacing has to be what row spacing does.
-    ///
-    /// The tile says the word and `SizeSpacingPreview` draws the consequence; both are only worth
-    /// anything if these metrics really differ, and a density whose two cases converged would make
-    /// the whole section a decorative choice between identical outcomes.
+    /// What the tiles and the preview claim about row spacing has to be what row spacing does. The
+    /// tile says the word and `SizeSpacingPreview` draws the result; both mean nothing if these
+    /// metrics converge.
     @Test func densityReallyChangesWhatARowShows() {
         #expect(ListDensity.comfortable.metrics.showsSecondaryDetail)
         #expect(!ListDensity.compact.metrics.showsSecondaryDetail)

@@ -1,13 +1,12 @@
 import SwiftUI
 
-/// **A capsule message going into Activity** — the fold, the flight and the landing's timing, and
-/// the path the ring takes from the capsule to the toolbar's Activity button.
+/// A capsule message going into Activity: the fold, the flight and the landing's timing, and the
+/// path the ring takes from the capsule to the toolbar's Activity button.
 ///
-/// A message the capsule shows was left there because the reader had moved on (Run Room CG), so
-/// when it goes it used to just vanish, from a part of the window nobody was looking at. Recent
-/// kept it all along; the flight shows where it went. Pure here, so the path is testable without a
-/// window — the app draws it in a panel over its own window (`CapsuleFlight`), because the capsule
-/// and the button both live in AppKit's toolbar, where nothing in the window's content can draw.
+/// A message left in the capsule would otherwise vanish from a part of the window nobody is looking
+/// at; the flight shows where it went (Recent keeps it). Pure here, so the path is testable without
+/// a window. The app draws it in a panel over its window (`CapsuleFlight`), because the capsule and
+/// the button live in AppKit's toolbar, where the window's content can't draw.
 public enum ProgressCapsuleFlight {
     /// Words and buttons fade and the capsule narrows to its ring.
     public static let foldDuration: Double = 0.22
@@ -19,9 +18,8 @@ public enum ProgressCapsuleFlight {
     public static let foldAnimation = Animation.timingCurve(0.4, 0, 0.6, 1, duration: foldDuration)
     public static let travelAnimation = Animation.timingCurve(0.45, 0, 0.2, 1, duration: travelDuration)
 
-    /// How far below the lower of the two ends the path dips, in points. A straight line along the
-    /// toolbar would run through every item between the two; a shallow swoop under them reads as
-    /// the ring going somewhere rather than sliding along a rail.
+    /// How far below the lower of the two ends the path dips, in points. A straight line would run
+    /// through every toolbar item between them; a shallow swoop reads as the ring going somewhere.
     public static let dip: CGFloat = 34
     /// The ring's size at the button, against its size in the capsule.
     public static let endScale: CGFloat = 0.6
@@ -80,7 +78,7 @@ public struct ProgressCapsuleFlightView: View {
 }
 
 /// Places the ring at `progress` of the flight. Animatable, so the animation interpolates the
-/// progress and the curve is followed — interpolating a position would cut straight across.
+/// progress and follows the curve; interpolating a position would cut straight across.
 private struct AlongFlight: ViewModifier, Animatable {
     var progress: Double
     let from: CGPoint

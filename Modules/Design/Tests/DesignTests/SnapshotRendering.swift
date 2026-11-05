@@ -3,34 +3,29 @@ import ObjectiveC
 import SnapshotTesting
 import SwiftUI
 
-// NOTE: This helper is intentionally duplicated (verbatim) in the other three test
-// targets — SPM offers no clean way to share test-support code across packages without
-// minting a production library product, and the harness must stay test-only. If you change
-// this file, change the copies too:
+// NOTE: This helper is duplicated verbatim in the other three test targets: SPM can't share
+// test-support code across packages without a production library product, and the harness must
+// stay test-only. If you change this file, change the copies too:
 //   Modules/FileExplorer/Tests/FileExplorer/SnapshotRendering.swift
 //   Modules/Dashboard/Tests/Dashboard/SnapshotRendering.swift
 //   Modules/Settings/Tests/Settings/SnapshotRendering.swift
 
-/// Renders a SwiftUI view to an `NSImage` offscreen at a FIXED size, in the given appearance,
-/// and asserts it against a committed reference under `__Snapshots__/`.
+/// Renders a SwiftUI view offscreen at a fixed size, in light and dark, and asserts each against
+/// a committed reference under `__Snapshots__/`.
 ///
-/// Rendering goes through a real (never-ordered-in) `NSWindow` + `NSHostingView`, not
-/// `ImageRenderer`: the hosting view resolves dynamic `NSColor`s, materials and SF Symbols the
-/// way the app does, and the window pins the appearance so light/dark are rendered explicitly
-/// instead of following the test machine's system theme.
+/// Renders through a real, never-ordered-in `NSWindow` + `NSHostingView`, not `ImageRenderer`:
+/// the hosting view resolves dynamic `NSColor`s, materials and SF Symbols as the app does, and the
+/// window pins the appearance instead of following the machine's theme.
 ///
-/// Determinism ground rules for callers (a flaky snapshot is worse than none):
-/// - fixed frame sizes only — never let the content dictate an unstable size
-/// - no live dates: freeze `Date` inputs, or pick values whose display bucket is far wider
-///   than the test's render latency — and pin the ZONE the date is formatted in by injecting
-///   it, rather than leaving the view on `TimeZone.current`. A frozen `Date` is only half of
-///   it: the same instant renders a different string once the machine changes zone, which is
-///   what sank two Dashboard references on 2026-09-05 (see SNAPSHOTS.md)
+/// Determinism rules for callers (a flaky snapshot is worse than none):
+/// - fixed frame sizes only; never let the content dictate an unstable size
+/// - no live dates: freeze `Date` inputs, or pick values whose display bucket is far wider than
+///   the render latency, and inject the time zone too: a frozen instant still renders a
+///   different string in another zone (see SNAPSHOTS.md)
 /// - nothing async (QuickLook thumbnails, network images) inside the snapshotted tree
 ///
-/// `precision` and `perceptualPrecision` default to the suite-wide tolerance. A caller tightens
-/// them only where a small control's shift must fail: at the default, 1% of the canvas may
-/// differ, which a control under ~1% of it fits inside (SNAP, the customize sheet).
+/// `precision` and `perceptualPrecision` default to the suite-wide tolerance, under which 1% of
+/// the canvas may differ. Tighten them only where a control smaller than that must fail.
 @MainActor
 func assertViewSnapshot<V: View>(
     of view: V,
@@ -49,8 +44,8 @@ func assertViewSnapshot<V: View>(
         let image = renderOffscreen(view, size: size, appearance: appearance)
         assertSnapshot(
             of: image,
-            // Sub-1.0 precision + perceptual tolerance absorb anti-aliasing jitter without
-            // letting a real color/layout change through.
+            // Sub-1.0 precision and perceptual tolerance absorb anti-aliasing jitter without
+            // letting a real color or layout change through.
             as: .image(precision: precision, perceptualPrecision: perceptualPrecision),
             named: "\(name)-\(variant)",
             fileID: fileID,
@@ -65,22 +60,17 @@ func assertViewSnapshot<V: View>(
 /// Makes SnapshotTesting's perceptual compare survive macOS 27, where it otherwise kills the
 /// whole test process instead of failing one test.
 ///
-/// Any image that is not byte-identical to its reference — a real change, or the ordinary
-/// anti-aliasing jitter `perceptualPrecision` exists to absorb — is diffed through
-/// `CIAreaAverage` / `CIAreaMaximum`, and SnapshotTesting (1.19.4, and still `main` as of
-/// 2026-09-16) passes those filters' `inputExtent` as a bare `CGRect`. Swift bridges that to an
-/// `NSValue`. CoreImage documents the key as a `CIVector`; on macOS 27 its reduction filters ask
-/// the value for `-CGRectValue`, which `CIVector` has and a macOS `NSValue` does not (AppKit's
-/// spelling is `-rectValue`). The result is an uncaught `NSInvalidArgumentException`, SIGABRT,
-/// and no Swift Testing verdict for ANY test in the package — see "A snapshot mismatch that
-/// aborts the process instead of failing" in docs/flaky-tests.md.
+/// Any image not byte-identical to its reference is diffed through `CIAreaAverage` /
+/// `CIAreaMaximum`, and the pinned SnapshotTesting passes their `inputExtent` as a bare `CGRect`,
+/// which Swift bridges to an `NSValue`. On macOS 27 those filters ask it for `-CGRectValue`, which
+/// `CIVector` has and a macOS `NSValue` does not. The uncaught exception aborts the process with
+/// no verdict for any test in the package: see "A snapshot mismatch that aborts the process
+/// instead of failing" in docs/flaky-tests.md.
 ///
-/// The shim gives `NSValue` the missing selector, answering with its `rectValue`. It is
-/// additive only: `class_addMethod` never replaces an existing implementation, and the guard
-/// makes it a no-op on an OS (or a future SnapshotTesting) where the selector already resolves.
-/// `SnapshotPerceptualCompareTests` in Modules/Design proves the compare then reports the right
-/// numbers rather than merely not crashing. Delete this once the pinned SnapshotTesting passes a
-/// `CIVector`.
+/// The shim adds the missing selector to `NSValue`, answering with its `rectValue`. Additive
+/// only: `class_addMethod` never replaces an implementation, and the guard makes it a no-op where
+/// the selector already resolves. `SnapshotPerceptualCompareTests` in Modules/Design checks the
+/// compare then reports the right numbers. Delete this once SnapshotTesting passes a `CIVector`.
 func installPerceptualCompareShim() {
     _ = perceptualCompareShim
 }
@@ -97,12 +87,10 @@ private let perceptualCompareShim: Void = {
 
 @MainActor
 private func renderOffscreen<V: View>(_ view: V, size: CGSize, appearance: NSAppearance.Name) -> NSImage {
-    // A neutral window-background fill behind every subject: most of these components are
-    // designed against the app's window chrome, and a transparent PNG makes the light/dark
-    // pair meaningless to eyeball.
-    // topLeading: when a subject's minimum size exceeds the canvas (deliberate in the
-    // narrow-width truncation scenarios), the visible portion starts at the leading edge
-    // instead of clipping both sides symmetrically.
+    // A window-background fill behind every subject: these components are designed against the
+    // window chrome, and a transparent PNG makes the light/dark pair meaningless to eyeball.
+    // topLeading: when a subject is wider than the canvas (as in the narrow-width truncation
+    // scenarios), the visible part starts at the leading edge instead of clipping both sides.
     let subject = view
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -111,8 +99,8 @@ private func renderOffscreen<V: View>(_ view: V, size: CGSize, appearance: NSApp
     let host = NSHostingView(rootView: AnyView(subject))
     host.frame = CGRect(origin: .zero, size: size)
 
-    // Borderless offscreen window: never ordered in (nothing flashes on the test machine's
-    // screen), but real enough that appearance, backing store and layout behave like the app.
+    // Borderless and never ordered in, so nothing flashes on screen, but real enough that
+    // appearance, backing store and layout behave as in the app.
     let window = NSWindow(
         contentRect: host.frame,
         styleMask: [.borderless],

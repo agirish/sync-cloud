@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// One run in the capsule's list — its snapshot, what it is, when it started and how it stops.
+/// One run in the capsule's list: its snapshot, what it is, when it started and how it stops.
 public struct ProgressCapsuleListedRun: Identifiable {
     /// Stable for the run's life, so its row keeps its place while its numbers change.
     public let id: String
@@ -8,10 +8,10 @@ public struct ProgressCapsuleListedRun: Identifiable {
     /// The run's kind, as a symbol: a file operation, a PDF tool, Save as PDF.
     public var symbol: String
     public var startedAt: Date?
-    /// `nil` for a run with nothing to stop between — one file being saved as PDF.
+    /// `nil` for a run with nothing to stop between, such as one file being saved as PDF.
     public var onCancel: (() -> Void)?
-    /// A long scan with a card of its own (TE228): its controls stay on the card, and the row's
-    /// Show goes there instead of offering a Stop.
+    /// A long scan with a card of its own: its controls stay on the card, so a row with no Stop
+    /// offers Show, which goes there.
     public var onShow: (() -> Void)?
 
     public init(id: String, run: ProgressCapsuleRun, symbol: String, startedAt: Date?,
@@ -25,18 +25,18 @@ public struct ProgressCapsuleListedRun: Identifiable {
     }
 }
 
-/// **Every run going at once, each with its own Stop** (TE217, TE219) — what the capsule's count
-/// button opens while two or more runs share it. Newest first, as the capsule draws them.
+/// Every run going at once, each with its own Stop: what the capsule's count button opens while
+/// two or more runs share it. Newest first, as the capsule draws them.
 ///
-/// The newest run's Stop is the default button, and ⌘. presses it too (decision CJ): ⌘. on the
-/// capsule opened this list, so the same key again stops the run the capsule was drawing, and
-/// never one the reader could not see named.
+/// The newest run's Stop is the default button, and ⌘. presses it too: ⌘. on the capsule opened
+/// this list, so the same key again stops the run the capsule was showing, never one the reader
+/// couldn't see named.
 public struct ProgressCapsuleRunList: View {
     let runs: [ProgressCapsuleListedRun]
     /// The Activity window's card is as wide as the window; the popover is the capsule's width.
     let fillsWidth: Bool
-    /// Return and ⌘. stop the newest run — in the popover ⌘. on the capsule opened, never in the
-    /// Activity window, which is opened to read: Return there stopped a merge.
+    /// Return and ⌘. stop the newest run in the popover that ⌘. on the capsule opened, never in the
+    /// Activity window, which is opened to read and where Return could stop a merge.
     let takesKeys: Bool
 
     public init(runs: [ProgressCapsuleListedRun], fillsWidth: Bool = false, takesKeys: Bool = true) {
@@ -65,8 +65,8 @@ public struct ProgressCapsuleRunList: View {
         .frame(width: fillsWidth ? nil : Self.width, alignment: .leading)
         .frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .leading)
         .background {
-            // ⌘. stops the newest, as Return does — a second key on its Stop, which a button
-            // cannot carry, so it rides on one of its own that draws nothing.
+            // ⌘. stops the newest, as Return does. A button carries one key, so the second rides on
+            // a button of its own that draws nothing.
             if takesKeys, let newest = runs.first, let stop = newest.onCancel {
                 Button("", action: stop)
                     .keyboardShortcut(AppChord.cancelOperation.key, modifiers: AppChord.cancelOperation.modifiers)

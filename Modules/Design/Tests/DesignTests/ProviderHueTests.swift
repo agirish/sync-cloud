@@ -2,28 +2,28 @@ import Testing
 import SwiftUI
 @testable import Design
 
-/// UX H2: provider-identity elements are tinted by classifying the provider *display name*.
-/// These pins guard the substring-order traps ("iCloud Drive" and "OneDrive" both contain
-/// "drive"; "Dropbox" contains "box") and keep the brand hues visibly distinct, so a reordered
-/// check or a collapsed color fails here instead of painting both panes the same blue again.
+/// Provider-identity elements are tinted by classifying the provider's display name. These guard
+/// the substring-order traps ("iCloud Drive" and "OneDrive" both contain "drive"; "Dropbox"
+/// contains "box") and keep the brand hues distinct, so a reordered check or a collapsed colour
+/// fails here instead of painting both panes the same blue.
 @Suite struct ProviderHueTests {
 
     // MARK: - Classification
 
     @Test func testICloudWinsOverDriveSubstring() {
-        // "iCloud Drive" contains "drive" — iCloud must be checked first.
+        // "iCloud Drive" contains "drive", so iCloud must be checked first.
         #expect(ProviderHue.classify("iCloud Drive") == .iCloud)
         #expect(ProviderHue.classify("iCloud") == .iCloud)
     }
 
     @Test func testDropboxWinsOverBoxSubstring() {
-        // "Dropbox" contains "box" — Dropbox must be checked before Box.
+        // "Dropbox" contains "box", so Dropbox must be checked before Box.
         #expect(ProviderHue.classify("Dropbox") == .dropbox)
         #expect(ProviderHue.classify("My Dropbox") == .dropbox)
     }
 
     @Test func testOneDriveWinsOverDriveSubstring() {
-        // "OneDrive" contains "drive" — OneDrive must be checked before Drive.
+        // "OneDrive" contains "drive", so OneDrive must be checked before Drive.
         #expect(ProviderHue.classify("OneDrive") == .oneDrive)
         #expect(ProviderHue.classify("OneDrive — Work") == .oneDrive)
     }
@@ -53,8 +53,8 @@ import SwiftUI
     // MARK: - Hues
 
     @Test func testBrandTintsArePairwiseDistinct() {
-        // The whole point of H2: every branded hue must differ from every other, and the two
-        // blues (iCloud vs Dropbox) especially must not collapse back into one.
+        // Every branded hue must differ from every other; the two blues (iCloud and Dropbox)
+        // especially must not collapse into one.
         let branded: [ProviderHue] = [.iCloud, .dropbox, .googleDrive, .oneDrive, .box]
         for (i, a) in branded.enumerated() {
             for b in branded[(i + 1)...] {
@@ -63,8 +63,8 @@ import SwiftUI
         }
     }
 
-    /// The hue the user picked, not SwiftUI's `Color.accentColor` — the SYSTEM accent, which this
-    /// returned until the scan in `AccentFillScanTests` caught it.
+    /// The hue the user picked, not SwiftUI's `Color.accentColor`, which is the system accent
+    /// (`AccentFillScanTests` scans for that).
     @Test func testNeutralFollowsTheAppAccent() {
         #expect(ProviderHue.neutral.tint == LiquidGlassHue.stored().accentColor)
         if LiquidGlassHue.stored() != .none {
@@ -73,7 +73,7 @@ import SwiftUI
     }
 
     @Test func testSoftVariantIsTheTintAtChipOpacity() {
-        // Mirrors the 0.12 soft-chip fill StatusBadge established.
+        // Mirrors StatusBadge's 0.12 soft-chip fill.
         for hue in ProviderHue.allCases {
             #expect(hue.soft == hue.tint.opacity(0.12))
         }
@@ -94,8 +94,8 @@ import SwiftUI
     private let aa = 4.5
 
     @Test func testDarkBrandVariantsClearAAOnDarkGround() {
-        // The reason H6 exists: the static light-mode blues (Dropbox/OneDrive/Drive) failed as
-        // tinted text in dark mode; the lifted dark variants must clear AA on the dark surface.
+        // The light-mode blues (Dropbox, OneDrive, Drive) fail as tinted text in dark mode, so the
+        // lifted dark variants must clear AA on the dark surface.
         let dg = darkGround.relativeLuminance
         for hue in ProviderHue.allCases where hue.brand != nil {
             let ratio = contrast(hue.brand!.dark.relativeLuminance, dg)
@@ -104,8 +104,8 @@ import SwiftUI
     }
 
     @Test func testLightBrandVariantsUnchanged() {
-        // H6 is a dark-mode audit — the shipped H2 light hexes must NOT be re-tuned. Pin them so
-        // a future dark-mode tweak that also touches the light column trips here.
+        // The light hexes are the brand colours and stay as they are; pinned so a dark-mode tweak
+        // that also touches the light column trips here.
         #expect(ProviderHue.iCloud.brand!.light == .init(0.231, 0.612, 1.0))
         #expect(ProviderHue.dropbox.brand!.light == .init(0.0, 0.380, 1.0))
         #expect(ProviderHue.googleDrive.brand!.light == .init(0.118, 0.639, 0.384))
@@ -114,8 +114,8 @@ import SwiftUI
     }
 
     @Test func testDarkVariantsAreLiftedFromLight() {
-        // Each dark variant is a lighter (higher-luminance) lift of its light hue — the fix is
-        // "brighten for dark ground", never a hue swap.
+        // Each dark variant is a lighter (higher-luminance) lift of its light hue: brightened for
+        // the dark ground, never a hue swap.
         for hue in ProviderHue.allCases where hue.brand != nil {
             let b = hue.brand!
             #expect(b.dark.relativeLuminance > b.light.relativeLuminance, "\(hue) dark is not lifted")

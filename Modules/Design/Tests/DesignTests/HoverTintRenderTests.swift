@@ -3,18 +3,15 @@ import SwiftUI
 import XCTest
 @testable import Design
 
-/// Proves the hover tint actually lands on the glyph, by rendering it and reading the pixels.
-///
-/// Every previous attempt at a hover for the system-chrome buttons was reasoned about rather than
-/// rendered — a halo, then a saturation filter — and each was invisible in the running app while
-/// looking perfectly correct in the source. These specimens are plain `Image`s with no glass
-/// anywhere near them, so unlike the chrome itself they *do* render offscreen, and the question
-/// "does anything actually change colour" becomes answerable here instead of in a screenshot.
+/// Proves the hover tint lands on the glyph, by rendering it and reading the pixels. A hover for
+/// the system-chrome buttons can look correct in source and be invisible in the app. These
+/// specimens are plain `Image`s with no glass, so unlike the chrome they render offscreen, and
+/// "does anything change colour" is answered here instead of in a screenshot.
 final class HoverTintRenderTests: XCTestCase {
 
-    /// XCTest predates the `Testing` trait, so this suite opts into the same
-    /// `MachinePinnedReason.pixelSampling` gate by hand. It reads painted pixels exactly like
-    /// its `@Suite(.machinePinned(.pixelSampling))` neighbours and must skip with them.
+    /// XCTest has no `Testing` trait, so this suite opts into the
+    /// `MachinePinnedReason.pixelSampling` gate by hand. It reads painted pixels like its
+    /// `@Suite(.machinePinned(.pixelSampling))` neighbours and must skip with them.
     override func setUpWithError() throws {
         try super.setUpWithError()
         try XCTSkipIf(MachinePinnedGate.isExcluded(.pixelSampling),
@@ -38,7 +35,7 @@ final class HoverTintRenderTests: XCTestCase {
         return rep
     }
 
-    /// How blue the specimen is overall — the tint is pure blue, so this rises only if it landed.
+    /// How blue the specimen is overall. The tint is pure blue, so this rises only if it landed.
     @MainActor
     private func blueness(_ rep: NSBitmapImageRep) -> Double {
         var total = 0.0
@@ -71,8 +68,8 @@ final class HoverTintRenderTests: XCTestCase {
 
     @MainActor
     func testPressedIsTintedToo() throws {
-        // `.pressed` is engaged as far as the label is concerned: a glyph that snapped back to
-        // its resting colour the instant you clicked would read as the control losing focus.
+        // `.pressed` counts as engaged for the label: a glyph that snapped back to its resting
+        // colour on click would read as the control losing focus.
         let rest = try blueness(render(specimen(.rest)))
         let pressed = try blueness(render(specimen(.pressed)))
         XCTAssertGreaterThan(pressed, rest + 0.05,
@@ -81,9 +78,8 @@ final class HoverTintRenderTests: XCTestCase {
 
     @MainActor
     func testRestingAppearanceIsLeftExactlyAlone() throws {
-        // The whole reason this is `hoverTint` and not `hoverInk`: it must be droppable onto a
-        // control whose resting colour comes from a system button style, without restating — and
-        // so overriding — that colour.
+        // Why this is `hoverTint`, not `hoverInk`: it must drop onto a control whose resting
+        // colour comes from a system button style without restating, and so overriding, it.
         let bare = try blueness(render(Image(systemName: "chevron.left")))
         let atRest = try blueness(render(specimen(.rest)))
         XCTAssertEqual(atRest, bare, accuracy: 0.001,

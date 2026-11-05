@@ -3,11 +3,10 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// Visual snapshot net over the Design module's shared surfaces — the components that burned
-/// us in review rounds and were only caught by code-reading: TokenChipsRow (hit targets,
-/// superseded dimming), StatusBadge, EmptyStateView, ProgressCapsule. Each scenario renders at
-/// a fixed size in light and dark against committed reference images (see SNAPSHOTS.md for
-/// the re-record workflow and the single-machine caveat).
+/// Snapshots of the Design module's shared surfaces, whose visual faults code-reading alone
+/// misses: TokenChipsRow, StatusBadge, EmptyStateView, ProgressCapsule, the glass cards and the
+/// action bar. Each renders at a fixed size in light and dark against committed reference images
+/// (SNAPSHOTS.md has the re-record workflow and the single-machine caveat).
 @MainActor
 @Suite(.serialized, .machinePinned(.referenceImages)) struct DesignSnapshotTests {
 
@@ -27,9 +26,8 @@ import Testing
             named: "active")
     }
 
-    /// The last-wins grammar dims and strikes a superseded chip — the exact dimming that
-    /// regressed silently before: an inactive chip must read secondary + struck through, not
-    /// like a live filter.
+    /// The last-wins grammar dims and strikes a superseded chip: an inactive chip must read
+    /// secondary and struck through, not like a live filter.
     @Test func tokenChipsRowSupersededChipDims() {
         let items: [TokenChipsRow.Item] = [
             .init(label: "type:pdf", word: "type:pdf", isActive: false),
@@ -43,8 +41,8 @@ import Testing
             named: "superseded")
     }
 
-    /// A light tint (the Yellow-accent family) must still produce readable chips — the tint is
-    /// caller-supplied, so this pins the low-contrast pairing directly.
+    /// A light tint (the Yellow accent) must still give readable chips. The tint is the caller's,
+    /// so this pins the low-contrast pairing directly.
     @Test func tokenChipsRowYellowTint() {
         assertViewSnapshot(
             of: TokenChipsRow(items: Self.activeItems, tint: .yellow, onRemove: { _ in })
@@ -68,8 +66,8 @@ import Testing
 
     // MARK: EmptyStateView
 
-    /// The pre-scan gold standard: icon + title + message + safety-contract caption + a
-    /// prominent primary and a quieter secondary action.
+    /// The full pre-scan shape: icon, title, message, safety caption, a prominent primary and a
+    /// quieter secondary action.
     @Test func emptyStatePreScan() {
         assertViewSnapshot(
             of: EmptyStateView(
@@ -84,8 +82,8 @@ import Testing
             named: "pre-scan")
     }
 
-    /// The filtered-empty shape (the Activity Log's "filters hide everything" state): no
-    /// caption, a single primary — must not look broken, just intentional.
+    /// The filtered-empty shape (the Activity Log's "filters hide everything" state): no caption,
+    /// one primary. It must look intentional, not broken.
     @Test func emptyStateFilteredNoMatches() {
         assertViewSnapshot(
             of: EmptyStateView(
@@ -97,10 +95,9 @@ import Testing
             named: "filtered-no-matches")
     }
 
-    /// The `path:` slot with a path far wider than the canvas: it must stay a SINGLE
-    /// monospaced line, middle-truncated (leading root and trailing leaf both visible) —
-    /// never wrap or center like the prose slots. This was the one initializer slot with no
-    /// pixel pin at all.
+    /// The `path:` slot with a path far wider than the canvas: it stays one monospaced line,
+    /// middle-truncated so the root and the leaf both show, and never wraps or centres like the
+    /// prose slots.
     @Test func emptyStateLongPathTruncatesMiddle() {
         assertViewSnapshot(
             of: EmptyStateView(
@@ -113,7 +110,7 @@ import Testing
             named: "long-path")
     }
 
-    /// The C5 compact layout for narrow hosts (Details sidebar, file-pane placeholder):
+    /// The compact layout for narrow hosts (Details sidebar, file-pane placeholder):
     /// smaller icon, tighter spacing, small-size action button.
     @Test func emptyStateCompactSidebar() {
         assertViewSnapshot(
@@ -130,7 +127,7 @@ import Testing
     // MARK: ProgressCapsule
 
     /// Mid-flight with a long title, both rungs: the full capsule's ring, middle-truncated title,
-    /// bar, count and stop button, and the ring alone with its stop button (TE206).
+    /// bar, count and stop button, and the ring alone with its stop button.
     @Test(arguments: [ProgressCapsuleStyle.full, .ring])
     func progressCapsuleMidOperation(style: ProgressCapsuleStyle) {
         let progress = Progress(totalUnitCount: 7363)
@@ -145,7 +142,7 @@ import Testing
     }
 
     /// Two runs, both rungs: the newest run drawn, and the count where the ✕ was — "2 ⌄" in the
-    /// full capsule, a filled badge beside the ring (TE218, TE225).
+    /// full capsule, a filled badge beside the ring.
     @Test(arguments: [ProgressCapsuleStyle.full, .ring])
     func progressCapsuleTwoRuns(style: ProgressCapsuleStyle) {
         let progress = Progress(totalUnitCount: 7363)
@@ -159,7 +156,7 @@ import Testing
             named: style == .full ? "two-runs-full" : "two-runs-ring")
     }
 
-    /// A run's ending over a run still going (CU, TE233): ✓ in the ring, the message and its button,
+    /// A run's ending over a run still going: ✓ in the ring, the message and its button,
     /// and the count still saying one run goes on; in the ring rung, the glyph and the count.
     @Test(arguments: [ProgressCapsuleStyle.full, .ring])
     func progressCapsuleMessageOverARun(style: ProgressCapsuleStyle) {
@@ -178,7 +175,7 @@ import Testing
     }
 
     /// The list the count opens: each run with its own progress and Stop, the newest's the default
-    /// button (TE219). Start times left out — "started … ago" reads the clock.
+    /// button. Start times are left out, since "started … ago" reads the clock.
     @Test func progressCapsuleRunList() {
         let merge = ProgressCapsuleRun(title: "Merging “Photos”", completed: 736, total: 7363, detail: "IMG_2034.jpg")
         let pdf = ProgressCapsuleRun(title: "Compressing — page 14 of 40", detail: "Lease 2026.pdf",
@@ -198,11 +195,9 @@ import Testing
     // MARK: Glass surfaces — the dark "bold" re-tune
 
     // Rendered at `.solid` on purpose: `.glassEffect` (the `.clear`/`.frosted` fill) doesn't render
-    // in a headless host, but the border + shadow the re-tune adds are plain SwiftUI and do — so at
-    // `.solid` these deterministically pin exactly what changed. Each captures the dark specular
-    // hairline / deep shadow AND the light `.quaternary` hairline / soft shadow it must preserve —
-    // the regression net the surfaces lacked (the other suites render inner components, never these
-    // wrappers).
+    // in a headless host, but the border and shadow are plain SwiftUI and do. Each pins the dark
+    // specular hairline and deep shadow, and the light `.quaternary` hairline and soft shadow. No
+    // other suite renders these wrappers, only their inner components.
 
     /// A stand-in card body shared by the surface-chrome snapshots.
     @ViewBuilder private func sampleCardBody() -> some View {
@@ -240,8 +235,8 @@ import Testing
             named: "overlay-card")
     }
 
-    /// A lens content card (`lensCard`): dark now gets the shared white specular hairline instead of
-    /// staying a flat `.quaternary` edge inside a bold section; light unchanged.
+    /// A lens content card (`lensCard`): dark gets the shared white specular hairline, not a flat
+    /// `.quaternary` edge inside a bold section; light keeps its own.
     @Test func lensCardChrome() {
         assertViewSnapshot(
             of: sampleCardBody().lensCard().padding(24),
@@ -251,19 +246,16 @@ import Testing
 
     // MARK: Action bar
 
-    /// The three action-bar weights side by side with the divider that separates their zones —
-    /// the ladder a reader has to be able to see at a glance, since "one filled capsule per bar"
-    /// only means anything if filled, tinted and outline are visibly three steps.
+    /// The three action-bar weights side by side with the divider between their zones. "One
+    /// filled capsule per bar" only means something if filled, tinted and outline are visibly
+    /// three steps.
     ///
-    /// Unlike the glass chrome above, this renders faithfully offscreen: every weight is drawn
-    /// from a fill and a hairline we own rather than from a system material, which is the same
-    /// property that keeps it from graying out when the app isn't frontmost
-    /// (`ActionBarFocusIndependenceTests`).
+    /// Unlike the glass chrome above, this renders faithfully offscreen: every weight is a fill
+    /// and hairline we own, not a system material, which also keeps it from greying out when the
+    /// app isn't frontmost (`ActionBarFocusIndependenceTests`).
     ///
-    /// The label text is ILLUSTRATIVE, not a copy reference. It is shaped like the differences
-    /// bar's buttons because that is this style's main caller, but the exact wording lives in
-    /// `BulkActionLabel` (FileExplorer) and has since gained a "Copy" verb these specimens do not
-    /// carry — they are sized to a fixed canvas, and this suite asserts weights, not words.
+    /// The labels are illustrative, not a copy reference: the real wording lives in
+    /// `BulkActionLabel` (FileExplorer). This suite asserts weights, not words.
     @Test func actionBarWeights() {
         assertViewSnapshot(
             of: HStack(spacing: 10) {
@@ -283,8 +275,7 @@ import Testing
     }
 
     /// A disabled row: every weight keeps its shape and loses its conviction, so a blocked bulk
-    /// action still reads as a control rather than disappearing (the failure the Clear glass level
-    /// used to produce).
+    /// action still reads as a control instead of disappearing on Clear glass.
     @Test func actionBarDisabled() {
         assertViewSnapshot(
             of: HStack(spacing: 10) {

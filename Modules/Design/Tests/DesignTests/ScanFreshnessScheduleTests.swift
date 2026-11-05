@@ -6,9 +6,9 @@ import Combine
 @testable import Design
 
 /// The Compare header's timeline ticks exactly where its readout changes: the pill's age, its
-/// spoken form, the stale flag and the tooltip's stamp. Checked from both sides — the readout never
+/// spoken form, the stale flag and the tooltip's stamp. Checked from both sides: the readout never
 /// changes between two ticks (no label left stale), and it does change at every tick (no tick
-/// wasted, which is the whole point of replacing the 30 s period).
+/// wasted, unlike a fixed 30 s period).
 @Suite struct ScanFreshnessScheduleTests {
 
     private struct Reading: Equatable {
@@ -71,8 +71,8 @@ import Combine
         }
     }
 
-    /// The cost the period paid: 120 rebuilds an hour, forever. Now 60 in the first hour, one an
-    /// hour to a day (plus the midnight), one a day after.
+    /// A fixed 30 s period costs 120 rebuilds an hour, forever. The schedule ticks 60 times in the
+    /// first hour, once an hour to a day (plus the midnight), once a day after.
     @Test func anIdleHeaderTicksOnceAnHourThenOnceADay() {
         let anchor = Date(timeIntervalSince1970: 1_000_000.37)
         let ticks = Array(ScanFreshnessSchedule(anchor: anchor, calendar: calendar("UTC"))
@@ -87,8 +87,8 @@ import Combine
         #expect(count(86_401, 10 * 86_400 + 1) == 9)      // 2 d … 10 d: the day ladder is endless
     }
 
-    /// A view that appears mid-ladder draws at once, then waits for the next seam — not for the
-    /// next 30 s mark, and not for a seam already past.
+    /// A view that appears mid-ladder draws at once, then waits for the next seam, not for the next
+    /// 30 s mark and not for a seam already past.
     @Test func startingMidLadderYieldsStartThenTheNextSeam() {
         let anchor = Date(timeIntervalSince1970: 1_000_000.37)
         let start = anchor.addingTimeInterval(5 * 3600 + 17)
@@ -109,8 +109,8 @@ import Combine
     }
 
     /// A wake, clock or zone change bumps the view's epoch, and a schedule with a new epoch is a
-    /// different schedule — which is what makes the timeline restart from now rather than wait
-    /// out a tick that may be a day away.
+    /// different schedule, so the timeline restarts from now rather than waiting out a tick that
+    /// may be a day away.
     @Test func aNewEpochIsANewSchedule() {
         let anchor = Date(timeIntervalSince1970: 1_000_000.37)
         let cal = calendar("UTC")

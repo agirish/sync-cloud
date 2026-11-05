@@ -2,11 +2,11 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// The arithmetic behind resizing a centred floating card — the Help card's rule, now shared with
-/// the Compare Copies overlay.
+/// The arithmetic behind resizing a centred floating card, shared by the Help card and the Compare
+/// Copies overlay.
 ///
-/// **The sign table is the whole point.** `.leading` grows the card when dragged LEFT, which is
-/// the one thing a hand-rolled resize gets backwards, and it is now written once instead of twice.
+/// The sign table is the point: `.leading` grows the card when dragged left, the one thing a
+/// hand-rolled resize gets backwards, so it is written once.
 @Suite struct ResizableCardTests {
 
     private let floor = CGSize(width: 100, height: 80)
@@ -15,8 +15,8 @@ import Testing
 
     // MARK: Directions
 
-    /// Dragging the trailing edge right grows the card; dragging the leading edge right SHRINKS
-    /// it. Both by twice the translation, because the card is centred.
+    /// Dragging the trailing edge right grows the card; dragging the leading edge right shrinks it.
+    /// Both by twice the translation, because the card is centred.
     @Test func theHorizontalGripsPullInOppositeDirections() {
         let right = ResizableCardSize.resized(from: start, by: CGSize(width: 10, height: 0),
                                               grip: .trailing, minimum: floor, within: room)
@@ -38,9 +38,9 @@ import Testing
         #expect(down.width == start.width, "a vertical grip moved the width")
     }
 
-    /// **The doubling is what keeps the pointer on the grip.** The card is centred, so half of any
-    /// growth goes to each side: to move an edge 10pt the width has to grow 20. Adding the
-    /// translation once would leave the edge drifting at half the pointer's speed.
+    /// The doubling keeps the pointer on the grip. The card is centred, so half of any growth goes
+    /// to each side: to move an edge 10pt the width grows 20. Adding the translation once would
+    /// leave the edge drifting at half the pointer's speed.
     @Test func aDragMovesTheEdgeByExactlyTheTranslation() {
         let grown = ResizableCardSize.resized(from: start, by: CGSize(width: 25, height: 0),
                                               grip: .trailing, minimum: floor, within: room)
@@ -62,9 +62,9 @@ import Testing
 
     /// The alignment and the direction describe the same edge. A `.leading` grip drawn at
     /// `.trailing` would resize the card from the side the pointer is not on.
-    /// Compared against the real `HorizontalAlignment`/`VerticalAlignment` values, not against a
-    /// description: `Alignment`'s `debugDescription` is opaque key bits, so a string match there
-    /// fails on every case and would have to be deleted rather than fixed.
+    /// Compared against the real `HorizontalAlignment`/`VerticalAlignment` values, not a
+    /// description: `Alignment`'s `debugDescription` is opaque key bits, so a string match fails on
+    /// every case.
     @Test func everyGripsAlignmentAgreesWithItsDirection() {
         for grip in ResizableCardGrip.allCases {
             let expectedH: HorizontalAlignment = grip.horizontal == 1 ? .trailing
@@ -94,10 +94,9 @@ import Testing
         #expect(huge == available)
     }
 
-    /// **`GeometryReader` reports `.zero` on its first layout pass.** Clamping straight to
-    /// `available` there would collapse the card to nothing on the very frame it appears, so the
-    /// floor wins when the window is smaller than it — an overflowing card is legible and a 0×0
-    /// one is gone.
+    /// `GeometryReader` reports `.zero` on its first layout pass. Clamping straight to `available`
+    /// would collapse the card on the frame it appears, so the floor wins when the window is
+    /// smaller: an overflowing card is legible, a 0×0 one is gone.
     @Test func aZeroSizedWindowGivesTheFloorRatherThanNothing() {
         #expect(ResizableCardSize.clamped(start, minimum: floor, within: .zero) == floor)
     }

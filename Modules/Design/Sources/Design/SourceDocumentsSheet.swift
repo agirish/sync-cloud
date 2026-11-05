@@ -23,7 +23,7 @@ public struct SourceDocumentsFacts: Equatable, Sendable {
     }
 }
 
-/// The sheet's words (mockup 52b6b1ed, 2026-10-31), as static functions a test can read.
+/// The sheet's words, as static functions a test can read.
 public enum SourceDocumentsText {
 
     static func possessive(_ name: String) -> String { name.hasSuffix("s") ? name + "’" : name + "’s" }

@@ -4,23 +4,18 @@ import Testing
 @testable import Design
 
 /// `ProviderLogo` is the one place a provider mark is drawn, so the property worth pinning is that
-/// it costs the mark's box nothing — the provider capsule picks its `ViewThatFits` rung by ideal
-/// width, so any presentation that grew the logo would drop the logo from the header, and would do
-/// it silently.
+/// it adds nothing to the mark's box: the provider capsule picks its `ViewThatFits` rung by ideal
+/// width, so a presentation that grew the logo would silently drop it from the header. Measured,
+/// not read from source, so any change to the presentation has to clear it.
 ///
-/// It measures rather than reads the source because the presentation is still being iterated: a
-/// light plate was added and reverted (`d9e9698`), and the next attempt will land in the same view.
-/// This is the guard rail that attempt has to clear.
-///
-/// The asset is absent here — the catalog belongs to the app target — so these renders carry an
-/// empty frame. That is exactly why the size assertion is the one that matters: it holds whether or
-/// not the mark resolves, while anything about the mark's own pixels is only verifiable in the app.
+/// The asset is absent here (the catalog belongs to the app target), so these renders carry an
+/// empty frame. That is why the size is what's asserted: it holds whether or not the mark
+/// resolves, while the mark's own pixels are only checkable in the app.
 @MainActor
 @Suite(.serialized) struct ProviderLogoTests {
 
-    /// Every call site's size, in both appearances. Appearance is included because the reverted
-    /// plate was appearance-driven — the failure mode it could have introduced was a logo that
-    /// measured one way in light and another in dark.
+    /// Every call site's size, in both appearances, since an appearance-driven presentation could
+    /// measure one way in light and another in dark.
     @Test func measuresItsDeclaredSizeInEitherAppearance() {
         for size in [CGFloat(16), 26, 28] {
             for appearance in [NSAppearance.Name.aqua, .darkAqua] {
@@ -30,8 +25,8 @@ import Testing
         }
     }
 
-    /// And the two appearances agree with each other, which is the form the capsule actually
-    /// depends on: the ladder is only appearance-blind if dark and light measure identically.
+    /// And the two appearances agree, which is what the capsule depends on: the ladder is only
+    /// appearance-blind if dark and light measure identically.
     @Test func appearancesAgree() {
         for size in [CGFloat(16), 26, 28] {
             #expect(laidOutSize(size: size, appearance: .darkAqua)

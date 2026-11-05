@@ -2,14 +2,13 @@ import AppKit
 import Testing
 @testable import Design
 
-/// `NativeAlerts.confirmDelete` — the ⌘⌫ / row-menu confirmation, asked of the alert
-/// `deleteAlert` builds, never of `confirmDelete`, whose `runModal()` would park this test's main
-/// thread on a session nothing here can dismiss.
+/// `NativeAlerts.confirmDelete`, the ⌘⌫ / row-menu confirmation, asked of the alert `deleteAlert`
+/// builds, never of `confirmDelete`, whose `runModal()` would park this test's main thread on a
+/// session nothing here can dismiss.
 @Suite @MainActor struct NativeAlertsDeleteAlertTests {
 
-    /// **The body adds to the title.** It said "It goes to the Trash." under "Move “x” to the
-    /// Trash?" — the title again. It says the item can come back, and promises no ⌘Z (see
-    /// `confirmDelete`).
+    /// The body adds to the title instead of repeating it: it says the item can come back, and
+    /// promises no ⌘Z (see `confirmDelete`).
     @Test func oneItemsAlertSaysItCanComeBack() throws {
         let alert = try #require(NativeAlerts.deleteAlert(for: ["Report.pdf"]))
         #expect(alert.messageText == "Move “Report.pdf” to the Trash?")
@@ -27,7 +26,7 @@ import Testing
     }
 
     /// A folder goes to the Trash with everything in it, including what a type filter hides, and
-    /// the prompt says so (RD70, FJ).
+    /// the prompt says so.
     @Test func aFolderWithFilteredItemsSaysTheyGoToo() throws {
         let one = try #require(NativeAlerts.deleteAlert(for: ["photos"], hiddenByFilter: 3))
         #expect(one.informativeText == "Includes 3 items the filter is hiding. You can put it back from the Trash.")

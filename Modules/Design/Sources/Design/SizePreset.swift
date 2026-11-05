@@ -1,20 +1,16 @@
 import SwiftUI
 
-/// A named pairing of `FontSize` and `ListDensity` — one click that answers "how much do you want
-/// on screen?" instead of asking it twice.
+/// A named pairing of `FontSize` and `ListDensity`: one click that answers "how much do you want on
+/// screen?" instead of asking it twice.
 ///
-/// The two settings are orthogonal and stay that way; this is a **shortcut over them, never a
-/// replacement for them**. "Large text, compact rows" is a real combination — it is what somebody
-/// with a 5K display and a four-thousand-file duplicate set actually wants — and it is deliberately
-/// not on this list. The Settings panel keeps both controls underneath, so a preset is a starting
-/// point rather than a cage; ``matching(fontSize:density:)`` answers nil for anything off the list
-/// and the row simply shows nothing selected.
+/// A shortcut over the two orthogonal settings, never a replacement. "Large text, compact rows" is
+/// a real combination and deliberately not on this list; the Settings panel keeps both controls
+/// underneath, and ``matching(fontSize:density:)`` answers nil for anything off the list, so the
+/// row shows nothing selected.
 ///
-/// **Nothing here is persisted.** `FontSize.defaultsKey` and `ListDensity.defaultsKey` remain the
-/// two sources of truth: a preset is read back out of them to decide which one is lit, and writes
-/// both when chosen. A third stored key would be a value that could disagree with the two it
-/// summarises, and the first thing to disagree with it would be the fine controls sitting directly
-/// below.
+/// Nothing here is persisted. `FontSize.defaultsKey` and `ListDensity.defaultsKey` stay the two
+/// sources of truth: a preset is read back from them and writes both when chosen. A third stored
+/// key could disagree with the two it summarises.
 public struct SizePreset: Hashable, Identifiable, Sendable {
     public let fontSize: FontSize
     public let density: ListDensity
@@ -24,14 +20,9 @@ public struct SizePreset: Hashable, Identifiable, Sendable {
         self.density = density
     }
 
-    /// The presets, in the one order that makes them legible as a row: **every step shows less
-    /// and reads bigger.**
-    ///
-    /// That monotonicity is the whole reason five of them can sit in a strip without labels
-    /// explaining the strip. It also fixes where the density flip goes — between the second and
-    /// third, the only position where neither half of the pair ever moves backwards. Put it
-    /// anywhere else and the row stops being a ladder and becomes a menu, which is what the
-    /// five-dot rail this replaced actually was.
+    /// The presets, in the one order that reads as a row: every step shows less and reads bigger.
+    /// That is why five can sit in a strip without labels explaining it, and why the density flip
+    /// sits between the second and third, the only place neither half of the pair moves backwards.
     public static let all: [SizePreset] = [
         SizePreset(fontSize: .small, density: .compact),
         SizePreset(fontSize: .medium, density: .compact),
@@ -41,9 +32,8 @@ public struct SizePreset: Hashable, Identifiable, Sendable {
     ]
 
     /// The preset a fresh install sits on, and the one the Settings caption calls "Default".
-    /// Derived rather than written down twice — `theDefaultPresetIsTheShippingLook` pins it
-    /// against the two settings' own defaults, so a preset list reordered without thinking fails
-    /// instead of quietly moving what "Default" means.
+    /// `theDefaultPresetIsTheShippingLook` pins it against the two settings' own defaults, so a
+    /// reordered list fails instead of quietly moving what "Default" means.
     public static let `default` = SizePreset(fontSize: .medium, density: .comfortable)
 
     public var id: String { "\(fontSize.percent)-\(density.rawValue)" }
@@ -53,20 +43,14 @@ public struct SizePreset: Hashable, Identifiable, Sendable {
         all.first { $0.fontSize == fontSize && $0.density == density }
     }
 
-    /// What row spacing this preset sets, in words.
-    ///
-    /// Printed as the second line of a `.named` tile — where, the first line being the percentage,
-    /// it is what makes the two 100% tiles tell themselves apart — and NOT on a `.specimen` one,
-    /// which draws the result instead because on the setup form the words have neither the width
-    /// nor the meaning yet (see `SizePresetRow`). Both styles say it in their accessibility label
-    /// and tooltip, which is where a name is worth more than a picture on any surface.
+    /// What row spacing this preset sets, in words. The second line of a `.named` tile, where it
+    /// tells the two 100% tiles apart; a `.specimen` tile draws the result instead (see
+    /// `SizePresetRow`). Both styles say it in their accessibility label and tooltip.
     public var densityName: String { density.displayName }
 
-    /// The caption under the whole row, describing where the two settings currently stand.
-    ///
-    /// Answers for *any* pair, not just the presets, because the fine controls below can put the
-    /// panel in a state no preset covers — and "Custom" is the honest readout there. A row that
-    /// lit its nearest neighbour instead would be claiming a setting the user did not choose.
+    /// The caption under the whole row, describing where the two settings stand. Answers for any
+    /// pair, because the fine controls can leave the panel where no preset covers, and "Custom" is
+    /// the honest readout there.
     public static func caption(fontSize: FontSize, density: ListDensity) -> String {
         let pair = "\(fontSize.percent)% text, \(density.displayName.lowercased()) rows"
         guard let preset = matching(fontSize: fontSize, density: density) else {

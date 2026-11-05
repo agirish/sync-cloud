@@ -9,15 +9,9 @@ import Foundation
     private let base = Date(timeIntervalSince1970: 1_000_000)
     private func at(_ offset: TimeInterval) -> Date { base.addingTimeInterval(offset) }
 
-    /// The spoken form is the only channel that puts staleness into WORDS. Everything else
-    /// distinguishing a stale scan from a fresh one is either colour (the age run's terracotta
-    /// capsule) or silent (`.help`), and the age string itself is identical in both states — so a
-    /// spoken form that didn't say it left VoiceOver with no way to know the diff may be out of
-    /// date.
-    ///
-    /// Asserted as a PAIR at one instant on either side of the threshold: the two strings differing
-    /// is the property, and checking only the stale one would pass against a version that appended
-    /// the warning unconditionally.
+    /// The spoken form is the only place staleness is put into words: elsewhere it is colour or a
+    /// `.help` tooltip, and the age string is the same either way. Asserted as a pair either side
+    /// of the threshold, so a version that always appended the warning fails.
     @Test func theSpokenFormSaysStaleOutLoudAndOnlyWhenStale() {
         let fresh = ScanFreshness.describe(scanDate: base, now: at(ScanFreshness.staleAfter - 1))
         let stale = ScanFreshness.describe(scanDate: base, now: at(ScanFreshness.staleAfter))
@@ -33,9 +27,8 @@ import Foundation
         #expect(stale.spoken.contains(stale.spokenAge))
     }
 
-    /// **VoiceOver is handed words, never the compact form**, which it can read as "29 metres".
-    /// Every bucket of the visible ladder has its spoken twin, and no spoken age carries a bare
-    /// unit letter.
+    /// VoiceOver is handed words, never the compact form, which it can read as "29 metres". Every
+    /// bucket of the visible ladder has a spoken twin, and no spoken age carries a bare unit letter.
     @Test func theSpokenAgeIsInWordsBucketForBucket() {
         let table: [(seconds: TimeInterval, shown: String, spoken: String)] = [
             (0, "just now", "just now"),
@@ -74,9 +67,8 @@ import Foundation
 
     /// Pins the unit seams: labels floor, so they can never contradict the next coarser unit.
     @Test func unitBoundariesNeverContradictTheCoarserUnit() {
-        // The sub-minute steps. The OLD ladder broke the floor invariant right here: "just now"
-        // ran 0–44s and "1m ago" began at 45s, claiming a minute that had not elapsed. Now 30s
-        // covers 30–59 and 1m starts at a genuine 60.
+        // The sub-minute steps: 30s covers 30–59 and 1m starts at a full 60, so no label claims a
+        // minute that hasn't elapsed.
         #expect(ScanFreshness.relative(29) == "just now")
         #expect(ScanFreshness.relative(30) == "30s ago")
         #expect(ScanFreshness.relative(45) == "30s ago")
@@ -103,10 +95,9 @@ import Foundation
         #expect(ScanFreshness.relative(2 * 86_400) == "2d ago")
     }
 
-    /// The complete boundary table — every bucket edge cell in one place, so any future seam
-    /// change (a new bucket, a rounding reintroduction, an off-by-one) flips a single test with
-    /// the whole table in view. Includes the mid-bucket floor cells the seam test skips: 5400s
-    /// (1.5h) must still read "1h ago" — the old ROUNDING behavior jumped to "2h" there.
+    /// Every bucket edge in one table, so a seam change (a new bucket, rounding, an off-by-one)
+    /// fails one test with the whole table in view. Includes the mid-bucket cells the seam test
+    /// skips: 5400s (1.5h) must read "1h ago", which rounding would make "2h".
     @Test func fullBoundaryTable() {
         let table: [(seconds: TimeInterval, label: String)] = [
             (0, "just now"),
@@ -145,13 +136,10 @@ import Foundation
         #expect(ScanFreshness.describe(scanDate: base, now: at(ScanFreshness.staleAfter - 1)).isStale == false)
     }
 
-    /// Pins the threshold's VALUE, which the test above deliberately cannot: it spells `staleAfter`
-    /// symbolically, so it passes for any threshold at all. Both of these straddle one hour, and
-    /// the 45-minute case is the one that matters — it was stale under the old ten-minute threshold
-    /// and is fresh now, so a revert to ten minutes fails here instead of passing quietly.
-    ///
-    /// Why an hour: this app gets left open for hours, so ten minutes meant the pill spent almost
-    /// all its time in the stale treatment, which is what made the warning read as furniture.
+    /// Pins the threshold's value, which the test above can't: it spells `staleAfter` symbolically.
+    /// The 45-minute case fails if the threshold drops to ten minutes. An hour because the app is
+    /// left open for hours, and a shorter threshold keeps the pill stale so often the warning
+    /// reads as furniture.
     @Test func theThresholdIsAnHourAndNotTheOldTenMinutes() {
         #expect(ScanFreshness.staleAfter == 3600)
         #expect(ScanFreshness.describe(scanDate: base, now: at(45 * 60)).isStale == false)
@@ -165,13 +153,11 @@ import Foundation
         #expect(r.isStale == false)
     }
 
-    /// The ladder change was scoped to the sub-minute steps and the day step. Everything from 120s
-    /// up to a day must come out byte-identical to the previous implementation, which is asserted here against a
-    /// verbatim copy of it rather than against a hand-written table — a table can agree with a
-    /// mistake, an oracle cannot. This also covers the two cases deleted as redundant (`..<120`
-    /// and `..<7200`): if `s / 60` and `s / 3600` did not already subsume them, this fails.
+    /// From 120s up to a day the ladder must match the earlier implementation exactly, checked
+    /// against a verbatim copy rather than a hand-written table, which can agree with a mistake.
+    /// It also proves `s / 60` and `s / 3600` subsume the old `..<120` and `..<7200` cases.
     @Test func everythingFromTwoMinutesUpIsUnchanged() {
-        // The pre-change implementation, verbatim.
+        // The earlier ladder, verbatim, as the oracle.
         func old(_ seconds: TimeInterval) -> String {
             let s = Int(seconds)
             switch s {
@@ -186,8 +172,8 @@ import Foundation
             }
         }
 
-        // Every second up to a day. From a day on the old ladder switched to words ("1 day ago")
-        // and this one stays compact ("1d ago") — deliberately, see the next test.
+        // Every second up to a day. From a day on, the oracle uses words ("1 day ago") where this
+        // ladder stays compact ("1d ago"), deliberately; see the next test.
         for s in stride(from: 120, to: 86_400, by: 1) {
             let t = TimeInterval(s)
             #expect(ScanFreshness.relative(t) == old(t),
@@ -195,8 +181,8 @@ import Foundation
         }
     }
 
-    /// Below 120s the change is deliberate, so the oracle above must NOT agree — a guard against
-    /// the equivalence test silently covering the whole range and proving nothing.
+    /// Below 120s and from a day on, the ladder deliberately differs from the oracle, so this
+    /// guards the equivalence test against silently covering every range and proving nothing.
     @Test func belowTwoMinutesAndFromADayTheLadderDeliberatelyDiffers() {
         #expect(ScanFreshness.relative(30) != "just now")
         #expect(ScanFreshness.relative(45) != "1m ago")
@@ -204,10 +190,8 @@ import Foundation
         #expect(ScanFreshness.relative(3 * 86_400) != "3 days ago")
     }
 
-    /// The two spellings must stay in lockstep: `text` is the sentence the tooltip and the
-    /// all-in-sync placeholder use, `age` is the bare run that rides inside the count pill next to
-    /// the pill's own "Differences" label. One is the other with a subject bolted on — if they ever
-    /// come from different clocks, a pill and its tooltip would disagree about the same scan.
+    /// `text` (the tooltip and all-in-sync sentence) must be `age` (the count pill's bare run) with
+    /// a subject added. From different clocks, a pill and its tooltip would disagree about a scan.
     @Test func ageIsTheSentenceWithoutItsSubject() {
         for offset in [0.0, 45, 90, 610, 4000, 90_000, 200_000] {
             let result = ScanFreshness.describe(scanDate: base, now: base.addingTimeInterval(offset))
@@ -216,8 +200,8 @@ import Foundation
         }
     }
 
-    /// **A change on disk makes a fresh scan stale, in words as well as colour** (ROADMAP item 5).
-    /// Pinned as a pair at one instant, so a version that appended the clause unconditionally fails.
+    /// A change on disk makes a fresh scan stale, in words as well as colour. Pinned as a pair at
+    /// one instant, so a version that always appended the clause fails.
     @Test func aChangeOnDiskMakesAFreshScanStaleAndSaysWhy() {
         let quiet = ScanFreshness.describe(scanDate: base, now: at(120))
         let changed = ScanFreshness.describe(scanDate: base, now: at(120), changedOnDisk: true)
@@ -232,8 +216,8 @@ import Foundation
         #expect(changed.spoken == "scanned 2 minutes ago, changed on disk since")
     }
 
-    /// **Additive only**: no change seen never makes an old scan fresh. A watcher that missed a
-    /// change — an idle Mac's iCloud, a Dropbox that is not running — must leave the hour's warning.
+    /// Additive only: seeing no change never makes an old scan fresh. A watcher can miss changes
+    /// (an idle Mac's iCloud, a Dropbox that isn't running), so the hour's warning must stand.
     @Test func noChangeSeenNeverMakesAnOldScanFresh() {
         let old = ScanFreshness.describe(scanDate: base, now: at(ScanFreshness.staleAfter), changedOnDisk: false)
         #expect(old.isStale)

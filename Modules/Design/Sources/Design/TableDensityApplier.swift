@@ -1,19 +1,17 @@
 import AppKit
 import SwiftUI
 
-/// Reaches the `NSTableView` beneath a SwiftUI `Table` and pins its row height — the only
-/// row-density lever the Table actually honors (see `listDensity(_:)`). A nil `rowHeight`
-/// restores the metrics observed when compact first took hold. For `rowHeight` that snapshot
-/// may already include SwiftUI's own env-plumbing write (the Table sets `rowHeight` from the
-/// environment even while `usesAutomaticRowHeights` is on) — harmless, because the restore
-/// also re-enables `usesAutomaticRowHeights`, and AppKit ignores `rowHeight` entirely while
-/// that's on. Live-toggling compact → comfortable in Settings therefore returns the exact
-/// pre-compact look on the SAME table instance.
+/// Reaches the `NSTableView` beneath a SwiftUI `Table` and pins its row height, the only
+/// row-density lever the Table honors (see `listDensity(_:)`). A nil `rowHeight` restores the
+/// metrics captured when compact first took hold. That snapshot may already include SwiftUI's own
+/// `rowHeight` write (the Table sets it from the environment even with `usesAutomaticRowHeights`
+/// on), which is harmless: the restore re-enables `usesAutomaticRowHeights`, and AppKit ignores
+/// `rowHeight` while it's on. So switching compact → comfortable in Settings returns the exact
+/// original look on the same table.
 ///
 /// `listDensity(_:)` keeps this applier structurally stable across density changes (no
-/// `@ViewBuilder` branch), so the same `TableDensityApplierView` — and its captured
-/// originals — survives a toggle. That's what makes the restore path live at all: a
-/// structural branch would recreate the applier and drop the capture.
+/// `@ViewBuilder` branch), so the same `TableDensityApplierView` and its captured originals
+/// survive a toggle; a branch would recreate the applier and drop the capture.
 struct TableDensityApplier: NSViewRepresentable {
     let rowHeight: CGFloat?
 
@@ -36,10 +34,9 @@ final class TableDensityApplierView: NSView {
     /// assert capture/reset without being able to corrupt it.
     private(set) var original: (rowHeight: CGFloat, spacing: NSSize, automaticHeights: Bool)?
 
-    /// The table `original` was captured from. When `apply(to:)` is handed a *different*
-    /// table (SwiftUI recreated the Table, or a test points us elsewhere), the stale capture
-    /// must never be written onto the new instance — it is reset instead. Known limitation:
-    /// the previous table, if still alive, stays pinned; the multi-column discriminator plus
+    /// The table `original` was captured from. Handed a different table (SwiftUI recreated the
+    /// Table, or a test points elsewhere), the stale capture is reset, never written onto the new
+    /// one. The previous table, if still alive, stays pinned; the multi-column discriminator and
     /// the window-scoped cache make that unreachable in the app.
     private weak var appliedTable: NSTableView?
 
@@ -93,11 +90,10 @@ final class TableDensityApplierView: NSView {
                 original = (tableView.rowHeight, tableView.intercellSpacing,
                             tableView.usesAutomaticRowHeights)
             }
-            // usesAutomaticRowHeights is the piece that actually matters: SwiftUI's Table
-            // measures every cell and ignores `rowHeight` while it's on (verified live —
-            // rowHeight already read 20 while the rows still rendered at ~25pt). The spacing
-            // check keeps the guard complete: a SwiftUI re-tile can reset intercellSpacing
-            // alone, and that too must be re-pinned.
+            // `usesAutomaticRowHeights` is the piece that matters: SwiftUI's Table measures every
+            // cell and ignores `rowHeight` while it's on. The spacing check keeps the guard
+            // complete: a SwiftUI re-tile can reset intercellSpacing alone, and that must be
+            // re-pinned too.
             if tableView.usesAutomaticRowHeights || tableView.rowHeight != desired
                 || tableView.intercellSpacing.height != 0 {
                 tableView.usesAutomaticRowHeights = false
@@ -114,12 +110,10 @@ final class TableDensityApplierView: NSView {
         }
     }
 
-    /// Resolves the target table: the weak cache while it's still in our window, a fresh
-    /// subtree find otherwise. A detached applier (no window) resolves to nothing at all —
-    /// besides being pointless to pin a table nobody can see, the cache's
-    /// `cached.window === window` identity check would vacuously pass when BOTH are nil
-    /// (a detached applier next to a detached table), reusing a capture that belongs to a
-    /// hierarchy this view is no longer part of.
+    /// Resolves the target table: the weak cache while it's still in our window, a fresh subtree
+    /// find otherwise. A detached applier resolves to nothing: the cache's
+    /// `cached.window === window` check would pass vacuously when both are nil and reuse a capture
+    /// from a hierarchy this view has left.
     func resolveTableView() -> NSTableView? {
         guard window != nil else { return nil }
         if let cached = cachedTable, cached.window === window { return cached }
@@ -127,16 +121,14 @@ final class TableDensityApplierView: NSView {
         return cachedTable
     }
 
-    /// This view sits as a background sibling of the Table's hosting view — walk a few
-    /// levels up, scanning each subtree, to find the table. Only multi-column tables
-    /// qualify (see `apply(to:)`), so a nearby single-column `List` can never be cached.
+    /// This view sits as a background sibling of the Table's hosting view, so walk a few levels
+    /// up, scanning each subtree. Only multi-column tables qualify (see `apply(to:)`), so a nearby
+    /// single-column `List` is never cached.
     ///
-    /// Ambiguity is REFUSED, never guessed at: if a level's subtree holds more than one
-    /// multi-column table, this pass is skipped (nil). An animated branch swap can briefly
-    /// host both the outgoing and incoming `Table` in the same subtree, and picking one by
-    /// traversal order risks capturing the dying table's already-pinned values as the
-    /// "originals" — poisoning the restore for the table that survives. Once the transient
-    /// coexistence ends, a later layout pass finds exactly one table and proceeds.
+    /// Ambiguity is refused, never guessed at: a level holding more than one multi-column table
+    /// skips this pass (nil). An animated branch swap can briefly host the outgoing and incoming
+    /// `Table` together, and capturing the dying table's pinned values as "originals" would poison
+    /// the restore for the survivor. A later layout pass finds exactly one table and proceeds.
     private func findTableView() -> NSTableView? {
         var root: NSView? = superview
         for _ in 0..<5 {

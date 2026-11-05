@@ -3,12 +3,12 @@ import AppKit
 import SwiftUI
 @testable import Design
 
-/// RD46.10 — in Frosted and Clear the search field's surface travels open out of the magnifier's
-/// end of the row, on the selection lens's own curve; Solid keeps today's fade. Only an animated
+/// In Frosted and Clear the search field's surface travels open out of the magnifier's end of the
+/// row, on the selection lens's own curve; Solid keeps its fade. Only an animated
 /// insertion travels: a field that is already open when its view appears is simply there.
 ///
 /// The geometry is a pure function and is pinned as one. The rendered half uses the lens probe,
-/// which paints the travelling surface magenta (today's wash is too faint to measure).
+/// which paints the travelling surface magenta (the real wash is too faint to measure).
 @MainActor
 @Suite(.serialized) struct ExpandingSearchRevealTests {
 
@@ -77,7 +77,7 @@ import SwiftUI
     }
 
     /// The field revealed the way the app reveals it: absent until `isExpanded` flips, then
-    /// inserted by that transaction — the field's own clock is the one that runs.
+    /// inserted by that transaction, so the field's own clock is the one that runs.
     struct Harness: View {
         @ObservedObject var reveal: Reveal
         let appearance: SelectionLensAppearance
@@ -87,8 +87,8 @@ import SwiftUI
         /// A second row under the field, as a host's suggestions are.
         var accessories = false
         /// Whether the host fades the field in as it inserts it, as the app's hosts do. Off for the
-        /// frozen-clock tests: they read the surface, and the fade runs on the animation's own clock,
-        /// which a loaded offscreen run did not advance — the field was still invisible at 0.5 s.
+        /// frozen-clock tests: they read the surface, and the fade runs on the animation's own
+        /// clock, which a loaded offscreen run may not advance, leaving the field invisible.
         var fades = true
         @State private var text = ""
 
@@ -138,13 +138,11 @@ import SwiftUI
         #expect(ProbeRig(Harness(reveal: Reveal(true), appearance: solid), size: Self.canvas).box(Pixel.lensProbe) == nil)
     }
 
-    /// **The live clock, asked only what a busy machine cannot hide.** The first version sampled the
-    /// travel as it ran and needed a frame from inside the overshoot — about 0.16 s of a 0.7 s move,
-    /// 1.3 s even slowed eight times — and a main thread held for one pass longer than that missed it
-    /// with nothing wrong (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps"). The instants are
-    /// rendered exactly below, on a frozen clock; this pins that the real one starts the travel and
-    /// ends it on the field: no open field on the first frame, every frame anchored at the
-    /// magnifier's end, and the field at rest at the end.
+    /// How much the live-clock test below slows the travel. That test asks the real clock only what
+    /// a busy machine can't hide: no open field on the first frame, every frame anchored at the
+    /// magnifier's end, and the field at rest at the end. Sampling a frame from inside the
+    /// overshoot would miss whenever the main thread is held a pass too long (`docs/flaky-tests.md`,
+    /// "Fixed pumps and fixed sleeps"), so exact instants are checked on a frozen clock instead.
     static let stretch: Double = 8
 
     @Test(.machinePinned(.pixelSampling))
@@ -170,12 +168,10 @@ import SwiftUI
         #expect(wait.held, "the travel never came to rest on the field after \(wait.pumps) passes")
     }
 
-    /// The travel at chosen instants, on a frozen clock: each frame is exactly the one
-    /// `ExpandingSearch.surfaceFrame` gives, placed on the field — part-way, overshooting, at rest.
-    /// Opens a field on a frozen clock: inserted by an animated transaction, so its own travel
-    /// starts, but with no fade from the host, so what is read is the surface at that instant and
-    /// nothing that runs on a clock of its own. Slowed a thousandfold, so the real clock never ends
-    /// the opening under the frozen one. Waited for in turns, until the surface draws.
+    /// Opens a field on a frozen clock, for the tests that check each instant against
+    /// `ExpandingSearch.surfaceFrame`. An animated insertion starts the travel, with no host fade,
+    /// so the probe reads the surface at that instant and nothing on a clock of its own. Slowed a
+    /// thousandfold so the real clock never ends the opening first; waited for in turns.
     static func frozenOpening(at elapsed: TimeInterval, accessories: Bool = false) async -> ProbeRig<Harness> {
         let reveal = Reveal(false)
         let rig = ProbeRig(Harness(reveal: reveal, appearance: probe, timeScale: 1000,
@@ -199,9 +195,9 @@ import SwiftUI
         }
     }
 
-    /// **A field with a second row opens out of its FIRST row.** Hosts show suggestions under the
-    /// field once it takes the caret; sized from the whole field, the opening pill jumped from the
-    /// row's height to the field's part-way. Frozen just in, the surface is still about a row tall.
+    /// A field with a second row opens out of its first row. Hosts show suggestions under the
+    /// field once it takes the caret; sized from the whole field, the opening pill would jump from
+    /// the row's height to the field's part-way. Frozen just in, the surface is about a row tall.
     @Test(.machinePinned(.pixelSampling))
     func aFieldWithASecondRowOpensOutOfItsFirst() async throws {
         let whole = try #require(ProbeRig(Harness(reveal: Reveal(true), appearance: Self.probe, accessories: true),

@@ -3,12 +3,12 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// **A coloured pill's words are label colour; the colour is the wash (DS1).**
+/// A coloured pill's words are label colour; the colour is the wash.
 ///
-/// The owner's call: the word in its own colour on a wash of that colour measured, in light, 1.4:1
-/// for yellow, about 1.9:1 for green, 2:1 for orange and 2.8:1 for red. Now the words and their
-/// glyph take `PillVariant.labelInk(for:)` — black in light, white in dark — and the tint stays in
-/// the wash, the hairline and any dot.
+/// A word in its own colour on a wash of that colour measures, in light, 1.4:1 for yellow, about
+/// 1.9:1 for green, 2:1 for orange and 2.8:1 for red. So the words and their glyph take
+/// `PillVariant.labelInk(for:)` (black in light, white in dark), and the tint stays in the wash,
+/// the hairline and any dot.
 @Suite struct PillLabelInkTests {
 
     static let textFloor: CGFloat = 4.5
@@ -27,7 +27,7 @@ import Testing
             #expect(PillVariant.labelInk(for: tint) == .primary, "\(name)'s words are not label colour")
         }
         #expect(PillVariant.labelInk(for: .secondary) == .secondary, "a neutral pill went loud")
-        // The log's DEBUG pill is the neutral semantic grey: quieter than ERROR, as it was (RB5).
+        // The log's DEBUG pill is the neutral semantic grey, quieter than ERROR.
         #expect(PillVariant.labelInk(for: SemanticColor.neutral) == .secondary, "the neutral grey pill went loud")
     }
 
@@ -56,14 +56,14 @@ import Testing
         return max(x, y) / min(x, y)
     }
 
-    /// The grounds pills sit on — the sheets either side of the app's surfaces.
+    /// The grounds pills sit on: the sheets either side of the app's surfaces.
     static func ground(dark: Bool) -> NSColor {
         dark ? NSColor(srgbRed: 0.13, green: 0.13, blue: 0.13, alpha: 1)
              : NSColor(srgbRed: 0.96, green: 0.96, blue: 0.96, alpha: 1)
     }
 
-    /// **The words on the wash, every tint, both appearances, at 4.5:1 or better** — label colour
-    /// at its own alpha over the tint's wash over the ground, as the pill composites it.
+    /// The words on the wash, every tint, both appearances, at 4.5:1 or better: label colour at its
+    /// own alpha over the tint's wash over the ground, as the pill composites it.
     @Test func theWordsReadOnTheirWashInBothAppearances() {
         for (name, tint) in Self.colouredTints {
             for dark in [false, true] {
@@ -75,9 +75,8 @@ import Testing
         }
     }
 
-    /// **The fixture reproduces the defect**: the word in its own tint misses the floor on its wash
-    /// in light for the colours the review measured, so the test above is not passing on a pairing
-    /// that was always fine.
+    /// The fixture reproduces the defect: a word in its own tint misses the floor on its wash in
+    /// light for these colours, so the test above isn't passing on a pairing that was always fine.
     @Test func theTintedWordMissedTheFloorInLight() {
         for (name, tint) in [("caution", SemanticColor.caution), ("success", SemanticColor.success),
                              ("warning", SemanticColor.warning), ("error", SemanticColor.error)] {
@@ -87,8 +86,8 @@ import Testing
         }
     }
 
-    /// **The pill still reads as its colour**: the wash is measurably the tint, not grey. Chroma
-    /// (max − min channel) of the composited wash, against the ground's zero.
+    /// The pill still reads as its colour: the wash is measurably the tint, not grey. Chroma (max −
+    /// min channel) of the composited wash, against the ground's zero.
     @Test func theWashStillCarriesTheColour() {
         for (name, tint) in SemanticColor.all.filter({ $0.name != "neutral" }).map({ ($0.name, $0.color) }) {
             for dark in [false, true] {
@@ -101,8 +100,8 @@ import Testing
     }
 }
 
-/// **Rendered and read back**: the words paint black in light and white in dark, the wash keeps
-/// the tint — and the PNGs are written out to be looked at.
+/// Rendered and read back: the words paint black in light and white in dark, the wash keeps the
+/// tint, and the PNGs are written out to be looked at.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct PillLabelInkRenderTests {
 
@@ -161,8 +160,8 @@ import Testing
     }
 
     /// The caution pill's row: the darkest pixel (light) or brightest (dark) is its words, and in
-    /// label colour it is a near-neutral black or white — where the tinted word was a yellow whose
-    /// darkest pixel sat near L 0.8.
+    /// label colour it is a near-neutral black or white, where a yellow word's darkest pixel would
+    /// sit near L 0.8.
     @Test(arguments: [false, true]) func theWordsPaintInLabelColour(dark: Bool) throws {
         let rep = try Self.render(dark: dark)
         let scale = CGFloat(rep.pixelsWide) / Self.size.width
@@ -191,11 +190,11 @@ import Testing
     }
 }
 
-/// **Two of the five components the first source scan could not see, rendered on their own**
-/// (RB1): StatusBadge inks its child `Text`, and the size tiles a `VStack` inside a button's label.
-/// Each is read back for its words — the darkest pixel in light, the brightest in dark — which in
-/// label colour is a near-neutral black or white, and in the tint would be the tint: the dot and
-/// the tile's border are lighter (in light) and darker (in dark) than the words, so they never win.
+/// Two components a single-chain source scan can't see, rendered on their own: StatusBadge inks
+/// its child `Text`, and the size tiles a `VStack` inside a button's label. Each is read back for
+/// its words (the darkest pixel in light, the brightest in dark), which in label colour is a
+/// near-neutral black or white. The dot and the tile's border are lighter in light and darker in
+/// dark than the words, so they never win.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct ComponentWordInkRenderTests {
 
@@ -254,9 +253,9 @@ import Testing
     }
 
     /// The first tile is the chosen one. Its two words are read inside its wash and border: no
-    /// pixel of them is in a colour. The extreme pixel alone cannot say so — the tile's second word
-    /// is label colour either way, and wins it — so this counts the coloured ink in rows that are
-    /// not the border's: a border row is coloured across the tile, a word's row only in places.
+    /// pixel of them is in a colour. The extreme pixel alone can't say so (the tile's second word is
+    /// label colour either way, and wins it), so this counts coloured ink in rows that aren't the
+    /// border's: a border row is coloured across the tile, a word's row only in places.
     @Test(arguments: [false, true]) func theChosenSizeTilesWordsAreLabelColour(dark: Bool) throws {
         let rep = try Self.render(Row().appFontSize(.medium).padding(8), size: CGSize(width: 440, height: 70), dark: dark)
         // The first of five tiles, its border's columns left out.
