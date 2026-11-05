@@ -309,11 +309,17 @@ import Sync
         private let entered = DispatchSemaphore(value: 0)
         private let lock = NSLock()
         private var _callCount = 0
+        private var _firstEntered: Date?
 
         var callCount: Int { lock.withLock { _callCount } }
+        /// When the first load began, on whichever thread ran it.
+        var firstEntered: Date? { lock.withLock { _firstEntered } }
 
         func load(_ path: String) -> DetailsSidebar.MetadataLoad {
-            lock.withLock { _callCount += 1 }
+            lock.withLock {
+                _callCount += 1
+                if _firstEntered == nil { _firstEntered = Date() }
+            }
             entered.signal()
             _ = gate.wait(timeout: .now() + 30)
             return DetailsSidebar.MetadataLoad(
@@ -326,7 +332,7 @@ import Sync
 
         /// Blocks until the loader has actually been entered, so a test can be sure the stat is
         /// genuinely in flight and stuck rather than merely not started yet.
-        func waitUntilEntered() { _ = entered.wait(timeout: .now() + 5) }
+        func waitUntilEntered(seconds: Double = 5) { _ = entered.wait(timeout: .now() + seconds) }
 
         /// Lets every parked call finish, so no queue thread is leaked past the test. Signals once
         /// per recorded call because more than one load can be in flight at a time — see the
@@ -478,21 +484,20 @@ import Sync
         window.isReleasedWhenClosed = false
         window.contentView = host
 
-        // The clock starts here and covers everything the regression would stall, not just the
-        // final layout. That matters: against the pre-fix code the main thread parks INSIDE the
-        // `.task` during the drain below, and a stopwatch started after it would time a main
-        // thread that had already been released and read as a pass.
-        let start = Date()
-
         // First layout is what makes the view appear and arms its `.task`; the drain then lets
         // that task run and reach the loader. Bounded by turns taken, and it exits the moment the
         // stat is in flight rather than burning the whole budget.
+        let start = Date()
         host.layoutSubtreeIfNeeded()
         for _ in 0..<300 where loader.callCount == 0 {
             await Task.yield()
             try? await Task.sleep(for: .milliseconds(10))
         }
-        loader.waitUntilEntered()
+        // Waited for generously: how soon the stat STARTS is not what this tests. It runs on the
+        // cache's IO queue, whose threads other tests in the run hold with hostage loads of their
+        // own, and on a 3-vCPU runner a new one can be seconds coming (CI 5c2cecd58: 9.7 s).
+        loader.waitUntilEntered(seconds: 30)
+        let drained = Date().timeIntervalSince(start)
         // At least one, not exactly one: appearing re-keys the task once by itself. `.onReceive`
         // on `$isScanning` fires immediately with the current value, and `scanningChanged(false)`
         // invalidates, so the first render always loads twice. That predates this change — the
@@ -501,11 +506,16 @@ import Sync
 
         host.layoutSubtreeIfNeeded()
         let size = host.fittingSize
-        let elapsed = Date().timeIntervalSince(start)
+        // **The clock starts when the stat began, wherever it ran**, so a slow start can't read
+        // as a stall. A stat run on the main thread (the pre-fix `.task` calling a `@MainActor`
+        // loader) holds this very code until the hostage's 30 s are up, and the layout below lands
+        // that long after the stat began: still a fail.
+        let entered = try #require(loader.firstEntered, "the stat never began")
+        let elapsed = Date().timeIntervalSince(entered)
 
         #expect(size.height > 0, "the card laid out to nothing")
         // Well under the 30s hostage ceiling: generous enough not to flake on a loaded machine,
         // tight enough that a main thread parked on the stat cannot pass.
-        #expect(elapsed < 5.0, "the inspector waited on the stat (\(elapsed)s)")
+        #expect(elapsed < 5.0, "the inspector waited on the stat (\(elapsed)s after it began; \(drained)s to begin)")
     }
 }

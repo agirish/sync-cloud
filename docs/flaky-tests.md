@@ -5139,3 +5139,26 @@ next. The test's count of exactly 2 is the contract and stays.
 **Tell.** A count of checks or chunks one past a cancel, red alone and once, where the code awaits
 a task it detached *before* entering `withTaskCancellationHandler`. Ask whether the handler exists
 yet at the moment the test cancels.
+
+### 53. A first-frame stopwatch that also timed the stat's start, behind other tests' hostage loads — FIXED
+
+**Symptom.** `TheLoadNeverBlocksTheMainThread.aStatThatNeverReturnsStillLetsTheFirstFramePaint`
+red on hosted CI twice in three pushes (2026-11-04: `4d3e35ce8`, green on rerun, and `5c2cecd58`):
+`elapsed < 5.0` false at about 9.7 s, against about 1 s in every green run. Never on this Mac, alone
+or beside 12 `yes` spinners (all under 40 ms).
+
+**Mechanism.** The test, not the inspector. Its clock started before the first layout, so it timed
+how long the stat took to *begin* as well as whether the main thread waited on it. The stat runs on
+`DetailsMetadataCache.ioQueue`, a concurrent dispatch queue whose threads the package's other
+hostage tests hold for up to 30 s each; on a 3-vCPU runner a fresh thread for it can be seconds
+coming. The main thread was free the whole time.
+
+**Reproduced** by starting the stat 8 s late (`ioQueue.asyncAfter`): the old test failed at its line
+509 after 9.3 s, CI's signature; the new one passed.
+
+**Fix, 2026-11-04.** The loader records when the first stat began, and the stopwatch runs from
+there to the laid-out frame; the wait for the stat to begin is 30 s, bounded. The regression is
+still caught: with the stat run on the calling thread, as before 9a1d98bdf, it fails at 31 s.
+
+**Tell.** A timing bound that is fine in the green runs and blown by a near-constant amount in the
+red ones, in a test whose clock starts before work it hands to a shared queue.
