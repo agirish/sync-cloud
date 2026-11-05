@@ -14508,3 +14508,25 @@ bubble's view. Everything touched exists only on `main` (Ask Claude, TE318's Inf
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude, no Info preview | CLOSED — doesn't apply |
+
+## The chosen choice is a flat accent fill, not a rim on tinted glass (TE325) — main only
+
+2026-11-04, for v7.1 (variant B). On `main`: at Frosted and Clear the selection lens — the
+workspace bar, a pane's tabs, the view and segment capsules, Organize's rail, the chips — is a flat
+fill of the marker's colour (`SelectionLensRule.lensFill`), 18% at Tint 0 and at accent None, up to
+35% at Tint 100, a wash never past its own strength. No rim except under Increase Contrast; Clear's
+1.5pt rim and Frosted's colourless-lens rim are gone. Glass stays only for the accent swatch's halo.
+A look change, not a fix.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do s=$(git show origin/$l:Modules/Design/Sources/Design/SelectionLens.swift 2>/dev/null)
+  printf '%-5s lens=%s colourlessRim=%s glassTint=%s\n' $l "$(echo "$s" | grep -c 'enum SelectionLensRule')" \
+    "$(echo "$s" | grep -c 'colourless: Bool')" "$(echo "$s" | grep -c 'base.tint(style.color')"; done
+# measured 2026-11-04, against origin, before this landed:
+# v6.x/v5.x lens=1 colourlessRim=1 glassTint=1 · v4.x/v3.x/v2.x lens=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` | The rim on tinted glass | RECORDED — not owed (a look change) |
+| `v4.x` / `v3.x` / `v2.x` | No selection lens | CLOSED — doesn't apply |

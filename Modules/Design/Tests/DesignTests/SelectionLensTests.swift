@@ -51,59 +51,68 @@ import SwiftUI
         #expect(EnvironmentValues().selectionLensMaterial == .today)
     }
 
-    // MARK: - Tint: the slider, and nothing else
+    // MARK: - Fill: the slider, between a soft floor and ceiling
 
-    @Test func theTintFollowsTheWindowBackgroundsCurve() {
-        // A quarter of the marker's colour at Tint 0, all of it at Tint 100.
-        #expect(SelectionLensRule.tintStrength(hue: .blue, tint: 0) == 0.25)
-        #expect(SelectionLensRule.tintStrength(hue: .blue, tint: 1) == 1.0)
+    @Test func theFillRunsFromTheFloorToTheCeilingOnTheBackgroundsRamp() {
+        #expect(SelectionLensRule.chosenFillFloor == 0.18)
+        #expect(SelectionLensRule.chosenFillCeiling == 0.35)
+        #expect(SelectionLensRule.fillStrength(hue: .blue, tint: 0) == 0.18)
+        #expect(abs(SelectionLensRule.fillStrength(hue: .blue, tint: 1) - 0.35) < 1e-12)
         for tint in stride(from: 0.0, through: 1.0, by: 0.1) {
-            #expect(SelectionLensRule.tintStrength(hue: .rose, tint: tint)
-                    == LiquidGlass.backgroundHueStrength(forTint: tint))
+            #expect(abs(SelectionLensRule.fillStrength(hue: .rose, tint: tint)
+                        - (0.18 + 0.17 * LiquidGlass.tintRamp(tint))) < 1e-12)
         }
     }
 
-    @Test func theTintIsTheSameForEveryHue() {
-        // No per-hue adjustment: the slider is the only knob.
+    @Test func theFillIsTheSameForEveryHue() {
         for hue in LiquidGlassHue.allCases where hue != .none {
-            #expect(SelectionLensRule.tintStrength(hue: hue, tint: 0.4)
-                    == SelectionLensRule.tintStrength(hue: .blue, tint: 0.4))
+            #expect(SelectionLensRule.fillStrength(hue: hue, tint: 0.4)
+                    == SelectionLensRule.fillStrength(hue: .blue, tint: 0.4))
         }
     }
 
-    @Test func noneIsUntintedAtEveryTint() {
-        for tint in [0.0, 0.5, 1.0] {
-            #expect(SelectionLensRule.tintStrength(hue: .none, tint: tint) == 0)
+    @Test func noneStaysAtTheFloorAtEveryTint() {
+        // No hue for the slider to strengthen — and never 0, which would leave the choice unmarked
+        // now that the rim is gone (TE325).
+        for tint in [0.0, 0.34, 1.0] {
+            #expect(SelectionLensRule.fillStrength(hue: .none, tint: tint) == SelectionLensRule.chosenFillFloor)
+            #expect(SelectionLensRule.tintOpacity(markerOpacity: 1, hue: .none, tint: tint)
+                    == SelectionLensRule.chosenFillFloor)
         }
     }
 
-    @Test func atFullTintTheGlassCarriesExactlyTodaysColour() {
-        #expect(SelectionLensRule.tintOpacity(markerOpacity: 1, hue: .blue, tint: 1) == 1)
-        #expect(SelectionLensRule.tintOpacity(markerOpacity: 0.22, hue: .blue, tint: 1) == 0.22)
-        #expect(SelectionLensRule.tintOpacity(markerOpacity: 1, hue: .blue, tint: 0) == 0.25)
-        #expect(SelectionLensRule.tintOpacity(markerOpacity: 0, hue: .blue, tint: 1) == 0)
+    @Test func aFlatFillNeverGoesSolid() {
+        // The lens is a flat fill with a black label in light mode: even at Tint 100 a fill marker's
+        // lens is a soft wash, never the opaque accent.
+        #expect(SelectionLensRule.tintOpacity(markerOpacity: 1, hue: .blue, tint: 1)
+                == SelectionLensRule.chosenFillCeiling)
+        #expect(SelectionLensRule.tintOpacity(markerOpacity: 1, hue: .blue, tint: 0) == 0.18)
     }
 
-    // MARK: - Clear's rim
+    @Test func aWashKeepsItsOwnStrengthAndAHaloStaysBare() {
+        for tint in [0.0, 1.0] {
+            #expect(SelectionLensRule.tintOpacity(markerOpacity: 0.16, hue: .blue, tint: tint) == 0.16)
+            #expect(SelectionLensRule.tintOpacity(markerOpacity: 0.16, hue: .none, tint: tint) == 0.16)
+            #expect(SelectionLensRule.tintOpacity(markerOpacity: 0, hue: .rose, tint: tint) == 0)
+        }
+    }
 
-    @Test func clearAlwaysDrawsARimAndFrostedOnlyWhereItWouldNotSayEnough() {
-        #expect(SelectionLensRule.rimWidth(material: .clear, hasRing: false, increasedContrast: false) == 1.5)
-        #expect(SelectionLensRule.rimWidth(material: .frosted, hasRing: false, increasedContrast: false) == 0)
-        #expect(SelectionLensRule.rimWidth(material: .today, hasRing: false, increasedContrast: true, colourless: true) == 0)
-        #expect(SelectionLensRule.rimWidth(material: .probe, hasRing: false, increasedContrast: true, colourless: true) == 0)
-        // Frosted: Increase Contrast asks for edges; a colourless lens (accent None) needs one.
-        #expect(SelectionLensRule.rimWidth(material: .frosted, hasRing: false, increasedContrast: true) == 2.5)
-        #expect(SelectionLensRule.rimWidth(material: .frosted, hasRing: false, increasedContrast: false, colourless: true) == 1.5)
+    // MARK: - The rim: Increase Contrast only
+
+    @Test func onlyIncreaseContrastDrawsARim() {
+        for material in [SelectionLensMaterial.clear, .frosted] {
+            #expect(SelectionLensRule.rimWidth(material: material, hasRing: false, increasedContrast: false) == 0,
+                    "\(material) draws a rim at standard contrast — the fill marks the choice")
+            #expect(SelectionLensRule.rimWidth(material: material, hasRing: false, increasedContrast: true) == 2.5)
+        }
+        #expect(SelectionLensRule.rimWidth(material: .today, hasRing: false, increasedContrast: true) == 0)
+        #expect(SelectionLensRule.rimWidth(material: .probe, hasRing: false, increasedContrast: true) == 0)
     }
 
     @Test func aRingIsItsOwnRim() {
         #expect(SelectionLensRule.rimWidth(material: .clear, hasRing: true, increasedContrast: false) == 0)
         #expect(SelectionLensRule.rimWidth(material: .clear, hasRing: true, increasedContrast: true) == 0)
-        #expect(SelectionLensRule.rimWidth(material: .frosted, hasRing: true, increasedContrast: true, colourless: true) == 0)
-    }
-
-    @Test func increaseContrastThickensTheRim() {
-        #expect(SelectionLensRule.rimWidth(material: .clear, hasRing: false, increasedContrast: true) == 2.5)
+        #expect(SelectionLensRule.rimWidth(material: .frosted, hasRing: true, increasedContrast: true) == 0)
     }
 
     // MARK: - What a host hands its lens
@@ -115,21 +124,35 @@ import SwiftUI
         #expect(SelectionLensRule.glassVariant(.probe) == nil)
     }
 
+    @Test func aColouredLensIsAFlatFillAndOnlyAColourlessOneIsGlass() {
+        // Tinted glass left white bands along its edges (TE325), so colour is drawn flat, edge to
+        // edge; the halo, which carries none, keeps its glass.
+        #expect(SelectionLensRule.lensFill(material: .clear, tintOpacity: 0.18) == .flat(0.18))
+        #expect(SelectionLensRule.lensFill(material: .frosted, tintOpacity: 0.25) == .flat(0.25))
+        #expect(SelectionLensRule.lensFill(material: .clear, tintOpacity: 0) == .glass(.clear))
+        #expect(SelectionLensRule.lensFill(material: .frosted, tintOpacity: 0) == .glass(.regular))
+        #expect(SelectionLensRule.lensFill(material: .probe, tintOpacity: 0.18) == .probe)
+        #expect(SelectionLensRule.lensFill(material: .today, tintOpacity: 1) == .none)
+    }
+
     @Test func theHostPassesTheStylesOwnTintAndRim() {
         let rose100 = SelectionLensAppearance(level: .frosted, hue: .rose, tint: 1)
-        // A fill carries all of its colour at Tint 100; a halo (marker opacity 0) carries none.
+        // A fill reaches the ceiling at Tint 100; a halo (marker opacity 0) carries none.
         let fill = SelectionLensRule.lensSpec(style: .fill(.capsule, color: .red), appearance: rose100,
                                               reduceTransparency: false, increasedContrast: false)
-        #expect(fill == .init(material: .frosted, tintOpacity: 1, rimWidth: 0))
+        #expect(fill == .init(material: .frosted, tintOpacity: SelectionLensRule.chosenFillCeiling, rimWidth: 0))
         let halo = SelectionLensStyle(shape: .circle, color: .gray, markerOpacity: 0,
                                       ring: .init(color: .gray, width: 2), outset: 3)
         #expect(SelectionLensRule.lensSpec(style: halo, appearance: rose100, reduceTransparency: false,
                                            increasedContrast: true).tintOpacity == 0)
-        // Accent None: colourless glass, so Frosted takes an edge.
-        let none = SelectionLensAppearance(level: .frosted, hue: .none, tint: 1)
-        #expect(SelectionLensRule.lensSpec(style: .fill(.capsule, color: .red), appearance: none,
-                                           reduceTransparency: false, increasedContrast: false)
-                == .init(material: .frosted, tintOpacity: 0, rimWidth: SelectionLensRule.rimWidth))
+        // Accent None: the floor's fill, and no edge — at Frosted and Clear alike.
+        for level in [GlassLevel.frosted, .clear] {
+            let none = SelectionLensAppearance(level: level, hue: .none, tint: 1)
+            #expect(SelectionLensRule.lensSpec(style: .fill(.capsule, color: .red), appearance: none,
+                                               reduceTransparency: false, increasedContrast: false)
+                    == .init(material: level == .clear ? .clear : .frosted,
+                             tintOpacity: SelectionLensRule.chosenFillFloor, rimWidth: 0))
+        }
         // Reduce Transparency: no lens.
         #expect(SelectionLensRule.lensSpec(style: .fill(.capsule, color: .red), appearance: rose100,
                                            reduceTransparency: true, increasedContrast: false).material == .today)
@@ -502,13 +525,18 @@ import SwiftUI
     }
 
     @Test(.machinePinned(.pixelSampling), arguments: [ColorSchemeContrast.standard, .increased])
-    func clearGlassHasARimAndIncreaseContrastThickensIt(contrast: ColorSchemeContrast) {
-        // At real Clear the glass draws nothing offscreen, but its rim — a stroke outside the glass
-        // container — does: in the marker's colour, around the stop.
+    func clearGlassDrawsARimOnlyUnderIncreaseContrast(contrast: ColorSchemeContrast) {
+        // At real Clear the glass draws nothing offscreen, but a rim — a stroke outside the glass
+        // container — does: in the marker's colour, around the stop. At standard contrast there is
+        // none; the glass's fill marks the choice (TE325).
         let rig = ProbeRig(Harness(selected: 1, appearance: SelectionLensAppearance(level: .clear, hue: .blue, tint: 0),
                                    style: .fill(.capsule, color: Self.ringBlue), contrast: contrast),
                            size: Self.size)
         let rim = rig.box(Self.isRingBlue)
+        guard contrast == .increased else {
+            #expect(rim == nil, "a rim at \(String(describing: rim)) at standard contrast")
+            return
+        }
         expectNear(rim, segment(1))
         // How thick: the run of rim pixels straight down from the stop's top edge, at its middle.
         let rep = rig.capture()

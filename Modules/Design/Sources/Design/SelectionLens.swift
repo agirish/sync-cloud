@@ -10,24 +10,33 @@ import SwiftUI
 //   motion (the workspace bar's 0.22 s slide, the tab strip's 0.16 s slide, Organize's cross-fade,
 //   an instant switch everywhere else). Nothing here runs: the host draws no lens, the stops publish
 //   nothing, and `SelectionLensTodayMarker` shows the control's marker exactly as before.
-// - **Frosted and Clear draw glass, at rest and in motion.** One lens per control, frosted or clear,
-//   which glides between choices on springs — its leading edge arriving first, the trailing edge
+// - **Frosted and Clear draw a lens that moves.** One lens per control — a flat fill of the
+//   marker's colour (glass only for a marker with no colour, the swatch halo) — which glides
+//   between choices on springs — its leading edge arriving first, the trailing edge
 //   following, so it stretches a little on the way — and settles once on the new one.
 //
 // Three decisions shape it, all taken 2026-10-02 (roadmap RD46, "Glass That Moves"):
 //
 // 1. **Glass all the time** in Frosted and Clear — not a fill at rest that turns to glass while it
 //    moves, although that is what Apple's "avoid glass on glass" guidance points to (every one of
-//    these controls sits on glass already: the toolbar's, or a glass card).
+//    these controls sits on glass already: the toolbar's, or a glass card). **Superseded 2026-11-04
+//    (TE325):** a coloured lens is a flat fill at rest and in motion, because tinted glass's own
+//    light left white bands along its edges (`SelectionLensRule.lensFill`).
 // 2. **Labels as today**, colour and weight — with one exception, taken 2026-10-03 on seeing it: a
 //    control whose marker is a solid fill puts its chosen label in white, and on light-mode glass
 //    that white all but vanished, so there it is `.primary`, black (`selectionLensLabelInk`). Dark
 //    mode keeps the white. Wash and ring markers never had white labels, and are untouched.
-// 3. **The Tint slider is the only thing that tints the lens**, on the window background's curve
-//    (`LiquidGlass.backgroundHueStrength`): a quarter of the control's own marker colour at Tint 0,
-//    all of it at Tint 100, none at all when the accent is None. No per-hue adjustment, no fixed
-//    strength. Where that leaves the lens colourless — accent None — it takes an edge instead
-//    (`SelectionLensRule.rimWidth`), so the selection never rests on shape alone.
+// 3. **The Tint slider sets the lens's fill**, on the window background's ramp, between a soft
+//    floor and ceiling (`SelectionLensRule.fillStrength`: 18% at Tint 0, 35% at Tint 100, the same
+//    for every hue). Accent None stays at 18%, so the lens is never colourless and the chosen one
+//    is always marked by a fill. A wash (16–22%) is under the floor already, so its lens carries
+//    the wash's own strength at every Tint. (Until TE325 the lens was glass tinted from a quarter
+//    of the marker's colour to all of it, and colourless at None.)
+//
+// The fill replaced an edge (TE325, 2026-11-04, variant B). Clear used to draw a 1.5pt rim in the
+// accent always, and Frosted whenever the glass was colourless; with accent None both did, and three
+// accent outlines across the toolbar (the workspace bar, a pane's tab, the view capsule) read as
+// borders rather than as choices. Now only Increase Contrast, which asks for edges, draws one.
 //
 // Two things that ARRIVE ride the same motion and the same rule about appearances: the search
 // field, whose surface travels open (`ExpandingSearch`), and Organize's counts, which drop out of
@@ -102,44 +111,45 @@ public enum SelectionLensRule {
         }
     }
 
-    /// How much of the control's own marker colour the glass carries, 0...1.
-    ///
-    /// The Tint slider on the window background's curve — `backgroundHueStrength`, a quarter at
-    /// Tint 0 and all of it at Tint 100 — so the lens moves with the rest of the window and never
-    /// goes colourless at the default. None is the exception the panes already make: no hue paint
-    /// at all (`LiquidGlassStyle.swift`, the content wash's `hue == .none` branch).
-    public static func tintStrength(hue: LiquidGlassHue, tint: Double) -> Double {
-        hue == .none ? 0 : LiquidGlass.backgroundHueStrength(forTint: tint)
+    /// The chosen one's fill at Tint 0, and at accent None at every Tint: 18%, the soft fill TE325
+    /// settled on (variant B, 2026-11-04). It is what marks the choice now that Clear and Frosted
+    /// draw no rim, so it never reaches 0 — accent None included, whose window carries no hue at all.
+    public static let chosenFillFloor: Double = 0.18
+
+    /// The chosen one's fill at Tint 100. The lens is a flat fill (``lensFill(material:tintOpacity:)``)
+    /// with a `.primary` label in light mode, so it stays a soft wash at the top of the slider too:
+    /// a flat fill at the full accent would be Solid's opaque marker with the wrong ink on it.
+    public static let chosenFillCeiling: Double = 0.35
+
+    /// How strong the lens's fill is for a marker that carries its full colour: the Tint slider on
+    /// the window background's ramp (`LiquidGlass.tintRamp`), from ``chosenFillFloor`` at Tint 0 to
+    /// ``chosenFillCeiling`` at Tint 100, the same for every hue. Accent None stays at the floor:
+    /// it has no hue for the slider to strengthen.
+    public static func fillStrength(hue: LiquidGlassHue, tint: Double) -> Double {
+        hue == .none ? chosenFillFloor
+            : chosenFillFloor + (chosenFillCeiling - chosenFillFloor) * LiquidGlass.tintRamp(tint)
     }
 
-    /// The opacity the lens tints the marker colour at: the control's own marker opacity, scaled
-    /// by ``tintStrength(hue:tint:)``. At Tint 100 the glass carries exactly today's colour.
+    /// The opacity the lens fills its marker colour at: ``fillStrength(hue:tint:)``, but never more
+    /// than the marker's own opacity — so a wash (16–22%) stays exactly that wash at every Tint, and
+    /// a halo (opacity 0, a ring around a colour) stays unfilled.
     public static func tintOpacity(markerOpacity: Double, hue: LiquidGlassHue, tint: Double) -> Double {
-        max(0, min(1, markerOpacity)) * tintStrength(hue: hue, tint: tint)
+        min(max(0, min(1, markerOpacity)), fillStrength(hue: hue, tint: tint))
     }
 
-    /// Clear's rim, in the marker's colour. Frosted glass reads as a shape on its own; clear glass
-    /// over a busy wallpaper needs an edge to say where the selection is.
-    public static let rimWidth: CGFloat = 1.5
-    /// Increase Contrast thickens the rim.
+    /// The rim Increase Contrast draws, in the marker's colour.
     public static let increasedContrastRimWidth: CGFloat = 2.5
 
-    /// The rim a lens draws, in its marker's colour — none when the style carries a ring of its own
-    /// (the ring already is that edge, and two concentric strokes read as a double border).
-    ///
-    /// Clear always has one. Frosted reads as a shape on its own, and takes one only where it would
-    /// otherwise not say enough: under Increase Contrast, which asks for edges, and when the glass
-    /// carries no colour at all (`colourless` — accent None), where a chosen label in the same ink
-    /// as its neighbours left the selection to a faint frosted shape alone.
-    public static func rimWidth(material: SelectionLensMaterial, hasRing: Bool, increasedContrast: Bool,
-                                colourless: Bool = false) -> CGFloat {
-        guard !hasRing else { return 0 }
+    /// The rim a lens draws, in its marker's colour: only under Increase Contrast, which asks for
+    /// edges, and never when the style carries a ring of its own (the ring already is that edge, and
+    /// two concentric strokes read as a double border). Otherwise the fill marks the choice
+    /// (``chosenFillFloor``) — Clear and Frosted alike.
+    public static func rimWidth(material: SelectionLensMaterial, hasRing: Bool, increasedContrast: Bool) -> CGFloat {
+        guard !hasRing, increasedContrast else { return 0 }
         switch material {
-        case .clear: break
-        case .frosted: guard increasedContrast || colourless else { return 0 }
+        case .clear, .frosted: return increasedContrastRimWidth
         case .today, .probe: return 0
         }
-        return increasedContrast ? increasedContrastRimWidth : rimWidth
     }
 
     /// Which Liquid Glass a material draws — nil where it draws none.
@@ -150,6 +160,33 @@ public enum SelectionLensRule {
         case .frosted: .regular
         case .clear: .clear
         case .today, .probe: nil
+        }
+    }
+
+    /// What a lens is made of.
+    public enum LensFill: Equatable, Sendable {
+        /// A flat fill of the marker's colour at this opacity, edge to edge.
+        case flat(Double)
+        /// Untinted Liquid Glass — only for a marker that carries no colour (the accent swatch's halo).
+        case glass(GlassVariant)
+        /// The render-test stand-in.
+        case probe
+        /// No lens: `.today` draws the control's own marker.
+        case none
+    }
+
+    /// **A coloured lens is a flat fill, not tinted glass** (TE325, 2026-11-04). Tinted glass keeps
+    /// its own specular light: at an 18% tint the bright bands along its top and bottom edges
+    /// outshone the tint, so the chosen item read as a pale stripe between two white ones rather than
+    /// as filled. A flat fill covers the whole shape evenly. Glass stays where there is no colour to
+    /// carry — the halo, whose ring is the mark and whose glass is the band around the swatch.
+    public static func lensFill(material: SelectionLensMaterial, tintOpacity: Double) -> LensFill {
+        switch material {
+        case .today: return .none
+        case .probe: return .probe
+        case .frosted, .clear:
+            if tintOpacity > 0 { return .flat(tintOpacity) }
+            return glassVariant(material).map { .glass($0) } ?? .none
         }
     }
 
@@ -168,8 +205,7 @@ public enum SelectionLensRule {
         return LensSpec(
             material: material,
             tintOpacity: tintOpacity(markerOpacity: style.markerOpacity, hue: appearance.hue, tint: appearance.tint),
-            rimWidth: rimWidth(material: material, hasRing: style.ring != nil, increasedContrast: increasedContrast,
-                               colourless: tintStrength(hue: appearance.hue, tint: appearance.tint) == 0))
+            rimWidth: rimWidth(material: material, hasRing: style.ring != nil, increasedContrast: increasedContrast))
     }
 
     /// The hover style of one choice in a lens control: `.filled` for the chosen one at Solid, as
@@ -989,32 +1025,33 @@ struct SelectionLensLayer: View {
 
     @ViewBuilder
     private var lens: some View {
-        if let variant = SelectionLensRule.glassVariant(spec.material) {
+        switch SelectionLensRule.lensFill(material: spec.material, tintOpacity: spec.tintOpacity) {
+        case .flat(let opacity):
+            outline.fill(style.color.opacity(opacity))
+                .modifier(decorations)
+        case .glass(let variant):
             GlassEffectContainer {
-                Color.clear.glassEffect(glass(variant), in: outline)
+                Color.clear.glassEffect(variant == .clear ? .clear : .regular, in: outline)
             }
             .modifier(decorations)
-        } else {
-            // The probe: the host draws no layer at all for `.today`.
+        case .probe:
             outline.fill(SelectionLensRule.probeColor)
                 .modifier(decorations)
+        case .none:
+            // The host draws no layer at all for `.today`; this is never reached.
+            EmptyView()
         }
     }
 
     /// The rim, ring and rule — drawn OUTSIDE the glass container, so the probe draws them too and a
-    /// render test can see them; glass itself draws nothing offscreen.
+    /// render test can see them; glass itself draws nothing offscreen (a flat fill does).
     private var decorations: SelectionLensDecorations {
         SelectionLensDecorations(outline: outline, rimColor: style.color, rimWidth: spec.rimWidth,
                                  ring: style.ring, rule: style.rule)
     }
-
-    private func glass(_ variant: SelectionLensRule.GlassVariant) -> Glass {
-        let base: Glass = variant == .clear ? .clear : .regular
-        return spec.tintOpacity > 0 ? base.tint(style.color.opacity(spec.tintOpacity)) : base
-    }
 }
 
-/// A lens's strokes: Clear's rim, a ring the control's marker carries, the tab strip's rule.
+/// A lens's strokes: Increase Contrast's rim, a ring the control's marker carries, the tab strip's rule.
 private struct SelectionLensDecorations: ViewModifier {
     let outline: HoverAffordanceOutline
     let rimColor: Color
