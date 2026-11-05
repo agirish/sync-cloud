@@ -464,9 +464,13 @@ public struct DetailsSidebar: View {
         // would otherwise target the previous file.
         let shown = loaded
         let isStale = shown?.key != sizeKey
+        // The picture stays through a re-read of the same file (review 2 of 11-04): every file
+        // operation and scan bumps the generation, and tearing the preview down for it lost a
+        // PDF's page and a playing video. The file's own changes reach it through its identity.
+        let pictureStale = shown?.key.path != sizeKey.path || shown?.key.isMultiSelection != sizeKey.isMultiSelection
         let (data, icon): (FileMetadata?, NSImage?) = (shown?.metadata, shown?.icon)
         return inspectorLayout(summary: summary, data: data, icon: icon, isStale: isStale,
-                               key: shown?.key ?? sizeKey)
+                               pictureStale: pictureStale, key: shown?.key ?? sizeKey)
         .frame(minHeight: 0)
         // Allow the sidebar to shrink slightly but wrap text elements to avoid clipping
         .frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
@@ -710,7 +714,7 @@ public struct DetailsSidebar: View {
     /// move up into the line under the name, where Finder's preview pane keeps them.
     @ViewBuilder
     private func inspectorLayout(summary: DetailsSelectionSummary?, data: FileMetadata?, icon: NSImage?,
-                                 isStale: Bool, key: DirectorySizeTaskID) -> some View {
+                                 isStale: Bool, pictureStale: Bool, key: DirectorySizeTaskID) -> some View {
         if summary == nil, data == nil {
             // Nothing to draw yet is not "nothing selected": while the first stat is out, the panel
             // stays blank rather than say the opposite of the click that brought it here.
@@ -738,7 +742,7 @@ public struct DetailsSidebar: View {
             }
         } else {
             InspectorSplit(fraction: previewFraction, defaultFraction: Self.defaultPreviewFraction) {
-                inspectorPicture(summary: summary, data: data, icon: icon, isStale: isStale)
+                inspectorPicture(summary: summary, data: data, icon: icon, isStale: pictureStale)
             } lower: {
                 ScrollView(.vertical, showsIndicators: true) {
                     VStack(spacing: 14) {

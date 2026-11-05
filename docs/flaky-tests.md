@@ -1828,7 +1828,9 @@ task as well as setting its flag, so `Task.isCancelled` inside the lane is true 
 stopped. The test's left stat waits (`LeftStatGate`) until the right side is inside its check, so
 the stop always lands mid-wait, and the wait takes milliseconds instead of 10 s. It still declares
 `.parksAThread`: each of its two waits needs another pool thread to end it. Removing the stop, or
-either of `onHashLane`'s cancels, turns it red after its 10 s bound.
+the cancel handler's cancel, turns it red after its 10 s bound; removing the spawn's own cancel
+leaves it green (its stop always lands after the task is stored) and turns
+`aCallerCancelledBeforeTheHashLaneCancelsItsTaskToo` red instead, after that test's 5 s wait.
 
 ---
 

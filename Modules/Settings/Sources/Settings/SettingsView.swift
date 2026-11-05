@@ -999,7 +999,7 @@ struct HueOptionView: View {
                 Text(hue.displayName)
                     .scaledFont(.caption2.weight(isSelected ? .semibold : .medium))
                     .foregroundStyle(isSelected ? .primary : .secondary)
-                    // Twelve hues share one row; the longest name ("Graphite") shrinks to stay on a
+                    // Every hue shares one row; the longest name ("Graphite") shrinks to stay on a
                     // single line rather than wrapping in its narrow slot.
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)

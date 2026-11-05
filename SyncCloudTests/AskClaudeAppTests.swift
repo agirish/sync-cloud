@@ -985,6 +985,8 @@ import FileExplorer
         #expect(!elsewhere.result.contains("84.10") && elsewhere.passage?.autoShared == nil)
         let ticked = await runner(shared: [], sharesAnswers: true).run(read, handles: &handles)
         #expect(ticked.result.contains("The total is $84.10.") && !ticked.result.contains("for the tent"))
+        // Nor the page: it is where the question's words were found (review 2 of 11-04).
+        #expect(!ticked.result.contains("page 2"), "\(ticked.result)")
         #expect(ticked.passage?.autoShared == .answerForThisChat && ticked.passage?.answerSent == true)
         #expect(ticked.step == "Read Receipt REI 2025.pdf on this Mac · shared its answer")
     }
@@ -1065,6 +1067,22 @@ import FileExplorer
         #expect(AskClaudeHeldAnswer.foundTitle(card) == "Spotlight found no files mentioning “biopsy” in Documents/Taxes, on this Mac.")
         let one = await runner(hits: [receipt]).run(search, handles: &handles)
         #expect(one.result == none.result)
+    }
+
+    /// **On screen is where the folder really is** (review 2 of 11-04): a link inside the folder on
+    /// screen to a folder elsewhere is not on screen, so a lookup through it waits on a card.
+    @Test func aLinkInTheFolderOnScreenIsNotOnScreen() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("onscreen-\(UUID().uuidString)").path
+        defer { try? FileManager.default.removeItem(atPath: base) }
+        let root = base + "/Root", medical = base + "/Medical"
+        try FileManager.default.createDirectory(atPath: root + "/Docs/Taxes", withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: medical, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: root + "/Docs/Health", withDestinationPath: medical)
+        let ctx = AskClaudeBrowseTools.Context(
+            inBrowse: true, sourceName: "Home", root: root, folder: "Docs", sort: .name,
+            items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        #expect(ctx.isOnScreen(root + "/Docs") && ctx.isOnScreen(root + "/Docs/Taxes") && ctx.isOnScreen(root + "/docs/taxes"))
+        #expect(!ctx.isOnScreen(root + "/Docs/Health") && !ctx.isOnScreen(root))
     }
 
     @Test func movesWaitForTheWindowAndSidesAreCompares() async {
@@ -2463,9 +2481,9 @@ private final class NoTools: AskClaudeToolRunning {
                                         header: "20 matches under Travel, newest period first:\nrows: handle|name|kind|size|modified|tags|folder",
                                         source: .names, fromIndex: true, allFiles: true)
         let question = AskClaudeChat.foundQuestion(found)
-        #expect(question.hasPrefix("Here are the first 8 of the 20 files matching “pass” under Travel, as data."))
+        #expect(question.hasPrefix("Here are 8 of the 20 files matching “pass” under Travel, as data."))
         #expect(question.hasSuffix("\n12 more not listed; narrow the words or the folder."))
-        #expect(AskClaudeHeldAnswer.foundMore(12, noun: "file") == "and 12 more files, not listed; Claude is told how to see them if you share.")
+        #expect(AskClaudeHeldAnswer.foundMore(shown: 8, of: 20) == "8 of 20 shown; Claude is told how to see the rest if you share.")
         // Ticked on a card saved before Customize: it is in Customize, and keeps them.
         found.unticked = ["/t/Pass 1.pdf"]
         #expect(found.customized && found.ticked.count == 7)
@@ -3969,9 +3987,11 @@ private final class OffersADownload: AskClaudeToolRunning {
         // TE319–TE323). They see why in the step line.
         #expect(out.result.contains("they see the result and you don’t") && !out.result.contains("Airline Tickets"))
         #expect(out.step == "Offered a rule: Airline Tickets")
+        // Held: Save and Not Now tell Claude nothing of it either (review 2 of 11-04).
+        #expect(card.held == true)
         // Shared freely, Claude gets the words and folders, never text from the file.
         let freely = await offer(runner(Asked(), readsFiles: true))
-        #expect(freely.rule != nil && freely.result.contains("Nothing is saved until they click"))
+        #expect(freely.rule != nil && freely.rule?.held == nil && freely.result.contains("Nothing is saved until they click"))
         #expect(!freely.result.contains("15JUL") && !freely.result.lowercased().contains("nrt"))
         // A probe for a word only the page could hold is answered the same way, fit or not.
         let probe = await offer(runner(Asked()), words: ["Japan Airlines"])

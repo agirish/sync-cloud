@@ -1348,7 +1348,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                 }
                 .frame(maxHeight: files.count > AskClaudeHeldAnswer.foundShown ? 260 : nil)
                 if found.sent != true, found.count > files.count {
-                    Text(AskClaudeHeldAnswer.foundMore(found.count - files.count, noun: found.noun))
+                    Text(AskClaudeHeldAnswer.foundMore(shown: files.count, of: found.count))
                         .scaledFont(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -1433,7 +1433,9 @@ private struct AskClaudeThreadRow: View, Equatable {
                         Text(file.fileName).scaledFont(.footnote).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                     }
                     .toggleStyle(.checkbox)
-                    .disabled(locked)
+                    // Not while the question runs (review 2 of 11-04): a read joining the card moves
+                    // it to the foot of the thread, out from under the pointer.
+                    .disabled(locked || isRunning)
                     if let answer = file.answer {
                         Text(answer)
                             .scaledFont(.callout)
@@ -1932,31 +1934,21 @@ private struct AskClaudeThreadRow: View, Equatable {
 
 }
 
-/// A turn's actions for VoiceOver (TE296), one named action each, in place of
-/// `accessibilityActions { … }` holding buttons. That swap was made against a crash (an assistive
-/// app reading the panel while a question runs sends SwiftUI's label lookup round in a loop until the
-/// stack runs out), but it wasn't the cause: the label on the question's selectable text was.
+/// A turn's actions for VoiceOver (TE296). Attached once, whatever the actions are (review 2 of
+/// 11-04): an `if` per action swapped the whole bubble for another view each time Edit or Retry
+/// came or went — at every run's start and end — which dropped selected text and rebuilt the
+/// accessibility element just as a run began. (The named-action form was first chosen against the
+/// 11-03 crash, but the label on the question's selectable text was the cause, eae885318.)
 private struct AskClaudeTurnVoiceOverActions: ViewModifier {
     let actions: [AskClaudeTurnAction]
     let title: (AskClaudeTurnAction) -> String
     let perform: (AskClaudeTurnAction) -> Void
 
     func body(content: Content) -> some View {
-        content
-            .action(.copy, in: actions, title: title, perform: perform)
-            .action(.edit, in: actions, title: title, perform: perform)
-            .action(.retry, in: actions, title: title, perform: perform)
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func action(_ action: AskClaudeTurnAction, in actions: [AskClaudeTurnAction], title: (AskClaudeTurnAction) -> String,
-                perform: @escaping (AskClaudeTurnAction) -> Void) -> some View {
-        if actions.contains(action) {
-            accessibilityAction(named: Text(title(action))) { perform(action) }
-        } else {
-            self
+        content.accessibilityActions {
+            ForEach(actions, id: \.self) { action in
+                Button(title(action)) { perform(action) }
+            }
         }
     }
 }
@@ -2324,9 +2316,9 @@ enum AskClaudeHeldAnswer {
     /// A search inside files that found nothing (review of TE319–TE323): "none" waits too.
     static let shareResult = "Share This Result"
 
-    /// Under a table that holds only the first of them: "and 70 more, not listed".
-    static func foundMore(_ more: Int, noun: String) -> String {
-        "and \(more) more \(noun)\(more == 1 ? "" : "s"), not listed; Claude is told how to see them if you share."
+    /// Under a table that holds only some of them (a page of a longer list): "60 of 200 shown".
+    static func foundMore(shown: Int, of total: Int) -> String {
+        "\(shown) of \(total) shown; Claude is told how to see the rest if you share."
     }
     static let customize = "Customize…"
     static let customizeTitle = "Customize what Claude gets"

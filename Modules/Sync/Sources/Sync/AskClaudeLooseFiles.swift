@@ -195,16 +195,19 @@ extension AskClaudeLooseFiles {
     public static func result(_ plan: AskClaudePlan, leftHereCount: Int, nextFrom: Int?, rows sendsRows: Bool = true) -> String {
         var lines = ["They have a card: \(AskClaudeScreenCard.escape(plan.title)), \(AskClaudeScreenCard.escape(plan.subtitle)). Nothing moves until they click Apply."]
         if !sendsRows {
-            var homed = 0, picks = 0, trash = 0
+            var homed = 0, sure = 0, picks = 0, trash = 0
             var folders = Set<String>()
             for (group, rows) in plan.groups {
                 switch group {
-                case .folder(let label): homed += rows.count; folders.insert(label)
+                case .folder(let label):
+                    homed += rows.count
+                    sure += rows.filter { $0.confidence == AskClaudeFiling.label(.high) }.count
+                    folders.insert(label)
                 case .needsPick: picks += rows.count
                 case .alreadyFiled, .emptied: trash += rows.count
                 }
             }
-            lines.append("On the card: \(homed) with a home, in \(folders.count) folder\(folders.count == 1 ? "" : "s"); \(picks) needing their pick; \(trash) Trash row\(trash == 1 ? "" : "s"). The files’ names and homes weren’t sent to you: a home can come from a file’s first page.")
+            lines.append("On the card: \(homed) with a home, \(sure) of them sure (High, ticked), in \(folders.count) folder\(folders.count == 1 ? "" : "s"); \(picks) needing their pick; \(trash) Trash row\(trash == 1 ? "" : "s"). The files’ names and homes weren’t sent to you: a home can come from a file’s first page.")
             if let nextFrom, plan.more != nil {
                 lines.append("The card has a Next button; when they ask for the next ones, call again with the same folder and into, and from \(nextFrom).")
             }

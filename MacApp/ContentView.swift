@@ -2690,11 +2690,21 @@ struct ContentView: View {
     /// is available on both Compare and Organize, so this no longer yanks the single-source rail over to Compare.
     func showInfo(for path: String) {
         infoPath = path
-        var isDirectory: ObjCBool = false
-        infoNode = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
-            ? FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: isDirectory.boolValue)
-            : nil
+        infoNode = nil
         withAnimation(.easeInOut(duration: 0.15)) { showInspector = true }
+        // Off the main thread, with its date (review 2 of 11-04): a stat on a provider that has
+        // stopped answering hung the app at the click, and without the date a file previewed this
+        // way never refreshed when it changed.
+        Task { @MainActor in
+            let node = await Task.detached(priority: .userInitiated) { () -> FileNode? in
+                let keys: Set<URLResourceKey> = [.isDirectoryKey, .contentModificationDateKey]
+                guard let values = try? URL(fileURLWithPath: path).resourceValues(forKeys: keys) else { return nil }
+                return FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: values.isDirectory ?? false,
+                                modificationDate: values.contentModificationDate)
+            }.value
+            guard infoPath == path else { return }
+            infoNode = node
+        }
     }
 
     /// A change of the left pane's selection retires an explicit Get Info target, so the inspector
@@ -2964,7 +2974,8 @@ struct ContentView: View {
         if let pending = pendingDestination {
             GeometryReader { proxy in
                 ZStack {
-                    // `overlayScrimOpacity`'s Clear value at every level. This card takes the
+                    // `overlayScrimOpacity`'s Clear value at every level: since TE316 that is no
+                    // dimming at all in Light, at Frosted and Solid too. This card takes the
                     // app's level verbatim, so a heavy scrim would leave clear material with
                     // nothing to reveal. Enough to focus the card and settle what shows through
                     // it, not enough to switch the window off.

@@ -69,14 +69,15 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var sharesNames = false
         /// Whether a folder is the one on screen or inside it (his call on TE323): its names are
         /// there to see, so a lookup in it goes as before. Any other waits on a card.
-        func isOnScreen(_ relative: String) -> Bool {
-            let here = folder.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
-            let there = relative.lowercased()
-            return here.isEmpty || there == here || there.hasPrefix(here + "/")
+        /// By where it really is (review 2 of 11-04): a link inside the folder on screen to a folder
+        /// elsewhere is not on screen, as a shared folder's link is not shared.
+        func isOnScreen(_ absolute: String) -> Bool {
+            onScreenMatcher.matcher(for: [folder.isEmpty ? root : (root as NSString).appendingPathComponent(folder)]).holds(absolute)
         }
+        var onScreenMatcher = MatcherBox()
         /// Whether a lookup's names go without a card: on screen, shared, or ticked for the chat.
         func lookupGoes(_ folder: (absolute: String, relative: String, label: String)) -> Bool {
-            !isHidden(folder.absolute) && (isOnScreen(folder.relative) || sharesNames || sharesFreely(folder.absolute))
+            !isHidden(folder.absolute) && (isOnScreen(folder.absolute) || sharesNames || sharesFreely(folder.absolute))
         }
         /// The pane's tabs, the one on screen first, and how to switch or open one (TE242).
         var tabs: [Tab] = []
@@ -1442,6 +1443,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         if let heard, now.sharesAnswers {
             // The card's tick (TE321): answers go for the rest of this chat; the text still waits.
+            // Not the page either: it is where the question's words were found (review 2 of 11-04).
+            lines[0] = "On-device answer, from \(node.name): \(heard)"
             lines.append("Its text was not sent to you. If the answer isn’t enough, tell them they can share \(Self.heldParts(whole != nil)) with the buttons under your reply.")
             return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: "\(readHere) · shared its answer",
                                         passage: offered(answer: AskClaudeKeyCatch.masked(heard, joiningLines: false), asked: question,
@@ -1630,13 +1633,14 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         // see the outcome — whatever it is, or the telling itself would answer — except for what
         // depends on Claude's own words and folder alone. The step line tells them why.
         if page != nil, !ctx.sharesFreely(path), !Self.dependsOnInputAlone(answer) {
-            let neutral = "Whether a rule fits depends on the file’s first page, which isn’t sent to you, so they see the result and you don’t. Say in a line that they can see whether a rule was offered, and stop. Don’t offer it again."
+            let neutral = "Whether a rule fits depends on the file’s first page, which isn’t sent to you, so they see the result and you don’t, now or when they answer it. Say in a line that they can see whether a rule was offered, and stop. If they tell you a word that sets this file apart, you can offer it again with also."
             switch answer {
             case .failure(let refusal):
                 if case .covered = refusal { return AskClaudeToolOutcome(result: neutral, step: "A saved rule already files \(node.name) there") }
                 return AskClaudeToolOutcome(result: neutral, step: "No rule offered: " + Self.refusalForThem(refusal))
             case .success(let correction):
-                let card = AskClaudeRuleCard(fileName: node.name, correction: correction)
+                var card = AskClaudeRuleCard(fileName: node.name, correction: correction)
+                card.held = true
                 return AskClaudeToolOutcome(result: neutral, step: "Offered a rule: \(card.rule.name)", rule: card)
             }
         }

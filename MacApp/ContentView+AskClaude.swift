@@ -227,11 +227,15 @@ extension ContentView {
             SettingsChangeLog.shared.record(SettingsChange(setting: "organize.rules", name: "Rule “\(card.rule.name)”",
                                                            from: nil, to: nil, fromLabel: nil, toLabel: nil, how: .rule))
             askClaudeChat.answerRule(id, .saved)
-            askClaudeChat.tellClaude("They saved your rule “\(card.rule.name)”.")
+            // A card Claude wasn't told of says no more when answered (review 2 of 11-04): its
+            // words matched the file's first page, which is the very thing kept from Claude.
+            askClaudeChat.tellClaude(card.held == true ? "They saved a rule from a card." : "They saved your rule “\(card.rule.name)”.")
         } else {
             askClaudeChat.answerRule(id, .declined)
             Logger.shared.info("Ask Claude rule card: Not Now on “\(card.rule.name)”")
-            askClaudeChat.tellClaude("They chose Not Now on your rule “\(card.rule.name)”; nothing was saved.")
+            if card.held != true {
+                askClaudeChat.tellClaude("They chose Not Now on your rule “\(card.rule.name)”; nothing was saved.")
+            }
         }
     }
 
@@ -425,7 +429,8 @@ extension ContentView {
                 askClaudeSetHidden(folder, name: name, false)
             } else {
                 // Whichever entry covers it: itself, or a folder above it.
-                let shared = AskClaudePrivacy.sharedFolders(in: .standard).filter { AskClaudePrivacy.isHidden(folder, by: [$0]) }
+                // By where it really is, as the tools judge it (review 2 of 11-04).
+                let shared = AskClaudePrivacy.sharedFolders(in: .standard).filter { AskClaudePrivacy.Matcher([$0]).holds(folder) }
                 shared.forEach { AskClaudePrivacy.stopSharing($0, in: .standard) }
                 // A folder above it shared is taken off whole, so say which (review of TE319–TE323).
                 let above = shared.filter { ($0 as NSString).standardizingPath != (folder as NSString).standardizingPath }
@@ -519,7 +524,7 @@ extension ContentView {
         return AskClaudePlace(source: askClaudeSourceName, folder: askClaudeFolder,
                               itemCount: askClaudeItems(absolute)?.count,
                               isHidden: isHidden,
-                              isShared: !isHidden && AskClaudePrivacy.Matcher(AskClaudePrivacy.sharedFolders(in: .standard)).isHidden(absolute),
+                              isShared: !isHidden && AskClaudePrivacy.Matcher(AskClaudePrivacy.sharedFolders(in: .standard)).holds(absolute),
                               isOnScreen: !panesHiddenForCurrentTab || selectedWorkspace == .browse || selectedWorkspace == .compare,
                               workspace: selectedWorkspace.title, openFile: open)
     }

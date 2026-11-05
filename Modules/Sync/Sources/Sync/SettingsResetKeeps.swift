@@ -62,6 +62,9 @@ public enum SettingsResetKeeps {
         "paneBarArrangementMigration",          // PaneBar.migrationKey
         "browseSidebarFavoritePlacesMigration", // SidebarFavoritePlaces.migrationKey
         "paneColumnWidthFloorLifted",           // PaneViewMode.columnWidthFloorLiftKey
+        // InfoPreviewMigration.doneKey (the app's): run again after a reset, it read the preview's
+        // reset keys as on and opened Info (review 2 of 11-04). Pinned by the app's tests.
+        "infoPreviewMigrationDone",
     ]
 
     public static func keeps(_ key: String) -> Bool {

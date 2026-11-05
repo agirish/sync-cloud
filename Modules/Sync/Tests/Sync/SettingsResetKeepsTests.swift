@@ -82,7 +82,7 @@ import Testing
     @Test func theMigrationMarksAreKept() {
         for key in [FileSyncManager.filingRulesMigratedKey, OrganizeScopeDefaults.stampKey, "rootsModelStamp",
                     "rootsModelHandledProviderIds", "iCloudRootMoveStamp", "paneBarArrangementMigration",
-                    "browseSidebarFavoritePlacesMigration", "paneColumnWidthFloorLifted"] {
+                    "browseSidebarFavoritePlacesMigration", "paneColumnWidthFloorLifted", "infoPreviewMigrationDone"] {
             #expect(SettingsResetKeeps.keeps(key), "\(key)")
         }
     }

@@ -16,8 +16,8 @@ public enum SemanticCapsuleFamily: String, CaseIterable, Sendable {
 /// choices were forced by measurement on the pane header's old freshness badge: an accent-tinted
 /// glass capsule over the accent-washed header rendered LIGHTER than its own backdrop, stranding
 /// its label at 1.35:1 — a tint composited over its own hue has nothing to shift against. Being
-/// hue-independent also means a capsule renders identically under all twelve `LiquidGlassHue`
-/// cases, including the two (`.green`, `.amber`) that would otherwise collide with the very colors
+/// hue-independent also means a capsule renders identically under every `LiquidGlassHue`
+/// case, including the two (`.green`, `.amber`) that would otherwise collide with the very colors
 /// carrying the status.
 ///
 /// These two families are the app's ONE definition of these colours. Scan freshness used to keep
@@ -48,8 +48,8 @@ public struct SemanticCapsuleStyle: Equatable, Sendable {
     ///
     /// Non-nil only on the `onAccent(fill:label:)` path, and load-bearing there: on a saturated
     /// accent fill NOTHING coloured can clear the 3:1 floor for a non-text indicator. Measured, a
-    /// bare terracotta dot lands between 1.01:1 (Graphite) and 1.69:1 (Cyan) across the eleven
-    /// fixed hues — the accents all sit mid-luminance, so there is no room on either side. Green at
+    /// bare terracotta dot lands between 1.01:1 (Graphite) and 1.69:1 (Cyan) across the fixed hues
+    /// (eleven when measured, Slate since removed) — the accents all sit mid-luminance, so there is no room on either side. Green at
     /// L = 0.34 puts 3:1 at L < 0.081 or L > 0.87, i.e. darker than this terracotta and lighter than
     /// a pale peach, and even a pure white dot only reaches 2.7:1 there. So the ring carries the
     /// separation (it is the fill's own label colour, hence ≥3:1 against it by construction) and the

@@ -795,20 +795,25 @@ final class AskClaudeChat: ObservableObject {
         return out
     }
 
+    /// The files a share sends: the ticked ones (review 2 of 11-04), so a file left out and hidden
+    /// since neither stops the share nor a later Retry of it.
     private static func carriedPaths(_ kind: Item.Kind) -> [String] {
         switch kind {
         case .offer(let passage, _): passage.path.map { [$0] } ?? []
-        case .reads(let group): group.files.compactMap(\.path)
-        case .found(let found): found.paths
+        case .reads(let group): group.ticked.compactMap(\.path)
+        case .found(let found): found.files == nil ? found.paths : found.ticked.map(\.path)
         default: []
         }
     }
 
     /// Why the next question will start a new chat, or nil when it carries on in this one.
+    /// Every case `startsOverAtNextQuestion` counts, an app update's included (review 2 of 11-04):
+    /// a share's handles are minted in this chat's table, and a new chat's counts from r1 again.
     private var startsOverNext: String? {
-        if let last = lastActivity, now().timeIntervalSince(last) > Self.idleReset, !items.isEmpty { return "this chat is over an hour old" }
-        if hiddenSinceStart, !items.isEmpty { return "a folder was hidden from Claude since this chat began" }
-        return nil
+        guard startsOverAtNextQuestion else { return nil }
+        if let last = lastActivity, now().timeIntervalSince(last) > Self.idleReset { return "this chat is over an hour old" }
+        if hiddenSinceStart { return "a folder was hidden from Claude since this chat began" }
+        return "SyncCloud was updated since this chat began"
     }
 
     private func takeOfferPart(_ id: UUID, _ part: OfferPart) -> (question: String, shown: String)? {
@@ -1046,7 +1051,7 @@ final class AskClaudeChat: ObservableObject {
         // reads as the whole set.
         let partial = found.count > files.count
         let of: String
-        if all, partial { of = "the first \(ticked.count) of the \(found.count) \(noun)s" }
+        if all, partial { of = "\(ticked.count) of the \(found.count) \(noun)s" }
         else if all { of = "the \(ticked.count == 1 ? noun : "\(ticked.count) \(noun)s")" }
         else { of = "\(ticked.count) of the \(found.count) \(noun)s" }
         let details = found.customized ? found.chosenDetails : AskClaudeFoundNames.detailKeys

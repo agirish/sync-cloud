@@ -752,7 +752,7 @@ struct SeamPaneControls: View {
     ///
     /// Deepened rather than `accentColor` because the pill it sits on is now the accent too. On the
     /// light composite a raw-accent glyph runs 1.58:1 (Cyan) to 3.53:1 (Indigo) — nine of the eleven
-    /// hues under the 3:1 floor, i.e. hovering would make the glyph *harder* to read than at rest.
+    /// hues measured (Slate since removed) under the 3:1 floor, i.e. hovering would make the glyph *harder* to read than at rest.
     /// `accentFillColor` is bounded below by construction and clears 3:1 on every hue (3.21:1 worst,
     /// on Purple). Rest measures 8.4–8.9:1.
     ///

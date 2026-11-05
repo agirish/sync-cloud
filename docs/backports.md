@@ -14494,3 +14494,17 @@ one file merge on the group card. Ask Claude exists only on `main`.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Second review of recent main: Ask Claude, the Info preview, tests (11-04) — main only
+
+2026-11-04, for v7.0. On `main`: a held rule card's Save or Not Now no longer tells Claude what the
+first-page check found; the shield and Ask Each Time judge shared folders by real location, as the
+tools do; a share carries only ticked files and is refused after an app update starts a new chat;
+lookups count a folder as on screen by where it really is; the answers tick no longer names the
+page; the Info inspector's preview stays through re-reads of the same file; Reset All keeps the Info
+migration's stamp; Get Info stats its target off the main thread; turn actions no longer swap the
+bubble's view. Everything touched exists only on `main` (Ask Claude, TE318's Info preview).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude, no Info preview | CLOSED — doesn't apply |

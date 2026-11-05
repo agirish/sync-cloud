@@ -234,6 +234,8 @@ import Sync
         #expect(chat.pdfCard(id)?.rows.first?.stamp == nil, "the card read the file through a held lane")
         cards.askClaudePDFRun(id, password: nil)
         #expect(chat.pdfCard(id)?.state == .checking, "a click ran a card that hadn't read its file")
+        // And it was refused, not merely re-read (review 2 of 11-04): a refusal says nothing on the card.
+        #expect(chat.pdfCard(id)?.message == nil, "\(String(describing: chat.pdfCard(id)?.message))")
 
         release.signal()
         await holder.value
@@ -345,6 +347,9 @@ import Sync
         let heard = entries.contains { $0.message == marker }
         try #require(heard, "the capture never saw this test's own line, so the absence below would have examined nothing")
         #expect(!entries.contains { $0.message.contains(secret) }, "the password is in the log")
+        // What Claude is told of the run is there to examine (review 2 of 11-04), or the absence
+        // below would hold of an empty list.
+        try #require(!chat.sinceLastAnswer.isEmpty, "Claude was told nothing of the run, so the absence below proves nothing")
         #expect(!chat.sinceLastAnswer.joined().contains(secret), "Claude would be told the password")
         let saved = try String(contentsOf: store, encoding: .utf8)
         #expect(saved.contains("Protect"), "the chat wasn't saved, so its absence proves nothing")

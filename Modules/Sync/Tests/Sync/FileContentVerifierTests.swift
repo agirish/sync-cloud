@@ -169,7 +169,15 @@ import CryptoKit
     @Test func aCallerCancelledBeforeTheHashLaneCancelsItsTaskToo() async {
         let caller = Task {
             withUnsafeCurrentTask { $0?.cancel() }
-            return await FileContentVerifier.onHashLane { _ in Task.isCancelled }
+            // The spawn's own cancel can land just after the lane's task starts, so a loaded
+            // runner could read the flag first (review 2 of 11-04): wait for it, bounded. Without
+            // that cancel the wait runs out and this is red.
+            return await FileContentVerifier.onHashLane { _ in
+                let until = Date().addingTimeInterval(5)
+                // Task.sleep, not usleep: it parks no pool thread, and ends at once on the cancel.
+                while !Task.isCancelled, Date() < until { try? await Task.sleep(nanoseconds: 1_000_000) }
+                return Task.isCancelled
+            }
         }
         #expect(await caller.value)
     }

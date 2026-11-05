@@ -28,6 +28,10 @@ public struct AskClaudeRuleCard: Codable, Equatable, Sendable {
     /// The year and month were checked against page 1.
     public let checkedDate: Bool
     public var state: State = .offered
+    /// Offered without Claude being told (review of TE319–TE323): the file's first page decided
+    /// it, so what they do with the card can't tell Claude either — Not Now says nothing, Save says
+    /// only that a rule was saved. Nil on a card Claude knows of.
+    public var held: Bool?
 
     public init(fileName: String, correction: AutomationRuleProposer.Correction) {
         self.fileName = fileName

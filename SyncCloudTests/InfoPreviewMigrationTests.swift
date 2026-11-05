@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Sync
 @testable import SyncCloud
 
 /// The first launch with the preview in the Info inspector (TE318): Info opens for anyone who had
@@ -8,6 +9,12 @@ import Foundation
     typealias Step = InfoPreviewMigration
 
     private func defaults(_ name: String) -> UserDefaults { ScratchDefaults("info-preview-\(name)") }
+
+    /// **Reset All keeps the stamp** (review 2 of 11-04): the reset clears the preview's keys, so a
+    /// second run would read them as on and open Info for someone who had closed it.
+    @Test func resetAllKeepsTheStamp() {
+        #expect(SettingsResetKeeps.keeps(Step.doneKey))
+    }
 
     /// A new install, and an upgrade that never touched the preview, stored nothing — the default,
     /// on — so both open Info.
