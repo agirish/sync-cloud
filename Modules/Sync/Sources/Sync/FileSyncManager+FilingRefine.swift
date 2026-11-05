@@ -60,17 +60,21 @@ extension FileSyncManager {
         public let changed: Int
         /// Why the pass sent what it sent. See ``Outcome``.
         public let outcome: Outcome
+        /// Suggestions in scope left out because their file is hidden from Claude
+        /// (``FileSyncManager/filingSuggestionsHiddenFromClaude(_:)``). Not in `asked`.
+        public let hiddenFromClaude: Int
 
         /// - Note: `outcome` defaults to ``Outcome/ran`` so the many call sites that describe an
         ///   ordinary pass — and every test fixture that predates the distinction — keep reading
         ///   as they did. The three producers inside `refineFilingSuggestions` all pass it.
         public init(asked: Int, reused: Int, classified: Int, changed: Int,
-                    outcome: Outcome = .ran) {
+                    outcome: Outcome = .ran, hiddenFromClaude: Int = 0) {
             self.asked = asked
             self.reused = reused
             self.classified = classified
             self.changed = changed
             self.outcome = outcome
+            self.hiddenFromClaude = hiddenFromClaude
         }
     }
 
@@ -106,9 +110,50 @@ extension FileSyncManager {
         // `uniqueKeysWithValues`, which TRAPS on a repeated key — a list naming the same file
         // twice crashed the process. Quietly sending a file twice would be no better: this pass is
         // priced per file, so a duplicate is a double charge and a count the button over-quotes.
+        //
+        // **A file hidden from Claude is never eligible** (Settings ▸ Intelligence ▸ Hidden from
+        // Claude): not its name, not its page, not a download to read it.
+        let hidden = claudeHiddenMatcher()
         var seen: Set<String> = []
         return scope.filter {
-            $0.providerRoot == root && $0.best?.remembered != true && seen.insert($0.filePath).inserted
+            $0.providerRoot == root && $0.best?.remembered != true && !hidden.isHidden($0.filePath)
+                && seen.insert($0.filePath).inserted
+        }
+    }
+
+    /// How many suggestions in `scope` Refine leaves out because their file is hidden from Claude:
+    /// the ones ``filingSuggestionsEligibleForRefine(_:)`` would otherwise have asked about.
+    public func filingSuggestionsHiddenFromClaude(_ scope: [FilingSuggestion]) -> Int {
+        guard let root = filingLastProviderRoot else { return 0 }
+        let hidden = claudeHiddenMatcher()
+        guard !hidden.isEmpty else { return 0 }
+        var seen: Set<String> = []
+        return scope.filter {
+            $0.providerRoot == root && $0.best?.remembered != true && hidden.isHidden($0.filePath)
+                && seen.insert($0.filePath).inserted
+        }.count
+    }
+
+    /// The Hidden from Claude list (``AskClaudePrivacy``), read once per pass. Every `.refine`-tier
+    /// request honours it: no file, folder name, excerpt or rejected folder inside a hidden folder
+    /// goes to the backend. Read from `filingContentDefaults`, `.standard` in the app, so tests
+    /// drive it without touching his own list.
+    func claudeHiddenMatcher() -> AskClaudePrivacy.Matcher {
+        AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: filingContentDefaults))
+    }
+
+    /// `relative` (under `root`) is a folder the backend may be shown.
+    nonisolated static func shownToClaude(_ relative: String, under root: String,
+                                          hidden: AskClaudePrivacy.Matcher) -> Bool {
+        hidden.isEmpty || !hidden.isHidden((root as NSString).appendingPathComponent(relative))
+    }
+
+    /// The banner's clause for files left out as hidden from Claude, or "".
+    public nonisolated static func hiddenFromClaudeNote(_ count: Int) -> String {
+        switch count {
+        case 0: return ""
+        case 1: return " 1 file hidden from Claude was left out."
+        default: return " \(count) files hidden from Claude were left out."
         }
     }
 
@@ -132,7 +177,17 @@ extension FileSyncManager {
         guard canRefineFilingSuggestions, let classifier = filingClassifier,
               let root = filingLastProviderRoot else { return nil }
         let eligible = filingSuggestionsEligibleForRefine(scope)
-        guard !eligible.isEmpty else { return nil }
+        let hiddenCount = filingSuggestionsHiddenFromClaude(scope)
+        guard !eligible.isEmpty else {
+            if hiddenCount > 0 {
+                banner = .warning("Nothing was sent — "
+                    + (hiddenCount == 1 ? "that file is" : "those files are") + " hidden from Claude.")
+            }
+            return nil
+        }
+        // Once per pass: the matcher resolves each parent folder once and keeps it.
+        let hidden = claudeHiddenMatcher()
+        func shown(_ relative: String) -> Bool { Self.shownToClaude(relative, under: root, hidden: hidden) }
         // One pass at a time — the check is `canRefineFilingSuggestions`' `isRefiningFilingSuggestions`
         // clause above, which reads the very token claimed on the next line. The button is disabled
         // while a pass runs, but a menu equivalent and a second click landing in the same run-loop
@@ -151,9 +206,12 @@ extension FileSyncManager {
         // validated. A scan of another provider during the round-trip swaps these; reading them
         // live afterwards would mark segments new against the wrong tree, and the "creates N new
         // folders" confirmation would be about folders in a different account.
-        let taxonomyFolders = filingLastTaxonomyFolders
+        // Hidden folders still exist, so new-vs-existing reads the whole set; only what is SENT
+        // leaves them out.
+        let allTaxonomyFolders = filingLastTaxonomyFolders
         let existingRelative = filingLastExistingFolders.isEmpty
-            ? Set(taxonomyFolders) : filingLastExistingFolders
+            ? Set(allTaxonomyFolders) : filingLastExistingFolders
+        let taxonomyFolders = hidden.isEmpty ? allTaxonomyFolders : allTaxonomyFolders.filter(shown)
         let preAwaitGeneration = filingSuggestionsGeneration
 
         // Rejections, exactly as the scan builds them: persisted (token-keyed) plus this session's
@@ -162,7 +220,9 @@ extension FileSyncManager {
         // sent. The apply filter re-reads them afterwards; see below.
         let scopedRejections = filingRejections(under: URL(fileURLWithPath: root))
         let excludedByFile = Dictionary(uniqueKeysWithValues: eligible.map { s in
+            // A rejected folder goes out as "avoid: …", so a hidden one is left off.
             (s.filePath, rejectedFolders(for: s, in: scopedRejections)
+                .filter { !hidden.isHidden($0) }
                 .compactMap { Self.relativePath($0, under: root) })
         })
 
@@ -264,11 +324,12 @@ extension FileSyncManager {
                     let ranking = FilingRouter.rerankedByPeerNames(ranked, fileName: s.fileName) { relative in
                         peerNames(root + "/" + relative)
                     }
-                    return (s.filePath, ranking.candidates.map(\.relativePath))
+                    return (s.filePath, ranking.candidates.map(\.relativePath).filter(shown))
                 })
             }
+            // Filtered too: a card's own candidates can name a hidden folder the scan chose.
             preferred = Self.preferredFolders(for: files, shortlists: shortlists,
-                                              in: eligible, providerRoot: root)
+                                              in: eligible, providerRoot: root).filter(shown)
             let context = filingContext(
                 taxonomyFolders: FilingEngine.classifierFolders(preferred: preferred,
                                                                 fallback: taxonomyFolders))
@@ -374,7 +435,11 @@ extension FileSyncManager {
         // was a real hole: the cross-person veto lived only on the scan path, so *Refine* — the
         // pass that reaches the cloud model, the one most likely to produce a confident wrong
         // person — could file one family member's document into another's with nothing to stop it.
-        let refined = FilingEngine.applyVerdicts(verdicts, to: filingSuggestions,
+        // Claude was never shown a hidden folder, so an answer naming one (a guess, or a new
+        // folder that happens to land there, or a cached answer from before it was hidden) is not
+        // taken: the free suggestion stands.
+        let usable = hidden.isEmpty ? verdicts : verdicts.filter { shown($0.value.relativePath) }
+        let refined = FilingEngine.applyVerdicts(usable, to: filingSuggestions,
                                                  existingRelative: existingRelative,
                                                  providerRoot: root, nameProvider: filingLastNameProvider,
                                                  rejectedByFile: rejectedByFile,
@@ -402,13 +467,15 @@ extension FileSyncManager {
             filingCloudRefineIsDowngraded ? .downgraded : (declined ? .declined : .ran)
         let summary = FilingRefineSummary(asked: eligible.count, reused: cachedVerdicts.count,
                                           classified: classifiedCount, changed: changed,
-                                          outcome: outcome)
+                                          outcome: outcome, hiddenFromClaude: hiddenCount)
+        let hiddenNote = Self.hiddenFromClaudeNote(hiddenCount)
         filingLastRefine = summary
         // `sentToBackend`, not `classifiedCount` — see the declaration. The route is named because
         // the number alone cannot distinguish a pass nobody paid for from one nobody ran.
         Logger.shared.info("Filing: refined \(eligible.count) suggestion(s) — \(sentToBackend) sent to "
             + "\(outcome == .downgraded ? "the on-device backend (Claude's key was unreadable)" : "the backend")"
             + ", \(cachedVerdicts.count) reused from cache, \(changed) home(s) changed"
+            + (hiddenCount == 0 ? "" : ", \(hiddenCount) hidden from Claude left out")
             + (outcome == .declined ? " — the cloud pass was declined" : ""))
         // The one state where the button and the router disagree: a key IS stored (so the button
         // offered Claude) but it could not be read (so the pass ran on-device). Nothing was
@@ -441,16 +508,16 @@ extension FileSyncManager {
                     ? ", and no home changed."
                     : ", moving \(changed) home\(changed == 1 ? "" : "s")."
             }
-            banner = .warning(text)
+            banner = .warning(text + hiddenNote)
             return summary
         }
         // Success in both directions: "no better homes found" is a complete, correct answer to
         // what was asked, not a failure to warn about.
-        banner = .success(changed > 0
+        banner = .success((changed > 0
             ? "Refined \(eligible.count) suggestion\(eligible.count == 1 ? "" : "s") — "
               + "\(changed) home\(changed == 1 ? "" : "s") changed."
             : "Refined \(eligible.count) suggestion\(eligible.count == 1 ? "" : "s") — "
-              + "no better homes found.")
+              + "no better homes found.") + hiddenNote)
         return summary
     }
 
@@ -484,13 +551,39 @@ extension FileSyncManager {
         /// No transport, an unpriced model, or a hard failure — the sheet says the pass could
         /// not run.
         case unavailable
+        /// The family, a member or a mapped folder is hidden from Claude: nothing was sent.
+        case hiddenFromClaude
+    }
+
+    /// Whether `request` names a folder hidden from Claude: the family, a member, or a mapped
+    /// folder inside a member. `root` is the folder the request's paths are relative to.
+    func mappingRefineTouchesHiddenFolder(_ request: MappingRefineRequest, under root: String) -> Bool {
+        let hidden = claudeHiddenMatcher()
+        guard !hidden.isEmpty else { return false }
+        let family = (root as NSString).appendingPathComponent(request.family)
+        if hidden.isHidden(family) { return true }
+        for member in request.members {
+            let memberPath = (family as NSString).appendingPathComponent(member)
+            if hidden.isHidden(memberPath) { return true }
+            for row in request.rows where hidden.isHidden((memberPath as NSString).appendingPathComponent(row.source)) {
+                return true
+            }
+        }
+        return false
     }
 
     /// §5.6's entry point: the same spend pre-flight every paid call gets — quoted for the model
     /// the transport will resolve, against the same caps and the same store — then the injected
     /// transport. On the mapping, never on the apply; the caller edits rows with what comes back.
-    public func refineMapping(_ request: MappingRefineRequest) async -> MappingRefineOutcome {
+    ///
+    /// `root` is the folder the request's family is relative to. Given, a request that names a
+    /// folder hidden from Claude is refused before anything is priced or sent.
+    public func refineMapping(_ request: MappingRefineRequest, under root: String? = nil) async -> MappingRefineOutcome {
         guard let mappingRefiner else { return .unavailable }
+        if let root, mappingRefineTouchesHiddenFolder(request, under: root) {
+            Logger.shared.info("Mapping refine skipped — part of “\(request.family)” is hidden from Claude")
+            return .hiddenFromClaude
+        }
         // Unlike the filing refine there is NO on-device fallback for naming — the pass either
         // reaches Claude or it does not run. So the route gate is a hard gate, and it is what
         // keeps a stored key from being billed while the cloud toggle is off: the transport

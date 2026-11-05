@@ -2565,7 +2565,8 @@ public struct LensWorkspaceView: View {
         let scope = isFiltered ? " — the ones your search left showing" : ""
         return "Re-asks Claude (\(model)) about \(files)\(scope). This one is billed to your API "
             + "key; you’ll see an estimate first. Suggestions your own rules steered are left "
-            + "alone, and files already answered by this model aren’t sent again."
+            + "alone, files hidden from Claude aren’t sent, and files already answered by this "
+            + "model aren’t sent again."
     }
 
     /// Runs the refine pass over `batch`. Unstructured on purpose: this is a user-initiated round
@@ -3038,6 +3039,7 @@ public struct LensWorkspaceView: View {
         default:             changed = "\(refine.changed) suggestions moved to better homes."
         }
         return "Asked about \(refine.asked). \(sent)\(reused) \(changed)"
+            + FileSyncManager.hiddenFromClaudeNote(refine.hiddenFromClaude)
     }
 
     /// Spells out what "reused" bought, in the terms the user cares about — the model wasn't asked,
@@ -4112,7 +4114,8 @@ public struct LensWorkspaceView: View {
                 // §5.6: the paid pass on the mapping — the transport is the app's, the offer
                 // branch is "is a key stored", and the model label resolves the way the
                 // transport resolves it, all three exactly as the filing refine splits them.
-                onRefineMapping: { await syncManager.refineMapping($0) },
+                // The profile root, so a mapping naming a folder hidden from Claude is refused.
+                onRefineMapping: { await syncManager.refineMapping($0, under: Self.planDiskRoot(profile.root).path) },
                 refineOffered: syncManager.filingCloudRefineAvailable,
                 refineModelLabel: FilingSpendFormat.model(refineModelName),
                 onConfigureRefine: onConfigureCloudRefine,

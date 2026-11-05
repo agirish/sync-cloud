@@ -1099,6 +1099,8 @@ struct RestructurePlanSheet: View {
             case .declined:
                 // Their choice, not a failure — "check your key" would be the wrong sentence.
                 refineFailedText = "Declined at the estimate — nothing was sent."
+            case .hiddenFromClaude:
+                refineFailedText = "Nothing was sent — part of this family is hidden from Claude."
             case .unavailable:
                 refineFailedText = "The pass didn’t run — the key, the budget caps or the "
                     + "network said no. Settings ▸ Intelligence has the details."

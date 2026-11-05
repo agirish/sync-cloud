@@ -14542,3 +14542,22 @@ sharing. Ask Claude exists only on `main`.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |
+
+## Refine, Try Another and the naming refine honour Hidden from Claude (TE332 Q5) — main only
+
+2026-11-04, for v7.1. On `main`, the Hidden from Claude list (`AskClaudePrivacy`) was read only by
+Ask Claude, so Organize's Refine sent a hidden file's name and page, and hidden folders as
+destinations and as "avoid". Now every `.refine`-tier request leaves them out: Refine skips hidden
+files (the button's count and the banner say so), drops hidden folders from the folder list, the
+shortlists and "avoid", and takes no answer naming one; Try Another does the same when it goes to
+Claude; the restructure sheet's naming refine refuses a mapping that names a hidden folder.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s privacy=%s\n' $l "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/AskClaudePrivacy.swift | wc -l | tr -d ' ')"; done
+# measured 2026-11-04, against origin, before this landed: every line privacy=0 (main: 1)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Hidden from Claude list, so no promise for Refine to break | CLOSED — doesn't apply |

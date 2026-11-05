@@ -1497,7 +1497,20 @@ extension FileSyncManager {
         // against the WRONG provider's folders — an emptied set marks EVERY segment new, so the
         // "Creates N new folders." confirmation lies. Everything after the await uses only
         // these locals, which are consistent with the validated `root` by construction.
-        let taxonomyFolders = filingLastTaxonomyFolders
+        // **Hidden from Claude, honoured as the refine pass does:** a hidden file is not asked
+        // about, and a hidden folder is neither offered nor sent as one to avoid. Only when the
+        // re-ask goes to Claude: on this Mac nothing leaves it.
+        let hidden = filingRoutesToCloud(.refine) ? claudeHiddenMatcher() : AskClaudePrivacy.Matcher([])
+        if hidden.isHidden(suggestion.filePath) {
+            banner = .warning("“\(suggestion.fileName)” is hidden from Claude, so it wasn’t asked "
+                              + "for another folder. Choose one instead.")
+            replaceFilingSuggestion(suggestion.id, candidates: [])
+            return
+        }
+        let allTaxonomyFolders = filingLastTaxonomyFolders
+        let taxonomyFolders = allTaxonomyFolders.filter {
+            Self.shownToClaude($0, under: root, hidden: hidden)
+        }
         let existingFoldersSnapshot = filingLastExistingFolders
         let nameProvider = filingLastNameProvider   // same snapshot rule, for a new folder's name (FR47)
         // "Try another" is a re-ask, not a scan, so it may only BORROW the status line while the
@@ -1524,7 +1537,8 @@ extension FileSyncManager {
                 filingScanLifecycle.status = nil
             }
         }
-        let excluded = allRejected.compactMap { Self.relativePath($0, under: root) }
+        let excluded = allRejected.filter { !hidden.isHidden($0) }
+            .compactMap { Self.relativePath($0, under: root) }
         // **The page the scan already read, not nil.** This is a `.refine` call — the paid tier —
         // and it was handing the model less than the router had. The refine PASS made exactly this
         // change for exactly this reason: "the last place to hand the model less than the router
@@ -1573,7 +1587,7 @@ extension FileSyncManager {
         // classifier's cap isn't mislabeled as one to create. Fall back to the (capped) list sent
         // to the classifier if the full set wasn't captured. Both from the pre-await snapshots —
         // see above.
-        let existingFolders = existingFoldersSnapshot.isEmpty ? Set(taxonomyFolders) : existingFoldersSnapshot
+        let existingFolders = existingFoldersSnapshot.isEmpty ? Set(allTaxonomyFolders) : existingFoldersSnapshot
         // **The same cross-person rule the scan and the refine apply.** This is a `.refine`-tier
         // answer from the same backend, for one card, and it went straight from
         // `destination(from:)` onto the card: none of `applyVerdicts`' guards ran, so a re-ask
@@ -1590,7 +1604,9 @@ extension FileSyncManager {
                   let dest = FilingEngine.destination(from: verdict, providerRoot: root,
                                                       existingRelative: existingFolders,
                                                       nameProvider: nameProvider),
-                  !allRejected.contains(dest.path)
+                  !allRejected.contains(dest.path),
+                  // Never shown a hidden folder, so an answer naming one is not taken.
+                  !hidden.isHidden(dest.path)
             else { return nil }
             if let refusal = FilingEngine.personVeto(
                 fileName: suggestion.fileName, destination: dest.path, providerRoot: root,
