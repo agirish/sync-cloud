@@ -7,23 +7,15 @@ import Sync
 @testable import SyncCloud
 
 /// The app-side half of Browse tabs: where the strip is mounted, what the ⌃⇥ item says, and the
-/// three-state Tab Bar switch.
-///
-/// `ContentView` is a `View` with `@State` and cannot be instantiated here, so the rules that
-/// matter are extracted as values (`TabBarSwitch.resolve`, `PaneFocusSwitch.menuTitle`) and pinned
-/// twice: the rule directly, and the call site by a source scan — because a rule nothing calls is
-/// one revert away from being decoration, and this repo has shipped exactly that.
+/// three-state Tab Bar switch. `ContentView` can't be instantiated here, so each rule is extracted
+/// as a value (`TabBarSwitch.resolve`, `PaneFocusSwitch.menuTitle`) and pinned twice: the rule
+/// directly, and its call site by a source scan, since a rule nothing calls is decoration.
 @MainActor
 @Suite struct PaneTabWiringTests {
 
-    /// One member's body: from its declaration to the first line that is a closing brace at
-    /// member indentation.
-    ///
-    /// **Not a fixed character window.** A window is what `QuickLookOriginTests` uses, and this
-    /// change is what showed the cost: one more argument on an unrelated call site pushed the line
-    /// it looks for out of range, and a *tab* handler failed a *Quick Look* test. Slicing to the
-    /// member's own end cannot go stale as the member grows, and a member that outgrows its own
-    /// closing brace is not a thing.
+    /// One member's body: from its declaration to the first closing brace at member indentation.
+    /// Sliced to the member's own end rather than a fixed character window, which goes stale as
+    /// unrelated code grows.
     private static func memberBody(_ declaration: String, in source: String) throws -> String {
         let start = try #require(source.range(of: declaration),
                                  "\(declaration) is gone — this scan would be vacuous")
@@ -33,12 +25,9 @@ import Sync
         return String(rest[..<end.lowerBound])
     }
 
-    /// One TYPE's body — to its closing brace at column zero.
-    ///
-    /// Separate from `memberBody` because the two close at different indentations, and using the
-    /// member form on a type silently returns the first member instead: `CloseTabCommand`'s slice
-    /// stopped at its static helper and the scan below reported the item as still disabled. A
-    /// scan that reads the wrong region is worse than no scan, so the two are named apart.
+    /// One type's body, to its closing brace at column zero. Separate from `memberBody` because
+    /// the member form on a type silently returns its first member instead, and a scan that reads
+    /// the wrong region is worse than none.
     private static func typeBody(_ declaration: String, in source: String) throws -> String {
         let start = try #require(source.range(of: declaration),
                                  "\(declaration) is gone — this scan would be vacuous")
@@ -47,42 +36,25 @@ import Sync
         return String(rest[..<end.lowerBound])
     }
 
-    /// Source with its comments removed.
-    ///
-    /// **Every negative assertion below must go through this.** A scan for the ABSENCE of something
-    /// is answered by any comment that mentions it — this file has now tripped over its own prose
-    /// twice: a doc comment naming `FileTreeView(` broke a Quick Look scan, and a comment
-    /// explaining why the header menu registers no `keyboardShortcut` made the check for one pass.
-    ///
-    /// **This was a whole-LINE filter, which is the hole `538ac2e1` had already fixed elsewhere.**
-    /// Dropping only lines whose first non-space characters are `//` leaves a *trailing* comment in
-    /// the text, and the large majority of this suite's scans read it — including positive controls
-    /// like `#expect(body.contains("noteWorkingIn(isLeft: "))`, whose entire job is to stop the
-    /// checks under them passing vacuously. Any of those could be satisfied by the same words
-    /// written after code on any line of the member, with the real call deleted.
-    ///
-    /// It also desynchronised ``topLevelCall``, which counts braces over this text: a `{` or `}`
-    /// inside a trailing comment shifted the depth counter for everything after it, so a call at
-    /// the member's top level could read as `.onlyInsideABranch` or the reverse.
-    ///
-    /// `SyncCloudTests.strippingComments` is the corrected one — a character scanner rather than a
-    /// regex, because a `//` inside `"https://…"` is code — and it is reused rather than copied: a
-    /// third implementation of this is how the three copies of `declarationBody` came to disagree.
-    /// `theCommentStripperIsTheCorrectedOne` is the proof that this file gets that behaviour, and
-    /// that the file it scans stays inside the stripper's stated limits.
+    /// Source with its comments removed, trailing ones included. **Every negative assertion
+    /// below must go through this:** a scan for the absence of something is answered by any
+    /// comment that mentions it, and a positive control can be satisfied by a trailing comment
+    /// after the real call is deleted. Braces in a trailing comment would also throw off
+    /// ``topLevelCall``'s depth count. Reuses `SyncCloudTests.strippingComments`, a character
+    /// scanner (a `//` inside `"https://…"` is code), rather than another copy;
+    /// `theCommentStripperIsTheCorrectedOne` proves this file gets it.
     nonisolated fileprivate static func codeOnly(_ source: String) -> String {
         SyncCloudTests.strippingComments(source)
     }
 
-    /// One member's body, found by NAME rather than by its whole declaration — for the scans that
-    /// DERIVE which members to read instead of listing them, where the full declaration is not
-    /// something the deriving side knows. Same slice as ``memberBody`` otherwise.
+    /// One member's body, found by name rather than by its whole declaration, for scans that
+    /// derive which members to read. Same slice as ``memberBody`` otherwise.
     private static func memberBodyNamed(_ name: String, in source: String) throws -> String {
         try memberBody("func \(name)(", in: source)
     }
 
-    /// Every capture of `group` for `pattern` in `source`. The seam that lets a scan derive its
-    /// subject from the code rather than keeping a list beside it.
+    /// Every capture of `group` for `pattern` in `source`, so a scan can derive its subject from
+    /// the code rather than keep a list beside it.
     nonisolated private static func matches(_ pattern: String, in source: String, group: Int) -> [String] {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         let text = source as NSString
@@ -93,25 +65,19 @@ import Sync
             }
     }
 
-    /// Every argument written against `label:` in `source`, as the whole TOKEN it names.
-    ///
-    /// A `contains` check cannot tell `isLeft: isLeft` from `isLeft: isLeftTarget` — the second
-    /// contains the first — so a wrongly-polarised local satisfies a scan that looks for the
-    /// spelling. That hole was real: the invariant over the one door counted `"isLeft: "` against
-    /// `"isLeft: isLeft"`, and any identifier with that prefix balanced the two. Capturing the
-    /// identifier (with any leading `!`) makes the comparison a token comparison.
-    /// Pinned by ``theArgumentScanReadsATokenAndNotAPrefix``. `nonisolated`, like the three
-    /// `ShortcutCommandsTests` readers: text in, text out, so a scan elsewhere need not run on the
-    /// main thread to use it.
+    /// Every argument written against `label:` in `source`, as the whole token it names. A
+    /// `contains` check can't tell `isLeft: isLeft` from `isLeft: isLeftTarget`, so a
+    /// wrongly-polarised local would satisfy it; capturing the identifier (with any leading `!`)
+    /// compares tokens. Pinned by ``theArgumentScanReadsATokenAndNotAPrefix``. `nonisolated`, like
+    /// the `ShortcutCommandsTests` readers: text in, text out.
     nonisolated static func argumentTokens(labelled label: String, in source: String) -> [String] {
         matches(#"\#(label):[ \t]*(!?[ \t]*[A-Za-z_][A-Za-z0-9_]*)"#, in: source, group: 1)
             .map { $0.replacingOccurrences(of: " ", with: "")
                      .replacingOccurrences(of: "\t", with: "") }
     }
 
-    /// Every occurrence of `pattern` in `source`, as RANGES rather than as text — for the scans
-    /// that have to ask *where* a match sits (inside a narrowing call, inside an exempt member)
-    /// rather than only whether it exists.
+    /// Every occurrence of `pattern` in `source`, as ranges, for scans that ask where a match sits
+    /// (inside a narrowing call, inside an exempt member) rather than only whether it exists.
     static func occurrences(_ pattern: String, in source: String) -> [Range<String.Index>] {
         var found: [Range<String.Index>] = []
         var search = source.startIndex
@@ -125,15 +91,10 @@ import Sync
         return found
     }
 
-    /// Every call of `opener` in `source`, as the span from the opener to its BALANCED closing
-    /// parenthesis.
-    ///
-    /// **Balanced, because the regex this replaces could not be.** The `PaneSideChoice.own` scan
-    /// matched `own\(isLeft,\s*left:\s*[^,]+?,\s*right:\s*[^)\n]+\)`, which cannot read a call whose
-    /// argument contains a comma or a nested `(`, and stops dead at a newline — so
-    /// `own(isLeft, left: syncManager.leftChildrenIndex(treeRoot: root), right: …)` wrapped over two
-    /// lines is a call the scan silently does not see. A call it cannot see is a call whose sides
-    /// may be swapped with nothing to say so.
+    /// Every call of `opener` in `source`, as the span from the opener to its balanced closing
+    /// parenthesis. Balanced, because a regex can't read a call whose argument holds a comma or a
+    /// nested `(`, or one wrapped over two lines, and a call the scan can't see may have its sides
+    /// swapped with nothing to say so.
     static func callSpans(of opener: String, in source: String) -> [Range<String.Index>] {
         var found: [Range<String.Index>] = []
         var search = source.startIndex
@@ -160,8 +121,8 @@ import Sync
         }
     }
 
-    /// One argument list split on its TOP-LEVEL commas — a comma inside a nested call or a
-    /// collection literal belongs to that argument, not to this list.
+    /// One argument list split on its top-level commas; a comma inside a nested call or a
+    /// collection literal belongs to that argument.
     static func topLevelArguments(_ text: String) -> [String] {
         var parts: [String] = []
         var current = ""
@@ -183,10 +144,8 @@ import Sync
         var right: String
     }
 
-    /// Every `PaneSideChoice.own(…)` call in `source`, whatever shape it is written in.
-    ///
-    /// A call this cannot parse comes back as `nil` and the caller fails on the count — the old
-    /// regex simply skipped it, which is the difference between "unreadable" and "absent".
+    /// Every `PaneSideChoice.own(…)` call in `source`, whatever its shape. A call this can't parse
+    /// comes back `nil` and the caller fails on the count, so "unreadable" never reads as "absent".
     static func sideNarrowings(in source: String) -> [SideNarrowing?] {
         callArguments(of: "PaneSideChoice.own(", in: source).map { text in
             let parts = topLevelArguments(text)
@@ -199,14 +158,10 @@ import Sync
         }
     }
 
-    /// One side of a pair with its side-word blanked, so the two halves of a MATCHED pair compare
-    /// equal and a mismatched one does not.
-    ///
-    /// **The hole this closes.** The per-argument check — every `left:` names something left-ish,
-    /// every `right:` something right-ish — is satisfied by
-    /// `own(isLeft, left: syncManager.leftRelativePath, right: syncManager.rightBrowsePath)`,
-    /// because each argument contains its own side's word. That call narrows two DIFFERENT pairs
-    /// and hands back one of each, which is not a pane's value at all.
+    /// One side of a pair with its side-word blanked, so the halves of a matched pair compare equal
+    /// and a mismatched one doesn't. A per-argument check alone passes
+    /// `own(isLeft, left: syncManager.leftRelativePath, right: syncManager.rightBrowsePath)`, which
+    /// narrows two different pairs and is not a pane's value at all.
     static func sideStemmed(_ argument: String) -> String {
         argument
             .replacingOccurrences(of: "left", with: "«side»",
@@ -215,19 +170,16 @@ import Sync
                                   options: [.regularExpression, .caseInsensitive])
     }
 
-    /// The locals a member binds through the one flip — `let other = PaneSideChoice.sibling(isLeft)`.
-    ///
-    /// A member reaching for the SIBLING pane is not a bug; reaching for it by writing the `!` out
-    /// by hand is, because that `!` sits in a `ContentView` extension no test can instantiate.
-    /// `let other = !isLeft` in `mirrorOpenInNewTab` with the `!` dropped survived the whole app
-    /// suite: ⌥/linked Open in New Tab then opened both tabs on the pane the user aimed at.
+    /// The locals a member binds through the one flip,
+    /// `let other = PaneSideChoice.sibling(isLeft)`. Reaching for the sibling pane is fine; writing
+    /// the `!` by hand isn't, because it sits in a `ContentView` extension no test can instantiate,
+    /// and a dropped `!` opens a mirrored tab on the wrong pane with every other test green.
     static func siblingLocals(in body: String) -> Set<String> {
         Set(matches(#"let (\w+) = PaneSideChoice\.sibling\(isLeft\)"#, in: body, group: 1))
     }
 
     /// Every label a side is passed under in the tabs file. `refreshForTabSwitch(movedPane:)` and
-    /// `mirrorOpenInNewTab(_:from:)` spell it differently and would be missed by `isLeft:` alone —
-    /// which is a hole the one door's own invariant had to note in prose.
+    /// `mirrorOpenInNewTab(_:from:)` spell it differently, so `isLeft:` alone would miss them.
     static let sideLabels = ["isLeft", "movedPane", "from"]
 
     /// Every side argument in `body` naming neither the member's own `isLeft` nor a local it bound
@@ -250,13 +202,9 @@ import Sync
         case absent
     }
 
-    /// Every Swift file under `root`, **recursively**.
-    ///
-    /// The scans that read a whole tree used `contentsOfDirectory`, which is one level deep: they
-    /// see `MacApp/*.swift` and nothing under a `MacApp/Tabs/` the moment anybody makes one. The
-    /// callers keep their own floor on the count, which is also what covers the other half of this
-    /// — `enumerator(at:)` answers NON-NIL and yields nothing for a directory it cannot list, so a
-    /// zero here is not distinguishable from an empty tree except by that floor.
+    /// Every Swift file under `root`, recursively, so a subfolder like `MacApp/Tabs/` isn't missed.
+    /// Callers keep their own floor on the count: `enumerator(at:)` answers non-nil and yields
+    /// nothing for a directory it can't list, so only the floor tells that from an empty tree.
     nonisolated static func swiftFiles(under root: URL) -> [URL] {
         var found: [URL] = []
         let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
@@ -266,13 +214,11 @@ import Sync
         return found
     }
 
-    /// Every `Logger.shared.<level>(…)` call in `body`, as the text of its ARGUMENTS.
-    ///
-    /// **Per call, not per member**, and that distinction is a live defect: `closeTab` writes two
-    /// lines — the last-tab branch that closes the WINDOW, and the ordinary close — so a
-    /// member-wide `contains` for the side is satisfied by the first, and stripping the side from
-    /// every ORDINARY ⌘W line was green. Balanced parentheses, because these arguments are string
-    /// interpolations full of them. Pinned by ``theLogCallScanReadsEachCallSeparately``.
+    /// Every `Logger.shared.<level>(…)` call in `body`, as the text of its arguments. Per call, not
+    /// per member: `closeTab` logs twice (closing the window on the last tab, and the ordinary
+    /// close), so a member-wide `contains` is satisfied by the first and misses a side stripped
+    /// from the second. Balanced parentheses, since the arguments are interpolations full of them.
+    /// Pinned by ``theLogCallScanReadsEachCallSeparately``.
     static func logCalls(in body: String) -> [String] {
         var calls: [String] = []
         for level in ["info", "debug", "warning", "error"] {
@@ -293,29 +239,21 @@ import Sync
         return calls
     }
 
-    /// A member body with its own opening brace removed, so brace depth inside it starts at zero.
-    ///
-    /// ``memberBody`` slices from just after the DECLARATION, which leaves the ` {` on the front —
-    /// with it every statement in the member reads as depth 1 and ``topLevelCall`` could never
-    /// answer `.found` for anything.
+    /// A member body with its opening brace removed, so brace depth inside it starts at zero.
+    /// ``memberBody`` leaves the ` {` on the front, and with it ``topLevelCall`` could never answer
+    /// `.found`.
     static func memberInterior(_ body: String) -> String {
         guard let brace = body.firstIndex(of: "{") else { return body }
         return String(body[body.index(after: brace)...])
     }
 
-    /// Whether `call` is reached unconditionally in `body`.
-    ///
-    /// **The guarantee a text walk cannot give.** "Does the member mention the focus door" is
-    /// satisfied by `if pinned { noteWorkingIn(…) }` — a measured surviving mutation, under which
-    /// unpinning a chip moves no focus and ⌘W stays aimed at the pane the user is not looking at —
-    /// and by a call parked after an early `return`. Brace depth answers both: a call inside any
-    /// `if`/`guard`/`switch` branch or closure is at depth ≥ 1, and a `guard … else { return }`
-    /// puts its `return` at depth 1, which is correct and must NOT count (`copyTabPath` bails on a
-    /// chip its strip does not hold before it moves anything, deliberately).
-    ///
-    /// Depth is counted over `codeOnly` text; braces inside a string literal would fool it, and
-    /// none of the members read here has one. ``theTopLevelCallScanTellsABranchFromAStatement``
-    /// is the fixture that proves all four answers are reachable.
+    /// Whether `call` is reached unconditionally in `body`. A mention check is satisfied by
+    /// `if pinned { noteWorkingIn(…) }` or by a call after an early `return`; brace depth catches
+    /// both. A call in any branch or closure sits at depth ≥ 1, and a `guard … else { return }`
+    /// puts its `return` at depth 1, which correctly doesn't count (`copyTabPath` bails on a chip
+    /// its strip doesn't hold, on purpose). Depth is counted over `codeOnly` text; braces inside a
+    /// string literal would fool it, and none of the members read here has one.
+    /// ``theTopLevelCallScanTellsABranchFromAStatement`` proves all four answers are reachable.
     static func topLevelCall(_ call: String, in body: String) -> TopLevelCall {
         var depth = 0
         var sawTopLevelReturn = false
@@ -340,53 +278,38 @@ import Sync
         return foundSomewhere ? .onlyInsideABranch : .absent
     }
 
-    /// Source with a plain **assignment** `=` normalised to one space each side — and nothing else
-    /// touched, which is the entire point.
-    ///
-    /// What this replaces opened with `.replacingOccurrences(of: " +=", with: " +=")`, which
-    /// replaces a string with itself: measured, that step returned its input unchanged. So the `+=`
-    /// protection it was written for never happened at all, and `pendingTabProviderChanges += 1`
-    /// came out of the next step as `… + = 1`.
-    ///
-    /// The other direction is the one with teeth: `\s*=\s*` rewrites a COMPARISON too, so
-    /// `if leftProviderId == id` became `leftProviderId =  = id` — which contains
-    /// `"leftProviderId = "` and was therefore counted as a WRITE. Measured against the mixed
-    /// fixture below, the old normaliser answered **3** where 2 were real, one extra per `==` on a
-    /// pane provider id. No such comparison is in the file today, so it is latent; the first one
-    /// anybody adds fails the count on a *read*, and the tempting repair is to loosen the number
-    /// that is the whole value of the assertion.
-    ///
-    /// The lookbehind refuses an `=` that is the tail of a compound operator (`+=`, `-=`, `!=`,
-    /// `<=`, `>=`, `==`); the lookahead refuses one that is the head of `==`. Horizontal whitespace
-    /// only — `\s` would swallow newlines and join two statements into one. Pinned by
-    /// ``theWriteScanTellsAnAssignmentFromAComparison``, which is the fixture this had none of.
+    /// Source with a plain assignment `=` normalised to one space each side, and nothing else
+    /// touched. A looser `\s*=\s*` would also rewrite a comparison (`leftProviderId == id` becomes
+    /// `leftProviderId =  = id`) and count it as a write, and the tempting repair would be to
+    /// loosen the count that gives the assertion its value. The lookbehind refuses an `=` ending a
+    /// compound operator (`+=`, `-=`, `!=`, `<=`, `>=`, `==`); the lookahead refuses one starting
+    /// `==`. Horizontal whitespace only: `\s` would join two statements across a newline. Pinned by
+    /// ``theWriteScanTellsAnAssignmentFromAComparison``.
     nonisolated static func normalizingAssignments(_ source: String) -> String {
         source.replacingOccurrences(of: #"(?<![-+*/%<>!=])[ \t]*=[ \t]*(?!=)"#,
                                     with: " = ", options: .regularExpression)
     }
 
-    /// How many times `source` WRITES a pane provider id, by any spelling the compiler accepts.
-    ///
-    /// Extracted from the assertion so a fixture can be handed known text: counted inline, the
-    /// miscount above could only be found by reading the regex, and it was not.
+    /// How many times `source` writes a pane provider id, by any spelling the compiler accepts.
+    /// Extracted from the assertion so a fixture can hand it known text.
     static func paneProviderIdWrites(in source: String) -> Int {
         let code = normalizingAssignments(source)
         var writes = 0
         for direct in ["leftProviderId = ", "rightProviderId = "] {
             writes += code.components(separatedBy: direct).count - 1
         }
-        // The projected and underscored forms are counted on the RAW text: they are not assignments
-        // to normalise, they are the refactor someone reaches for to delete the ternary — a write
-        // through `$leftProviderId.wrappedValue` names the property nowhere the pattern above looks.
+        // The projected and underscored forms are counted on the raw text: they aren't assignments
+        // to normalise, but the refactor someone reaches for to delete the ternary, and a write
+        // through `$leftProviderId.wrappedValue` names the property nowhere the pattern above
+        // looks for it.
         for indirect in ["$leftProviderId", "$rightProviderId", "_leftProviderId", "_rightProviderId"] {
             writes += source.components(separatedBy: indirect).count - 1
         }
         return writes
     }
 
-    // Both readers carry the truncation guard `macAppSources()` documents as load-bearing: a
-    // partially read file makes ~80 `contains` scans below answer false and every `!contains`
-    // vacuously true. These two were the only readers in the target without it.
+    // Both readers carry the truncation guard `macAppSources()` documents: a partially read file
+    // makes the `contains` scans below answer false and every `!contains` vacuously true.
     private static func fileExplorer(_ name: String) throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -406,8 +329,8 @@ import Sync
         return text
     }
 
-    /// The positive control. Every scan below asserts a presence in one of two files; a reader that
-    /// silently returned the wrong text would make them all pass.
+    /// The positive control. Every scan below asserts a presence in one of these files, and a
+    /// reader that silently returned the wrong text would make them all pass.
     @Test func theScanCanActuallyFail() throws {
         #expect(try Self.source("ContentView.swift").contains("func paneColumn(isLeft: Bool)"),
                 "this is not ContentView")
@@ -415,9 +338,8 @@ import Sync
                 "this is not the shortcuts file")
         #expect(try !Self.source("ContentView.swift").contains("a string that is definitely not in ContentView"))
 
-        // Both slicers, against a member and a type whose contents are known — a helper that
-        // returned the wrong region would make every scan below pass on the wrong text, which is
-        // exactly what `typeBody` was added for.
+        // Both slicers, against a member and a type whose contents are known: a helper that
+        // returned the wrong region would make every scan below pass on the wrong text.
         let commands = try Self.source("ShortcutCommands.swift")
         #expect(try Self.typeBody("struct CloseTabCommand: View {", in: commands).contains("keyboardShortcut"),
                 "the type slice does not reach the item's body")
@@ -426,11 +348,9 @@ import Sync
                 "the member slice does not reach the rule's body")
     }
 
-    /// The fixture for ``argumentTokens(labelled:in:)`` — and for the hole it was written to close.
-    ///
-    /// `"isLeft: isLeftTarget"` CONTAINS `"isLeft: isLeft"`, so the substring invariant that used to
-    /// guard the one door was balanced by a wrongly-polarised local with that name. Handed known
-    /// text, this reads tokens: a `!`, an unrelated identifier and a lookalike all come back as
+    /// The fixture for ``argumentTokens(labelled:in:)``. `"isLeft: isLeftTarget"` contains
+    /// `"isLeft: isLeft"`, so a substring check is fooled by a lookalike local; handed known text,
+    /// this reads tokens, and a `!`, an unrelated identifier and a lookalike come back as
     /// themselves.
     @Test func theArgumentScanReadsATokenAndNotAPrefix() {
         let text = """
@@ -447,13 +367,10 @@ import Sync
                 "the scan cannot read a differently-labelled side argument")
     }
 
-    /// The fixture for ``topLevelCall(_:in:)``, which is the half a text walk never had.
-    ///
-    /// All four answers are produced from known text, and the two that matter are the ones a
-    /// `contains` cannot tell apart: a call the member always makes, and the same call wrapped in a
-    /// branch. The `guard … else { return }` case is the third — its `return` is inside braces, so
-    /// it does NOT count as an early return, which is what lets `copyTabPath` bail on a chip its
-    /// strip does not hold before it moves anything.
+    /// The fixture for ``topLevelCall(_:in:)``. All four answers come from known text, including
+    /// the pair a `contains` can't tell apart: a call the member always makes, and the same call
+    /// inside a branch. A `guard … else { return }` keeps its `return` inside braces, so it isn't
+    /// an early return, which lets `copyTabPath` bail on a chip its strip doesn't hold.
     @Test func theTopLevelCallScanTellsABranchFromAStatement() {
         #expect(Self.topLevelCall("noteWorkingIn(", in: """
                     noteWorkingIn(isLeft: isLeft, "x")
@@ -478,9 +395,8 @@ import Sync
                 """) == .absent)
     }
 
-    /// The fixture for ``logCalls(in:)`` — the helper that turns a member-wide check into a
-    /// per-line one. Two calls where only the first carries the marker is exactly `closeTab`'s
-    /// shape, and the whole point is that it must come back as two.
+    /// The fixture for ``logCalls(in:)``. Two calls where only the first carries the marker is
+    /// `closeTab`'s shape, and it must come back as two.
     @Test func theLogCallScanReadsEachCallSeparately() {
         let body = """
                 Logger.shared.info("closing the \\(PaneSideChoice.name(isLeft)) pane's last tab")
@@ -497,14 +413,10 @@ import Sync
                 "a call with a nested call in its interpolation is cut short — the text after it is invisible to every check")
     }
 
-    /// **The polarity of the two things `isLeft` decides, driven rather than scanned.**
-    ///
-    /// Both were ternaries written out at every site inside a `ContentView` extension, which no
-    /// test can instantiate. Two measured survivors of the whole app suite:
-    /// `current: isLeft ? rightProviderId : leftProviderId` in `tabAction` — `d655b528`'s headline
-    /// defect verbatim, a cross-source chip click asking about the SIBLING pane's source — and
-    /// `isLeft ? "right" : "left"` in a log line, every tab line naming the wrong pane. On a type
-    /// that needs nothing to exist, both are a real assertion.
+    /// The polarity of what `isLeft` decides, driven rather than scanned. Each choice is a ternary
+    /// inside a `ContentView` extension no test can instantiate, where a swap (a cross-source chip
+    /// click asking about the sibling pane's source, or a log line naming the wrong pane) leaves
+    /// the app suite green. On a type that needs nothing to exist, it's a real assertion.
     @Test func theSideChoiceReadsItsArgument() {
         #expect(PaneSideChoice.own(true, left: "the left one", right: "the right one") == "the left one",
                 "a verb aimed at the LEFT pane reads the right pane's value")
@@ -514,11 +426,9 @@ import Sync
                 "a line about the left pane says it happened in the right one")
         #expect(PaneSideChoice.name(false) == "right",
                 "a line about the right pane says it happened in the left one")
-        // **The third thing `isLeft` decides, and the third measured survivor.** `let other =
-        // !isLeft` in `mirrorOpenInNewTab` with the `!` dropped left the whole app suite green, and
-        // ⌥/linked Open in New Tab then opened BOTH tabs on the pane the user aimed at and none on
-        // the sibling — while ⌘T's identical mirror was pinned, which is the asymmetry that exposed
-        // it. Here it is one call a test can make.
+        // The third thing `isLeft` decides: a dropped `!` in `mirrorOpenInNewTab`'s sibling would
+        // open both tabs of an ⌥/linked Open in New Tab on the pane the user aimed at, with the
+        // app suite green. Here it is one call a test can make.
         #expect(PaneSideChoice.sibling(true) == false,
                 "the sibling of the LEFT pane is the left pane — a mirrored open lands twice on the pane the user aimed at")
         #expect(PaneSideChoice.sibling(false) == true,
@@ -530,12 +440,9 @@ import Sync
 
     // MARK: Where the strip is mounted
 
-    /// **A sibling above the header, never a wrapper around it.**
-    ///
-    /// `PaneQuickLookScopeTests` fails if the pane column's `VStack` is re-nested — but it fails
-    /// with a message about Quick Look's scope, which is a long way from "someone wrapped the tab
-    /// strip around the pane". This says it directly, and it is the one structural fact the whole
-    /// feature rests on: one insertion point serves Browse, both Compare panes and the rail.
+    /// A sibling above the header, never a wrapper around it. `PaneQuickLookScopeTests` also
+    /// fails if the column's `VStack` is re-nested, but with a message about Quick Look's scope;
+    /// this says it directly. One insertion point serves Browse, both Compare panes and the rail.
     @Test func theStripIsMountedAboveTheHeaderInTheSamePaneColumn() throws {
         let content = try Self.source("ContentView.swift")
         let column = try #require(content.range(of: "func paneColumn(isLeft: Bool)"),
@@ -554,9 +461,8 @@ import Sync
                 "the strip is not a sibling inside the column's VStack")
     }
 
-    /// **Drawn only when there is something to draw.** At one tab the strip must occupy no space
-    /// at all — an empty 34pt row above every pane is what an install that never opens a second tab
-    /// would otherwise get, and the whole "unchanged unless you use it" claim rests on this `if`.
+    /// Drawn only when there is something to draw. At one tab the strip must take no space at all,
+    /// or every pane gets an empty 34pt row; "unchanged unless you use it" rests on this `if`.
     @Test func theStripIsGatedOnHavingTabsOrTheSwitch() throws {
         let content = try Self.source("ContentView.swift")
         let column = try #require(content.range(of: "func paneColumn(isLeft: Bool)"))
@@ -598,27 +504,13 @@ import Sync
         #expect(!on.isForced)
     }
 
-    /// **The switch has to ask the same question the visibility rule answers, which is both panes.**
-    ///
-    /// `TabBarSwitch.resolve` is pure and the two tests above pin it completely, so they pass just as
-    /// well when the caller feeds it the wrong pane — which it did. `shortcutTabBar` asked only
-    /// `shortcutTabTargetIsLeft` while `PaneTabStripVisibility.shows` decides from `own` *and*
-    /// `sibling`: in Compare with the second tab in the *unfocused* pane, a strip was on screen and
-    /// the menu item read unticked and live, offering to hide a strip it did not describe and taking
-    /// its tabs out of reach. That is the case the forcing exists to prevent, reached from the other
-    /// side — the extracted rule was right and the argument was wrong, which is the shape a
-    /// value-only test cannot see.
-    ///
-    /// **The forcing is exactly "the strip shows even with the switch off", and this proves it for
-    /// every combination rather than asserting a spelling.**
-    ///
-    /// The first version of this test was a source scan for `paneTabs(isLeft: true)` and
-    /// `layoutMode == .compare` in the call site's body. It caught the defect, and it pinned the
-    /// *wording* of the fix: any refactor — a loop, a helper, `!isLeft` instead of a literal — would
-    /// have failed it while behaving identically. That is the trap this repo keeps re-finding, so
-    /// the rule moved into `PaneTabStripVisibility.forcesTabBarSwitch` and the identity is asserted
-    /// against `shows` directly. If either rule changes without the other, this fails and names the
-    /// combination.
+    /// The switch must ask the question the visibility rule answers, which covers both panes.
+    /// `TabBarSwitch.resolve` is pure and the tests above pin it, but they pass just as well if the
+    /// caller feeds it the wrong pane: asking only the focused pane, in Compare with a second tab
+    /// in the unfocused one, leaves a strip on screen while the menu item reads unticked and live,
+    /// offering to hide it and strand its tabs. The forcing is exactly "the strip shows even with
+    /// the switch off", proved here for every combination against `shows` rather than by scanning
+    /// for a spelling, so any behaviour-preserving refactor still passes.
     @Test func theForcingIsExactlyTheStripShowingWithoutTheSwitch() {
         for own in [true, false] {
             for sibling in [true, false] {
@@ -632,8 +524,8 @@ import Sync
                 }
             }
         }
-        // The case the defect was: Compare, second tab in the SIBLING only. Spelled out because the
-        // sweep above would still pass if both rules lost the sibling term together.
+        // Compare with the second tab in the sibling only, spelled out because the sweep above
+        // would still pass if both rules lost the sibling term together.
         #expect(PaneTabStripVisibility.forcesTabBarSwitch(own: false, sibling: true, isCompare: true),
                 "a second tab in the unfocused pane draws a strip on both panes, and the switch must not be able to hide it")
         #expect(!PaneTabStripVisibility.forcesTabBarSwitch(own: false, sibling: true, isCompare: false),
@@ -641,8 +533,7 @@ import Sync
     }
 
     /// The rule above is pure, so every assertion in it passes with the call site still asking one
-    /// pane — the "extracted for testability, one revert from unused" pairing this file already makes
-    /// for the monitors. One line, and it is the line that was wrong.
+    /// pane. This pins that the switch goes through it.
     @Test func theTabBarSwitchGoesThroughThatRule() throws {
         let body = try Self.memberBody("var shortcutTabBar: TabBarSwitch {",
                                        in: try Self.source("ShortcutCommands.swift"))
@@ -666,7 +557,7 @@ import Sync
                 "shortcutTabBar builds the switch by hand — the tested rule is unused")
     }
 
-    /// …and the item disables on it, which is the half a value cannot state.
+    /// …and the item disables on it, which a value alone can't state.
     @Test func theTabBarItemDisablesWhileTheSwitchIsForced() throws {
         let commands = try Self.source("ShortcutCommands.swift")
         let body = try Self.typeBody("struct ToggleTabBarCommand: View {", in: commands)
@@ -712,9 +603,9 @@ import Sync
     private let iCloud = PaneTabChips.Source(displayName: "iCloud Drive",
                                              markImageName: "icloud", root: "~/Documents")
 
-    /// **The active chip reads the LIVE pane; every other chip reads its own parked snapshot.**
-    /// The active entry in the list is stale by construction, so a strip drawn entirely from the
-    /// list is correct when you arrive and wrong one click later.
+    /// The active chip reads the live pane; every other chip reads its own parked snapshot. The
+    /// active entry in the list is stale by construction, so a strip drawn only from the list is
+    /// right when you arrive and wrong one click later.
     @Test func theActiveChipFollowsThePaneAndTheParkedOnesDoNot() {
         let items = PaneTabChips.items(list(["Finance", "Photos"], selected: 0),
                                        liveProviderId: "Dropbox",
@@ -727,11 +618,10 @@ import Sync
         #expect(!items[1].isActive)
     }
 
-    /// **A parked chip promises what selecting it will show, and in Tree that is the tab's SCOPE.**
-    /// The presentation belongs to the pane, not to a tab, so every chip in this strip will be drawn
-    /// the same way — a parked one titled from its column stack renames itself on click (`2024` to
-    /// `Finance`) and its tooltip points at a folder the pane never shows. The stored location keeps
-    /// both halves either way; only the readout resolves.
+    /// A parked chip promises what selecting it will show, and in Tree that is the tab's scope.
+    /// The presentation belongs to the pane, so a parked chip titled from its column stack would
+    /// rename itself on click (`2024` to `Finance`) and its tooltip would point at a folder the
+    /// pane never shows. The stored location keeps both halves; only the readout resolves.
     @Test func aParkedChipDropsTheColumnStackAPaneInTreeCannotDraw() {
         let parked = PaneTab(providerId: "iCloud", relativePath: "Finance",
                              browsePath: PaneBrowsePath(components: ["US", "2024"]))
@@ -749,19 +639,18 @@ import Sync
         #expect(tree[1].fullPath.hasSuffix("/Finance"),
                 "and its tooltip still points into that stack")
 
-        // The ACTIVE chip's path is what Copy Path puts on the pasteboard and what the tooltip
-        // shows, so the three agree by construction — see `copyTabPath`. In Tree that means the
-        // clipboard carries the scope, which is where selecting the tab lands you; a deeper string
-        // than both the label and the tooltip would be the stranger result.
+        // The active chip's path is what Copy Path copies and what the tooltip shows, so the three
+        // agree by construction (see `copyTabPath`). In Tree that means the clipboard carries the
+        // scope, which is where selecting the tab lands you.
         let liveInTree = PaneTabChips.items(list, liveProviderId: "iCloud", livePath: "Photos",
                                             drawsColumns: false, source: { _ in self.iCloud })
         #expect(liveInTree[0].fullPath.hasSuffix("/Photos"),
                 "Copy Path and the tooltip no longer agree with the chip's own label")
     }
 
-    /// **Every chip carries its source's name**, which is what VoiceOver reads in place of the
-    /// hidden mark (`PaneTabStrip.spokenName`). Dropped here, two "Documents" chips from different
-    /// clouds would sound identical.
+    /// Every chip carries its source's name, which VoiceOver reads in place of the hidden mark
+    /// (`PaneTabStrip.spokenName`). Without it, two "Documents" chips from different clouds sound
+    /// identical.
     @Test func everyChipCarriesItsSourcesNameForVoiceOver() {
         let items = PaneTabChips.items(list(["Finance", "Photos"], selected: 0),
                                        liveProviderId: "iCloud", livePath: "Finance",
@@ -794,9 +683,8 @@ import Sync
         #expect(items[0].markImageName == "folder.fill")
     }
 
-    /// **The tooltip's path is expanded.** A source's stored root may carry a tilde; the chip's
-    /// help tag is the strip's answer to "which Documents is this?", and `~/Documents/Finance`
-    /// answers it worse than the real path does.
+    /// The tooltip's path is expanded. A stored root may carry a tilde, and the help tag answers
+    /// "which Documents is this?" better with the real path than with `~/Documents/Finance`.
     @Test func theChipsPathIsExpanded() {
         let items = PaneTabChips.items(list(["Finance"], selected: 0),
                                        liveProviderId: "iCloud", livePath: "Finance",
@@ -825,13 +713,10 @@ import Sync
                                              isAvailable: { _ in false }) == .unavailable("Dropbox"))
     }
 
-    /// …and the call site **acts on it**, which for most of this feature's life it did not.
-    ///
-    /// The branch only logged, under a comment claiming the pane "stayed on its current source".
-    /// That is true of the source and false of the folder: the verb has already applied the tab, so
-    /// the pane is sitting on the removed source's folder path under the LIVE source's root — a
-    /// path that usually exists nowhere, which shows as an empty pane. `discardTab` drops the tab
-    /// and lands the pane on one that works; see `PaneTabSwitchingTests` for both of its cases.
+    /// …and the call site acts on it. The verb has already applied the tab, so only logging would
+    /// leave the pane on the removed source's folder path under the live source's root, which
+    /// usually exists nowhere and shows as an empty pane. `discardTab` drops the tab and lands the
+    /// pane on one that works; see `PaneTabSwitchingTests` for both cases.
     @Test func aTabOnASourceThatIsGoneIsDiscardedAndNotJustLogged() throws {
         let body = try Self.memberBody("private func tabAction(isLeft: Bool",
                                        in: Self.source("ContentView+PaneTabs.swift"))
@@ -839,7 +724,7 @@ import Sync
                                   "the removed-source case is no longer handled")
         let rest = String(body[branch.upperBound...])
         // `discardDeadTabs`, not `discardTab`: the fallback is a neighbour and neighbours die
-        // together, so a single discard landed the pane straight onto the next dead tab.
+        // together, so a single discard would land the pane straight on the next dead tab.
         #expect(rest.contains("syncManager.discardDeadTabs("),
                 "a tab on a removed source is only warned about — the pane is left on a path under the wrong root")
         // And the pane's search field follows the tab it lands on, like every other arrival.
@@ -847,25 +732,14 @@ import Sync
                 "the discarded tab's search query is left in the field of the tab that replaced it")
     }
 
-    /// **Every question about whether a PANE may be pointed at a source asks `enabledProviders`,
-    /// and it asks it through one predicate.**
-    ///
-    /// Three of them asked `availableProviders` instead — the *discovered* list, which keeps a
-    /// source the user has switched off in Settings. `refreshAction` and `refreshForTabSwitch`
-    /// resolve their pair out of `enabledProviders` and return without loading anything when either
-    /// is missing, so a pane on a disabled source is a pane nothing will ever walk.
-    ///
-    /// The launch path was the sharp end, and it is the one this scan is really about. Open a tab
-    /// on a source, switch that source off, quit, relaunch: `applyProviderSelection` resolves the
-    /// pane's id against the enabled list, then `restoreBrowseTabs` writes the disabled one back
-    /// over it, and the bootstrap's `refreshAction()` bails. Both panes up, empty, no scan and
-    /// nothing said — and nothing re-resolves, because `enabledProviders` never changed and its
-    /// `onChange` never fires.
-    ///
-    /// Scanned as an ABSENCE across the whole file rather than as three presences, because the
-    /// failure is a list being asked for somewhere new: a per-site check passes the moment a fourth
-    /// site is added. The one legitimate reading is asserted by name below, so this cannot pass by
-    /// the file having lost the ability to name a source at all.
+    /// Every question about whether a pane may be pointed at a source asks `enabledProviders`,
+    /// through one predicate. `availableProviders` is the discovered list and keeps a source the
+    /// user switched off in Settings, while `refreshAction` and `refreshForTabSwitch` load nothing
+    /// for a pair missing from `enabledProviders`. At launch that means a tab restored onto a
+    /// disabled source leaves both panes empty with no scan and nothing said, and nothing
+    /// re-resolves because `enabledProviders` never changes. Scanned as an absence across the whole
+    /// file, since a per-site check passes the moment a new site appears; the one legitimate read
+    /// is asserted by name so this can't pass on a file that names no source at all.
     @Test func everyPaneProviderQuestionAsksTheEnabledList() throws {
         let code = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
         #expect(code.contains("settings.enabledProviders.contains { $0.id == id }"),
@@ -873,12 +747,11 @@ import Sync
         for site in ["isAvailable: paneCanShowSource", "isKnownProvider: paneCanShowSource",
                      "canShowSource: paneCanShowSource"] {
             // The third site is the launch restore's adoption gate, handed to
-            // `BrowseTabRestorePlan` as a value — the plan's own use of it
-            // (`canShowSource(active.providerId)`) is executed, not scanned, by
+            // `BrowseTabRestorePlan` as a value; the plan's own use of it is executed by
             // `BrowseTabRestorePlanTests.adoptionIsWithheldWhenThePaneCannotShowTheSource`.
             #expect(code.contains(site), "\(site) no longer routes through the one predicate")
         }
-        // The chip's NAME and mark are the one thing the discovered list is right for: a source
+        // The chip's name and mark are the one thing the discovered list is right for: a source
         // switched off still has a display name, and a chip reading "Dropbox" for the moment before
         // the tab is discarded beats one reading its raw id.
         let uses = code.components(separatedBy: "availableProviders").count - 1
@@ -890,42 +763,32 @@ import Sync
                 "the one legitimate use has moved — this scan is now counting something else")
     }
 
-    /// **…and the restore says what it threw away.**
-    ///
-    /// `PaneTabsStore.restore` drops an entry whose source this pane cannot be pointed at, and now
-    /// that the list is `enabledProviders` the commonest way to reach that is not a source
-    /// vanishing but the user switching one OFF in Settings. Dropping stays the right answer —
-    /// there is no root for such a tab to fall back to — but the strip is rewritten by the first
-    /// thing that saves, so a silent drop loses those tabs for good with nothing to say where they
-    /// went. The line beside it counts what was RESTORED, which cannot answer that.
+    /// …and the restore says what it threw away. `PaneTabsStore.restore` drops an entry whose
+    /// source this pane can't show, most often because the user switched it off in Settings.
+    /// Dropping is right (there's no root to fall back to), but the first save rewrites the strip,
+    /// so a silent drop loses those tabs for good with nothing to say where they went.
     @Test func theLaunchRestoreSaysWhatItDropped() throws {
-        // The counting and the warning line live in `BrowseTabRestorePlan` now and are executed by
-        // `BrowseTabRestorePlanTests` (dropped-before-anything-else, the wholly-dropped strip).
-        // What only this scan can see is the threading: the plan can only notice a drop if the
-        // host hands it the STORED count to compare against what the restore kept.
+        // The counting and the warning line live in `BrowseTabRestorePlan` and are executed by
+        // `BrowseTabRestorePlanTests`. Only this scan sees the threading: the plan can notice a
+        // drop only if the host hands it the stored count.
         let body = Self.codeOnly(try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
                                                      in: Self.source("ContentView+PaneTabs.swift")))
         #expect(body.contains("storedCount: stored.entries.count"),
                 "nothing hands the plan what was stored, so no drop can be noticed")
     }
 
-    /// **Every verb that OPENS a tab cuts its location through `PaneTabOpening`.**
-    ///
-    /// A pane's location is two values and only the stack draws columns past the first. All three
-    /// openers used to hand the joined path over as the SCOPE with no stack, so a tab opened from a
-    /// pane four columns deep was flattened the moment it was created — and persistence then
-    /// round-tripped that flattening perfectly, which is why it presented as "the columns are
-    /// collapsed again after a restart" long after the restore had been fixed to carry the depth.
-    /// His stored strip: `Health/Medical/Included Health/Expert Opinions` at `stackDepth` 0.
-    ///
-    /// Scanned as an ABSENCE of the flattening form as well as a presence of the rule — a presence
-    /// check alone passes with a fourth opener added beside them still doing it the old way.
+    /// Every verb that opens a tab cuts its location through `PaneTabOpening`. A pane's location is
+    /// two values and only the stack draws columns past the first, so an opener that hands the
+    /// joined path over as the scope flattens the tab on creation, and persistence round-trips the
+    /// flattening as "the columns collapse after a restart". Scanned as the absence of the
+    /// flattening form as well as the presence of the rule, since a presence check alone passes
+    /// with a new opener added beside them doing it the old way.
     @Test func everyTabOpenerCutsItsLocationThroughTheRule() throws {
         let code = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
-        // Three: ⌘T, Open in New Tab and the mirror. **`tabAtRoute` is the one opener rooted at its
-        // folder on purpose** — a followed folder can lie beyond what the scope's walk reached, and
-        // a stacked tab there was pruned a folder short (its doc has the measurement). Pinned
-        // below, so it cannot drift into either the cut or a silent flattening of a user's columns.
+        // Three: ⌘T, Open in New Tab and the mirror. `tabAtRoute` is rooted at its folder on
+        // purpose: a followed folder can lie beyond what the scope's walk reached, and a stacked
+        // tab there would be pruned a folder short (its doc explains). Pinned below so it drifts
+        // into neither the cut nor a flattening.
         let uses = code.components(separatedBy: "PaneTabOpening.location(").count - 1
         #expect(uses == 3, "\(uses) openers cut through the rule — expected ⌘T, Open in New Tab and the mirror")
         #expect(code.components(separatedBy: "browsePath: cut.stack").count - 1 == 3,
@@ -939,14 +802,11 @@ import Sync
         }
     }
 
-    /// **Open in New Tab expands the pane's root before it compares anything against it.**
-    ///
-    /// A source's stored path may be written with a tilde while a row's id is always absolute, and
-    /// `PathBoundary.relativize` compares them as strings — so an unexpanded root matches nothing,
-    /// the guard below it takes the "outside this pane's source" branch, and the whole entry point
-    /// becomes a silent no-op with a warning that names the wrong reason. The MIRROR's expansion is
-    /// scanned by `bothWaysOfOpeningATabMirrorOntoTheLinkedPane`; this one, the half a user actually
-    /// clicks, was not scanned at all.
+    /// Open in New Tab expands the pane's root before comparing anything against it. A stored root
+    /// may carry a tilde while a row's id is always absolute, and `PathBoundary.relativize`
+    /// compares strings, so an unexpanded root matches nothing and the entry point becomes a silent
+    /// no-op whose warning names the wrong reason. The mirror's expansion is scanned by
+    /// `bothWaysOfOpeningATabMirrorOntoTheLinkedPane`.
     @Test func openInNewTabExpandsTheSourceRootBeforeRelativizing() throws {
         let body = Self.codeOnly(try Self.memberBody("func openInNewTab(absolutePath: String, isLeft: Bool)",
                                                      in: Self.source("ContentView+PaneTabs.swift")))
@@ -973,19 +833,15 @@ import Sync
                 "the adopt case writes the id some other way than through the one door")
     }
 
-    /// **Every write of a pane provider id in the tabs file goes through `adoptProviderForTab`.**
-    ///
-    /// Scanned as a COUNT, not per-site: a per-site check passes the moment a fourth writer appears,
-    /// and three writers each forgetting a different part of the handler's work is precisely the
-    /// defect this helper was introduced to end (`.adopt` skipped the ignore-store re-key and the
-    /// lens clear, the discard branch never wrote the id at all, the launch restore wrote it with no
-    /// suppression). The two assignments below are the ones INSIDE the helper.
+    /// Every write of a pane provider id in the tabs file goes through `adoptProviderForTab`.
+    /// Scanned as a count, since a per-site check passes the moment a new writer appears, and
+    /// separate writers each tend to forget a different part of the work (the ignore-store re-key,
+    /// the lens clear, the suppression). The two assignments allowed are the ones inside the
+    /// helper.
     @Test func theOnlyWriterOfAPaneProviderIdInTheTabsFileIsTheAdoptHelper() throws {
-        // Counted through `paneProviderIdWrites`, which normalises assignment — Swift accepts
+        // Counted through `paneProviderIdWrites`, which normalises assignment: Swift accepts
         // `leftProviderId=id` and any run of spaces around the `=`, and a plain substring count
-        // sees neither. It deliberately does NOT normalise `==`, `!=` or `+=`; the fixture below is
-        // what holds that, because the version this replaced got it wrong in both directions and
-        // nothing could tell.
+        // sees neither. It doesn't normalise `==`, `!=` or `+=`; the fixture below holds that.
         let raw = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
         let writes = Self.paneProviderIdWrites(in: raw)
         #expect(writes == 2,
@@ -996,38 +852,31 @@ import Sync
                 "the two writes are not the helper's — this scan is counting someone else's")
     }
 
-    /// **The counter above tells a write from a read, and that was provably not true.**
-    ///
-    /// Its normaliser opened with a step that replaced a string with itself, so the `+=` it was
-    /// written to protect was split into `+ =` — and its `\s*=\s*` rewrote comparisons too, so
-    /// `if leftProviderId == id` normalised into text containing `"leftProviderId = "` and counted
-    /// as a write. Measured against the fixture below: three writes for two, one extra per `==` on
-    /// a pane provider id. Nothing in the file happens to contain such a
-    /// comparison today, which is exactly why it needed a fixture rather than a reading of the
-    /// production file — the miscount is latent until someone adds the first `==`, at which point
-    /// the count fails on a READ and the obvious repair is to raise the number the assertion is
-    /// entirely made of.
+    /// The counter above tells a write from a read. A normaliser that rewrites `==` counts
+    /// `if leftProviderId == id` as a write, and one that splits `+=` into `+ =` mangles compound
+    /// assignments. No such comparison is in the file today, so only a fixture can show it; the
+    /// first `==` anyone added would fail the count on a read, and the tempting repair would be to
+    /// raise the number the assertion is made of.
     @Test func theWriteScanTellsAnAssignmentFromAComparison() {
-        // A comparison is not a write. This is the latent case, and the reason this fixture exists.
+        // A comparison is not a write: the latent case this fixture exists for.
         #expect(Self.paneProviderIdWrites(in: "if leftProviderId == id { return }") == 0,
                 "a `==` comparison counts as a write — the count breaks on the first read anyone adds")
         #expect(Self.paneProviderIdWrites(in: "guard rightProviderId != id else { return }") == 0,
                 "a `!=` comparison counts as a write")
-        // Nor is a compound assignment to something else — the case the inert first step was for.
+        // Nor is a compound assignment to something else.
         #expect(!Self.normalizingAssignments("pendingTabProviderChanges += 1").contains("+ ="),
                 "a compound assignment is still split into `+ =`, so the inert guard is still inert")
         #expect(Self.paneProviderIdWrites(in: "pendingTabProviderChanges += 1") == 0)
 
-        // …and a real write still counts, at every spacing Swift accepts. Without these the fix
-        // could be "normalise nothing", which passes every assertion above and sees no writes.
+        // …and a real write still counts, at every spacing Swift accepts. Without these, "normalise
+        // nothing" would pass every assertion above and see no writes.
         #expect(Self.paneProviderIdWrites(in: "leftProviderId=id") == 1, "a tight `=` is not seen")
         #expect(Self.paneProviderIdWrites(in: "rightProviderId   =   id") == 1, "a padded `=` is not seen")
         #expect(Self.paneProviderIdWrites(in: "$leftProviderId.wrappedValue = id") == 1,
                 "a write through the projected binding is not seen")
 
-        // The measured miscount, whole: two real writes beside one read and one compound
-        // assignment. Measured with the old normaliser restored, this answered 3 — the `==` line
-        // counts as a write, and the `+=` line comes out as `+ =` rather than being protected.
+        // Two real writes beside one read and one compound assignment. A normaliser that rewrites
+        // `==` or splits `+=` answers 3.
         let mixed = """
             if leftProviderId == id { return }
             pendingTabProviderChanges += 1
@@ -1038,61 +887,48 @@ import Sync
         #expect(counted == 2, "\(counted) writes counted where 2 are real")
     }
 
-    /// The helper does everything the suppressed `onChange` would have done — except the one thing
-    /// the suppression exists for.
-    ///
-    /// Each of these three was silently skipped for a source change made through a tab. The re-key
-    /// is the one with teeth: `IgnoredItemsStore` is keyed on the PAIR of sources, so leaving it on
-    /// the old pair hides items ignored for a comparison that is no longer on screen and persists
-    /// new ones under the wrong key.
+    /// The helper does everything the suppressed `onChange` would have done, except the reset the
+    /// suppression exists to skip. The re-key matters most: `IgnoredItemsStore` is keyed on the
+    /// pair of sources, so leaving it on the old pair hides items ignored for a comparison no
+    /// longer on screen and saves new ones under the wrong key.
     @Test func adoptingDoesEverythingTheSuppressedHandlerWouldExceptTheReset() throws {
         let body = try Self.memberBody("func adoptProviderForTab(",
                                        in: Self.source("ContentView+PaneTabs.swift"))
-        // Positives through `codeOnly` as well as the negative below: this file has tripped over its
-        // own prose twice, and a doc comment naming any of these would satisfy the check with the
-        // call deleted.
+        // Positives go through `codeOnly` too: a doc comment naming any of these would satisfy the
+        // check with the call deleted.
         let code = Self.codeOnly(body)
         #expect(code.contains("ignoredItemsStore?.activate("),
                 "a tab-driven source change leaves the ignored-items store on the old pair")
         #expect(code.contains("clearLensResultsForProviderSwitch()"),
                 "stale Tidy results outlive their provider when a tab changes it")
-        // Through the coordinator's tab-shaped door, WITH the side: `.tabChangedSource` carries no
-        // side of its own, and the stranded-pin warning it triggers is a question about the pane
-        // the tab did NOT move (see `StrandedProviderPin`).
+        // Through the coordinator's tab-shaped door, with the side: `.tabChangedSource` carries no
+        // side of its own, and the stranded-pin warning it triggers is about the pane the tab did
+        // not move (see `StrandedProviderPin`).
         #expect(code.contains("noteTabChangedSource(isLeft: isLeft)"),
                 "a guided review framed on the old pair survives a tab-driven source change, or the event no longer says which pane the tab moved")
-        // **Not `.providerSwitched`.** That event can answer with `.undoProviderPin`, which
-        // repoints the SIBLING pane and restores no folder because it expects the caller's
-        // `retargetPane()` to re-home it — and this method exists precisely to not reset. The
-        // reducer half is `CompareReviewReducerTests.aTabDrivenSourceChangeNeverRepointsTheSiblingPane`;
-        // this is the call site, which is what actually chooses the event.
+        // Not `.providerSwitched`: that event can answer with `.undoProviderPin`, which repoints
+        // the sibling pane and expects the caller's `retargetPane()` to re-home it, and this method
+        // exists not to reset. The reducer half is
+        // `CompareReviewReducerTests.aTabDrivenSourceChangeNeverRepointsTheSiblingPane`; this is
+        // the call site that chooses the event.
         #expect(!Self.codeOnly(body).contains("providerSwitched"),
                 "the tab path is back on the event that can repoint the other pane")
-        // **The NAME, not a spelling of the call.** This read `contains("resetNavigation()")` and
-        // was by then vacuous: every live call site spells the landings as arguments, so the
-        // realistic regression — pasting the provider-switch handler into the tab path — matched
-        // nothing and sailed through. A bare name cannot go stale the same way, and the `codeOnly`
-        // strip above is what keeps the doc comment two lines up from satisfying it.
-        //
-        // **Both names, because the verb was renamed.** `resetNavigation(leftLanding:rightLanding:)`
-        // became `retargetPane(isLeft:landing:)` when the provider switch stopped resetting the pane
-        // the user had not touched. A scan naming only the old one would have gone quietly vacuous
-        // at that rename — which is the exact failure the paragraph above describes, so it is worth
-        // paying a dead string to keep it from happening twice.
+        // Bare names, not a spelling of the call: call sites pass the landings as arguments, so a
+        // check for `resetNavigation()` would match nothing and miss a pasted provider-switch
+        // handler. Both names, since `resetNavigation(leftLanding:rightLanding:)` became
+        // `retargetPane(isLeft:landing:)`, and a scan naming only one goes vacuous at a rename.
+        // The `codeOnly` strip keeps the comments above from satisfying it.
         for verb in ["resetNavigation", "retargetPane"] {
             #expect(!Self.codeOnly(body).contains(verb),
                     "the whole point of the suppression is that the TAB carries the navigation, but this calls \(verb)")
         }
     }
 
-    /// A discard that lands the pane on a third, live source adopts it.
-    ///
-    /// `discardDeadTabs` stops at the first neighbour the pane *can show*, which is a wider set than
-    /// "is currently on" — pinned on the manager side by
-    /// `PaneTabSwitchingTests.aDiscardCanLandOnATabFromAThirdLiveSource`. Taking only the landed
-    /// tab's search field, which is all this branch used to do, left the pane on the old source
-    /// showing the landed tab's path under the wrong root, and `saveBrowseTabs` then rewrote that
-    /// tab's source id to the old one.
+    /// A discard that lands the pane on a third, live source adopts it. `discardDeadTabs` stops at
+    /// the first neighbour the pane can show, a wider set than "is currently on" (pinned by
+    /// `PaneTabSwitchingTests.aDiscardCanLandOnATabFromAThirdLiveSource`). Taking only the landed
+    /// tab's search field would leave the pane on the old source showing the landed path under the
+    /// wrong root, and `saveBrowseTabs` would then rewrite that tab's source id to the old one.
     @Test func aDiscardThatLandsOnAnotherSourceAdoptsIt() throws {
         let body = try Self.memberBody("private func tabAction(isLeft: Bool",
                                        in: Self.source("ContentView+PaneTabs.swift"))
@@ -1105,17 +941,17 @@ import Sync
                 "the landing is adopted without checking the pane may be pointed there")
     }
 
-    /// The rule behind the two provider handlers, and the ORDER that is its whole content.
+    /// The rule behind the two provider handlers, and the order that is its whole content.
     @Test func aSuppressionCounterIsConsumedWhereverItsWriteLands() {
-        // Bootstrap or not, an armed counter is consumed — this is the case that used to strand it.
+        // Bootstrap or not, an armed counter is consumed, so it can't be stranded.
         #expect(PaneProviderChange.decide(swapPending: 0, tabPending: 1, isBootstrapping: true)
                 == .consumeTab)
         #expect(PaneProviderChange.decide(swapPending: 1, tabPending: 0, isBootstrapping: true)
                 == .consumeSwap)
-        // …and the guard-down case, which is where the launch restore's write actually arrived.
+        // …and the guard-down case, which is where the launch restore's write arrives.
         #expect(PaneProviderChange.decide(swapPending: 0, tabPending: 1, isBootstrapping: false)
                 == .consumeTab)
-        // Swap wins when both are armed, matching the order the handlers tested them in.
+        // Swap wins when both are armed.
         #expect(PaneProviderChange.decide(swapPending: 1, tabPending: 1, isBootstrapping: false)
                 == .consumeSwap)
         // Nothing armed: the guard still decides, and a real switch still resets.
@@ -1134,41 +970,34 @@ import Sync
                 "a handler is back to testing the counters inline, where the order is unpinned")
     }
 
-    /// A tab verb the user aimed at a pane moves the keyboard focus there — and the MIRRORED half
-    /// of a linked open does not.
-    ///
-    /// Without the first half, opening a tab on the right pane of a Compare while the ring sits on a
-    /// one-tab left pane leaves ⌘W aimed left, where `closeTab`'s last-tab branch closes the WINDOW.
-    /// Without the second, ⌘T in a linked Compare hands every pane-scoped chord to the sibling.
+    /// A tab verb the user aimed at a pane moves the keyboard focus there, and the mirrored half
+    /// of a linked open doesn't. Without the first, opening a tab on the right pane of a Compare
+    /// while the ring sits on a one-tab left pane leaves ⌘W aimed left, where `closeTab`'s last-tab
+    /// branch closes the window. Without the second, ⌘T in a linked Compare hands every
+    /// pane-scoped chord to the sibling.
     @Test func aTabVerbMovesTheFocusToThePaneItWasAimedAt() throws {
         let source = try Self.source("ContentView+PaneTabs.swift")
         let body = try Self.memberBody("private func tabAction(isLeft: Bool", in: source)
         #expect(body.contains("if movesFocus { noteWorkingIn(isLeft: isLeft"),
                 "a tab verb no longer says which pane the user is working in")
-        // **The call site of the tested rule.** The polarity itself is no longer here to scan: it
-        // moved to `FileSyncManager.noteFocusedPane(isLeft:because:)`, where
-        // `theFocusedSideFollowsThePaneAVerbWasAimedAt` really calls it, because
-        // `isLeft ? .left : .right` sitting in a `ContentView` extension could be flipped with all
-        // 563 tests green — it aimed every tab verb at the opposite pane and nothing could see it.
-        // What is left to pin here is that the host still goes through that door.
+        // The call site of the tested rule. The polarity lives in
+        // `FileSyncManager.noteFocusedPane(isLeft:because:)`, which
+        // `theFocusedSideFollowsThePaneAVerbWasAimedAt` really calls, because a ternary in a
+        // `ContentView` extension could be flipped with every test green. Here, pin that the host
+        // still goes through that door.
         let focus = try Self.memberBody("private func noteWorkingIn(isLeft: Bool", in: source)
         #expect(focus.contains("syncManager.noteFocusedPane(isLeft: isLeft, because: reason)"),
                 "noteWorkingIn no longer routes through the manager's one door, so the polarity is back somewhere untested")
-        // **The opt-out defaults to NOT opting out**, which is what lets the reachability walk
-        // below read an argument-free `tabAction(` as the door.
+        // The opt-out defaults to not opting out, which lets the reachability walk below read an
+        // argument-free `tabAction(` as the door.
         let code = Self.codeOnly(source)
         #expect(code.components(separatedBy: "movesFocus: Bool = true").count - 1 == 1,
                 "the one door's focus move is no longer on by default, so every verb that does not mention `movesFocus` has quietly stopped moving the focus")
 
-        // **Every `movesFocus` in the file is one this suite actually READ out of a `tabAction(`
-        // call**, and which verbs may spell it is
-        // `everyTabVerbAimsAllItsSideTakingCallsAtOnePane`'s structural question, not a number.
-        //
-        // This used to be `movesFocus:` occurrences == 3. That literal is what kills a
-        // `tabAction(isLeft: isLeft, movesFocus: false)` mutation in `closeTab` — but it reports
-        // `(4) == 3` rather than naming the verb, and the next LEGITIMATE opt-out bumps it to 4
-        // too, at which point a wrong fourth and a right fourth are indistinguishable and the
-        // tempting repair is to raise the number the assertion is entirely made of.
+        // Every `movesFocus` in the file is one this suite reads out of a `tabAction(` call; which
+        // verbs may spell it is `everyTabVerbAimsAllItsSideTakingCallsAtOnePane`'s structural
+        // question. A fixed count would report `(4) == 3` without naming the verb, and the next
+        // legitimate opt-out would make a wrong one indistinguishable from a right one.
         let declared = Self.callArguments(of: "func tabAction(", in: code)
         #expect(declared.count == 1, "\(declared.count) declarations of the one door")
         let optOuts = Self.callArguments(of: "tabAction(", in: code)
@@ -1176,27 +1005,20 @@ import Sync
         #expect(code.components(separatedBy: "movesFocus: ").count - 1 == optOuts.count + 1,
                 "a `movesFocus` is spelled somewhere this scan cannot read it — an opt-out outside a `tabAction(` call is covered by nothing (the +1 is the declaration)")
         #expect(optOuts.count >= 1, "no opt-out found at all — the accounting above is vacuous")
-        // The two mirrored halves, by the shape of their opt-out rather than by their whole call
-        // text: `!mirrored` is ⌘T's, which opts out only for the mirrored pass, and a bare `false`
-        // is the mirror's own, which always lands on the pane the user did not aim at.
+        // The two mirrored halves, by the shape of their opt-out: `!mirrored` is ⌘T's, which opts
+        // out only for the mirrored pass, and a bare `false` is the mirror's own, which always
+        // lands on the pane the user didn't aim at.
         #expect(optOuts.contains { $0.contains("movesFocus: !mirrored") },
                 "the mirrored ⌘T is not the opted-out one")
         #expect(optOuts.contains { $0.contains("movesFocus: false") },
                 "the mirrored Open in New Tab is not the opted-out one")
     }
 
-    /// **The polarity, on a type a test can actually call.**
-    ///
-    /// This is the assertion the feature never had. `noteWorkingIn` resolved the side itself with
-    /// `isLeft ? .left : .right`, in a `ContentView` extension nothing can instantiate — so
-    /// flipping that ternary to `isLeft ? .right : .left` aimed every tab verb at the opposite
-    /// pane and left the whole 563-test app suite green. That mutation IS the shipped bug
-    /// `noteWorkingIn` exists to fix: open a second tab on the RIGHT pane while the ring sits on a
-    /// one-tab LEFT pane, press ⌘W, and `closeTab`'s last-tab branch closes the WINDOW.
-    ///
-    /// The rule lives on `FileSyncManager` now, which a test can build — so the flip is a failure
-    /// rather than a survivor. The call site is pinned above; the two together are what the source
-    /// scan alone could not do.
+    /// The focus polarity, on a type a test can call. A side resolved by a ternary in a
+    /// `ContentView` extension could be flipped with the app suite green, aiming every tab verb at
+    /// the opposite pane: open a second tab on the right pane while the ring sits on a one-tab left
+    /// pane, press ⌘W, and `closeTab`'s last-tab branch closes the window. On `FileSyncManager` the
+    /// flip fails here; the call site is pinned above.
     @Test func theFocusedSideFollowsThePaneAVerbWasAimedAt() {
         let manager = FileSyncManager(fileManager: FileManager.default)
         manager.noteFocusedPane(isLeft: true, because: "a test aimed at the left pane")
@@ -1205,8 +1027,8 @@ import Sync
         manager.noteFocusedPane(isLeft: false, because: "a test aimed at the right pane")
         #expect(manager.focusedPaneSide == .right,
                 "a verb aimed at the RIGHT pane pointed the pane-scoped chords at the left one")
-        // Both directions, from both starting points: `isLeft ? .right : .left` is caught by the
-        // pair above, but so is a door that simply toggles, and only going back catches that.
+        // Both directions, from both starting points: the pair above catches a swapped ternary, but
+        // only going back catches a door that simply toggles.
         manager.noteFocusedPane(isLeft: true, because: "back to the left pane")
         #expect(manager.focusedPaneSide == .left, "the door toggles rather than reading its argument")
         // The explicit-`nil` spelling is the one the swap uses, and it must be reachable.
@@ -1214,31 +1036,21 @@ import Sync
         #expect(manager.focusedPaneSide == nil, "the door cannot put the focus back to implicit")
     }
 
-    /// **Every side-taking call in the one door is aimed at the pane the door was GIVEN.**
-    ///
-    /// `adoptProviderForTab(id, isLeft: isLeft, …)` appears twice in `tabAction` — the `.adopt`
-    /// case and the discard branch — and mutating either to `isLeft: !isLeft` left the whole suite
-    /// green. That mutation is `d655b528`'s headline defect verbatim: every cross-source tab click
-    /// writes the SIBLING pane's provider id, leaving it claiming one source while showing
-    /// another's tree, and `saveBrowseTabs` then persists it. Only the launch-restore site was
-    /// protected, by an exact-string scan.
-    ///
-    /// Asked as an invariant over the whole member rather than as a spelling at each site: a
-    /// per-site pin is brittle and still cannot see a `!` added at the next site along. `tabAction`
-    /// is the one door for a verb the user aimed at ONE pane, so reaching for the sibling anywhere
-    /// inside it is the bug — not a shape to enumerate exceptions to.
-    /// **…and no side-taking TERNARY may be spelled in there at all**, which is the half that used
-    /// to be missing. `current: isLeft ? leftProviderId : rightProviderId` swapped to
-    /// `isLeft ? rightProviderId : leftProviderId` contains neither `"isLeft: "` nor `"!isLeft"`,
-    /// so it satisfied both halves above and left the whole app suite green — the headline defect
-    /// back, reached by a spelling the invariant had no way to look at. The ternaries are gone: the
-    /// pair is narrowed to a side by `paneProviderId(isLeft:)` and `PaneSideChoice`, whose polarity
-    /// `theSideChoiceReadsItsArgument` really drives, and this bans the shape from coming back.
+    /// Every side-taking call in the one door is aimed at the pane the door was given.
+    /// `adoptProviderForTab(id, isLeft: isLeft, …)` appears twice in `tabAction`, and an
+    /// `isLeft: !isLeft` at either would write the sibling pane's provider id on a cross-source tab
+    /// click, leaving it claiming one source while showing another's tree, and `saveBrowseTabs`
+    /// would persist it. Asked as an invariant over the whole member, since `tabAction` is the door
+    /// for a verb aimed at one pane and reaching for the sibling anywhere in it is the bug. No
+    /// side-taking ternary may be spelled in there either: a swapped
+    /// `isLeft ? rightProviderId : leftProviderId` contains neither `"isLeft: "` nor `"!isLeft"`.
+    /// The pair is narrowed by `paneProviderId(isLeft:)` and `PaneSideChoice`, whose polarity
+    /// `theSideChoiceReadsItsArgument` drives.
     @Test func theOneDoorAimsEverySideTakingCallAtThePaneItWasGiven() throws {
         let source = try Self.source("ContentView+PaneTabs.swift")
         let body = Self.codeOnly(try Self.memberBody("private func tabAction(isLeft: Bool", in: source))
-        // The positive control: the calls this is about are in here at all. Without it, a member
-        // that had lost every one of them would satisfy every invariant below.
+        // The positive control: the calls this is about are in here at all, or a member that lost
+        // them all would satisfy every invariant below.
         #expect(body.components(separatedBy: "adoptProviderForTab(").count - 1 == 2,
                 "the two adopt sites this is about are no longer both in the one door")
         #expect(body.contains("noteWorkingIn(isLeft: "),
@@ -1247,11 +1059,11 @@ import Sync
         #expect(reads >= 4,
                 "\(reads) reads of this pane's provider id in the one door — it has stopped asking through the one wrapper, and the pair-to-side arguments are loose in here again")
 
-        // Every `isLeft:` argument in here names `isLeft` itself, compared as a TOKEN: the count
-        // form this replaced was balanced by any local whose name merely STARTS with `isLeft`.
+        // Every `isLeft:` argument in here names `isLeft` itself, compared as a token, so a local
+        // whose name merely starts with `isLeft` doesn't pass.
         let tokens = Self.argumentTokens(labelled: "isLeft", in: body)
-        // TODAY'S measured count (12), not a number chosen low enough to be safe: a floor well
-        // under the actual passes with half the calls gone.
+        // The current count (12), not a number low enough to be safe: a floor well under it passes
+        // with half the calls gone.
         #expect(tokens.count >= 12,
                 "\(tokens.count) `isLeft:` arguments in the one door where 12 are expected — it has lost calls this is meant to cover")
         let strays = tokens.filter { $0 != "isLeft" }
@@ -1262,8 +1074,8 @@ import Sync
         #expect(!body.contains("!isLeft"),
                 "the one door reaches for the SIBLING pane — every verb through it is aimed at exactly one pane, and the mirrored openers opt out before they get here")
 
-        // **The ternary and the bare pair, both banned.** A swapped ternary is invisible to every
-        // check above it; so is `if isLeft { … leftProviderId … } else { … rightProviderId … }`,
+        // The ternary and the bare pair are both banned. A swapped ternary is invisible to every
+        // check above; so is `if isLeft { … leftProviderId … } else { … rightProviderId … }`,
         // which is the shape someone reaches for once the ternary is refused.
         #expect(!body.contains("isLeft ?"),
                 "a side-taking ternary is back in the one door — swapping it re-creates the headline defect and is invisible to every argument check here; narrow the pair through `paneProviderId(isLeft:)` or `PaneSideChoice.own`")
@@ -1272,31 +1084,25 @@ import Sync
                     "the one door reads `\(bare)` directly — the pane's own value must come through `paneProviderId(isLeft:)`, which is the one place the view's PAIR is narrowed to a SIDE")
         }
 
-        // The arguments `PaneSideChoice` itself cannot see are checked by
-        // `everyPaneSideChoiceCallNarrowsAMatchedPair`, which reads them across the whole app
-        // target rather than this one file — `PaneSideChoice` is app-wide, and a scan of one file
-        // is a registry pretending to be a derivation.
+        // The arguments `PaneSideChoice` itself can't see are checked by
+        // `everyPaneSideChoiceCallNarrowsAMatchedPair` across the whole app target, since
+        // `PaneSideChoice` is app-wide.
     }
 
-    /// **The verbs that reach the focus door THEMSELVES, and aim it at the pane they were given.**
-    ///
-    /// Three verbs never entered the one door — Pin/Unpin, drag-to-reorder and Copy Path — and the
-    /// polarity invariant above is scoped to `tabAction`'s body, so `noteWorkingIn(isLeft: !isLeft)`
-    /// survived the whole suite in every one of them. That is verbatim the sentence `becf9cbd`'s
-    /// commit body describes: right-click a chip in the RIGHT strip ▸ Copy Path with a one-tab LEFT
-    /// pane focused, press ⌘W, and `closeTab`'s last-tab branch closes the WINDOW.
-    ///
-    /// Two of the three are fixed structurally rather than by a scan: `setTabPinned` and `moveTab`
-    /// now go through `tabAction` with a `nil` answer, which is the same four steps in the same
-    /// order and puts them under every invariant above. Copy Path cannot — it must bail on a chip
-    /// this strip does not hold BEFORE it moves anything, and it saves no strip — so it is the one
-    /// member left holding a focus door of its own, and it is checked here by name.
+    /// The verbs that reach the focus door themselves aim it at the pane they were given. The
+    /// invariant above covers only `tabAction`'s body, so a verb outside it could pass
+    /// `noteWorkingIn(isLeft: !isLeft)`: right-click a chip in the right strip ▸ Copy Path with a
+    /// one-tab left pane focused, press ⌘W, and the last-tab branch closes the window.
+    /// `setTabPinned` and `moveTab` go through `tabAction` with a `nil` answer, which puts them
+    /// under every invariant above. Copy Path can't: it must bail on a chip this strip doesn't hold
+    /// before it moves anything, and it saves no strip, so it keeps its own focus door and is
+    /// checked here by name.
     @Test func theVerbsOutsideTheOneDoorAimItAtThePaneTheyWereGiven() throws {
         let source = try Self.source("ContentView+PaneTabs.swift")
         let file = Self.codeOnly(source)
 
         // Exactly two members hold a focus door: the one door, and Copy Path. A third would be a
-        // verb that has grown its own polarity again, unseen by every check here.
+        // verb with its own polarity again, unseen by every check here.
         let doors = file.components(separatedBy: "noteWorkingIn(").count - 1
         #expect(doors == 3,
                 "\(doors - 1) call sites of the focus door in this file where 2 are expected (the third match is its declaration) — a verb outside the one door aims the pane-scoped chords itself, and nothing below covers it")
@@ -1311,12 +1117,12 @@ import Sync
         #expect(!copy.contains("!isLeft"), "Copy Path reaches for the SIBLING pane")
         #expect(!copy.contains("isLeft ?"),
                 "a side-taking ternary is back in Copy Path — swapping it aims the chords at the pane the user is not looking at, and no argument check here can see it")
-        // …and it refuses during bootstrap, like every other strip verb. This was the one that did
-        // not: it moved the chords against a pane whose source the bootstrap had not chosen yet.
+        // …and it refuses during bootstrap, like every other strip verb, rather than moving the
+        // chords against a pane whose source the bootstrap hasn't chosen yet.
         #expect(Self.topLevelCall("guard !isBootstrappingProviders", in: copy) == .found,
                 "Copy Path acts during the provider bootstrap, where every other tab verb refuses")
 
-        // The two that were fixed by construction: through the one door, unconditionally.
+        // The two fixed by construction: through the one door, unconditionally.
         for verb in ["func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool)",
                      "func moveTab(id: UUID, to index: Int, isLeft: Bool)"] {
             let body = Self.memberInterior(Self.codeOnly(try Self.memberBody(verb, in: source)))
@@ -1329,52 +1135,23 @@ import Sync
         }
     }
 
-    /// **Every tab verb the HOST wires reaches the focus door unconditionally — derived from every
-    /// file that wires one, with the derivation's own blind spot closed rather than described.**
+    /// Every tab verb the host wires reaches the focus door unconditionally. The set of verbs is
+    /// derived, not listed: every member of the tabs file that any host file calls. Both ends of
+    /// the derivation are closed:
     ///
-    /// This started as a hand-written pair of signatures, which is a registry and not the whole
-    /// set — `copyTabPath` was simply missing. Reading the set off the wiring instead fixed that
-    /// and then made **the derivation's input file the new registry**: it regexed `on…: { … }`
-    /// closures over the whole of `ContentView.swift`, so two of the nine it found came from the
-    /// file-tree and header-card wiring rather than the strip, and `cycleTab` and `reopenClosedTab`
-    /// — both strip-aimed, both wired in `ShortcutCommands.swift` and `ContentView+PaneSearch.swift`
-    /// as `var shortcut…` closures rather than as `on…:` arguments — were invisible to it. The
-    /// claim "the next verb added is covered by construction" was false for anything added there.
+    /// - Which files may wire one is asserted: every `MacApp/**` Swift file is walked, and any that
+    ///   calls into the tabs file must be in `wiringFiles`, so a new one fails by name.
+    /// - Which calls are verbs is the one judgement left, spelled out: the readers and the
+    ///   persistence pair must not move a focus, because nothing a user aimed at a pane happened.
+    ///   Each exclusion must be in the derived set, so a rename can't hide a real verb.
     ///
-    /// So the set is every member of this file that any host file CALLS, and the derivation is
-    /// closed at both ends:
-    ///
-    /// - **Which files may wire one is asserted, not assumed.** Every `MacApp/**` Swift file is
-    ///   walked and any that calls into this file must be one of the three below — a fourth fails
-    ///   here by name instead of quietly falling outside the scan.
-    /// - **Which of those calls are VERBS** is the one judgement left, and it is spelled out: the
-    ///   readers (`paneTabItems`, `paneShowsTabStrip`, `seamInset`) and the launch/quit persistence
-    ///   pair (`saveBrowseTabs`, `restoreBrowseTabs`) must not move a focus, because nothing a user
-    ///   aimed at a pane happened. Each exclusion is asserted to BE in the derived set, so a rename
-    ///   or a removal fails here rather than silently hiding a real verb behind a stale name.
-    ///
-    /// **What it proves about each verb is stronger than "the text mentions a door".** That reading
-    /// is satisfied by a call inside an `if`, after an early `return`, or in a closure nothing
-    /// invokes — the first of those being a measured survivor. `topLevelCall` answers on brace
-    /// depth instead, so the guarantee is: on every path through the member that does not bail out
-    /// early, the door is called. It still cannot see a door reached only through a THIRD member,
-    /// nor one whose *arguments* are wrong (that is `theOneDoorAims…`'s half), nor anything wired
-    /// outside `MacApp/`.
-    ///
-    /// **…and the walk now means that.** It accepted any top-level `tabAction(`, but the door
-    /// inside `tabAction` is `if movesFocus { noteWorkingIn(…) }` — inside a branch — so what the
-    /// walk actually guaranteed was "reaches a function that MAY call the door". The thing that
-    /// killed `tabAction(isLeft: isLeft, movesFocus: false)` in `closeTab` was an unrelated spelling
-    /// count elsewhere, reporting `(4) == 3`. The walk reads the call's own arguments now: a
-    /// `tabAction(` that passes `movesFocus: false` is not a door, so that mutation fails HERE, by
-    /// the name of the verb that stopped moving the focus.
-    ///
-    /// A `movesFocus: !mirrored` still counts, and that is a modelling choice worth stating: the
-    /// door runs for the unmirrored pass, which is the one the verb's own pane takes, and the
-    /// mirrored pass is `openNewTabHere`'s deliberate second call onto the sibling. What makes the
-    /// model honest rather than convenient is that `tabAction`'s door shape and its `= true`
-    /// default are asserted in `aTabVerbMovesTheFocusToThePaneItWasAimedAt`, and every opt-out has
-    /// to justify itself structurally in `everyTabVerbAimsAllItsSideTakingCallsAtOnePane`.
+    /// `topLevelCall` answers on brace depth, so each verb calls the door on every path that
+    /// doesn't bail early, not merely mentions it. A `tabAction(` passing `movesFocus: false` isn't
+    /// a door, so a verb that opts out fails here by name. `movesFocus: !mirrored` counts, since
+    /// its unmirrored pass is the verb's own pane; `aTabVerbMovesTheFocusToThePaneItWasAimedAt`
+    /// pins the door's shape and default, and `everyTabVerbAimsAllItsSideTakingCallsAtOnePane`
+    /// makes every opt-out justify itself. It can't see a door reached only through a third member,
+    /// wrong arguments to the door (`theOneDoorAims…`'s half), or wiring outside `MacApp/`.
     @Test func everyTabVerbTheHostWiresReachesTheFocusDoorUnconditionally() throws {
         let tabs = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
         // The extension's own members, not the file's: the helper types below it declare `items`,
@@ -1389,8 +1166,8 @@ import Sync
         #expect(!declared.contains("decide") && !declared.contains("items"),
                 "the member scan has spilled out of the extension into the helper types below it")
 
-        // Which host files wire into this file at all. Walked recursively: a `MacApp/Tabs/` folder
-        // is the obvious next shape, and a flat listing would not see it.
+        // Which host files wire into the tabs file at all. Walked recursively, so a `MacApp/Tabs/`
+        // folder would be seen.
         let macApp = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("MacApp")
@@ -1398,30 +1175,15 @@ import Sync
         #expect(hostFiles.count > 20,
                 "the host walk found \(hostFiles.count) Swift files — it is reading the wrong folder, or the enumerator yielded nothing")
 
-        // `ContentView+FolderSidebar.swift` joined the list in v4.2: the Browse sidebar's ⌘-click
-        // opens a remembered folder in a new tab, which is `openInNewTab` — a verb of this file.
-        // The derivation reads it for exactly the reason it reads the other three; this test is
-        // what noticed, by name, on the first full run after the sidebar landed.
-        //
-        // **It stays here while the sidebar is held for v4.3** (`FolderSidebarModel.isEnabled`).
-        // The call is unreachable, not gone, so the coverage this derivation gives it is what keeps
-        // the verb correct for the release that turns the column on — dropping the file from this
-        // list because "nothing runs it" would silently uncover it on the day it runs again.
-        //
-        // **`CommandPaletteHost.swift` joined the list at RD7**, and it wires no tab verb at all —
-        // it calls the two members this file exposes for the one operation a tab switch and a ⌘K
-        // source switch genuinely share: `adoptProviderForTab` (the armed provider write) and
-        // `refreshForTabSwitch` (the one reload of the moved pane). Both are excluded from the
-        // focus-door rule below by name, for the reason the readers are: they are not verbs a user
-        // aimed at a pane, they are the tail of one.
-        //
-        // **`ContentView+Editor.swift` joined the list on 2026-10-03**: when Edit opens a file the
-        // pane follows it by tab — `selectTab` to a tab already at its folder, `openTabAtRoute` for a
-        // new one — and the waiting tabs of a batch from Finder are built with `tabAtRoute`.
-        //
-        // **`ContentView+AskClaude.swift` joined it in v7.0** (RD69): Ask Claude's `go_to` switches
-        // to a tab by name (`selectTab`), opens a folder in a new tab (`openInNewTab`), and names
-        // the tabs on screen to Claude (`paneTabItems`, a reader).
+        // Why each file beyond the first three is here:
+        // - `ContentView+FolderSidebar.swift`: the sidebar's ⌘-click opens a folder in a new tab
+        //   (`openInNewTab`).
+        // - `CommandPaletteHost.swift`: a ⌘K source switch calls `adoptProviderForTab` and
+        //   `refreshForTabSwitch`, the tail a tab switch shares; both are excluded below.
+        // - `ContentView+Editor.swift`: when Edit opens a file the pane follows it by tab
+        //   (`selectTab`, `openTabAtRoute`), and a batch from Finder builds tabs with `tabAtRoute`.
+        // - `ContentView+AskClaude.swift`: `go_to` switches to a tab by name (`selectTab`), opens a
+        //   folder in a new tab (`openInNewTab`), and names the tabs on screen (`paneTabItems`).
         let wiringFiles = ["ContentView.swift", "ShortcutCommands.swift", "ContentView+PaneSearch.swift",
                            "ContentView+FolderSidebar.swift", "CommandPaletteHost.swift",
                            "ContentView+Editor.swift", "ContentView+AskClaude.swift"]
@@ -1438,29 +1200,20 @@ import Sync
 
         // The readers and the persistence pair: called by the host, and deliberately not verbs.
         //
-        // **The last two are the shared tail of a source change, not a tab verb.** RD7's ⌘K route
-        // switches the aimed pane's source and lands it on a typed folder, and it does that through
-        // the same two members a cross-source tab click does. Neither says which pane the user is
-        // working in, and neither should: `adoptProviderForTab` is *given* a side by a caller that
-        // has already decided, and the palette's caller is aimed at the focused pane by
-        // construction — `lensTargetIsRight` is what `paletteProviderId` and the whole folder index
-        // were built from. Requiring the focus door here would have the tail of an operation
-        // re-announce a pane the operation never chose.
+        // `adoptProviderForTab` and `refreshForTabSwitch` are the shared tail of a source change,
+        // which the ⌘K route also uses. Neither should say which pane the user is working in: the
+        // caller has already decided the side, and the palette is aimed at the focused pane by
+        // construction (`lensTargetIsRight`). Requiring the door would have the tail of an
+        // operation re-announce a pane it never chose.
         //
-        // **The three side-narrowing readers joined the list with the columns walk-in.**
-        // `ContentView.adoptSourceWalkedInto` asks a pane for its own provider, scope and column
-        // stack in order to build the one absolute path it tests — three `PaneSideChoice.own`
-        // getters, which return a value and do nothing else. They are the CURE for this suite's
-        // own defect class, not an instance of it: their entire reason for existing is that the
-        // hand-written `isLeft ? left : right` they replaced was transposed three times, each
-        // survived the whole app suite, and `theSideChoiceReadsItsArgument` is what really drives
-        // their polarity. Requiring a getter to announce which pane the user is working in would
-        // push a caller back to writing the ternary out, which is the shape this file exists to
-        // keep out of the host.
+        // `paneProviderId`, `paneScope` and `paneStack` are `PaneSideChoice.own` getters that
+        // return a value and do nothing else (`ContentView.adoptSourceWalkedInto` uses them).
+        // They replace the hand-written ternary this suite keeps out of the host, and
+        // `theSideChoiceReadsItsArgument` drives their polarity; requiring a getter to move the
+        // focus would push callers back to the ternary.
         //
-        // (`tabAtRoute`, which builds the tab a follow opens, is a `static` value-maker now — it reads
-        // no pane — so it is not derived at all. The verb that opens one live, `openTabAtRoute`, is
-        // held to the rule.)
+        // `tabAtRoute` is a `static` value-maker that reads no pane, so it isn't derived at all;
+        // `openTabAtRoute`, which opens one live, is held to the rule.
         let notVerbs = ["paneTabItems", "paneShowsTabStrip", "seamInset",
                         "saveBrowseTabs", "restoreBrowseTabs",
                         "adoptProviderForTab", "refreshForTabSwitch",
@@ -1472,23 +1225,22 @@ import Sync
         let verbs = derived.subtracting(notVerbs)
         #expect(verbs.count >= 11,
                 "the host's wiring resolved to \(verbs.count) verbs (\(verbs.sorted())) — the derivation has stopped finding them, and every check below is vacuous")
-        // The two the old derivation could not see, named so their loss is not silent.
+        // Named, so the derivation can't lose any of these silently.
         for named in ["copyTabPath", "selectTab", "moveTab", "setTabPinned", "openNewTabHere",
                       "cycleTab", "reopenClosedTab"] {
             #expect(verbs.contains(named),
                     "“\(named)” is wired to a pane's tab strip and the derivation did not find it")
         }
 
-        /// Whether `name` reaches the focus door on every path that does not bail out early —
-        /// directly, or through one more member of this file. Two hops is what ⌘T needs:
+        /// Whether `name` reaches the focus door on every path that doesn't bail out early,
+        /// directly or through one more member of the tabs file. Two hops is what ⌘T needs:
         /// `openNewTabHere` mirrors through `openTabHere` to `tabAction`.
         func reachesTheFocusDoor(_ name: String, hops: Int) throws -> Bool {
             let body = Self.memberInterior(try Self.memberBodyNamed(name, in: tabs))
             if Self.topLevelCall("noteWorkingIn(", in: body) == .found { return true }
-            // `tabAction(` is the door only when the call has not opted out of it. Reading the
-            // call's own arguments is what makes this walk mean its name: `movesFocus: false` puts
-            // `noteWorkingIn` behind a branch that is known to be false, so a verb whose only route
-            // to the door is such a call reaches no door at all.
+            // `tabAction(` is the door only when the call hasn't opted out: `movesFocus: false`
+            // puts `noteWorkingIn` behind a branch known to be false, so a verb whose only route to
+            // the door is such a call reaches none.
             if Self.topLevelCall("tabAction(", in: body) == .found,
                !Self.callArguments(of: "tabAction(", in: body)
                    .contains(where: { $0.contains("movesFocus: false") }) { return true }
@@ -1501,30 +1253,25 @@ import Sync
             return false
         }
 
-        // The negative control, first: a member of this same file that describes a tab for the log
-        // and moves no focus. If this answers YES the walk cannot fail, and every verb below passes
-        // for free.
+        // The negative control, first: a member of the same file that describes a tab for the log
+        // and moves no focus. If this answers yes the walk can't fail, and every verb passes free.
         #expect(try !reachesTheFocusDoor("tabLogDescription", hops: 2),
                 "the reachability walk says a member that touches no focus door reaches one — it cannot fail, so nothing below it means anything")
-        // **The second negative control, and the one the walk had none of.** `mirrorOpenInNewTab`
-        // goes through `tabAction` on every path and deliberately opts out of the focus door, so a
-        // walk that reads `tabAction(` as a door regardless of its arguments answers YES here — the
-        // reading under which the guarantee was only "reaches a function that MAY call the door".
+        // The second negative control: `mirrorOpenInNewTab` goes through `tabAction` on every path
+        // and opts out of the focus door, so a walk that reads `tabAction(` as a door regardless of
+        // its arguments answers yes here.
         #expect(try !reachesTheFocusDoor("mirrorOpenInNewTab", hops: 2),
                 "the walk counts a `tabAction(…, movesFocus: false)` as reaching the focus door — under that reading `tabAction(isLeft: isLeft, movesFocus: false)` in any verb below passes here, and nothing names the verb that stopped moving the focus")
 
         for verb in verbs.sorted() {
             #expect(try reachesTheFocusDoor(verb, hops: 2),
                     "“\(verb)” is wired to a pane's tab strip and does not say which pane the user is working in on every path — in Compare that leaves ⌘W aimed at the other pane, where its last-tab branch closes the WINDOW")
-            // …and it acts on the pane it was GIVEN. Reaching the door is not enough: a verb that
-            // hands the door its sibling aims every pane-scoped chord at the wrong strip, which is
-            // the same shipped bug from one level up. A verb MAY reach for the sibling on purpose —
-            // ⌘T's mirrored half opens a tab on the OTHER pane — but only through
-            // `PaneSideChoice.sibling`, whose polarity `theSideChoiceReadsItsArgument` really
-            // drives. That exception used to be the literal `["!isLeft"]` written against
-            // `openNewTabHere` by name; it is derived from the member's own bindings now, so a
-            // second deliberate mirror does not need this line edited and a hand-written `!` is
-            // refused wherever it appears.
+            // …and it acts on the pane it was given: a verb that hands the door its sibling aims
+            // every pane-scoped chord at the wrong strip. A verb may reach for the sibling on
+            // purpose (⌘T's mirrored half opens a tab on the other pane), but only through
+            // `PaneSideChoice.sibling`, whose polarity `theSideChoiceReadsItsArgument` drives. The
+            // exception is derived from the member's own bindings, so a hand-written `!` is refused
+            // wherever it appears.
             let hand = Self.handWrittenSideTokens(
                 in: Self.memberInterior(try Self.memberBodyNamed(verb, in: tabs)))
             #expect(hand.isEmpty,
@@ -1532,17 +1279,10 @@ import Sync
         }
     }
 
-    /// **The comment stripper this suite scans through is the corrected one, not a third copy.**
-    ///
-    /// ``codeOnly`` was byte-for-byte the whole-line filter `538ac2e1` replaced in
-    /// `SyncCloudTests.swift` — satisfiable by a comment written after code on any line. The large
-    /// majority of this suite's scans read it, including positive controls whose whole job is to
-    /// stop the rest of a test passing vacuously.
-    ///
-    /// Both directions here, because only one of them is obvious: a trailing comment must not
-    /// answer a `contains`, and a `//` inside a string literal must not eat real code. The stripper
-    /// does not parse multiline or raw string literals, so — as its own test does for the file it
-    /// reads — that limit is asserted against the file THIS suite scans rather than assumed.
+    /// The comment stripper this suite scans through is the corrected one, not another copy. Both
+    /// directions: a trailing comment must not answer a `contains`, and a `//` inside a string
+    /// literal must not eat real code. The stripper doesn't parse multiline or raw string literals,
+    /// so that limit is asserted against the file this suite scans rather than assumed.
     @Test func theCommentStripperIsTheCorrectedOne() throws {
         let stripped = Self.codeOnly("""
             let a = 1 // noteWorkingIn(isLeft:
@@ -1555,7 +1295,7 @@ import Sync
         #expect(stripped.contains("let a = 1") && stripped.contains("let b = 2")
                 && stripped.contains("\"https://example.com\"") && stripped.contains("real()"),
                 "`codeOnly` ate real code — a stripper that returns nothing satisfies every absence check above")
-        // …and the brace-depth desynchronisation the old filter caused, which `topLevelCall` reads.
+        // …and braces in a trailing comment don't shift the depth that `topLevelCall` reads.
         #expect(Self.topLevelCall("noteWorkingIn(", in: Self.codeOnly("""
                 if x { save() } // a } and a { in prose
                 noteWorkingIn(isLeft: isLeft, "x")
@@ -1568,23 +1308,16 @@ import Sync
                 "the tabs file has grown a multiline or raw string literal, which the stripper does not parse — it would mis-read from there to the end of the file")
     }
 
-    /// **Every reach for the SIBLING pane in the tabs file goes through the one flip.**
-    ///
-    /// `let other = !isLeft` in `mirrorOpenInNewTab`, with the `!` dropped, survived the whole app
-    /// suite: ⌥/linked **Open in New Tab** then opened both tabs on the pane the user aimed at and
-    /// none on the sibling. ⌘T's identical mirror WAS pinned — `openTabHere(isLeft: !isLeft` was an
-    /// exact-string scan — so the two mirrors of one feature were guarded to different standards
-    /// and the unguarded one is where the defect was.
-    ///
-    /// A `!` in a `ContentView` extension is a spelling nothing can drive, so the fix is not a
-    /// tighter scan: the polarity is `PaneSideChoice.sibling` now, which
-    /// `theSideChoiceReadsItsArgument` really calls in both directions. What is left for a scan is
-    /// the part a value cannot state — that the hand-written form does not come back, anywhere in
-    /// the file, including at sites that do not exist yet.
+    /// Every reach for the sibling pane in the tabs file goes through the one flip. A `!` in a
+    /// `ContentView` extension is a spelling nothing can drive: a dropped `!` in
+    /// `mirrorOpenInNewTab` would open both tabs of an ⌥/linked Open in New Tab on the pane the
+    /// user aimed at, with the app suite green. The polarity is `PaneSideChoice.sibling`, which
+    /// `theSideChoiceReadsItsArgument` calls both ways; this scan keeps the hand-written form from
+    /// coming back anywhere in the file, including at sites that don't exist yet.
     @Test func everyReachForTheSiblingPaneGoesThroughTheOneFlip() throws {
         let file = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
-        // The flip exists, and it is the ONLY one written out in the file. Its BEHAVIOUR is
-        // `theSideChoiceReadsItsArgument`'s; this is only that there is one of it.
+        // The flip exists, and it is the only one written out in the file. Its behaviour is
+        // `theSideChoiceReadsItsArgument`'s; this checks only that there is one of it.
         let flips = file.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { $0.contains("!isLeft") }
         #expect(flips.count == 1,
@@ -1606,32 +1339,23 @@ import Sync
             #expect(hand.isEmpty,
                     "“\(member)” passes \(hand) as a side — the pane it was given, or a sibling bound through `PaneSideChoice.sibling`, is what a side argument may name")
         }
-        // **The derived set, not a floor.** A member that stops mirroring and one that starts both
-        // land here, and the second is the one worth a look: reaching for the sibling is a real
-        // decision (it is what puts a tab on the pane the user did not aim at) and it should not
-        // arrive unremarked.
+        // The derived set, not a floor: a member that starts mirroring should not arrive
+        // unremarked, since reaching for the sibling puts a tab on the pane the user didn't aim at.
         #expect(mirrors == ["paneShowsTabStrip", "openNewTabHere", "mirrorOpenInNewTab"],
                 "the members reaching for the sibling pane are \(mirrors.sorted()) — a member has started or stopped mirroring, and which panes a verb touches is not a thing to change silently")
     }
 
-    /// **A tab verb aims every side-taking call it makes at the ONE pane it moves.**
+    /// A tab verb aims every side-taking call it makes at the one pane it moves.
+    /// `theOneDoorAimsEverySideTakingCallAtThePaneItWasGiven` covers only `tabAction`'s body, and
+    /// the location pair (the `openedFromScope:` cuts, the save's overlay, `ColumnStackPruning`)
+    /// lives outside it, where a transposition leaves the app suite green. Stated over the verbs
+    /// and derived: the pane a verb moves is whatever it hands `tabAction`, and every other side it
+    /// computes must be the same token, so `paneScope(isLeft: !isLeft)` fails by name.
     ///
-    /// `theOneDoorAimsEverySideTakingCallAtThePaneItWasGiven` says this of `tabAction`'s own body,
-    /// and that scoping is exactly why the location pair went unguarded: the three `openedFromScope:`
-    /// cuts, the save's overlay and `ColumnStackPruning` are all outside it. Transposing any of them
-    /// left the whole app suite green.
-    ///
-    /// Stated over the verbs instead of over one member, and derived: the pane a verb moves is
-    /// whatever it hands `tabAction`, and every other side it computes has to be the same one. A
-    /// `paneScope(isLeft: !isLeft)` — the shape the `openedFromScope` transposition takes once the
-    /// ternary is gone — is a different token from the verb's own aim and fails here by name.
-    ///
-    /// **The opt-out justifies itself structurally**, which is what the `movesFocus:` count could
-    /// not do. A verb may decline to move the focus only when it is landing on the sibling
-    /// (`movesFocus: false`, aimed at a `PaneSideChoice.sibling` local) or when the decline is its
-    /// caller's mirror flag (`movesFocus: !mirrored`, on a member whose `mirrored` defaults to
-    /// false). A `tabAction(isLeft: isLeft, movesFocus: false)` in any ordinary verb matches
-    /// neither, and fails naming the verb rather than reporting `(4) == 3`.
+    /// The opt-out justifies itself structurally. A verb may decline to move the focus only when it
+    /// lands on the sibling (`movesFocus: false`, aimed at a `PaneSideChoice.sibling` local) or
+    /// when the decline is its caller's mirror flag (`movesFocus: !mirrored`, on a member whose
+    /// `mirrored` defaults to false). Anything else fails naming the verb.
     @Test func everyTabVerbAimsAllItsSideTakingCallsAtOnePane() throws {
         let file = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
         let extensionBody = try Self.typeBody("extension ContentView {", in: file)
@@ -1659,18 +1383,17 @@ import Sync
                 optOuts[member] = opt
             }
         }
-        // Measured today: eleven verbs go through the one door. A floor well under it passes with
-        // half of them gone, so this is the count, not a safe number.
+        // The current count (eleven verbs through the one door). A floor well under it passes with
+        // half of them gone.
         #expect(aims.count >= 11,
                 "\(aims.count) members run a verb through the one door where 11 are expected — the derivation has stopped finding them and every check above is vacuous")
         #expect(Set(aims.keys).isSuperset(of: ["openTabHere", "openInNewTab", "mirrorOpenInNewTab",
                                                "closeTab", "selectTab", "setTabPinned"]),
                 "the derivation lost verbs that are plainly there — it is reading the wrong members")
-        // The mirror aims at a pane that is not its own `isLeft`; every other verb aims at `isLeft`.
+        // The mirror aims at a pane that isn't its own `isLeft`; every other verb aims at `isLeft`.
         // Without this, "every aim is the same token" satisfies everything above. Unwrapped rather
-        // than compared with `!=`: a missing entry makes `nil != "isLeft"` TRUE, so the shape that
-        // reads as the strongest check here is the one that passes when the derivation found
-        // nothing.
+        // than compared with `!=`, because a missing entry makes `nil != "isLeft"` true and the
+        // check would pass when the derivation found nothing.
         let mirrorAim = try #require(aims["mirrorOpenInNewTab"],
                                      "the mirror no longer runs its open through the one door")
         #expect(mirrorAim != "isLeft",
@@ -1694,36 +1417,22 @@ import Sync
         }
     }
 
-    /// **Every pane PAIR read in the tabs file is narrowed by the one door, or by a member asserted
-    /// to want both sides.**
-    ///
-    /// The commit that introduced `paneProviderId(isLeft:)` said the hand-written
-    /// `isLeft ? leftX : rightX` were "gone" and that the view's pair was narrowed to a side in one
-    /// place. It was true of `…ProviderId` and of nothing else: `leftRelativePath`/`rightRelativePath`,
-    /// `leftBrowsePath`/`rightBrowsePath`, `leftTreeRoot`/`rightTreeRoot` and the two children
-    /// indexes were still cut by hand at five sites in the same file, and the invariant that bans
-    /// the shape is scoped to `tabAction`'s body, which none of them is in.
-    ///
-    /// So the ban is stated over the PAIR rather than over one member's text: a token from either
-    /// half of a pane pair may appear only inside a `PaneSideChoice.own(…)` call, on the line that
-    /// DECLARES a stored property named for one side, or inside one of two members that
-    /// legitimately read both. Each of those two is asserted to still exist and still hold a pair
-    /// token, so an exemption cannot outlive the code it was written for and become a hole with a
-    /// name on it.
-    ///
-    /// This sees the ternary, the `if isLeft { … } else { … }` someone reaches for once the ternary
-    /// is refused, and any other shape — what it cannot see is a narrowing whose sides are
-    /// transposed INSIDE the `own(…)` call, which is
-    /// `everyPaneSideChoiceCallNarrowsAMatchedPair`'s half.
+    /// Every pane pair read in the tabs file is narrowed by the one door, or by a member asserted
+    /// to want both sides. The invariant in `theOneDoorAims…` covers only `tabAction`'s body, so
+    /// hand-written `isLeft ? leftX : rightX` cuts of the location pairs elsewhere in the file go
+    /// unseen. The ban is stated over the pair: a token from either half may appear only inside a
+    /// `PaneSideChoice.own(…)` call, on the line declaring a stored property named for one side, or
+    /// inside one of two members that legitimately read both. Each exemption must still exist and
+    /// hold a pair token, so it can't outlive its code and become a named hole. This sees the
+    /// ternary, the `if isLeft { … } else { … }` and any other shape; sides transposed inside the
+    /// `own(…)` call are `everyPaneSideChoiceCallNarrowsAMatchedPair`'s half.
     @Test func everyPaneLocationPairIsNarrowedByTheOneDoorOrAnAssertedException() throws {
         let file = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
         let pairs = Self.occurrences(
             #"\b(?:left|right)(?:RelativePath|BrowsePath|TreeRoot|ChildrenIndex|ProviderId)\b"#,
             in: file)
-        // TODAY'S measured count (26), not a number chosen low enough to be safe. The floor is only
-        // "am I reading the file at all" — nothing is lost by a pair token going away, since the
-        // rule below is about the ones that are THERE. (28 until the tab-switch reload stopped
-        // resolving the pair itself and went through `refreshAction`.)
+        // The current count (26), not a number low enough to be safe. The floor only asks "am I
+        // reading the file at all"; the rule below is about the tokens that are there.
         #expect(pairs.count >= 26,
                 "\(pairs.count) pane-pair tokens found in the tabs file where 26 are expected — the scan is reading the wrong text and every judgement below is vacuous")
 
@@ -1731,11 +1440,9 @@ import Sync
         #expect(narrowings.count >= 6,
                 "\(narrowings.count) `PaneSideChoice.own` calls in the tabs file where at least 6 are expected — the pairs are being narrowed somewhere this cannot see")
 
-        // The two that read BOTH sides on purpose. Named, and each proved non-vacuous below: the
-        // adopt helper writes one id and re-keys the ignored-items store on the PAIR, and the
-        // persistence modifier watches all six values because either pane moving has to save that
-        // pane's strip. (The tab-switch reload was a third until it went through `refreshAction`,
-        // which resolves the pair in `ContentView.swift`.)
+        // The two that read both sides on purpose, each proved non-vacuous below: the adopt helper
+        // writes one id and re-keys the ignored-items store on the pair, and the persistence
+        // modifier watches all six values because either pane moving must save that pane's strip.
         var exemptions: [(name: String, span: Range<String.Index>)] = []
         for (name, declaration, closing) in
                 [("adoptProviderForTab", "func adoptProviderForTab(", "\n    }\n"),
@@ -1754,9 +1461,9 @@ import Sync
         for hit in pairs {
             if narrowings.contains(where: { $0.contains(hit.lowerBound) }) { continue }
             if exemptions.contains(where: { $0.span.contains(hit.lowerBound) }) { continue }
-            // A stored property named for one side of a pair its owner is HANDED — `let
-            // leftTreeRoot: String`. The declaration is not a narrowing and cannot be transposed;
-            // its uses below are what this rule is about.
+            // A stored property named for one side of a pair its owner is handed (`let
+            // leftTreeRoot: String`). The declaration is not a narrowing and can't be transposed;
+            // its uses are what this rule is about.
             let lineStart = file[..<hit.lowerBound].lastIndex(of: "\n").map { file.index(after: $0) }
                 ?? file.startIndex
             let lineEnd = file[hit.upperBound...].firstIndex(of: "\n") ?? file.endIndex
@@ -1770,21 +1477,13 @@ import Sync
                 "a pane pair is narrowed to a side by hand at \(loose) — transposing it is invisible to every argument check in this suite, and for the location pair it opens tabs with their columns flattened, saves the sibling's folder as this pane's, or prunes one pane's column stack against the other's tree")
     }
 
-    /// **Every `PaneSideChoice.own` call in the app target hands it a MATCHED pair, on the side it
-    /// says.**
-    ///
-    /// Two holes, and the first is the one a per-argument check cannot have:
-    /// `own(isLeft, left: syncManager.leftRelativePath, right: syncManager.rightBrowsePath)` passes
-    /// "every `left:` is left-ish, every `right:` is right-ish" because each argument contains its
-    /// own side's word — and it narrows two different pairs, so what comes back is a folder for one
-    /// side and a column stack for the other. Blanking the side word turns that into a comparison
-    /// the scan can make.
-    ///
-    /// The second is scope: this read `ContentView+PaneTabs.swift` alone while `PaneSideChoice` is
-    /// app-target-wide — `CompareReviewReducer` and `DuplicateReviewCoordinator` already use it. A
-    /// scan of one file is a registry pretending to be a derivation, which is the shape this repo
-    /// keeps re-finding, so the whole of `MacApp/**` is walked and the known users are asserted to
-    /// be IN the derived set rather than assumed to be all of it.
+    /// Every `PaneSideChoice.own` call in the app target hands it a matched pair, on the side it
+    /// says. A per-argument check passes
+    /// `own(isLeft, left: syncManager.leftRelativePath, right: syncManager.rightBrowsePath)`,
+    /// since each argument has its own side's word, yet it returns a folder for one side and a
+    /// column stack for the other; blanking the side word makes that comparable. `PaneSideChoice`
+    /// is used app-wide (`CompareReviewReducer`, `DuplicateReviewCoordinator`), so the whole of
+    /// `MacApp/**` is walked and the known users must be in the derived set.
     @Test func everyPaneSideChoiceCallNarrowsAMatchedPair() throws {
         let macApp = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -1803,16 +1502,15 @@ import Sync
                 narrowings.append((url.lastPathComponent, call))
             }
         }
-        // The derivation found the users it must find. Without this the loop below is satisfied by
-        // reading nothing at all.
+        // The derivation found the users it must find, or the loop below is satisfied by reading
+        // nothing at all.
         #expect(users.isSuperset(of: ["ContentView+PaneTabs.swift", "CompareReviewReducer.swift",
                                       "DuplicateReviewCoordinator.swift"]),
                 "the derivation found \(users.sorted()) as the users of `PaneSideChoice` and is missing one that plainly uses it — it is reading the wrong tree")
         #expect(narrowings.count >= 6,
                 "\(narrowings.count) `PaneSideChoice.own` calls found across the app target where at least 6 are expected — the checks below are vacuous")
-        // …and a known call site really is in the set, read whole. This one wraps over two lines and
-        // nests a call inside its argument, which is the shape the regex this replaced could not
-        // see at all.
+        // …and a known call site is in the set, read whole. It wraps over two lines and nests a
+        // call inside its argument, which a regex can't read.
         #expect(narrowings.contains { $0.call?.left == "syncManager.leftChildrenIndex(treeRoot: root)" },
                 "the column-stack prune's children-index narrowing is not in the derived set — a call this scan cannot read is a call whose sides may be swapped with nothing to say so")
 
@@ -1830,9 +1528,9 @@ import Sync
         }
     }
 
-    /// The fixture for the pair reader, and for the two holes it closes. Handed known text, because
-    /// the production file is (and must stay) correct — a scan proved only against correct source
-    /// is a scan nobody has watched fail.
+    /// The fixture for the pair reader. Handed known text, because the production file is (and
+    /// must stay) correct, and a scan proved only against correct source has never been seen to
+    /// fail.
     @Test func theSideNarrowingScanSeesAMismatchedPair() throws {
         let mismatched = Self.sideNarrowings(
             in: "PaneSideChoice.own(isLeft, left: m.leftRelativePath, right: m.rightBrowsePath)")
@@ -1841,7 +1539,7 @@ import Sync
                 "a `left:`/`right:` pair drawn from two DIFFERENT pairs reads as matched — the hole a per-argument check cannot see, since each argument contains its own side's word")
 
         // …and the matched pair it must not flag, wrapped over two lines with a nested call in its
-        // argument: the shape the regex this replaced stopped dead at.
+        // argument.
         let wrapped = Self.sideNarrowings(in: """
             PaneSideChoice.own(isLeft, left: m.leftChildrenIndex(treeRoot: root),
                                right: m.rightChildrenIndex(treeRoot: root))
@@ -1860,29 +1558,20 @@ import Sync
                 == Self.sideStemmed("syncManager.isLoadingRightTree"),
                 "the stemmer only blanks a leading `left`/`right`, so a mid-identifier pair reads as mismatched")
 
-        // And an unreadable call comes back as `nil` rather than being skipped — the difference
-        // between "this scan does not cover it" and "there is nothing to cover".
+        // And an unreadable call comes back as `nil` rather than being skipped: "this scan doesn't
+        // cover it" is not "there is nothing to cover".
         #expect(Self.sideNarrowings(in: "PaneSideChoice.own(isLeft, first, second)") == [nil],
                 "a call in a shape the reader does not understand is silently dropped instead of reported")
     }
 
-    /// **A focus move is logged with its cause, and a move that moves nothing says nothing.**
+    /// A focus move is logged with its cause, and a move that moves nothing says nothing.
+    /// `focusedPaneSide` decides whether ⌘W closes a tab or the window, and many strip gestures
+    /// move it, so a report of "⌘W closed my window" needs a trace. The silent half keeps the
+    /// commonest case, clicking in the pane you're already in, out of the log he audits.
     ///
-    /// `focusedPaneSide` decides whether ⌘W closes a tab or the window — this feature's one
-    /// destructive outcome — and after the strip verbs started moving it, it moves on a chip click,
-    /// the ＋, the header card's New Tab, the pane background menu, a reorder drag and a pin. None
-    /// of those wrote anything, so a report of "⌘W closed my window" had no trace to read.
-    ///
-    /// The silent half is not tidiness: the commonest way to reach this door is clicking a row in
-    /// the pane you are already working in, and a defect in this exact area logged the most
-    /// ordinary gesture in the strip (clicking the chip you are already on) into the log he audits.
-    ///
-    /// **Read from a capture opened before the moves, with the cause carrying a token.**
-    /// `Logger.shared` is process-wide and `entries` is a rolled 1000-line window, so the reading
-    /// is a `LogCapture`'s, and the reason strings are unique to this run — nothing else in the
-    /// process can write a line this reading then counts, in either direction. The move's own line
-    /// is what keeps the silent half honest: a capture that saw nothing fails the count, so the
-    /// absence cannot pass on its own.
+    /// Read from a `LogCapture` opened before the moves, with reasons unique to this run, since
+    /// `Logger.shared` is process-wide and `entries` is a rolled 1000-line window. The move's own
+    /// line keeps the silent half honest: a capture that saw nothing fails the count.
     @Test func aFocusMoveIsLoggedWithItsCauseAndANoOpIsNot() async {
         let manager = FileSyncManager(fileManager: FileManager.default)
         let token = String(UUID().uuidString.prefix(8))
@@ -1904,12 +1593,10 @@ import Sync
                 "re-aiming at the pane already focused wrote a line — the log fills with the most ordinary gesture in the strip and buries the moves that explain a window closing")
     }
 
-    /// …and an arrival that DOES move the pane reloads exactly once, from the host.
-    ///
-    /// The "which arrivals" half is `theScanIsGatedOnTheSameRuleTheInvalidationUses` above — a
-    /// switch inside one source at one scope reloads nothing. What is pinned here is the half that
-    /// has not changed: `applyTab` must not ring `refreshSubject` itself, because it runs *before*
-    /// the provider id is written and would load the new tab's path under the old tab's root.
+    /// …and an arrival that does move the pane reloads exactly once, from the host. Which arrivals
+    /// reload is `theScanIsGatedOnTheSameRuleTheInvalidationUses` below. Here: `applyTab` must not
+    /// ring `refreshSubject` itself, because it runs before the provider id is written and would
+    /// load the new tab's path under the old tab's root.
     @Test func theReloadIsDrivenByTheHostAndNotByApplyTab() throws {
         let body = try Self.memberBody("private func tabAction(isLeft: Bool",
                                        in: Self.source("ContentView+PaneTabs.swift"))
@@ -1919,8 +1606,8 @@ import Sync
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Modules/Sync/Sources/Sync/FileSyncManager+PaneTabs.swift"),
                               encoding: .utf8)
-        // Sliced on the prefix, not the whole signature: this scan broke once already when the
-        // parameter list grew, reporting "applyTab is gone" for a member that was right there.
+        // Sliced on the prefix, not the whole signature, so a growing parameter list doesn't
+        // report "applyTab is gone" for a member that is right there.
         let apply = try Self.memberBody("public func applyTab(_ tab: PaneTab, isLeft: Bool", in: sync)
         let applyCode = Self.codeOnly(apply)
         #expect(!applyCode.contains("syncPathsFromHistory()") && !applyCode.contains("refreshSubject"),
@@ -1929,11 +1616,10 @@ import Sync
 
     // MARK: ⌘W, which replaced File ▸ Close
 
-    /// **⌘W must still close a window that has no tabs.** This item takes the standard Close
-    /// group's place, and the app has three auxiliary `Window` scenes — Keyboard Shortcuts,
-    /// Activity Log, Sync History — none of which publishes a focused value. Disabled on `nil`,
-    /// which is how every other item in that file spells "not available", left ⌘W dead in all
-    /// three.
+    /// ⌘W must still close a window that has no tabs. This item takes the standard Close group's
+    /// place, and the app's auxiliary `Window` scenes (Keyboard Shortcuts, Activity Log, Sync
+    /// History) publish no focused value; disabling on `nil`, as other items there do, would leave
+    /// ⌘W dead in all of them.
     @Test func closeFallsBackToTheWindowWhenNoTabIsPublished() {
         var closedWindow = false
         CloseTabCommand.run(nil) { closedWindow = true }
@@ -1948,17 +1634,11 @@ import Sync
         #expect(!closedWindow, "⌘W closed the window as well as the tab")
     }
 
-    /// **⌘W on a pane's LAST tab closes the window**, as Finder does — which is what keeps ⌘W
-    /// meaning "get rid of this" rather than acquiring an exception nobody would remember.
-    ///
-    /// Unscanned until now, and invisible to every other test: `PaneTabList.close(at:)` refuses the
-    /// last tab, so deleting this branch does not throw an error or empty a pane — it makes ⌘W do
-    /// *nothing at all* on a one-tab window, silently, in the state every install starts in.
-    ///
-    /// **The other `performClose` is a different one.** `CloseTabCommand` falls back to the key
-    /// window when no tab value is published at all (`closeFallsBackToTheWindowWhenNoTabIsPublished`,
-    /// and the suspended case in `ShortcutCommandsTests`) — that is ⌘W in a window with no tabs. This
-    /// is ⌘W in the window that HAS them, on the one tab it is down to, and nothing asserted it.
+    /// ⌘W on a pane's last tab closes the window, as Finder does, so ⌘W keeps meaning "get rid of
+    /// this". `PaneTabList.close(at:)` refuses the last tab, so losing this branch throws nothing
+    /// and empties nothing: ⌘W silently does nothing on a one-tab window, the state every install
+    /// starts in. Distinct from `CloseTabCommand`'s fallback
+    /// (`closeFallsBackToTheWindowWhenNoTabIsPublished`), which is ⌘W in a window with no tabs.
     @Test func closingTheLastTabClosesTheWindowInsteadOfDoingNothing() throws {
         let body = Self.codeOnly(try Self.memberBody("func closeTab(id: UUID, isLeft: Bool)",
                                                      in: Self.source("ContentView+PaneTabs.swift")))
@@ -1969,45 +1649,34 @@ import Sync
                                  "the last tab no longer closes its window")
         let verb = try #require(rest.range(of: "tabAction(isLeft: isLeft)"),
                                 "closeTab no longer runs a tab verb at all")
-        // **Nesting, not order.** This stood as `close.upperBound < verb.lowerBound` alone, whose
-        // message named a mutation ("unconditional, after the guard") that position cannot tell
-        // from "inside the else block" — an unconditional `performClose` moved below the branch is
-        // still before the verb, and every ⌘W would close the window. The branch's own closing
-        // brace sits at member-body indentation, so its absence ahead of the close is what proves
-        // the close is still inside it.
+        // Nesting, not just order: an unconditional `performClose` moved below the branch is
+        // still before the verb, and every ⌘W would close the window. The branch's closing brace
+        // sits at member-body indentation, so its absence ahead of the close proves the close is
+        // still inside it.
         #expect(close.upperBound < verb.lowerBound,
                 "the window close comes after the tab verb, so ⌘W closes the tab and the window")
         let branch = String(rest[..<close.lowerBound])
         #expect(!branch.contains("\n        }"),
                 "the guard's branch has already closed — the window close is unconditional, so every ⌘W closes the window whether the pane has one tab or five")
-        // **And the line names the pane.** This is the feature's one destructive outcome, and
-        // `noteWorkingIn` records a ⌘W aimed at the pane the user was not looking at as a shipped
-        // bug — so which pane the press landed in is the whole question this line has to answer. It
-        // said "the pane's last tab", which is every pane and every tab.
+        // And the line names the pane. This is the feature's one destructive outcome, and a ⌘W
+        // aimed at the pane the user wasn't looking at is the bug `noteWorkingIn` guards against,
+        // so which pane the press landed in is the question this line has to answer.
         #expect(branch.contains("PaneSideChoice.name(isLeft)"),
                 "the line that closes the window does not say which pane's ⌘W did it")
         #expect(branch.contains("\\(closing)"),
                 "the line that closes the window does not say which tab was aimed at")
-        // …and the branch RETURNS. Falling through would ask the list to close a tab it refuses to
-        // close, on a window that is already going: harmless today, and only by that refusal.
+        // …and the branch returns. Falling through would ask the list to close a tab it refuses to
+        // close, on a window already going: harmless only because of that refusal.
         #expect(textBetween(rest, from: close.upperBound, to: verb.lowerBound)?.contains("return") == true,
                 "the last-tab branch closes the window and then goes on to close a tab as well")
     }
 
-    /// **The item must stay live when nothing is published, and grey out when a pick owns the
-    /// keyboard — two different reasons that used to be one blanket ban.**
-    ///
-    /// This test forbade `.disabled(` outright, and the ban was wider than its own reason. What it
-    /// protects is the fallback above: on the Keyboard Shortcuts, Activity Log and Sync History
-    /// windows nothing publishes a focused value, and this item is standing in for the File ▸ Close
-    /// it replaced — disable it there and those three windows lose ⌘W, which is a shipped bug this
-    /// suite exists to keep fixed. That reason is entirely about the **nil** case.
-    ///
-    /// It says nothing about the suspended one, which is the opposite situation: the main window is
-    /// there, an overlay owns the keyboard, and ⌘W does nothing. Left enabled that is a live menu
-    /// item that silently no-ops — which this app's own ⌘K pill calls its own bug — so the item now
-    /// greys out, keyed on `isSuspended` and never on `nil`. The blanket ban could not express the
-    /// difference, so it is replaced by the two halves it was standing for.
+    /// The item stays live when nothing is published, and greys out when a pick owns the keyboard.
+    /// The nil case protects the fallback above: the Keyboard Shortcuts, Activity Log and Sync
+    /// History windows publish no focused value, and this item stands in for File ▸ Close, so
+    /// disabling it there would cost them ⌘W. The suspended case is the opposite: the main window
+    /// is there, an overlay owns the keyboard, and ⌘W does nothing, so an enabled item would
+    /// silently no-op. It greys out on `isSuspended`, never on `nil`.
     @Test func theCloseItemIsDisabledOnlyForASuspendedPick() throws {
         let body = Self.codeOnly(try Self.typeBody("struct CloseTabCommand: View {",
                                                    in: Self.source("ShortcutCommands.swift")))
@@ -2015,48 +1684,40 @@ import Sync
                 "⌘W is disabled when no tab is published — it is also this app's only Close")
         #expect(body.contains(".disabled(close?.isSuspended == true)"),
                 "a suspended ⌘W is an enabled menu item that silently does nothing")
-        // The disable is not a substitute for the rule: menu validation follows SwiftUI's update
-        // cycle rather than the flag, so the item can still be performed in the window between the
-        // two — and `run`'s `.suspended` case is what makes that harmless.
+        // The disable is no substitute for the rule: menu validation follows SwiftUI's update
+        // cycle, not the flag, so the item can still be performed in between, and `run`'s
+        // `.suspended` case makes that harmless.
         #expect(body.contains("Self.run(close)"), "the item does not go through the tested rule")
     }
 
     // MARK: The launch restore
 
-    /// **The restore arms the suppression counter like every other adopt.**
-    ///
-    /// This test used to assert the opposite, on the reasoning that the bootstrap guard was the
-    /// suppression and an armed counter would strand at one. Both halves were wrong, and the
-    /// second measurably so: SwiftUI evaluates `onChange` on the NEXT view update, and the
-    /// bootstrap's tail lowers `isBootstrappingProviders` synchronously right after these restores
-    /// — so the write arrived with the guard already DOWN and ran the full user-switch path, whose
-    /// the user-switch path's re-home wiped the pane back to its root over the strip just restored.
-    /// (Measured with a minimal SwiftUI host: a `@State` write followed synchronously by lowering
-    /// a guard flag reaches `onChange` with the flag false; the same write with an `await` between
-    /// is protected, which is why `applyProviderSelection` was genuinely safe.) Stranding is no
-    /// longer possible either, because the handler consumes counters BEFORE testing the guard —
-    /// `aSuppressionCounterIsConsumedWhereverItsWriteLands`.
+    /// The restore arms the suppression counter like every other adopt. The bootstrap guard is no
+    /// substitute: SwiftUI evaluates `onChange` on the next view update, and the bootstrap's tail
+    /// lowers `isBootstrappingProviders` synchronously right after these restores, so the write
+    /// arrives with the guard already down and the user-switch path's re-home would wipe the pane
+    /// back to its root over the strip just restored. (A write with an `await` before the guard
+    /// drops, as in `applyProviderSelection`, is protected.) The counter can't strand, because the
+    /// handler consumes counters before testing the guard
+    /// (`aSuppressionCounterIsConsumedWhereverItsWriteLands`).
     @Test func theLaunchRestoreArmsTheSuppressionCounterLikeEveryOtherAdopt() throws {
         let body = try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
                                        in: Self.source("ContentView+PaneTabs.swift"))
         #expect(body.contains("adoptProviderForTab(adopt, isLeft: isLeft"),
                 "the launch restore writes the provider id its own way again")
-        // Threaded, not hardcoded — the restore runs for BOTH panes, and a right pane that adopted
-        // no source would reopen every tab under whichever provider the pane happened to be on,
-        // showing the right folder path under the wrong root.
+        // Threaded, not hardcoded: the restore runs for both panes, and a right pane that adopted
+        // no source would reopen every tab under whichever provider it happened to be on, showing
+        // the right folder path under the wrong root.
         for side in ["leftProviderId", "rightProviderId"] {
             #expect(!Self.codeOnly(body).contains("\(side) = active.providerId"),
                     "the bare \(side) write is back, and the bootstrap guard does not stop it")
         }
     }
 
-    /// **The restore is behind "reopen the last folder", and nothing else says so.**
-    ///
-    /// Someone who has turned that setting off has said they want the app to start at the root;
-    /// handing them five tabs' worth of where they were is that answer at five times the volume.
-    /// Unscanned until now, and both mutations are silent: deleting the guard restores tabs for
-    /// someone who asked for none, and inverting it restores them for nobody — a strip that quietly
-    /// never comes back, which the first save then overwrites. Pinned as the exact literal, so
+    /// The restore is behind "reopen the last folder". Someone who turned that off wants the app to
+    /// start at the root, not five tabs of where they were. Both mutations are silent: without the
+    /// guard tabs come back for someone who asked for none, and inverted they come back for nobody,
+    /// and the first save overwrites the strip. Pinned as the exact literal, so
     /// `guard !GeneralSettings…` fails rather than matching a looser check.
     @Test func theLaunchRestoreObeysTheReopenTheLastFolderSetting() throws {
         let body = Self.codeOnly(try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
@@ -2069,15 +1730,11 @@ import Sync
                 "the setting is consulted after the strip has already been read and acted on")
     }
 
-    /// **The account of the restore is DECIDED in `BrowseTabRestorePlan` and merely EMITTED here.**
-    ///
-    /// Two elaborate scans stood in this spot (`theLaunchRestoreNamesTheFolderAReRootedTabLost`,
-    /// `theLostFolderLineDoesNotClaimARestoreThatWasAbandoned`), pinning as source text which lines
-    /// are said, per side, in what order, and never for an abandoned restore. Those branches are
-    /// now executable — `BrowseTabRestorePlanTests` runs every one, including the ordering the
-    /// second scan asserted — so what remains for a scan is the glue the planner cannot see:
-    /// the host must emit the plan's lines at their stated levels, install only what the plan
-    /// installs, and take the plan's adoption through the counter (the test above).
+    /// The account of the restore is decided in `BrowseTabRestorePlan` and only emitted here.
+    /// `BrowseTabRestorePlanTests` runs every branch, including the order of lines, so what's left
+    /// for a scan is the glue the planner can't see: the host emits the plan's lines at their
+    /// stated levels, installs only what the plan installs, and takes the plan's adoption through
+    /// the counter (the test above).
     @Test func theLaunchRestoreExecutesThePlanItWasHanded() throws {
         let body = Self.codeOnly(try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
                                                      in: Self.source("ContentView+PaneTabs.swift")))
@@ -2096,9 +1753,8 @@ import Sync
                 "the plan's strip is not what reaches the pane")
     }
 
-    /// **Both panes are restored, and the right one is easy to drop.** The launch sequence called
-    /// this once for years; a later edit that re-collapses it to the left leaves Compare's right
-    /// pane seeding one tab again, which is the state this whole feature exists to end.
+    /// Both panes are restored, and the right one is easy to drop: an edit that restores only the
+    /// left leaves Compare's right pane seeding one tab every launch.
     @Test func bothPanesAreRestoredAtLaunch() throws {
         let source = Self.codeOnly(try Self.source("ContentView.swift"))
         #expect(source.contains("restoreBrowseTabs(isLeft: true)"))
@@ -2106,13 +1762,10 @@ import Sync
                 "the right pane's strip is never restored, so it seeds one tab every launch")
     }
 
-    /// The swap moves the lists as well as the panes, so what is saved has to move with them.
-    ///
-    /// **Both sides, and that is the half a reader would leave out.** A swap is the one move that
-    /// changes both strips at once. Saving only the left leaves the right's stored strip naming the
-    /// pane that is no longer there, and the next launch restores two halves of a swap that never
-    /// happened — one side from before it, one from after. Nothing on screen says so until a
-    /// relaunch, which is why it is pinned here rather than left to the manual pass.
+    /// The swap moves the lists as well as the panes, so what is saved has to move with them, on
+    /// both sides. Saving only the left leaves the right's stored strip naming the pane that left,
+    /// and the next launch restores half of a swap. Nothing on screen shows it until a relaunch,
+    /// so it is pinned here.
     @Test func swappingThePanesSavesBothStrips() throws {
         let body = try Self.memberBody("func swapPanesAction()", in: Self.source("ContentView.swift"))
         #expect(body.contains("saveBrowseTabs(isLeft: true)"),
@@ -2157,25 +1810,21 @@ import Sync
                 "the strip is not given the seam reserve")
     }
 
-    /// **The strip slides in** (roadmap Fig. 10). ⌘T opens the folder you are already in, so both
-    /// chips say the same thing and nothing else on screen changes — the strip's arrival is the
-    /// only feedback there is, and an abrupt one reads as a glitch rather than a result.
+    /// The strip slides in. ⌘T opens the folder you're already in, so both chips say the same
+    /// thing and nothing else changes: the strip's arrival is the only feedback, and an abrupt one
+    /// reads as a glitch.
     @Test func theStripArrivesWithAnAnimation() throws {
         let content = try Self.source("ContentView.swift")
         let column = try #require(content.range(of: "func paneColumn(isLeft: Bool)"))
-        // **Cut at the member boundary, not at a character budget.** This read
-        // `prefix(20_000)`, and a comment added inside `paneColumn` pushed the animation line to
-        // +20,020 — so the window stopped 20 characters short and the test reported it as "the
-        // strip appears with no transition", naming a regression that was not there. A budget can
-        // only ever fail this way (a `contains` that falls outside is loud, never vacuous), but a
-        // loud failure that names the wrong cause costs a session all the same.
+        // Cut at the member boundary, not at a character budget: a budget goes stale as
+        // `paneColumn` grows and then reports a missing transition that is really there.
         let rest = String(content[column.upperBound...])
         let end = try #require(rest.range(of: "\n    func ")?.lowerBound,
                                "no member follows paneColumn — the cut would run to end of file")
         let body = String(rest[..<end])
         #expect(body.contains(".transition(.move(edge: .top)"),
                 "the strip appears with no transition — nothing marks the arrival ⌘T is fed back by")
-        // Keyed on PRESENCE, not on the tab count: opening a third tab while the strip is already
+        // Keyed on presence, not on the tab count: opening a third tab while the strip is already
         // up must not animate the header and the list under it.
         #expect(body.contains("value: paneShowsTabStrip(isLeft: isLeft)"),
                 "the strip's animation is keyed on something other than its own presence")
@@ -2190,10 +1839,10 @@ import Sync
         let body = try Self.memberBody("func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool)",
                                        in: Self.source("ContentView+PaneTabs.swift"))
         #expect(body.contains("syncManager.setTabPinned("), "pinning does not reach the manager")
-        // **The save is the one door's now.** `setTabPinned` goes through `tabAction` with a `nil`
-        // answer — the branch that saves the strip and drives no reload — so a pin still survives a
-        // quit. Both halves are checked, here: the routing, and the door's `nil` branch actually
-        // saving. Either alone would let a pin stop being persisted with this test green.
+        // The save is the one door's. `setTabPinned` goes through `tabAction` with a `nil` answer,
+        // the branch that saves the strip and drives no reload. Both halves are checked here, the
+        // routing and the `nil` branch saving; either alone would let a pin stop persisting with
+        // this test green.
         #expect(body.contains("tabAction(isLeft: isLeft)"),
                 "a pin no longer goes through the one door, so it saves nothing and moves no focus")
         #expect(body.contains("return nil"),
@@ -2210,22 +1859,19 @@ import Sync
                 "pinning reloads the tree for nothing")
     }
 
-    /// **The File menu, read off the running app rather than out of the source.**
-    ///
-    /// The test host IS the app, so `NSApp.mainMenu` is the menu AppKit built from the `.commands`
-    /// declarations — which makes this the one check that sees what the group replacements actually
-    /// produced. Two of them are invisible to a source scan and both would ship silently:
-    /// `CommandGroup(replacing: .saveItem)` failing to remove AppKit's own Close (two items
-    /// registering ⌘W, one of them dead), and the tab items landing in the wrong group and so in
-    /// the wrong place — the roadmap's Fig. 9 puts Close Tab beside New Tab, not below Delete.
+    /// The File menu, read off the running app rather than out of the source. The test host is the
+    /// app, so `NSApp.mainMenu` is what AppKit built from the `.commands` declarations, the one
+    /// check that sees what the group replacements produce. A source scan can't see
+    /// `CommandGroup(replacing: .saveItem)` failing to remove AppKit's own Close (two items on ⌘W,
+    /// one dead), or the tab items landing in the wrong group: Close Tab belongs beside New Tab,
+    /// not below Delete.
     @Test func theFileMenuIsInTheRoadmapsOrder() throws {
         let file = try #require(NSApp.mainMenu?.items.first { $0.title == "File" }?.submenu,
                                 "the app has no File menu — this check would be vacuous")
         let titles = file.items.map(\.title).filter { !$0.isEmpty }
-        // New Text File… leads from 2026-08-31: ⌘N is the item AppKit's `.newItem` group is named
-        // for, and the two "new" items belong together at the top. Everything after them keeps the
-        // order Fig. 9 gave it.
-        // Open Recent sits under New Text File from TE58 — where a document app keeps it.
+        // New Text File… leads: ⌘N is the item AppKit's `.newItem` group is named for, and the two
+        // "new" items belong together at the top. Open Recent sits under it, where a document app
+        // keeps it.
         #expect(titles.prefix(6)
                 == ["New Text File…", "Open Recent", "New Folder…", "New Tab", "Close Tab", "Reopen Closed Tab"],
                 "the File menu opens with \(titles.prefix(6)) — Fig. 9 puts the tab items with the new-item pair")
@@ -2233,20 +1879,18 @@ import Sync
         // AppKit's own Close is gone, and exactly one item claims ⌘W. Two would leave one of them
         // dead, and which one AppKit picks is not something this app decides.
         #expect(!titles.contains("Close"), "the standard File ▸ Close is still there beside Close Tab")
-        // **Close All (⌥⌘W) goes with it, deliberately.** It came from the same group, and this app
-        // is one window plus three utilities — while ⌥ chords are the one kind that fire through
-        // the ⌥-hold reveal, so putting it back by hand would break an invariant `AppChordTests`
-        // guards for the whole app. Pinned so the loss reads as a decision rather than an oversight.
+        // Close All (⌥⌘W) goes with it, on purpose. It came from the same group, this app is one
+        // window plus three utilities, and an ⌥ chord fires through the ⌥-hold reveal, which
+        // `AppChordTests` forbids app-wide.
         #expect(!titles.contains("Close All"),
                 "Close All is back — it registers an ⌥ chord, which fires through the ⌥-hold reveal")
         let closers = file.items.filter { $0.keyEquivalent == "w" }
         #expect(closers.count == 1, "\(closers.count) items register ⌘W")
         #expect(closers.first?.title == "Close Tab")
 
-        // **Close Document sits where AppKit's Close sat — directly above Save — with no key**
-        // (TE46). ⌘W stays Close Tab's (the check above), and ⌥⌘W would fire through the ⌥-hold
-        // reveal. Read off the real menu, so an item that landed in the wrong group, or grew a
-        // chord, fails here rather than shipping.
+        // Close Document sits where AppKit's Close sat, directly above Save, with no key: ⌘W is
+        // Close Tab's, and ⌥⌘W would fire through the ⌥-hold reveal. Read off the real menu, so an
+        // item in the wrong group, or with a chord, fails here.
         let closeDocument = try #require(titles.firstIndex(of: "Close Document"), "File ▸ Close Document is gone")
         let save = try #require(titles.firstIndex(of: "Save"), "File ▸ Save is gone")
         #expect(closeDocument + 1 == save,
@@ -2259,9 +1903,9 @@ import Sync
         let reopen = try #require(file.items.first { $0.title == "Reopen Closed Tab" })
         #expect(reopen.keyEquivalent.isEmpty, "Reopen Closed Tab has acquired a chord")
 
-        // **Download sits where the row menu puts it — under Quick Look** (roadmap RD2, v5.3). The
-        // row verbs are one group, in the row menu's order, so a reader who knows the right-click
-        // finds the same list here. No chord: nothing conventional is free for it.
+        // Download sits where the row menu puts it, under Quick Look: the row verbs are one group,
+        // in the row menu's order, so a reader who knows the right-click finds the same list here.
+        // No chord: nothing conventional is free for it.
         let quickLook = try #require(titles.firstIndex(of: "Quick Look"))
         let download = try #require(titles.firstIndex(of: "Download"), "File ▸ Download is gone")
         let reveal = try #require(titles.firstIndex(of: "Reveal in Finder"))
@@ -2270,9 +1914,8 @@ import Sync
         #expect(file.items.first { $0.title == "Download" }?.keyEquivalent.isEmpty == true,
                 "Download has acquired a chord")
 
-        // **Open in Edit leads the row verbs, on ⌘O** (TE30) — the order the row context menu
-        // now leads with, so the claim above that this group mirrors that menu stays true. Read
-        // off the REAL menu, which is the only place the chord a person presses actually lives.
+        // Open in Edit leads the row verbs, on ⌘O, as it leads the row context menu. Read off the
+        // real menu, which is where the chord a person presses lives.
         let editor = try #require(titles.firstIndex(of: "Open in Edit"), "File ▸ Open in Edit is gone")
         let newTab = try #require(titles.firstIndex(of: "Open in New Tab"))
         #expect(editor + 1 == newTab,
@@ -2282,8 +1925,8 @@ import Sync
         #expect(editorItem.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == .command,
                 "Open in Edit carries modifiers beyond ⌘")
 
-        // And nothing ELSE in the menu bar has taken ⌘O. Two claimants leave one of them dead, and
-        // which one AppKit picks is not something this app decides — the ⌘W reasoning above.
+        // And nothing else in the menu bar has taken ⌘O. Two claimants leave one of them dead, and
+        // which one AppKit picks is not something this app decides.
         func claimants(_ menu: NSMenu) -> [NSMenuItem] {
             menu.items.flatMap { item -> [NSMenuItem] in
                 let own = (item.keyEquivalent == "o"
@@ -2311,9 +1954,9 @@ import Sync
                 "the tab bar switch became a Show/Hide pair")
     }
 
-    /// View ▸ Filter by Type (RD70 TE280): a submenu right after Hidden Files — the two decide
-    /// which files a pane shows — reached through the menu bar the app really installs, with no
-    /// chord of its own. Registered is not reachable, so this walks `NSApp.mainMenu`.
+    /// View ▸ Filter by Type: a submenu right after Hidden Files (the two decide which files a pane
+    /// shows), with no chord of its own. Registered is not reachable, so this walks
+    /// `NSApp.mainMenu`.
     @Test func theViewMenuCarriesFilterByTypeAfterHiddenFiles() throws {
         let view = try #require(NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu,
                                 "the app has no View menu")
@@ -2328,9 +1971,9 @@ import Sync
 
     // MARK: The right-click routes
 
-    /// **The pane's own background menu offers New Tab.** It is the only right-click route that
-    /// works at ONE tab — the row menu needs a folder under the pointer and the strip's menu needs
-    /// a strip, and neither exists in the state every install starts in.
+    /// The pane's own background menu offers New Tab. It's the only right-click route that works
+    /// at one tab: the row menu needs a folder under the pointer and the strip's menu needs a
+    /// strip, and neither exists in the state every install starts in.
     @Test func thePaneBackgroundMenuOffersANewTab() throws {
         let shared = try Self.memberBody("static func tabActions(at path: String, delegate: FileActionDelegate)",
                                          in: Self.fileExplorer("FileTreeView.swift"))
@@ -2346,12 +1989,10 @@ import Sync
         }
     }
 
-    /// **Right-clicking the header card offers a new tab.** It is the surface a Mac user reaches
-    /// for to act on a pane, and it was the one place with no tab route at all — the row menu needs
-    /// a folder under the pointer, the strip's menu needs a strip, and the pane's background menu
-    /// needs empty space below the rows, which a full column does not have.
-    ///
-    /// The bar itself is untouched: no glyph, no `PaneBarItem`, nothing in the customize sheet.
+    /// Right-clicking the header card offers a new tab. It's the surface a Mac user reaches for to
+    /// act on a pane, and the other routes need a folder under the pointer, a strip, or empty space
+    /// below the rows, which a full column doesn't have. The bar itself is untouched: no glyph, no
+    /// `PaneBarItem`, nothing in the customize sheet.
     @Test func theHeaderCardsMenuOffersANewTab() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -2372,20 +2013,13 @@ import Sync
                 "the header menu offers Close Tab at one tab, where it would close the window")
     }
 
-    /// **Open in Edit leads the single-file branch**, ahead of Get Info and Reveal in Finder.
-    ///
-    /// Nothing pinned this menu's ORDER before — `openInNewTabSitsAheadOfQuickLook` below pins one
-    /// pair and `OpenInEditorVerbTests` pins the item's existence and its text gate, so the four
-    /// verbs could be shuffled into any arrangement and every suite stayed green. The order is the
-    /// claim here: Edit is a workspace of this app, the two items it passed hand the file to
-    /// something else, and this menu is the one door into Edit that Browse, both Compare panes,
-    /// Organize's rail and Edit's own source pane all share.
-    ///
-    /// Sliced to `FileContextMenu`'s own body first, because `SharedFileMenuItems.openInEditor` is
-    /// DECLARED some sixty lines above the menu that calls it: a whole-file scan would find the
-    /// declaration, which precedes every call site, and report the order correct whatever the menu
-    /// actually does. Comments are stripped for the same reason they are everywhere else in this
-    /// file — the prose above these lines names the items it orders.
+    /// Open in Edit leads the single-file branch, ahead of Get Info and Reveal in Finder: Edit is a
+    /// workspace of this app, the other two hand the file to something else, and this menu is the
+    /// one door into Edit shared by Browse, both Compare panes, Organize's rail and Edit's source
+    /// pane. `OpenInEditorVerbTests` pins the item's existence and text gate; this pins the order.
+    /// Sliced to `FileContextMenu`'s body first, because `SharedFileMenuItems.openInEditor` is
+    /// declared above the menu, and a whole-file scan would find the declaration first and call the
+    /// order correct whatever the menu does.
     @Test func openInEditLeadsTheRowMenusSingleFileBranch() throws {
         let code = try Self.fileExplorer("FileTreeView.swift")
         let menu = Self.codeOnly(try Self.typeBody("struct FileContextMenu: View {", in: code))
@@ -2409,7 +2043,7 @@ import Sync
     }
 
     /// Discovery beats tidiness: the row menu's tab item sits above Quick Look, not at the bottom
-    /// of the folder branch (roadmap Fig. 11).
+    /// of the folder branch.
     @Test func openInNewTabSitsAheadOfQuickLook() throws {
         let code = try Self.fileExplorer("FileTreeView.swift")
         let tab = try #require(code.range(of: "Label(\"Open in New Tab\""),
@@ -2421,15 +2055,15 @@ import Sync
 
     // MARK: The row menu's entry point
 
-    /// The discovery route. ⌘T opens the folder you are already in, so this is the only entry
-    /// point that produces a second tab somewhere else — gated on the delegate's own capability
-    /// like the two items beside it, and on the row being a FOLDER, because a tab is a location.
+    /// The discovery route. ⌘T opens the folder you're already in, so this is the only entry point
+    /// that makes a second tab somewhere else. Gated on the delegate's own capability like the two
+    /// items beside it, and on the row being a folder, because a tab is a location.
     @Test func theRowMenuOffersOpenInNewTabForFoldersOnly() throws {
         let code = try Self.fileExplorer("FileTreeView.swift")
         let item = try #require(code.range(of: "Label(\"Open in New Tab\""),
                                 "the row menu no longer offers Open in New Tab")
-        // The gate is the two lines above the label, not a block further up: the item moved out of
-        // the folder branch to sit ahead of Quick Look, so it carries its own `isDirectory` test.
+        // The gate is the lines just above the label: the item sits ahead of Quick Look, outside
+        // the folder branch, so it carries its own `isDirectory` test.
         let lead = String(code[..<item.lowerBound].suffix(300))
         #expect(lead.contains("singleNode.isDirectory"), "a FILE can be opened as a tab")
         #expect(lead.contains("delegate.canOpenInNewTab"),
@@ -2441,7 +2075,7 @@ import Sync
 
     // MARK: The strip stays under the pointer (TE214)
 
-    /// **A hold is per pane and ends when asked** — the value `paneShowsTabStrip` folds in.
+    /// A hold is per pane and ends when asked: the value `paneShowsTabStrip` folds in.
     @Test func aHeldStripIsHeldPerPaneUntilReleased() {
         var hold = PaneTabStripHold()
         #expect(!hold.holds(isLeft: true) && !hold.holds(isLeft: false))
@@ -2461,11 +2095,11 @@ import Sync
         #expect(!pointer.isOver(isLeft: false))
     }
 
-    /// **The hold is wired where it acts**: both panes' terms of the visibility rule fold it in (so
-    /// in Compare a held strip keeps its sibling's up, as two tabs would); the strip's close and
-    /// Close Others go through the hold; the strip reports the pointer and lets a held strip go when
-    /// it leaves; and a close from anywhere else — ⌘W — releases it first. The value tests above
-    /// pass with every one of these lines reverted.
+    /// The hold is wired where it acts: both panes' terms of the visibility rule fold it in (so in
+    /// Compare a held strip keeps its sibling's up, as two tabs would); the strip's close and Close
+    /// Others go through the hold; the strip reports the pointer and lets a held strip go when it
+    /// leaves; and a close from anywhere else (⌘W) releases it first. The value tests above pass
+    /// with every one of these lines reverted.
     @Test func theHoldIsWiredWhereItActs() throws {
         let tabs = try Self.source("ContentView+PaneTabs.swift")
         let shows = try Self.memberBody("func paneShowsTabStrip(isLeft: Bool) -> Bool {", in: tabs)
@@ -2492,8 +2126,8 @@ import Sync
                 "the strip's coming and going is no longer animated on its presence — a released strip would vanish, not slide")
     }
 
-    /// **Where a right-click menu stood** — top-left at the click, moved on-screen as AppKit moves
-    /// one at the edges — is the area a Close Tab chosen from it holds the strip for.
+    /// Where a right-click menu stood (top-left at the click, moved on-screen as AppKit moves one
+    /// at the edges) is the area a Close Tab chosen from it holds the strip for.
     @Test func aMenusAreaIsWhereItOpenedMovedOnScreen() {
         let visible = NSRect(x: 0, y: 0, width: 1000, height: 800)
         let size = NSSize(width: 200, height: 300)
@@ -2505,7 +2139,7 @@ import Sync
                 "a menu opened near the bottom was placed off the screen")
     }
 
-    /// **Only a menu up or just closed counts**, and the point the item was chosen at is inside the
+    /// Only a menu up or just closed counts, and the point the item was chosen at is inside the
     /// area even where AppKit drew the menu elsewhere than estimated.
     @Test func aMenuCountsOnlyWhileUpOrJustClosed() throws {
         let origin = PaneMenuOrigin()
@@ -2525,7 +2159,7 @@ import Sync
                 "the point the item was chosen at is outside the area")
     }
 
-    /// **The header's and a row's Close Tab go through the hold**, as the strip's own do.
+    /// The header's and a row's Close Tab go through the hold, as the strip's own do.
     @Test func theMenuClosesGoThroughTheHold() throws {
         let content = try Self.source("ContentView.swift")
         let column = try Self.memberBody("func paneColumn(isLeft: Bool) -> some View {", in: content)
@@ -2541,9 +2175,9 @@ import Sync
 
     // MARK: Compare — both panes wear the strip
 
-    /// The term that makes Compare readable: **a second tab on either pane draws the strip on
-    /// both.** Without it the pane that grew the tab has its header pushed 34pt down and every row
-    /// after it names a different folder on the left than on the right.
+    /// The term that makes Compare readable: a second tab on either pane draws the strip on both.
+    /// Without it the pane that grew the tab has its header pushed 34pt down, and every row after
+    /// it names a different folder on the left than on the right.
     @Test func inCompareOnePanesSecondTabDrawsBothStrips() {
         #expect(PaneTabStripVisibility.shows(own: false, sibling: true, isCompare: true, switchIsOn: false),
                 "the sibling grew a second tab and this pane drew nothing — the two rows are now offset")
@@ -2551,9 +2185,9 @@ import Sync
                 "the pane with the tabs does not draw its own strip")
     }
 
-    /// …and the other direction, which is the one that costs a 34pt row if it goes wrong. Browse and
-    /// the single-source rail have no sibling on screen, so the sibling's list must not reach them —
-    /// the right pane's list exists in both, it is simply not shown.
+    /// …and the other direction, which costs a 34pt row if it goes wrong. Browse and the
+    /// single-source rail have no sibling on screen, so the sibling's list must not reach them: the
+    /// right pane's list exists in both, it just isn't shown.
     @Test func outsideCompareTheSiblingsTabsDrawNothing() {
         #expect(!PaneTabStripVisibility.shows(own: false, sibling: true, isCompare: false, switchIsOn: false),
                 "Browse drew a strip because the hidden right pane has two tabs")
@@ -2563,7 +2197,7 @@ import Sync
                 "View ▸ Tab Bar no longer shows the strip")
     }
 
-    /// The call-site half: the rule is fed the SIBLING's list and the layout, not just this pane's.
+    /// The call-site half: the rule is fed the sibling's list and the layout, not just this pane's.
     /// Reading `paneTabs(isLeft: isLeft)` twice would pass every rule test above and still ship the
     /// offset rows.
     @Test func theStripGateAsksBothPanes() throws {
@@ -2571,8 +2205,8 @@ import Sync
                                        in: Self.source("ContentView+PaneTabs.swift"))
         #expect(rule.contains("PaneTabStripVisibility.shows("),
                 "the gate is built by hand — the tested rule is unused")
-        // Through the one flip, like every other reach for the sibling in this file — the local it
-        // binds is read off the member rather than spelled here.
+        // Through the one flip, like every other reach for the sibling in the tabs file; the local
+        // it binds is read off the member rather than spelled here.
         let sibling = try #require(Self.siblingLocals(in: rule).first,
                                    "the gate flips the side by hand instead of through `PaneSideChoice.sibling`, where a test can drive the polarity")
         #expect(rule.contains("paneTabs(isLeft: \(sibling)).showsStrip"),
@@ -2584,9 +2218,9 @@ import Sync
 
     // MARK: Compare — a linked pane opens the tab too
 
-    /// The mirror lands on the deepest folder the sibling genuinely has. A tab naming a folder that
-    /// pane does not carry is a chip that cannot be navigated to, and the two sides are being
-    /// compared precisely because they differ.
+    /// The mirror lands on the deepest folder the sibling really has. A tab naming a folder that
+    /// pane doesn't carry is a chip that can't be navigated to, and the sides are being compared
+    /// because they differ.
     @Test func aMirroredTabIsPrunedToWhatTheSiblingHas() {
         let has: Set<String> = ["Photos", "Photos/2024"]
         #expect(PaneTabMirror.landing(for: "Photos/2024") { has.contains($0) } == "Photos/2024",
@@ -2599,13 +2233,11 @@ import Sync
                 "the root mirrored as something other than the root")
     }
 
-    /// A folder missing halfway down must not be walked past — pruning stops, it does not skip.
-    ///
-    /// **The fixture is the whole test.** The obvious one — a sibling holding `Photos` and
-    /// `Photos/2024/June` — cannot tell the two apart, because skipping `2024` next asks about
-    /// `Photos/June`, which is not there either, and a `continue` in place of the `break` returned
-    /// the same answer. This sibling *does* have `Photos/June`, so a skipping walk assembles a
-    /// path out of two folders that are not parent and child.
+    /// A folder missing halfway down must not be walked past: pruning stops, it doesn't skip. The
+    /// fixture is the whole test. A sibling holding `Photos` and `Photos/2024/June` can't tell the
+    /// two apart, since a skipping walk then asks about `Photos/June`, which is missing too. This
+    /// sibling does have `Photos/June`, so a skipping walk assembles a path out of two folders that
+    /// aren't parent and child.
     @Test func theMirrorStopsAtTheFirstMissingFolder() {
         let has: Set<String> = ["Photos", "Photos/June"]
         #expect(PaneTabMirror.landing(for: "Photos/2024/June") { has.contains($0) } == "Photos",
@@ -2618,7 +2250,7 @@ import Sync
         let here = try Self.memberBody("func openNewTabHere(isLeft: Bool)", in: code)
         #expect(here.contains("guard tabsOpenOnBothPanes else { return }"),
                 "⌘T and the ＋ do not open a tab on the linked pane")
-        // Through the one flip, like the other mirror — see `PaneSideChoice.sibling`. Which local
+        // Through the one flip, like the other mirror (see `PaneSideChoice.sibling`). Which local
         // it binds is read off the member rather than spelled here.
         let hereSibling = try #require(Self.siblingLocals(in: here).first,
                                        "the mirrored ⌘T does not take its side through `PaneSideChoice.sibling`, so the flip is back in a `ContentView` extension where no test can drive it")
@@ -2636,11 +2268,9 @@ import Sync
                 "the mirror copies the path outright instead of pruning it")
         #expect(mirror.contains("expandingTildeInPath"),
                 "the sibling's root is compared unexpanded, so every mirror prunes to its root")
-        // **And this mirror takes its side the same way ⌘T's does.** It did not: `let other =
-        // !isLeft` was written out here, and dropping the `!` survived the whole app suite —
-        // ⌥/linked Open in New Tab opened both tabs on the pane the user aimed at and none on the
-        // sibling. ⌘T's half was pinned above and this one was not, which is the asymmetry that
-        // exposed it.
+        // And this mirror takes its side the same way ⌘T's does: a hand-written `!` here would open
+        // both tabs of an ⌥/linked Open in New Tab on the pane the user aimed at, with the app
+        // suite green.
         let mirrorSibling = try #require(Self.siblingLocals(in: mirror).first,
                                          "the mirror flips the side by hand instead of through `PaneSideChoice.sibling` — dropping the `!` is a measured survivor of the whole suite")
         #expect(mirror.contains("tabAction(isLeft: \(mirrorSibling), movesFocus: false)"),
@@ -2649,76 +2279,60 @@ import Sync
 
     // MARK: What the launch sequence may not overwrite
 
-    /// **The save has to refuse during the provider bootstrap.**
-    ///
-    /// The launch sequence points the pane at its stored folder and *then* reads the stored strip.
-    /// That first move fires the persistence `onChange`, and the pane at that instant still holds
-    /// the freshly-initialised one-tab list — so a save landing in between overwrites the user's
-    /// whole strip with a single tab, and the restore reads back what it just destroyed. Whether
-    /// the window opens at all comes down to when SwiftUI runs a view update across the `await`
-    /// between the two steps, which is not a thing to leave to timing.
+    /// The save must refuse during the provider bootstrap. Launch points the pane at its stored
+    /// folder and then reads the stored strip; the first move fires the persistence `onChange`
+    /// while the pane still holds a fresh one-tab list, so a save in between overwrites the user's
+    /// whole strip with a single tab and the restore reads back what it destroyed. Whether that
+    /// happens depends on when SwiftUI runs an update across the `await` between the two steps,
+    /// which is not a thing to leave to timing.
     @Test func theStripIsNotSavedWhileTheProvidersAreStillBootstrapping() throws {
         let rule = try Self.memberBody("func saveBrowseTabs(isLeft: Bool)",
                                        in: Self.source("ContentView+PaneTabs.swift"))
         #expect(rule.contains("!isBootstrappingProviders"),
                 "a save during launch can overwrite the stored strip before the restore reads it")
-        // **And it must not refuse the right pane.** `guard isLeft` sat here until the right strip
-        // was persisted, and putting it back is a one-word change that kills right-pane persistence
-        // outright while every store test stays green — they call the store directly and never
-        // reach this. Negative, so it goes through `codeOnly`.
+        // And it must not refuse the right pane: a `guard isLeft` here kills right-pane
+        // persistence while every store test stays green, since they call the store directly.
+        // Negative, so it goes through `codeOnly`.
         #expect(!Self.codeOnly(rule).contains("guard isLeft"),
                 "the save refuses the right pane again, so its strip is never written")
     }
 
-    /// **The save writes the LIVE pane over the active entry, through the rule that can be tested.**
-    ///
-    /// The active entry in the list is a snapshot from when that tab was last parked (see
-    /// `PaneTab`), so a strip written straight off the list saves the tab on screen at the folder it
-    /// was opened at — which is what "the active tab lost its columns across a quit" was, while
-    /// every parked tab kept theirs. The overlay lived inline in this member, where nothing could
-    /// reach it: deleting the block whole passed every test in the repo, including the ones about
-    /// the very columns it exists to keep. It is `PaneTabList.replacingActive` now, unit-tested in
-    /// `PaneTabsTests`, and this is the half that a value cannot state — that the host calls it, with
-    /// the pane's own three values, and hands the store the result rather than the list.
+    /// The save writes the live pane over the active entry, through a rule that can be tested. The
+    /// active entry is a snapshot from when that tab was last parked (see `PaneTab`), so a strip
+    /// written straight off the list saves the tab on screen at the folder it was opened at, and
+    /// the active tab loses its columns across a quit. The overlay is
+    /// `PaneTabList.replacingActive`, unit-tested in `PaneTabsTests`; this is the half a value
+    /// can't state: the host calls it with the pane's own three values and hands the store the
+    /// result, not the list.
     @Test func theSaveWritesTheLivePaneOverTheActiveEntryThroughTheRule() throws {
         let save = Self.codeOnly(try Self.memberBody("func saveBrowseTabs(isLeft: Bool)",
                                                      in: Self.source("ContentView+PaneTabs.swift")))
         #expect(save.contains("replacingActive("),
                 "the save writes the list's own stale active entry — the tab on screen is stored where it was parked")
-        // **All three halves of where the pane is**, and the two paths separately: `PaneTabsStore`
+        // All three parts of where the pane is, and the two paths separately: `PaneTabsStore`
         // records the cut between scope and stack as a depth, so an entry rebuilt from the joined
-        // path reports a depth of zero and the columns are flattened one layer down.
-        // Each through its own narrowing wrapper: the two paths were ternaries written out here,
-        // and transposing either stores the SIBLING pane's folder or column stack as this pane's
-        // active tab, to be restored onto it at the next launch.
+        // path reports a depth of zero and the columns flatten one layer down. Each through its own
+        // narrowing wrapper, since a transposed path would store the sibling pane's folder or
+        // column stack as this pane's active tab.
         for value in ["providerId: paneProviderId(isLeft: isLeft)",
                       "relativePath: paneScope(isLeft: isLeft)",
                       "browsePath: paneStack(isLeft: isLeft)"] {
             #expect(save.contains(value), "the save does not hand the rule the pane's own \(value)")
         }
         // …and what goes to disk is the overlaid strip, not the one it was built from: passing the
-        // un-overlaid list here would satisfy every presence above and store nothing the overlay
-        // produced.
-        //
-        // **One assertion, not two.** A negative twin naming `list.tabs` sat here and could not
-        // fail: there has been no local called `list` in this member since the overlay moved into
-        // `Sync`, and the positive above already pins the whole argument — any other value in it,
-        // named anything, fails this line.
+        // un-overlaid list would satisfy every presence above. This positive pins the whole
+        // argument, so any other value in it fails.
         #expect(save.contains("PaneTabsStore.save(tabs: saving.tabs"),
                 "the overlaid strip is built and then not the one that is saved")
     }
 
-    /// **One body serves both panes, so every side-dependent call inside it has to thread `isLeft`.**
-    ///
-    /// A single hardcoded side here is the worst failure this feature can have and the quietest: the
-    /// app compiles, the package suite is green (it calls `PaneTabsStore` directly and never reaches
-    /// these call sites), and nothing is visibly wrong until a relaunch. A save pinned to `true`
-    /// makes every right-pane move overwrite the LEFT pane's stored strip — the user loses the tabs
-    /// they were actually using. A `setPaneTabs`/`applyTab` pinned to `true` installs the right
-    /// pane's restored tabs onto the left pane at launch.
-    ///
-    /// Pinned both ways round: the threading is asserted positively, and the literals are asserted
-    /// absent — either alone can be satisfied while the other is broken.
+    /// One body serves both panes, so every side-dependent call inside it must thread `isLeft`. A
+    /// hardcoded side is this feature's worst and quietest failure: the app compiles, the package
+    /// suite is green (it calls `PaneTabsStore` directly), and nothing looks wrong until a
+    /// relaunch. A save pinned to `true` makes every right-pane move overwrite the left pane's
+    /// stored strip; a `setPaneTabs`/`applyTab` pinned to `true` installs the right pane's tabs on
+    /// the left at launch. Pinned both ways: the threading is present and the literals are absent,
+    /// since either alone can pass while the other is broken.
     @Test func theSaveAndRestoreThreadTheirSideRatherThanHardcodingIt() throws {
         let source = try Self.source("ContentView+PaneTabs.swift")
         let save = Self.codeOnly(try Self.memberBody("func saveBrowseTabs(isLeft: Bool)", in: source))
@@ -2740,11 +2354,11 @@ import Sync
         }
     }
 
-    /// **The source is part of where a tab is**, and it is the half that moves without either path
-    /// moving: switching source at the root leaves the history default, the column stack empty and
-    /// the relative path `""`, so neither path `onChange` fires. Left unwatched, the stored entry
-    /// keeps naming the old source — and because the restore writes the tab's provider over
-    /// `selectedLeftProviderId`, the next launch actively undoes the switch.
+    /// The source is part of where a tab is, and it moves without either path moving: switching
+    /// source at the root leaves the history default, the stack empty and the path `""`, so neither
+    /// path `onChange` fires. Unwatched, the stored entry keeps naming the old source, and because
+    /// the restore writes the tab's provider over `selectedLeftProviderId`, the next launch undoes
+    /// the switch.
     @Test func theSavedStripFollowsTheSourceAndNotOnlyThePath() throws {
         let source = try Self.source("ContentView+PaneTabs.swift")
         let modifier = try Self.typeBody("struct BrowseTabPersistence: ViewModifier {", in: source)
@@ -2755,10 +2369,9 @@ import Sync
         #expect(modifier.contains("onChange(of: syncManager.leftBrowsePath)"),
                 "the column stack is no longer watched")
 
-        // **The same three for the right pane**, which is persisted too. Watching only the left
-        // would leave the right pane's strip written by the tab verbs but never by navigation — so
-        // it would come back at the folder its tabs were opened at rather than where they were
-        // left, which is the exact bug this rule was written for on the left.
+        // The same three for the right pane, which is persisted too. Watching only the left would
+        // leave the right strip written by tab verbs but never by navigation, so it would come back
+        // at the folder its tabs were opened at rather than where they were left.
         #expect(modifier.contains("onChange(of: rightProviderId)"),
                 "a right-pane source switch at the root is never saved")
         #expect(modifier.contains("onChange(of: syncManager.rightRelativePath)"),
@@ -2766,34 +2379,28 @@ import Sync
         #expect(modifier.contains("onChange(of: syncManager.rightBrowsePath)"),
                 "the right pane's column stack is not watched")
 
-        // …and the call site actually feeds it. A modifier watching a value nobody passes is the
-        // shape this repo has shipped before.
+        // …and the call site feeds it: a modifier watching a value nobody passes watches nothing.
         let callSite = try Self.source("ContentView.swift")
         #expect(callSite.contains("leftProviderId: leftProviderId"),
                 "BrowseTabPersistence is built without the source it watches")
         #expect(callSite.contains("rightProviderId: rightProviderId"),
                 "BrowseTabPersistence is built without the right pane's source")
-        // **And its callback saves the side that moved.** The modifier reports which pane changed;
-        // a call site that ignores that and saves a fixed side puts every right-pane move into the
-        // left pane's stored strip. Six correct `onChange`s above cannot save you from one wrong
-        // closure here, which is why the wiring is checked as well as the watching.
+        // And its callback saves the side that moved. A call site that ignores which pane changed
+        // and saves a fixed side puts every right-pane move into the left pane's stored strip, and
+        // six correct `onChange`s above can't catch one wrong closure here.
         #expect(Self.codeOnly(callSite).contains("saveBrowseTabs(isLeft: $0)"),
                 "the persistence callback ignores which pane moved and saves a fixed side")
     }
 
     // MARK: The scan a tab switch does not run
 
-    /// **A tab switch inside one source at one scope reloads nothing and rescans nothing.**
-    ///
-    /// The trees walk one root at one focus and the differences are about one pair of focused
-    /// folders, so a switch that changes neither leaves both correct. Refreshing is the Refresh
-    /// button's job — and drilling through columns, which moves the same column stack a tab
-    /// carries, has never rescanned either.
-    ///
-    /// The two halves must ask **one** rule: the manager decides from it whether to drop the trees
-    /// and the comparison, the host decides from it whether to run the scan. Two copies would let a
-    /// switch invalidate without reloading, leaving a pane with no tree and no scan until the user
-    /// pressed Refresh — strictly worse than the rescan this removes.
+    /// A tab switch inside one source at one scope reloads nothing and rescans nothing. The trees
+    /// walk one root at one focus and the differences concern one pair of focused folders, so a
+    /// switch that changes neither leaves both correct; refreshing is the Refresh button's job,
+    /// just as drilling through columns doesn't rescan. Both halves must ask one rule: the manager
+    /// uses it to decide whether to drop the trees and comparison, the host whether to scan. Two
+    /// copies could invalidate without reloading, leaving a pane with no tree and no scan until
+    /// Refresh.
     @Test func theScanIsGatedOnTheSameRuleTheInvalidationUses() throws {
         let host = try Self.memberBody("private func tabAction(isLeft: Bool, movesFocus: Bool = true, _ verb: () -> PaneTab?)",
                                        in: Self.source("ContentView+PaneTabs.swift"))
@@ -2804,12 +2411,10 @@ import Sync
                                    "the reload is gone entirely — a source switch would never load")
         #expect(gate.lowerBound < refresh.lowerBound, "the gate does not guard the reload")
 
-        // Captured BEFORE the verb runs, because the verb moves the pane — read afterwards, the
-        // "from" focus IS the arriving tab's focus and the rule says "no reload" for every switch,
-        // including the source changes that genuinely need one.
-        //
-        // **Asserted as an ORDER, not as a presence.** Checking only that the line exists passed
-        // with the read moved below `verb()` — the mutation this test is for.
+        // Captured before the verb runs, because the verb moves the pane: read afterwards, the
+        // "from" focus is the arriving tab's and the rule says "no reload" for every switch,
+        // including source changes that need one. Asserted as an order, since a presence check
+        // passes with the read moved below `verb()`.
         let read = try #require(host.range(of: "let fromFocus = paneScope(isLeft: isLeft)"),
                                 "the pane's focus before the switch is never captured")
         let verb = try #require(host.range(of: "verb() else {"), "the verb call is gone")
@@ -2817,25 +2422,21 @@ import Sync
                 "the focus is read after the pane has already moved, so the rule always says no")
     }
 
-    /// **The prune must also fire when a pane finishes loading**, not only when its tree changes.
-    ///
+    /// The prune must also fire when a pane finishes loading, not only when its tree changes.
     /// `pruneBrowsePath` refuses while a tree is loading, because progressive loading publishes a
-    /// shallow root-children-only tree first and pruning against that cuts a valid stack to its
-    /// first component. But the deep tree is published *before* `await applyFilters()` and the flag
-    /// is cleared *after* it, so the update carrying the final tree can arrive while the flag is
-    /// still up — the republish handler skips, and the tree does not change again to re-fire it. A
-    /// folder deleted externally would keep its dead stack, which is the whole thing the prune is
-    /// for. The falling edge closes it without depending on which side of an `await` a SwiftUI
-    /// update lands on.
+    /// shallow root-children tree first and pruning against it cuts a valid stack to one
+    /// component. The deep tree is published before `await applyFilters()` and the flag is cleared
+    /// after it, so the final tree's update can arrive with the flag still up; the republish
+    /// handler skips and nothing re-fires it, and an externally deleted folder keeps its dead
+    /// stack. The falling edge closes that whichever side of the `await` a SwiftUI update lands on.
     @Test func theStackIsAlsoPrunedWhenAPaneFinishesLoading() throws {
         let body = try Self.typeBody("struct ColumnStackPruning: ViewModifier {",
                                      in: Self.source("ContentView+PaneTabs.swift"))
         for flag in ["isLoadingLeftTree", "isLoadingRightTree"] {
             let handler = try #require(body.range(of: "onChange(of: syncManager.\(flag))"),
                                        "nothing prunes \(flag)'s pane when it settles")
-            // **Sliced to this handler's own closure, not a fixed window.** A `prefix(200)` here
-            // reached into the NEXT handler and found its guard, so deleting this one's passed —
-            // the mutation that made the point.
+            // Sliced to this handler's own closure, not a fixed window, which would reach into the
+            // next handler and find its guard instead.
             let rest = body[handler.upperBound...]
             let end = rest.range(of: "\n            .onChange") ?? rest.range(of: "\n    }")
             let own = String(rest[..<(end?.lowerBound ?? rest.endIndex)])
@@ -2843,7 +2444,7 @@ import Sync
                     "the \(flag) handler prunes on the RISING edge too, against a tree still loading")
             #expect(own.contains("prune(isLeft:"), "the \(flag) handler does not prune")
         }
-        // The republish trigger is still there — the falling edge is an addition, not a swap.
+        // The republish trigger is still there: the falling edge is an addition, not a swap.
         #expect(body.contains("onChange(of: syncManager.leftPaneTree)"),
                 "a republish no longer prunes, so a deleted folder keeps its stack until a reload")
         #expect(body.contains("onChange(of: syncManager.rightPaneTree)"))
@@ -2854,14 +2455,11 @@ import Sync
 
     // MARK: Log coverage
 
-    /// **Every verb that changes the strip writes a line**, because he audits `~/sync-cloud.log`
-    /// and the app's house style logs far smaller things than these ("User toggled hidden files",
-    /// "User changed sort option").
-    ///
-    /// Named one by one rather than scanned as a family: a blanket "every func in this file logs"
-    /// passes the moment a verb is renamed out of the pattern, which is the blind spot this repo
-    /// has hit before. The positive control is `theScanCanActuallyFail` above plus the deliberate
-    /// omission asserted underneath.
+    /// Every verb that changes the strip writes a line, because he audits `~/sync-cloud.log` and
+    /// the app's house style logs far smaller things ("User toggled hidden files", "User changed
+    /// sort option"). Named one by one rather than scanned as a family, since a blanket rule passes
+    /// the moment a verb is renamed out of the pattern. The positive control is
+    /// `theScanCanActuallyFail` above.
     @Test func everyVerbThatChangesTheStripIsLogged() throws {
         let source = try Self.source("ContentView+PaneTabs.swift")
         let verbs = [
@@ -2885,9 +2483,8 @@ import Sync
         }
     }
 
-    /// The two that are deliberately quieter, and the two that are deliberately louder — a level
-    /// this file picked on purpose is worth pinning, because "make it consistent" would otherwise
-    /// flatten them on the next pass.
+    /// The verbs deliberately quieter, and the ones deliberately louder. A level picked on purpose
+    /// is worth pinning, or "make it consistent" would flatten them.
     @Test func cyclingIsQuietAndClosingIsNot() throws {
         let source = try Self.source("ContentView+PaneTabs.swift")
         for quiet in ["func selectTab(id: UUID, isLeft: Bool)",
@@ -2905,32 +2502,14 @@ import Sync
         }
     }
 
-    /// **A line that names no tab cannot be read back.** Selecting, cycling and closing all wrote
-    /// sentences that were true of any tab in any pane: "User selected a browse tab", and a close
-    /// that carried only the chip's TITLE — which is the leaf path component. ⌘T deliberately opens
-    /// the folder you are already in, so same-named chips are the expected first sight of the strip,
-    /// and two closes of two different tabs read identically in his log today. In Compare none of
-    /// the three said which pane had moved.
-    ///
-    /// Named verb by verb rather than scanned as a family, like the level check below it: a blanket
-    /// rule passes the moment a verb is renamed out of the pattern.
-    ///
-    /// **All seven, not the three this started with.** The commit that added the side and the tab
-    /// claimed "every verb now names the side and the tab" and left four verbs writing sentences
-    /// true of any tab in any pane — "User duplicated a browse tab", "User pinned a browse tab",
-    /// "User reordered a browse tab", and a reopen that named a path but no pane. Every one of them
-    /// is a verb the user aimed at ONE strip, and in Compare the log could not say which.
-    /// (`closeOtherTabs` is deliberately not here: its line is about a COUNT, which is the one
-    /// thing about that gesture that cannot be recovered afterwards.)
-    ///
-    /// **`copyTabPath` is the eighth, and it was excluded for a reason that had already expired.**
-    /// It wrote "User copied a tab's path: <absolute path>" — no side, and a path is not the chip:
-    /// ⌘T opens the folder you are already in by design, so two strips holding same-titled chips at
-    /// the same path is the ordinary state, not a corner. It sat outside this set because it is the
-    /// one strip verb that moves no pane and so never went through `tabAction`; `becf9cbd` gave it
-    /// `noteWorkingIn`, which put `isLeft` in its hands, and with that the exclusion was only
-    /// habit. Its line keeps the absolute path on the end as well — that is what actually went onto
-    /// the pasteboard, and `tabLogDescription` carries the relative one the chip is named for.
+    /// A line that names no tab can't be read back. ⌘T opens the folder you're already in, so
+    /// same-named chips are the ordinary state, and a line that is true of any tab in any pane (a
+    /// chip's title is only the leaf path component) tells two closes apart for nobody; in Compare
+    /// it doesn't say which pane moved. Every verb here is aimed at one strip, so each names the
+    /// side and the tab. Named verb by verb, like the log checks above. `closeOtherTabs` isn't
+    /// here: its line is about a count, the one thing about that gesture that can't be recovered
+    /// later. `copyTabPath` also keeps the absolute path on the end, since that is what went onto
+    /// the pasteboard, while `tabLogDescription` carries the relative one the chip is named for.
     @Test func theTabLinesNameTheSideTheTabAndItsPath() throws {
         let source = try Self.source("ContentView+PaneTabs.swift")
         for verb in ["func selectTab(id: UUID, isLeft: Bool)",
@@ -2944,13 +2523,10 @@ import Sync
             let body = Self.codeOnly(try Self.memberBody(verb, in: source))
             #expect(body.contains("tabLogDescription("),
                     "“\(verb)” writes a line that names no particular tab")
-            // **Every call, not the member.** This asked whether the side appeared ANYWHERE in the
-            // member, and `closeTab` holds two log calls — the last-tab branch that closes the
-            // WINDOW, and the ordinary close. The first satisfied the check for both, so stripping
-            // the side from every ordinary ⌘W line was green. Through `PaneSideChoice.name`, whose
-            // polarity `theSideChoiceReadsItsArgument` drives: the ternary this replaced could be
-            // swapped to `isLeft ? "right" : "left"` and every line would name the wrong pane with
-            // this scan still passing.
+            // Every call, not the member: `closeTab` logs twice (the last-tab branch that closes
+            // the window, and the ordinary close), and a member-wide check is satisfied by the
+            // first. Through `PaneSideChoice.name`, whose polarity `theSideChoiceReadsItsArgument`
+            // drives, since a swapped ternary would name the wrong pane with this scan passing.
             let calls = Self.logCalls(in: body)
             #expect(!calls.isEmpty, "“\(verb)” writes no line at all")
             for call in calls {
@@ -2958,24 +2534,22 @@ import Sync
                         "“\(verb)” writes a line that does not say which pane it happened in — in Compare it is true of any tab in either strip: \(call.prefix(120))")
             }
         }
-        // …and the description carries BOTH halves, which is the point: the title alone is the leaf
-        // component ⌘T makes ambiguous by design, and a path alone is not what the chip says.
+        // …and the description carries both halves: the title alone is the leaf component ⌘T makes
+        // ambiguous by design, and a path alone is not what the chip says.
         let describe = try Self.memberBody("private func tabLogDescription(id: UUID, isLeft: Bool) -> String",
                                            in: source)
         #expect(describe.contains("paneTabItems(isLeft: isLeft)"),
                 "the line names the tab by something other than the chip the user is looking at")
         #expect(describe.contains("combinedRelativePath"),
                 "the line carries the leaf component only, which two tabs can share")
-        // The ACTIVE entry is a stale snapshot, so describing it from the list would name the folder
-        // that tab was parked at — the exact class of bug this log exists to catch.
+        // The active entry is a stale snapshot, so describing it from the list would name the
+        // folder that tab was parked at.
         #expect(describe.contains("index == list.selectedIndex"),
                 "the active tab is described from its parked snapshot rather than from the live pane")
 
-        // Copy Path carries one thing more than the family does, and the loop above cannot see it:
-        // the ABSOLUTE path, which is what went onto the pasteboard. `tabLogDescription` carries
-        // the RELATIVE path — the thing the chip is named for — so a line built only from it would
-        // no longer say what the user now has in their clipboard. Read from the log call onward
-        // rather than over the member, where `item.fullPath` appears anyway on the `setString`.
+        // Copy Path also carries the absolute path, which is what went onto the pasteboard;
+        // `tabLogDescription` has only the relative one the chip is named for. Read from the log
+        // call onward, since `item.fullPath` also appears earlier on the `setString`.
         let copy = Self.codeOnly(try Self.memberBody("func copyTabPath(id: UUID, isLeft: Bool)",
                                                      in: source))
         let logCall = try #require(copy.range(of: "Logger.shared.info("),
@@ -2984,19 +2558,12 @@ import Sync
                 "Copy Path's line dropped the absolute path it put on the pasteboard — the relative path in `tabLogDescription` is not what was copied")
     }
 
-    /// **Each line is taken from the side of its verb that can still answer**, and only one of the
-    /// three faces the same way.
-    ///
-    /// Selecting and closing name the tab BEFORE the verb runs: a parked tab is described by its
-    /// own snapshot, and after the switch that snapshot is the live pane's — after a close it is
-    /// gone entirely. Cycling names it AFTER, and has to: *which* tab ⌃⇥ lands on is the verb's
-    /// answer, and working it out here would be a second copy of `selectNext`'s wrap for the log to
-    /// disagree with.
-    ///
-    /// Unscanned until now, on all three: the family test above asserts only that
-    /// `tabLogDescription(` appears somewhere in the member. Moving `let closing = …` down into the
-    /// closure below `syncManager.closeTab(…)` was a real surviving mutation — the id is gone by
-    /// then, the line degrades to the bare `“a tab”` fallback, and every test in this repo passed.
+    /// Each line is taken from the side of its verb that can still answer. Selecting and closing
+    /// name the tab before the verb runs: after a switch the parked snapshot is the live pane's,
+    /// and after a close it's gone, so the line would fall back to a bare "a tab". Cycling names it
+    /// after, and must: which tab ⌃⇥ lands on is the verb's answer, and working it out here would
+    /// be a second copy of `selectNext`'s wrap for the log to disagree with. The family test above
+    /// only asks that `tabLogDescription(` appears somewhere in the member.
     @Test func eachTabLineIsNamedFromTheSideOfItsVerbThatCanAnswer() throws {
         let source = try Self.source("ContentView+PaneTabs.swift")
         // (member, the verb's own call, whether the name is taken before it)
@@ -3018,22 +2585,17 @@ import Sync
         }
     }
 
-    /// **Clicking the chip you are already on is a no-op, and must say so by saying nothing.**
-    ///
-    /// `PaneTabStrip` fires `onSelect(item.id)` from EVERY chip including the active one, and
-    /// `FileSyncManager.switchTab` answers `nil` for exactly that case — so the line was written
-    /// unconditionally for the most ordinary gesture in a tab strip, into the log he audits.
-    /// `cycleTab` beside it already declines to claim a move it did not make, for a strictly rarer
-    /// case (a one-tab pane), and `closeOtherTabs` skips its line at zero.
-    ///
-    /// The guard has to be on the INDEX rather than on moving the log below the verb: the name is
-    /// taken while the tab is still parked (`eachTabLineIsNamedFromTheSideOfItsVerbThatCanAnswer`),
-    /// so the two constraints pull opposite ways and only the index settles it.
+    /// Clicking the chip you're already on is a no-op, and says so by saying nothing.
+    /// `PaneTabStrip` fires `onSelect(item.id)` from every chip including the active one, and
+    /// `FileSyncManager.switchTab` answers `nil` for it, so an unguarded line would log the most
+    /// ordinary gesture in the strip into the log he audits. The guard is on the index, not on
+    /// moving the log below the verb, because the name is taken while the tab is still parked
+    /// (`eachTabLineIsNamedFromTheSideOfItsVerbThatCanAnswer`).
     @Test func selectingTheChipYouAreAlreadyOnWritesNoLine() throws {
         let body = Self.codeOnly(try Self.memberBody("func selectTab(id: UUID, isLeft: Bool)",
                                                      in: Self.source("ContentView+PaneTabs.swift")))
-        // Asked the way `switchTab` asks it — both halves. An id that is not in this strip does not
-        // move the pane either, which is the other `nil` that verb returns.
+        // Asked the way `switchTab` asks it, both halves: an id not in this strip doesn't move the
+        // pane either, which is the verb's other `nil`.
         #expect(body.contains("list.index(of: id)"),
                 "the no-op test does not ask where in the strip the clicked chip is")
         #expect(body.contains("target != nil && target != list.selectedIndex"),
@@ -3042,14 +2604,11 @@ import Sync
                                 "the selection line is unconditional again — clicking the active chip logs a switch that did not happen")
         let log = try #require(body.range(of: "Logger.shared.debug("))
         let verb = try #require(body.range(of: "syncManager.switchTab(to: id"))
-        // **Order first, then nesting.** A log line ABOVE the `if` is caught by the emptiness check
-        // below — `textBetween` answers nil for it, which fails — but it fails saying the line is
-        // "not inside the guard", which describes a line in the wrong branch rather than one that
-        // is not in the branch at all. The distinction is the whole diagnosis when it breaks, and
-        // it costs one comparison. Necessary and not sufficient, exactly as in
-        // `closeOtherTabsSaysNothingWhenThereWasNothingToClose`: `if moves { }` with the log
-        // unconditionally after it satisfies this and still logs every re-click, which is what the
-        // emptiness check is for.
+        // Order first, then nesting. A log line above the `if` would fail the emptiness check
+        // below too, but saying "not inside the guard"; this names the real fault. Necessary, not
+        // sufficient, as in `closeOtherTabsSaysNothingWhenThereWasNothingToClose`: `if moves { }`
+        // with the log after it passes this and still logs every re-click, which the emptiness
+        // check catches.
         #expect(gate.upperBound < log.lowerBound,
                 "the line is written before the guard even opens, so it is not guarded at all and every re-click logs a switch that did not happen")
         #expect(textBetween(body, from: gate.upperBound, to: log.lowerBound)?
@@ -3059,13 +2618,11 @@ import Sync
                 "the line is written after the switch it announces")
     }
 
-    /// **Close Other Tabs says nothing when it closed nothing.**
-    ///
-    /// The count came from `closableOthers`, which excludes pinned tabs — and the line was written
-    /// *before* the verb ran, so an ⌥-click on the ✕ of a strip whose every other tab is pinned
-    /// logged "User closed 0 other browse tabs, keeping 1 pinned": a sentence about something that
-    /// did not happen, in the log he audits. The verb still has to run, because "leave me with this
-    /// one" also makes the kept tab live.
+    /// Close Other Tabs says nothing when it closed nothing. The count comes from `closableOthers`,
+    /// which excludes pinned tabs, so an ⌥-click on the ✕ of a strip whose other tabs are all
+    /// pinned would log "User closed 0 other browse tabs, keeping 1 pinned" for something that
+    /// didn't happen. The verb still runs, because "leave me with this one" also makes the kept tab
+    /// live.
     @Test func closeOtherTabsSaysNothingWhenThereWasNothingToClose() throws {
         let body = Self.codeOnly(try Self.memberBody("func closeOtherTabs(keeping id: UUID, isLeft: Bool)",
                                                      in: Self.source("ContentView+PaneTabs.swift")))
@@ -3080,18 +2637,17 @@ import Sync
                 "the count is taken after the verb, where the tabs it counts are already gone")
         #expect(verb.lowerBound < gate.lowerBound,
                 "the line is written before the close it describes")
-        // **Nesting, not order.** `gate.upperBound < log.lowerBound` proves only that the `if`
-        // opens before the line — `if closing > 0 { }` with the log unconditionally after it holds
-        // every comparison here and writes "User closed 0 other browse tabs, keeping 1 pinned"
-        // again, verbatim. The line has to be the FIRST thing inside the branch.
+        // Nesting, not just order: `if closing > 0 { }` with the log after it holds every
+        // comparison here and still logs a zero close. The line must be the first thing inside the
+        // branch.
         #expect(textBetween(body, from: gate.upperBound, to: log.lowerBound)?
                     .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true,
                 "the line is not inside the `if closing > 0` branch — an ⌥-click with nothing to close still logs a close that did not happen")
     }
 
-    /// **A mirrored ⌘T must not log the same sentence as the one that caused it.** Both panes open
-    /// a tab at their own folder, so without a distinct line the log shows one keystroke firing
-    /// twice in the same second — which reads as a bug in the very log used to rule bugs out.
+    /// A mirrored ⌘T must not log the same sentence as the one that caused it. Both panes open a
+    /// tab at their own folder, so without a distinct line the log shows one keystroke firing twice
+    /// in the same second, which reads as a bug in the log used to rule bugs out.
     @Test func theMirroredNewTabSaysItIsTheMirror() throws {
         let body = try Self.memberBody("private func openTabHere(isLeft: Bool, mirrored: Bool = false)",
                                        in: Self.source("ContentView+PaneTabs.swift"))
@@ -3104,14 +2660,11 @@ import Sync
                 "the mirror is opened without marking itself as one")
     }
 
-    /// Reopen logs from *inside* the verb, so a press that brings nothing back writes no line
-    /// claiming a tab did.
-    ///
-    /// **The item is disabled when there is nothing to reopen**, which this comment used to claim
-    /// the opposite of: `shortcutReopenClosedTab` returns nil on a pane whose `canReopen` is false
-    /// and `ReopenClosedTabCommand` is `.disabled(reopen == nil)`. The guard inside the verb is the
-    /// defensive reading rather than the routine one — and it is still the only thing between an
-    /// empty stack and a line asserting a reopen, which is what is pinned here.
+    /// Reopen logs from inside the verb, so a press that brings nothing back writes no line
+    /// claiming a tab did. The item is disabled when there's nothing to reopen
+    /// (`shortcutReopenClosedTab` returns nil when `canReopen` is false, and
+    /// `ReopenClosedTabCommand` is `.disabled(reopen == nil)`), so the guard inside the verb is
+    /// defensive, but it is the only thing between an empty stack and a false line.
     @Test func reopenOnlyClaimsATabWhenOneComesBack() throws {
         let body = try Self.memberBody("func reopenClosedTab(isLeft: Bool)",
                                        in: Self.source("ContentView+PaneTabs.swift"))
@@ -3129,12 +2682,9 @@ import Sync
                             root: "~/Library/CloudStorage/GoogleDrive-\(name)")
     }
 
-    /// **Two Google Drive accounts both land on `My Drive`, and the mark cannot tell them apart.**
-    ///
-    /// This is the shipped strip: `My Drive · My Drive · iCloud`, with the two Drive chips carrying
-    /// the same title AND the same brand mark. `Item.markImageName`'s doc says the mark is what
-    /// separates two chips reading "Documents" — true across brands, and no help at all in the
-    /// commonest collision there is, two accounts of one brand.
+    /// Two Google Drive accounts both land on `My Drive`, and the mark can't tell them apart: the
+    /// two chips carry the same title and the same brand mark. The mark separates two "Documents"
+    /// chips across brands but not the commonest collision, two accounts of one brand.
     @Test func twoSourcesLandingOnTheSameFolderNameAreQualifiedByTheirSource() {
         let items = PaneTabChips.items(
             list(["My Drive", "My Drive"], selected: 0,
@@ -3146,11 +2696,9 @@ import Sync
         #expect(items[1].title == "My Drive — Google Drive (EMP)")
     }
 
-    /// **A strip with no collision is left exactly as it was.**
-    ///
-    /// The control, and the reason the rule is "qualify where it separates" rather than "qualify
-    /// always". Width is the strip's scarcest resource — the ladder folds chips away when it runs
-    /// out — so a chip that grew "— iCloud Drive" for no reason costs a chip somewhere else.
+    /// A strip with no collision is left exactly as it was: the rule is "qualify where it
+    /// separates", not "qualify always". Width is the strip's scarcest resource (the ladder folds
+    /// chips away when it runs out), so a needless "— iCloud Drive" costs a chip somewhere else.
     @Test func chipsThatAlreadyReadDifferentlyAreUntouched() {
         let items = PaneTabChips.items(list(["Finance", "Photos"], selected: 0),
                                        liveProviderId: "iCloud", livePath: "Finance",
@@ -3168,11 +2716,9 @@ import Sync
         #expect(items.map(\.title) == ["Statements — 2026", "Statements — 2025"])
     }
 
-    /// **A duplicated tab is not a collision, and must not grow two identical suffixes.**
-    ///
-    /// Same source, same path — the two chips genuinely ARE the same folder, so neither qualifier
-    /// separates them and both are left alone. Without the "only where it separates" test this reads
-    /// `Statements — 2026 · Statements — 2026`: wider, folded sooner, and no more informative.
+    /// A duplicated tab is not a collision, and must not grow two identical suffixes. Same source,
+    /// same path: the chips are the same folder, so no qualifier separates them and both are left
+    /// alone, not `Statements — 2026 · Statements — 2026`.
     @Test func aDuplicatedTabIsLeftAloneBecauseNothingSeparatesIt() {
         let items = PaneTabChips.items(
             list(["2026/Statements", "2026/Statements"], selected: 0),
@@ -3191,9 +2737,9 @@ import Sync
         #expect(items.map(\.title) == ["iCloud Drive", "iCloud Drive"])
     }
 
-    /// **One setting, every way of walking into a folder.** The mirror predicate is the same
-    /// expression `applyColumnNavigation` uses; two copies would let a link mean one thing for a
-    /// drill and another for a tab, and nothing on screen would say which.
+    /// One setting, every way of walking into a folder. The mirror predicate is the same expression
+    /// `applyColumnNavigation` uses; two copies would let a link mean one thing for a drill and
+    /// another for a tab, with nothing on screen to say which.
     @Test func theMirrorObeysTheSameLinkTestAsAMirroredDrill() throws {
         let predicate = "layoutMode == .compare\n            && (PaneLinkPreference.isLinked || NSEvent.modifierFlags.contains(.option))"
         #expect(try Self.source("ContentView+PaneTabs.swift").contains(predicate),
@@ -3203,37 +2749,22 @@ import Sync
     }
 }
 
-/// **The focused pane's one door, scanned across every shipping source — off the main actor.**
-///
-/// **Not `@MainActor`, and that is the point of it being a suite of its own.** The scan reads ~330
-/// files through a character-level comment stripper and a regex, text in and text out; inside
-/// `PaneTabWiringTests`, which is main-actor for its window tests, it ran on the main thread —
-/// sampled 2026-09-26 at over half a second of every full app-target run, held up behind it every
-/// main-actor wait in the process, `EditorAutosaveDriverTests`' among them. Marking the test
-/// `nonisolated` inside that suite is not enough: it was measured still running on main.
+/// The focused pane's one door, scanned across every shipping source, off the main actor. Not
+/// `@MainActor`, which is why it's a suite of its own: the scan reads hundreds of files through a
+/// character-level comment stripper and a regex, and on the main thread (where
+/// `PaneTabWiringTests` runs for its window tests) it takes over half a second and holds up every
+/// main-actor wait in the process. Marking the test `nonisolated` inside that suite still runs it
+/// on main.
 @Suite struct PaneFocusDoorWiringTests {
 
-    /// **`focusedPaneSide` has one writer in the host, and it is the manager's door.**
-    ///
-    /// Five places wrote the property bare and none of them logged — a strip verb, a row selection,
-    /// ⌃⇥, a pin and a reorder. The value decides whether ⌘W closes a tab or the WINDOW, so a user
-    /// auditing a log that shows a window closing had nothing at all saying which pane the chords
-    /// were aimed at. The door writes the line; a sixth bare writer would be silent again.
-    ///
-    /// Scanned as an ABSENCE across every file in `MacApp/`, not per known site: a per-site check
-    /// passes the moment a new one appears, which is exactly how this got to five.
-    ///
-    /// **Recursively, and over the modules and the CLI too.** The walk was
-    /// `contentsOfDirectory(at: MacApp)` — one level deep, `MacApp/*.swift` only — and
-    /// `focusedPaneSide` is a `@Published public var`, writable from `Sync`, `FileExplorer`,
-    /// `Settings`, `Dashboard` and `SyncCloudCLI`. No bare writer lives outside `MacApp/` today, so
-    /// this widening breaks nothing; what it removes is the gap that opens the moment anybody makes
-    /// a `MacApp/Tabs/` folder or reaches for the property from a module.
-    ///
-    /// The **one** production file allowed to write it is the one that DECLARES the door. Named
-    /// rather than pattern-matched, so a second file cannot join it by resembling it. Test sources
-    /// are out of scope — `SwapPanesTests` sets the property directly to build a starting state,
-    /// which is a fixture, not a silent move.
+    /// `focusedPaneSide` has one writer in the host, and it is the manager's door. The value
+    /// decides whether ⌘W closes a tab or the window, and the door logs each move; a bare writer
+    /// would leave a log of a window closing with nothing saying which pane the chords were aimed
+    /// at. Scanned as an absence, not per known site, since a per-site check passes the moment a
+    /// new one appears. Recursive, and over the modules and the CLI too, because `focusedPaneSide`
+    /// is a `@Published public var` writable from any of them. The one file allowed to write it is
+    /// the one that declares the door, named rather than pattern-matched. Test sources are out of
+    /// scope: `SwapPanesTests` sets the property directly as a fixture.
     @Test func theHostWritesTheFocusedPaneSideOnlyThroughTheManagersDoor() throws {
         let repo = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -3247,8 +2778,8 @@ import Sync
         let elsewhere = (PaneTabWiringTests.swiftFiles(under: repo.appendingPathComponent("Modules"))
                          + PaneTabWiringTests.swiftFiles(under: repo.appendingPathComponent("SyncCloudCLI")))
             .filter { !$0.pathComponents.contains("Tests") }
-        // The floor is near today's measured 285, not a round number well under it: a loose floor
-        // is passed by a walk that has stopped reading most of the tree.
+        // The floor is near the current count (about 285), not a round number well under it: a
+        // loose floor passes a walk that has stopped reading most of the tree.
         #expect(elsewhere.count >= 250,
                 "the module scan found \(elsewhere.count) Swift files where ~285 are expected — it is reading the wrong folder, or the walk stopped early")
 

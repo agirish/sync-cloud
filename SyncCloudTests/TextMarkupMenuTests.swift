@@ -5,14 +5,13 @@ import FileExplorer
 import SwiftUI
 import Testing
 
-/// **The Text and Markup menus, read off the running app** (roadmap RD1, v5.3) — and the two rules
-/// under them that no menu can show: which way ⌘I goes, and which modes a file may be switched to.
+/// The Text and Markup menus, read off the running app, and the two rules under them that no menu
+/// can show: which way ⌘I goes, and which modes a file may be switched to.
 ///
-/// The test host IS the app, so `NSApp.mainMenu` is what AppKit built from the `.commands`
-/// declarations. That is the only place three facts about this batch can be read: whether the two
-/// `CommandMenu`s landed as top-level menus in the intended order, whether the Info Inspector item
-/// really precedes Markup ▸ Italic in the bar (the order ⌘I's routing depends on), and what each
-/// item's key equivalent came out as.
+/// The test host is the app, so `NSApp.mainMenu` is what AppKit built from the `.commands`
+/// declarations: the only place to read whether the two `CommandMenu`s landed in the intended
+/// order, whether the Info Inspector item precedes Markup ▸ Italic, and what each item's key
+/// equivalent came out as.
 @MainActor
 @Suite struct TextMarkupMenuTests {
 
@@ -31,8 +30,8 @@ import Testing
 
     // MARK: The two menus, where they landed
 
-    /// Decision A: two menus, after Organize and before Window. `CommandMenu` order in the source
-    /// is a declaration; this is what AppKit made of it.
+    /// Two menus, after Organize and before Window. `CommandMenu` order in the source is a
+    /// declaration; this is what AppKit made of it.
     @Test func textAndMarkupFollowOrganizeInTheBar() throws {
         let bar = try #require(NSApp.mainMenu).items.map(\.title)
         let organize = try #require(bar.firstIndex(of: "Organize"))
@@ -40,9 +39,9 @@ import Testing
                 "the bar reads \(bar)")
     }
 
-    /// **One item in the menu bar is called Preview** (TE170): Text ▸ Preview (⌃⌘2). View's file
-    /// preview was File Preview until it moved into the Info inspector (TE318) and left the menu
-    /// altogether, so no item and no Help sentence may name it.
+    /// One item in the menu bar is called Preview: Text ▸ Preview (⌃⌘2). The file preview lives in
+    /// the Info inspector and has no menu item, so no item and no Help sentence may name a View ▸
+    /// File Preview.
     @Test func onlyTheTextMenuHasAPreview() throws {
         func previews(_ menu: NSMenu) -> [String] {
             menu.items.flatMap { item in
@@ -60,10 +59,9 @@ import Testing
                 "Help does not say where the preview went — the absence above is vacuous")
     }
 
-    /// The Text menu, in the roadmap's order: the modes and Expand (TE48), the find bar's pair, the
-    /// drawing switches — Readable Line Length (TE51) beside Wrap Lines, then Page and Typewriter Scrolling (TE62) — and Continue Lists (TE54), the autosave
-    /// switch. **Neither Find… nor
-    /// Save**, which stay in Edit and File — one action, one item, so no chord is registered twice.
+    /// The Text menu, in its intended order: the modes and Expand, the find verbs, the drawing
+    /// switches, Continue Lists and the autosave switch. Neither Find… nor Save, which stay in Edit
+    /// and File: one action, one item, so no chord is registered twice.
     @Test func theTextMenuIsInTheRoadmapsOrder() throws {
         let text = Self.titles(try Self.menu("Text"))
         #expect(text == ["Source", "Preview", "Split", "Expand", "Edit in Preview (Experimental)",
@@ -73,7 +71,7 @@ import Testing
                          "Continue Lists",
                          "Autosave This File"],
                 "the Text menu reads \(text)")
-        // Expand sits with the modes, before the first divider — not in a group of its own.
+        // Expand sits with the modes, before the first divider, not in a group of its own.
         let items = try Self.menu("Text").items
         let expand = try #require(items.firstIndex { $0.title == "Expand" })
         let firstDivider = try #require(items.firstIndex { $0.isSeparatorItem })
@@ -83,12 +81,12 @@ import Testing
         #expect(!text.contains("Format Bar"), "Format Bar is back in Text — it lives in View, beside Status Bar")
     }
 
-    /// The Markup menu is the context menu's list, in the context menu's order — derived from the
-    /// same `menuOrder`, and asserted against it rather than against a copy.
+    /// The Markup menu is the context menu's list, in its order: derived from the same `menuOrder`,
+    /// and asserted against it rather than a copy.
     @Test func theMarkupMenuIsTheContextMenusListInItsOrder() throws {
         let markup = Self.titles(try Self.menu("Markup"))
-        // The table verbs are one Table submenu where their run starts — between Link and Divider
-        // (TE68) — as the context menu draws them.
+        // The table verbs are one Table submenu where their run starts, between Link and Divider,
+        // as the context menu draws them.
         var expected: [String] = []
         for verb in MarkupVerb.menuOrder.compactMap({ $0 }) {
             if !verb.isTable { expected.append(verb.title) } else if !expected.contains("Table") { expected.append("Table") }
@@ -114,9 +112,9 @@ import Testing
         }
     }
 
-    /// **Text ▸ Expand is ⌃⌘E** — read off the built item, against `AppChord.editorExpand`, so the
-    /// menu, the header's keycap and tooltip, and the ⌘/ reference cannot drift. And ⌃⌘E is claimed
-    /// by nothing else in the bar: not the find bar's ⌘E, not a mode.
+    /// Text ▸ Expand is ⌃⌘E, read off the built item against `AppChord.editorExpand`, so the menu,
+    /// the header's keycap and tooltip, and the ⌘/ reference cannot drift. Nothing else in the bar
+    /// claims ⌃⌘E: not the find bar's ⌘E, not a mode.
     @Test func expandCarriesControlCommandEAndNothingElseDoes() throws {
         let item = try Self.item("Expand", in: "Text")
         #expect(item.keyEquivalent == AppChord.editorExpand.appKitKeyEquivalent && item.keyEquivalent == "e")
@@ -133,27 +131,26 @@ import Testing
         }
         walk(try #require(NSApp.mainMenu))
         #expect(claimants == ["Expand"], "⌃⌘E is claimed by \(claimants)")
-        // Format Bar is a switch with no key — the bar's buttons carry the Markup chords already.
+        // Format Bar is a switch with no key: the bar's buttons carry the Markup chords already.
         #expect(try Self.item("Format Bar", in: "View").keyEquivalent.isEmpty, "Format Bar has acquired a key")
-        // Readable Line Length (TE51) likewise: a preference about drawing, not a verb.
+        // Readable Line Length likewise: a preference about drawing, not a verb.
         #expect(try Self.item("Readable Line Length", in: "Text").keyEquivalent.isEmpty,
                 "Readable Line Length has acquired a key")
-        // Page likewise: a preference about drawing.
+        // Paper Background likewise: a preference about drawing.
         #expect(try Self.item("Paper Background", in: "Text").keyEquivalent.isEmpty, "Paper Background has acquired a key")
-        // Typewriter Scrolling (TE62) likewise: a preference about how Source moves.
+        // Typewriter Scrolling likewise: a preference about how Source moves.
         #expect(try Self.item("Typewriter Scrolling", in: "Text").keyEquivalent.isEmpty,
                 "Typewriter Scrolling has acquired a key")
         // Continue Lists likewise: a preference, not a verb.
         #expect(try Self.item("Continue Lists", in: "Text").keyEquivalent.isEmpty, "Continue Lists has acquired a key")
-        // Edit in Preview too (TE67): ⌥ is barred and ⌃⌘ is spent.
+        // Edit in Preview too: ⌥ is barred and ⌃⌘ is spent.
         #expect(try Self.item("Edit in Preview (Experimental)", in: "Text").keyEquivalent.isEmpty,
                 "Edit in Preview has acquired a key")
     }
 
-    /// **Text ▸ Go to Line… is ⌃⌘L (TE61), and nothing else in the bar claims it** — not Window ▸
-    /// Activity Log's ⌘L, not Markup ▸ Link's ⇧⌘L. Read off the built item, against
-    /// `AppChord.goToLine`, so the menu, the status line's tooltip and the ⌘/ reference agree; and it
-    /// sits in the find group, before the drawing switches' divider.
+    /// Text ▸ Go to Line… is ⌃⌘L and nothing else in the bar claims it: not Window ▸ Activity Log's
+    /// ⌘L, not Markup ▸ Link's ⇧⌘L. Read off the built item against `AppChord.goToLine`, so the menu,
+    /// the status line's tooltip and the ⌘/ reference agree. It sits with the find verbs.
     @Test func goToLineCarriesControlCommandLAndNothingElseDoes() throws {
         let item = try Self.item("Go to Line…", in: "Text")
         #expect(item.keyEquivalent == AppChord.goToLine.appKitKeyEquivalent && item.keyEquivalent == "l")
@@ -176,9 +173,9 @@ import Testing
         #expect(go == use + 1, "Go to Line… is not with the find verbs")
     }
 
-    /// **Greyed in Preview, editable or not; live in Source and Split** — the one rule the status
-    /// line's "Line, Col" is a button by (`EditorWorkspaceView.offersGoToLine`). Mutation: answer
-    /// `true` for Preview and the first line fails.
+    /// Greyed in Preview, editable or not; live in Source and Split: the rule the status line's
+    /// "Line, Col" button also follows (`EditorWorkspaceView.offersGoToLine`). Answering `true` for
+    /// Preview must fail the first line.
     @Test func goToLineIsForSourceAndSplit() {
         #expect(!EditorWorkspaceView.offersGoToLine(.preview))
         #expect(EditorWorkspaceView.offersGoToLine(.edit))
@@ -192,8 +189,8 @@ import Testing
         #expect(use.keyEquivalent == "e" && use.keyEquivalentModifierMask == .command)
     }
 
-    /// The five inline verbs carry a chord and the menu-only verbs carry none — read off the built
-    /// items, against `MarkupVerb.chord`, so the menu and the registry cannot drift.
+    /// The five inline verbs carry a chord and the menu-only verbs carry none, read off the built
+    /// items against `MarkupVerb.chord`, so the menu and the registry cannot drift.
     @Test func eachMarkupItemCarriesItsVerbsChordAndNoOther() throws {
         let markup = try Self.menu("Markup")
         var chorded = 0
@@ -213,10 +210,9 @@ import Testing
         #expect(chorded == 5, "the walk found \(chorded) chorded verbs — it is not reading the menu")
     }
 
-    /// **⌘I is registered twice, on purpose, and View's item comes first.** AppKit fires the first
-    /// enabled item in menu-bar order for a shared key equivalent, so View's is the one that
-    /// ordinarily answers the key — both handlers route through `InspectorOrItalic` regardless, so
-    /// nothing rests on the order, but a swap would still be a change worth noticing by name.
+    /// ⌘I is registered twice, on purpose, and View's item comes first. AppKit fires the first
+    /// enabled item in menu-bar order for a shared key, so View's ordinarily answers. Both route
+    /// through `InspectorOrItalic`, so nothing rests on the order, but a swap is worth noticing.
     @Test func theInspectorItemPrecedesItalicInTheBar() throws {
         let bar = try #require(NSApp.mainMenu).items.map(\.title)
         let view = try #require(bar.firstIndex(of: "View"))
@@ -241,9 +237,9 @@ import Testing
         #expect(claimants == ["Info Inspector", "Italic"], "⌘I is claimed by \(claimants)")
     }
 
-    /// Every Text and Markup item greys with nothing published — the test host has no window, which
-    /// is the state "Edit is not showing a document" reduces to. The positive control is the Edit
-    /// menu beside them, whose four file verbs are pinned NEVER disabled in the same host.
+    /// Every Text and Markup item greys with nothing published: the test host has no window, the
+    /// state "Edit is not showing a document" reduces to. The positive control is Edit ▸ Copy,
+    /// enabled in the same host.
     @Test func everyTextAndMarkupItemIsDisabledOutsideEdit() throws {
         // A submenu's host (Markup ▸ Table) is a way in, not an action: what must be grey is what
         // it holds.
@@ -274,12 +270,12 @@ import Testing
         }
     }
 
-    /// **A menu item's action runs inside the dispatch of the event that fired it** — the premise
+    /// A menu item's action runs inside the dispatch of the event that fired it, the premise
     /// `InspectorOrItalic.firedByKey` rests on, since it reads `NSApp.currentEvent` from inside the
-    /// action. Proved on a real item rather than assumed: View ▸ Text Size ▸ Bigger's action is
-    /// sent through AppKit's own `sendAction`, and the stored size has moved by the time the call
-    /// returns. Were SwiftUI to defer its actions by a turn, this would read the old value — and
-    /// `currentEvent` inside the action would be whatever came next.
+    /// action. Proved on a real item: View ▸ Text Size's action is sent through `sendAction`, and
+    /// the stored size has moved when the call returns. Were SwiftUI to defer actions by a turn,
+    /// this would read the old value, and `currentEvent` inside the action would be whatever came
+    /// next.
     ///
     /// The live preference is written and put back exactly: the test host inherits the user's
     /// defaults, so a leaked step would resize the app under them.
@@ -289,12 +285,10 @@ import Testing
         let stored = defaults.object(forKey: FontSize.defaultsKey)
         defer { defaults.set(stored, forKey: FontSize.defaultsKey) }
 
-        // **Read, never seeded.** The item's `@AppStorage` holds whatever it observed at its last
-        // render, and a `defaults.set` made here is not observed until SwiftUI's next turn — the
-        // first draft seeded 100, the item still saw the live 110, and the assertion read 115
-        // against an expected 105 while the action had in fact run synchronously. So the expected
-        // value is derived from the live one, and the direction is chosen so the item is not at
-        // the end of its range, where it does nothing.
+        // Read, never seeded: the item's `@AppStorage` holds what it observed at its last render,
+        // and a `defaults.set` here is not observed until SwiftUI's next turn, so a seeded value
+        // would be ignored. The expected value derives from the live one, and the direction keeps
+        // the item off the end of its range, where it does nothing.
         let before = FontSize(percent: defaults.object(forKey: FontSize.defaultsKey) as? Int
                                   ?? FontSize.medium.percent)
         let title: String
@@ -307,8 +301,8 @@ import Testing
         let item = try #require(submenu.items.first { $0.title == title })
 
         // Straight through the item's target/action, which is what a key equivalent or a click
-        // ends in; enabled-ness is not consulted on this path, which is why it can run in a host
-        // whose menu has no key window behind it.
+        // ends in. Enabled-ness is not consulted on this path, so it runs in a host whose menu has
+        // no key window behind it.
         let sent = NSApp.sendAction(try #require(item.action), to: item.target, from: item)
         #expect(sent, "AppKit found no responder for the item's action — the premise cannot be measured")
         #expect(defaults.integer(forKey: FontSize.defaultsKey) == expected.percent,
@@ -317,8 +311,8 @@ import Testing
 
     // MARK: File ▸ Download (roadmap RD2)
 
-    /// Present, chordless, and grey in a host with no selection — an enabled Download with nothing
-    /// to fetch is the shape the availability rule exists to prevent.
+    /// Present, chordless, and grey in a host with no selection: an enabled Download with nothing to
+    /// fetch is what the availability rule exists to prevent.
     @Test func fileCarriesDownloadAndWithholdsItWithNoSelection() throws {
         let download = try Self.item("Download", in: "File")
         #expect(download.keyEquivalent.isEmpty)
@@ -327,10 +321,10 @@ import Testing
 
     // MARK: Text ▸ Paper Background, greyed in Preview
 
-    /// **Text ▸ Paper Background is live in Source and Split, greyed in Preview and with no document** — the
-    /// header switch's rule (`EditorWorkspaceView.pageSwitchApplies`), read off the items as
-    /// `NSHostingMenu` draws them, for each mode the focused verbs can carry. Wrap Lines is read
-    /// beside it, live in all three, so a Page greyed everywhere cannot pass.
+    /// Text ▸ Paper Background is live in Source and Split, greyed in Preview and with no document:
+    /// the header switch's rule (`EditorWorkspaceView.pageSwitchApplies`), read off the items as
+    /// `NSHostingMenu` draws them, for each mode. Wrap Lines, live in all three, is read beside it
+    /// so an item greyed everywhere cannot pass.
     @Test func pageIsGreyedInPreviewOnly() throws {
         func enabled(_ title: String, mode: EditorMode?) throws -> Bool {
             let verbs = mode.map {
@@ -359,11 +353,11 @@ import Testing
     }
 }
 
-/// ⌘I's two meanings, decided by where the caret is (decision B).
+/// ⌘I's two meanings, decided by where the caret is.
 ///
-/// On a real window with a real first responder, because the rule is about AppKit's responder and
-/// nothing else can stand in for it. Both directions, and the two shapes of "not in the document"
-/// that matter: a field editor (the ⌘K field, the rename row), and no window at all.
+/// On a real window with a real first responder, since the rule is about AppKit's responder. Both
+/// directions, and the two shapes of "not in the document" that matter: a field editor (the ⌘K
+/// field, the rename row), and no window at all.
 @MainActor
 @Suite struct InspectorOrItalicTests {
 
@@ -385,8 +379,8 @@ import Testing
         #expect(InspectorOrItalic.choose(in: window) == .italic)
     }
 
-    /// The ⌘K field, the rename row, a pane's search — every field editor is an `NSTextView`, and
-    /// every one of them means the inspector.
+    /// The ⌘K field, the rename row, a pane's search: every field editor is an `NSTextView`, and
+    /// every one means the inspector.
     @Test func theCaretInAFieldEditorMeansTheInspector() {
         let (_, window) = hosted()
         let field = NSTextField(string: "go to")
@@ -398,17 +392,16 @@ import Testing
         #expect(InspectorOrItalic.choose(in: window) == .inspector)
     }
 
-    /// A cold window — no first responder — and no window at all both mean the inspector, which is
-    /// what ⌘I has always done there.
+    /// A cold window (no first responder) and no window at all both mean the inspector.
     @Test func noCaretMeansTheInspector() {
         let (_, window) = hosted()
         #expect(InspectorOrItalic.choose(in: window) == .inspector)
         #expect(InspectorOrItalic.choose(in: nil) == .inspector)
     }
 
-    /// **All four cells of the rule both items read.** Fired by the key, an item does what the
-    /// caret says — whichever item AppKit chose for the shared chord. Clicked, it does what its
-    /// title says, because a menu item under the pointer that did something else would be lying.
+    /// All four cells of the rule both items read. Fired by the key, an item does what the caret
+    /// says, whichever item AppKit chose for the shared chord. Clicked, it does what its title says,
+    /// or the item under the pointer would be lying.
     @Test func theKeyFollowsTheCaretAndAClickFollowsTheTitle() {
         for caret in [InspectorOrItalic.Choice.italic, .inspector] {
             #expect(InspectorOrItalic.resolve(item: .inspector, firedByKey: true, caret: caret) == caret)
@@ -446,8 +439,8 @@ import Testing
         #expect(EditorVerbs.isOffered(workspace: .editor, hasDocument: true, isRefused: false))
     }
 
-    /// **The document outlives a workspace switch**, so the workspace has to be asked: from Browse
-    /// the same open document must not leave Markup ▸ Bold live, aimed at text not on screen.
+    /// The document outlives a workspace switch, so the workspace has to be asked: from Browse the
+    /// same open document must not leave Markup ▸ Bold live, aimed at text not on screen.
     @Test(arguments: [Workspace.browse, .compare, .filing])
     func anotherWorkspaceWithholdsThemEvenWithADocumentOpen(workspace: Workspace) {
         #expect(!EditorVerbs.isOffered(workspace: workspace, hasDocument: true, isRefused: false),
@@ -459,9 +452,9 @@ import Testing
         #expect(!EditorVerbs.isOffered(workspace: .editor, hasDocument: true, isRefused: true))
     }
 
-    /// **Preview has no text view**, so the verbs that need one are withheld there rather than
-    /// left as enabled items that log a refusal on every press — unless Edit in Preview is on
-    /// (TE67), when Preview's own text view takes them.
+    /// Preview has no text view, so the verbs that need one are withheld there rather than left as
+    /// enabled items that log a refusal on every press, unless Edit in Preview is on, when
+    /// Preview's own text view takes them.
     @Test func onlyPreviewLacksATextView() {
         #expect(EditorVerbs.hasTextView(in: .edit))
         #expect(EditorVerbs.hasTextView(in: .split))
@@ -469,9 +462,9 @@ import Testing
         #expect(EditorVerbs.hasTextView(in: .preview, previewEditing: true))
     }
 
-    /// **The Markup items — and so their chords — are greyed in a file that is not Markdown**
-    /// (FMT-18): ⌘B wrote `****` into a `.yaml`. Every term of the rule flipped alone, and the
-    /// call site reads it. Mutation: drop `isMarkdown` from the rule and the second line fails.
+    /// The Markup items, and so their chords, are greyed in a file that is not Markdown, or ⌘B
+    /// would write `****` into a `.yaml`. Every term of the rule flipped alone, and the call site
+    /// reads it. Dropping `isMarkdown` from the rule must fail the second line.
     @Test func markupIsGreyedOutsideMarkdown() throws {
         #expect(EditorVerbs.canMarkUp(isReadOnly: false, isMarkdown: true, hasTextView: true))
         #expect(!EditorVerbs.canMarkUp(isReadOnly: false, isMarkdown: false, hasTextView: true))
@@ -493,8 +486,8 @@ import Testing
         #expect(said, "Help does not say the Markup items grey outside Markdown")
     }
 
-    /// The call-site half: `shortcutEditorVerbs` resolves through the rule rather than spelling a
-    /// workspace test of its own, and feeds the drawn mode to the text-view gate.
+    /// The call-site half: `shortcutEditorVerbs` resolves through the rule rather than a workspace
+    /// test of its own, and feeds the drawn mode to the text-view gate.
     @Test func theEditorVerbsAreResolvedThroughTheRule() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -511,10 +504,9 @@ import Testing
                 "Preview no longer withholds the text-view verbs, or no longer offers them while editable")
         #expect(body.contains("EditorWorkspaceView.editsInPreview("),
                 "the menus decide Preview's editability by a rule of their own, not the workspace's")
-        // V4: on the 256 KB decision the workspace holds, never the length read per render — and
+        // Gated on the 256 KB decision the workspace holds, never the length read per render, and
         // asked with the key the workspace holds it under: the same note, the mode as drawn, the
-        // same setting. A key built otherwise matches no hold, and reads the live length after all
-        // (round 2, R11: this was a grep for the call alone).
+        // same setting. A key built otherwise matches no hold and reads the live length after all.
         let flat = body.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         #expect(flat.contains("PreviewLengthHold.isTooLong( editorPreviewLengthHold, key: PreviewLengthHold.Key(path: path, mode: drawn, editing: editsInPreviewSetting), length: { editorDocument.buffer.source.textStorage.length })"),
                 "the menus gate on the live length, or ask for the decision under a key the workspace never holds it by")
@@ -532,8 +524,8 @@ import Testing
                 "the menus' setting is not the workspace's")
         #expect(!body.contains("selectedWorkspace == .editor"),
                 "a second spelling of the workspace test sits beside the rule")
-        // Go to Line (TE61): offered by the status line's rule, on the mode being DRAWN, and it
-        // bumps the counter the workspace opens its field on.
+        // Go to Line is offered by the status line's rule, on the mode being drawn, and bumps the
+        // counter the workspace opens its field on.
         #expect(body.contains("goToLine: EditorWorkspaceView.offersGoToLine(drawn) ? { editorGoToLineRequest &+= 1 } : nil"),
                 "Text ▸ Go to Line… is not offered by the status line's rule, or does not open its field")
     }
@@ -549,7 +541,7 @@ import Testing
         }
     }
 
-    /// **A `.txt` refuses Preview and Split rather than narrowing them to Source.** The item is
+    /// A `.txt` refuses Preview and Split rather than narrowing them to Source. The item is
     /// disabled for it too; this is the rule under the item, so a click that got through would
     /// still do nothing rather than "succeed" by showing something else.
     @Test func aPlainTextFileRefusesThePreviewModes() {

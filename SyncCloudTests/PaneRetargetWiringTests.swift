@@ -3,28 +3,17 @@ import Sync
 import Testing
 import Foundation
 
-/// **The two doors that re-point a pane at a different root, read off `ContentView`'s source.**
+/// The two places that re-point a pane at a different root, read off `ContentView`'s source.
+/// Both are `onChange` closures on a `View` with `@State`, so no test can call them. As in
+/// `FolderSidebarWiringTests`: read one named file, strip comments so prose can't satisfy a check,
+/// and require a known anchor so a scan that finds nothing fails.
 ///
-/// Both live in `onChange` closures on a `View` with `@State`, so no test can call them: the
-/// polarity of `retargetPane(isLeft:)` and the scope handed to the Settings teardown are decided in
-/// the one place a running test cannot reach. `FolderSidebarWiringTests` exists for the same reason
-/// and this suite borrows its instrument — read one named file, strip comments so a mention in
-/// prose cannot satisfy a check, and require a known-present anchor so a scan that finds nothing
-/// fails loudly instead of passing.
-///
-/// **What each scan is standing in for.**
-///
-/// - *The polarity.* `retargetPane` now takes `isLeft`, and both handlers are otherwise mirror
-///   images — the same four calls in the same order. Flipping one boolean re-homes the pane the
-///   user did NOT switch and leaves the one they did switch showing another source's tree, with
-///   every package suite green. `PaneSideChoice` was extracted for exactly this failure ("dropping
-///   the `!` opened both halves on the pane the user aimed at… with the whole app suite green"),
-///   and it cannot help here: `Sync` is below `MacApp` and cannot see it.
-/// - *The scope, spent twice.* `paneRootEdits` answers which pane's Location moved, and the answer
-///   has to reach BOTH `invalidateComparisonState(reloading:)` and the rescan. Drop a pane's tree
-///   here and fail to walk it there and that pane renders blank until something else refreshes it;
-///   walk a pane whose root never moved and the bug this whole change removed is back. The contract
-///   was written as a doc comment on `invalidateComparisonState(reloading:)` and checked by nothing.
+/// - The polarity: both provider handlers are mirror images, so flipping one `isLeft` would
+///   re-home the pane the user didn't switch, with every package suite green. `PaneSideChoice`
+///   can't help, since `Sync` can't see `MacApp`.
+/// - The scope, spent twice: `paneRootEdits` says which pane's Location moved, and that answer
+///   must reach both `invalidateComparisonState(reloading:)` and the rescan. A tree dropped but not
+///   walked renders blank; walking a pane whose root didn't move is a needless re-walk.
 @Suite struct PaneRetargetWiringTests {
 
     private static func contentViewSource() throws -> String {
@@ -66,8 +55,8 @@ import Foundation
                 "the \(pane)-provider handler retargets the OTHER pane")
     }
 
-    /// The landing is the switched pane's own source, not the sibling's — the second half of the
-    /// polarity, and the half a boolean flip alone would not disturb.
+    /// The landing is the switched pane's own source, not the sibling's: the half of the polarity
+    /// a boolean flip alone wouldn't disturb.
     @Test func eachProviderHandlerLandsOnTheNewSourcesOpeningFolder() throws {
         let source = try Self.contentViewSource()
         let handlers = [(".onChange(of: leftProviderId) { _, newId in", ".onChange(of: rightProviderId) { _, newId in"),
@@ -91,18 +80,17 @@ import Foundation
         #expect(body.contains("refreshAction(reloading: edited)"),
                 "the rescan after a Location edit does not use the scope the teardown used — a pane whose tree was dropped and not walked renders blank")
 
-        // The unscoped spellings are the regression, not merely an alternative: either one alone
-        // reintroduces the whole-window teardown for an edit to one source.
+        // The unscoped spellings are the regression: either one brings back a whole-window
+        // teardown for an edit to one source.
         #expect(!body.contains("invalidateComparisonState()"),
                 "the Location edit is back to dropping BOTH panes' trees")
         #expect(!body.contains("refreshAction()"),
                 "the Location edit is back to re-walking BOTH panes")
     }
 
-    /// The scoped reload is the only re-walk in the app that announces neither a cause nor a pane,
-    /// so the line that does both is part of the wiring rather than decoration. `describedPanes` is
-    /// asserted by name because `String(describing:)` yields `leftOnly` — a case name, not something
-    /// a person reading `~/sync-cloud.log` has been told the meaning of.
+    /// The scoped reload announces neither cause nor pane by itself, so the log line that does
+    /// both is part of the wiring. `describedPanes` is asserted by name because
+    /// `String(describing:)` yields a case name like `leftOnly`, meaningless in `~/sync-cloud.log`.
     @Test func theLocationEditSaysWhichPaneItIsRewalkingAndWhy() throws {
         let body = try Self.region(from: "if let edited = Self.paneRootEdits(",
                                    to: "\n        .modifier(SettingsEngineMirrors(",

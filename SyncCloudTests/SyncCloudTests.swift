@@ -35,11 +35,10 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
             == .warn(activeOperations: 5, hasUnsavedDocument: false))
     }
 
-    /// The quit guard counts a Restructure landing as in flight (FR17). Its re-derive queues no
-    /// file operation, so a guard reading only `activeFileOperationsCount` let ⌘Q through in
-    /// silence while the survey sat on a profile folder with nothing learned in it yet.
-    /// `FileSyncManager.operationsAQuitWouldInterrupt` owns the counting (its own test in Sync);
-    /// this owns that the guard asks it. Read off comment-stripped source.
+    /// The quit guard counts a Restructure landing as in flight. Its re-derive queues no file
+    /// operation, so a guard reading only `activeFileOperationsCount` would let ⌘Q through
+    /// silently mid-landing. `FileSyncManager.operationsAQuitWouldInterrupt` owns the counting
+    /// (tested in Sync); this pins that the guard asks it. Read off comment-stripped source.
     @Test func testTheQuitGuardCountsALandingInProgress() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -55,8 +54,8 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     }
 
     /// SwiftUI may re-run `App.init`, creating a throwaway `FileSyncManager` that `@State`
-    /// discards (as `@StateObject` did before speed audit item 9). Adopting that orphan would leave the quit guard watching an operation count
-    /// that is always zero, so only the first adopted manager may stick.
+    /// discards. Adopting that orphan would leave the quit guard watching a count that is always
+    /// zero, so only the first adopted manager may stick.
     @MainActor
     @Test func testQuitGuardKeepsFirstManagerAcrossAppReinit() async throws {
         // Put back afterwards: the static is the host app's own, and a test that reads it
@@ -79,10 +78,8 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     @Test func testProviderSwitchResetsOnlyTheSwitchedPane() async throws {
         let manager = FileSyncManager()
 
-        // 1. Simulate active state: both panes navigated, both holding a selection. (Two panes
-        //    selected at once is not a state the app reaches — see the one-pane-selected invariant
-        //    — but it is the fixture that can tell "cleared the switched pane" from "cleared
-        //    whichever one it found".)
+        // 1. Both panes navigated, both holding a selection. The app never selects in two panes at
+        //    once, but this fixture tells "cleared the switched pane" from "cleared whichever".
         manager.selectedLeftPaths = ["/src/a.txt"]
         manager.selectedRightPaths = ["/dst/b.txt"]
         manager.focusOn(relativePath: "subfolder", isLeft: true)
@@ -96,8 +93,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         #expect(manager.leftRelativePath.isEmpty)
         #expect(manager.leftHistory == PaneNavigationHistory())
 
-        // ...and the other pane is left entirely alone. Picking a source on one pane used to
-        // re-home the other, drop its selection and empty its Back stack.
+        // ...and the other pane keeps its folder, selection and Back stack.
         #expect(manager.selectedRightPaths == ["/dst/b.txt"])
         #expect(manager.rightRelativePath == "otherfolder")
         #expect(manager.rightHistory.entries == ["", "otherfolder"])
@@ -144,18 +140,17 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     }
 
     @Test func testUnrelatedProviderChangeDoesNotRequirePaneRefresh() {
-        // Toggling or re-pathing a provider neither pane shows must not rescan —
-        // that spurious rescan put spinners over both panes on unrelated edits.
+        // Toggling or re-pathing a provider neither pane shows must not rescan, or both panes
+        // would show spinners on an unrelated edit.
         let old = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b"), provider("OneDrive", path: "/c")]
         let new = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b")]
 
         #expect(ContentView.paneRootEdits(old: old, new: new, leftId: "iCloud", rightId: "Dropbox") == nil)
     }
 
-    /// **Editing ONE pane's Location scopes the teardown to that pane.** The answer is a side, not
-    /// a Bool, because the caller spends it twice — on `invalidateComparisonState(reloading:)` and
-    /// on the rescan — and a `true` took the other pane down with it: tree dropped, columns
-    /// flattened, spinner, for a root that had not moved.
+    /// Editing one pane's Location scopes the teardown to that pane. The answer is a side, not a
+    /// Bool, because the caller spends it on `invalidateComparisonState(reloading:)` and on the
+    /// rescan; a plain `true` would tear down the other pane too, for a root that hadn't moved.
     @Test func testPaneProviderPathEditRequiresPaneRefresh() {
         let old = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b")]
         let new = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/elsewhere")]
@@ -175,10 +170,9 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     }
 
     @Test func testPaneProviderRenameIsANoOpForPaneRefresh() {
-        // Renaming a provider in Settings (setCustomName) changes only displayName.
-        // That must NOT read as a pane-provider change: it used to trip the
-        // .comparisonRootEdited teardown — dropping an in-flight duplicate review with
-        // no restore — and force a full rescan for a purely cosmetic edit.
+        // Renaming a provider in Settings (setCustomName) changes only displayName, which must
+        // not read as a pane-provider change: the .comparisonRootEdited teardown would drop an
+        // in-flight duplicate review and force a full rescan for a cosmetic edit.
         let old = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b")]
         let new = [
             CloudProvider(id: "iCloud", displayName: "My Renamed iCloud", imageName: "icloud", rootPath: "/a", type: .iCloud),
@@ -208,8 +202,8 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     }
 
     @Test func testFolderCollisionPromptWarnsAboutWholesaleReplacement() {
-        // A folder collision must warn that Replace trashes the whole existing folder — the
-        // file wording ("replace it with the one you're …") does not convey that data loss.
+        // A folder collision must warn that Replace trashes the whole existing folder; the file
+        // wording ("replace it with the one you're …") doesn't convey that data loss.
         let fileText = SyncOperationAlerts.collisionInformativeText(Self.collision(isDirectory: false))
         let folderText = SyncOperationAlerts.collisionInformativeText(Self.collision(isDirectory: true))
 
@@ -257,9 +251,9 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         #expect(body == "From: /Left/Documents\nTo: /Right/Documents")
     }
 
-    /// **A copy against the suggestion says it overwrites the newer file** (review E4), in both of
-    /// its prompts: the confirmation after its From/To lines, the collision alert after its
-    /// question. Without a note both read exactly as they did.
+    /// A copy against the suggestion says it overwrites the newer file, in both its prompts: the
+    /// confirmation after its From/To lines, the collision alert after its question. Without a
+    /// note, neither changes.
     @Test func testACopyOverANewerFileSaysSoInBothPrompts() {
         let note = "The file on iCloud is newer than the one you’re about to copy over it."
         let summary = TransferSummary(isMove: false, itemCount: 1, firstItemName: "a.txt", sourceDirectory: "/Right/Docs",
@@ -277,8 +271,8 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     }
 
     @Test func testMoveConfirmationStatesTheRemoval() {
-        // Copy and move dialogs otherwise differ by one verb; a move must state its
-        // destructive half (the sentence the retired NativeAlerts.confirmMove carried).
+        // Copy and move dialogs otherwise differ by one verb; a move must state its destructive
+        // half.
         let single = TransferSummary(isMove: true, itemCount: 1, firstItemName: "a.txt", sourceDirectory: "/L", destinationDirectory: "/R")
         #expect(SyncOperationAlerts.transferConfirmationInformativeText(single)
             .hasSuffix("The item will be removed from the original location."))
@@ -389,7 +383,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         #expect(spy.singleCalls.count == 1)
         #expect(spy.bulkCalls.count == 1)
 
-        // Unset (never configured) is `.ask` too — the historical always-prompt behavior.
+        // Unset (never configured) is `.ask` too: always prompt.
         let unsetSpy = PromptSpy()
         let unset = wiredManager(policy: nil, defaults: test.defaults, spy: unsetSpy)
         #expect(unset.collisionResolver(Self.collision()) == .keepBoth)
@@ -400,8 +394,8 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     @Test func testPolicyIsRereadForEveryCollisionSoASettingsChangeAppliesImmediately() {
         let test = TestDefaults()
         let spy = PromptSpy()
-        // Wired ONCE, up front — exactly as `App.init` does it. Reading the policy at wiring time
-        // instead of per collision would pin the app to whatever was set at launch.
+        // Wired once, up front, as `App.init` does. Reading the policy at wiring time instead of
+        // per collision would pin the app to whatever was set at launch.
         let manager = wiredManager(policy: .replace, defaults: test.defaults, spy: spy)
         #expect(manager.collisionResolver(Self.collision()) == .replace)
 
@@ -432,10 +426,9 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         let manager = FileSyncManager()
         manager.ignoredPaths = ["Documents/private.pdf"]
 
-        // Recorded rather than applied: the live `Logger.shared` gate is process-wide, and
-        // raising it here would swallow other suites' entries. Each record also captures whether
-        // the defaults wipe had already happened, which is what pins the ORDER — running the log
-        // reset first would let `resetAllSettings`'s own re-seed overwrite it.
+        // Recorded rather than applied: the live `Logger.shared` gate is process-wide, and raising
+        // it would swallow other suites' entries. Each record notes whether the defaults wipe had
+        // happened, pinning the order: a log reset first would be overwritten by the re-seed.
         var logLevels: [(level: LogLevel, patternsAlreadyCleared: Bool)] = []
 
         ContentView.applyFullSettingsReset(settings: settings, syncManager: manager) { level in
@@ -459,24 +452,15 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
 
     // MARK: The pane-bar migration's launch line
 
-    /// Swift source with its comments removed, for the two call-site scans below.
+    /// Swift source with its comments removed, for the call-site scans below. Trailing and block
+    /// comments go too: a scan's positive control is a `contains`, which a commented-out call
+    /// would otherwise satisfy with the real call deleted.
     ///
-    /// **Whole-line `//` was not enough, and the gap was in the direction that matters.** Both
-    /// scans used to drop lines whose first non-space characters were `//`, which leaves a trailing
-    /// comment and a `/* */` block in the text. A scan's POSITIVE control — "the call is still
-    /// here, so the absence checks below mean something" — is a `contains`, so
-    /// `// PaneBarMigration.migrationMessage(` written at the end of any line, or commented out
-    /// inside a block, satisfied it with the real call deleted. The check that exists to stop the
-    /// rest of the test passing vacuously could itself be satisfied by a comment.
+    /// A character scanner, not a regex, so a `//` inside a string literal (`"https://…"`) is
+    /// kept. Escapes are honoured, and block comments nest, as in Swift.
     ///
-    /// A character scanner rather than a regex, because the one thing it must not do is strip a
-    /// `//` inside a string literal — `"https://…"` would otherwise swallow the rest of the line.
-    /// Escapes are honoured, and block comments nest, as they do in Swift.
-    ///
-    /// **Not handled: multiline (`"""`) and raw (`#"`) string literals.** Rather than pretend
-    /// otherwise, `theCommentStripperHandlesTheFormsTheScannedFileUses` asserts the scanned file
-    /// contains neither, so the day one appears the stripper is corrected instead of quietly
-    /// mis-parsing from there to the end of the file.
+    /// Not handled: multiline (`"""`) and raw (`#"`) string literals.
+    /// `theCommentStripperHandlesTheFormsTheScannedFileUses` asserts the scanned file has neither.
     static func strippingComments(_ source: String) -> String {
         var out = ""
         var inString = false
@@ -514,12 +498,9 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         return out
     }
 
-    /// The stripper's own proof, and the guard on its stated limits.
-    ///
-    /// Every case here is one the two scans below would get wrong without it — a trailing comment
-    /// and a block comment are exactly how a deleted call keeps answering a `contains`, and the
-    /// URL case is how an over-eager stripper would delete real code and fail the same scans from
-    /// the other side. Both directions, because only one of them is obvious.
+    /// The stripper's own proof, and the guard on its stated limits. Both directions: trailing and
+    /// block comments must go, or a deleted call keeps answering a `contains`; and real code must
+    /// stay, as in the URL case, or the same scans fail from the other side.
     @Test func theCommentStripperHandlesTheFormsTheScannedFileUses() throws {
         let stripped = Self.strippingComments("""
         let a = 1 // PaneBarMigration.migrationMessage(
@@ -535,8 +516,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         #expect(!stripped.contains("whole line"))
         #expect(!stripped.contains("still comment"), "nested block comments are not closed correctly")
         #expect(!stripped.contains("tail"))
-        // …and it did not eat real code. A stripper that deleted everything would satisfy every
-        // expectation above and break both scans below, so these are not optional.
+        // …and it did not eat real code, which a stripper that deleted everything would pass above.
         #expect(stripped.contains("let a = 1"))
         #expect(stripped.contains("let b = 2"))
         #expect(stripped.contains("let c = 3"))
@@ -546,9 +526,8 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
                 "the stripper does not honour escapes inside string literals")
         #expect(stripped.contains("real()"))
 
-        // The stated limit, asserted rather than assumed: the scanned file uses neither form, so
-        // the stripper is correct FOR IT. If one ever appears this fails here instead of silently
-        // mis-parsing the remainder of the file.
+        // The stated limit, asserted: the scanned file uses neither form. If one appears, this
+        // fails instead of the stripper silently mis-parsing the rest of the file.
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("MacApp/SyncCloudApp.swift")
@@ -560,21 +539,12 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
                 "SyncCloudApp.swift now has a raw string literal, which strippingComments does not parse")
     }
 
-    /// **The line this launch writes must be the migration's own answer, not a literal.**
+    /// The line this launch writes must be the migration's own answer, not a literal naming a
+    /// control, which would go false as soon as a second migration step shipped.
     ///
-    /// `App.init` used to hold `Logger.shared.info("[panebar] added Search to a stored pane-bar
-    /// arrangement")` behind a `Bool`. True only while Search was the sole step there could be: the
-    /// next control to take a migration step would have left every migrating launch crediting
-    /// Search for something it did not add, in `~/sync-cloud.log`, with nothing to catch it.
-    ///
-    /// **A source scan, and it has to be**, which is stated rather than worked around: the call is
-    /// inside `if !isRunningTests` precisely so the test host does not run it, so no fixture can
-    /// reach it. `PaneBarMigrationTests.theLaunchLineNamesEveryControlTheMigrationActuallyAdded`
-    /// owns the wording; this owns the fact that the app asks for it. Without this half, the
-    /// helper is one revert away from being a well-tested function nothing calls.
-    ///
-    /// The absence is read off comment-stripped source — the prose above the call names the old
-    /// literal, and would answer the scan for it.
+    /// A source scan because the call sits inside `if !isRunningTests`, so no fixture can reach it.
+    /// `PaneBarMigrationTests.theLaunchLineNamesEveryControlTheMigrationActuallyAdded` owns the
+    /// wording; this pins that the app asks for it. Read off comment-stripped source.
     @Test func testTheLaunchNamesWhatThePaneBarMigrationActuallyAdded() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -582,37 +552,27 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
                                "cannot read MacApp/SyncCloudApp.swift")
         let source = Self.strippingComments(raw)
-        // The positive control: this is the right file and the migration still runs at launch. A
-        // scan of the wrong text would otherwise report the absence below for free.
+        // The positive control: the right file, and the migration still runs at launch, so the
+        // absence below means something.
         #expect(source.contains("PaneBarMigration.apply(defaults: .standard)"),
                 "the pane-bar migration no longer runs at launch — every check here is vacuous")
         #expect(source.contains("PaneBarMigration.migrationMessage("),
                 "the launch line is no longer built from what the migration reported")
-        // And the literal is gone. Any control's name hard-coded into this file's log call is the
-        // defect: the first one is true today and false on the day a second step ships.
-        // Shortened from "added Search to" now that the line reads "…arrangement: added Search":
-        // the needle has to be the part a hand-written literal would still carry.
+        // And no literal: a control's name hard-coded into the log call is the defect. Each needle
+        // is the part a hand-written literal would carry.
         for name in ["added Search", "added Delete", "added Preview", "rewrote a stored"] {
             #expect(!source.contains(name),
                     "SyncCloudApp names a pane-bar control in a log line (“\(name)”) instead of naming what the migration reported")
         }
     }
 
-    /// **The report of what the stored bar cannot show belongs to the delegate, not to `App.init`.**
+    /// The report of what the stored bar cannot show belongs to the delegate, not `App.init`.
+    /// SwiftUI can re-run `init`, so anything there that writes would repeat on every rebuild of the
+    /// scene; the launch breadcrumb lives in `applicationDidFinishLaunching` for the same reason.
     ///
-    /// It used to be a `defer` inside `PaneBarMigration.apply`, whose one production caller is
-    /// `App.init` — and this file says three lines from that call why nothing that WRITES may sit
-    /// there: SwiftUI can re-run `init`, which is exactly why the launch breadcrumb lives in
-    /// `applicationDidFinishLaunching`. Its four neighbours are annotated "the repeat App.init calls
-    /// noted above are harmless" because a repeat writes nothing. This one wrote its whole report
-    /// again, so a user who took a control off two releases ago collected the same paragraph on
-    /// every rebuild of the scene, forever.
-    ///
-    /// A source scan for the same reason its sibling above is one: `applicationDidFinishLaunching`
-    /// is AppKit's to call, and the test host's own launch is not the app's. What is checkable is
-    /// where the call sits, and that is the whole of the fix. `PaneBarMigrationTests.testTheMigration
-    /// ItselfWritesNoReachReport` owns the other end — that `apply` no longer reports — so between
-    /// them a report that ran twice per launch and one that ran not at all both fail.
+    /// A source scan because `applicationDidFinishLaunching` is AppKit's to call, and the test
+    /// host's launch is not the app's. `PaneBarMigrationTests.testTheMigrationItselfWritesNoReachReport`
+    /// owns the other end, so a report that runs twice per launch and one that never runs both fail.
     @Test func testTheStoredPaneBarIsReportedOnceFromTheLaunchDelegate() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -626,16 +586,15 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         let wrongCount = "the stored pane bar is reported \(sites) times in SyncCloudApp.swift; it "
             + "is a per-launch fact and belongs in exactly one place"
         #expect(sites == 1, "\(wrongCount)")
-        // …and that place is the delegate method that fires exactly once, not `init`. The anchor is
-        // required first: without it the containment check below would read an empty range and pass
-        // by finding nothing. The method's statements are indented eight spaces and every nested
-        // block closes at that depth, so the first `\n    }` is its own closing brace.
+        // …and that place is the delegate method that fires once, not `init`. The anchor is
+        // required first, or the check below would read an empty range. The method's nested blocks
+        // close deeper than four spaces, so the first `\n    }` is its own closing brace.
         let delegate = try #require(source.range(of: "func applicationDidFinishLaunching("),
                                     "applicationDidFinishLaunching is gone or renamed — this scan is vacuous")
         let tail = source[delegate.upperBound...]
         let body = tail[..<(tail.range(of: "\n    }")?.upperBound ?? tail.endIndex)]
-        // The positive control: the breadcrumb whose placement rule this follows is in that method,
-        // so a scan that had drifted onto the wrong region fails here rather than passing quietly.
+        // The positive control: the launch breadcrumb is in that method, so a scan reading the
+        // wrong region fails here.
         let wrongRegion = "the launch breadcrumb is not in this range — the scan is reading a "
             + "different method from the one the rule is about, and the check below means nothing"
         #expect(body.contains("launched\")"), "\(wrongRegion)")

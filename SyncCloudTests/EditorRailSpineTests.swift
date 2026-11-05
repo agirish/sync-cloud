@@ -4,13 +4,10 @@ import FileExplorer
 import Design
 @testable import SyncCloud
 
-/// **The spine's list buttons are Edit's alone, and each does what its lit state says** (TE77).
-///
-/// The rungs are `ContentView.spineRungs`, a pure function, and the buttons' rule is
-/// `EditorRailFold`, because `railSpine` reads property wrappers off a `ContentView` no unit test
-/// can construct. The drawn spine is the walkthrough's job.
-///
-/// **Local-only** — app target, invisible to CI; run by hand and named in the commit body.
+/// The spine's list buttons are Edit's alone, and each does what its lit state says. The rungs are
+/// `ContentView.spineRungs`, a pure function, and the buttons' rule is `EditorRailFold`, because
+/// `railSpine` reads property wrappers off a `ContentView` no unit test can construct. The drawn
+/// spine isn't covered here.
 @Suite struct EditorRailSpineTests {
 
     @Test func everySpineHasTheSourcePaneRung() {
@@ -28,22 +25,22 @@ import Design
         }
     }
 
-    /// Edit: one button per tab, under the pane's, whether the list is showing or not — the strip
-    /// does not grow and shrink as the list opens and folds.
+    /// Edit: one button per tab, under the pane's, whether the list is showing or not, so the strip
+    /// doesn't grow and shrink as the list opens and folds.
     @Test func editDrawsAButtonPerTabUnderThePaneRung() {
         let rungs = ContentView.spineRungs(workspace: .editor, markdownIsOpen: true)
         #expect(rungs == [.sourcePane, .textFiles, .outline])
         #expect(rungs.compactMap(\.railTab) == EditorRailTab.shown(pdfIsOpen: false, pdfHasOutline: false,
                                                                    markdownIsOpen: true),
                 "a rail tab has no button in the strip, or a button opens the wrong tab")
-        // A text file that is not Markdown has no Outline tab, and no button for it (TE111).
+        // A text file that isn't Markdown has no Outline tab, and no button for it.
         #expect(ContentView.spineRungs(workspace: .editor, markdownIsOpen: false) == [.sourcePane, .textFiles])
-        // A PDF adds the Pages tab to the rail, and its button to the strip — the same rule.
+        // A PDF adds the Pages tab to the rail and its button to the strip, by the same rule.
         let withPDF = ContentView.spineRungs(workspace: .editor, pdfIsOpen: true, pdfHasOutline: true)
         #expect(withPDF == [.sourcePane, .textFiles, .pages, .outline])
         #expect(withPDF.compactMap(\.railTab) == EditorRailTab.shown(pdfIsOpen: true, pdfHasOutline: true,
                                                                      markdownIsOpen: false))
-        // …and a PDF without a contents drops Outline from both (asked 2026-10-17).
+        // A PDF without a table of contents drops Outline from both.
         #expect(ContentView.spineRungs(workspace: .editor, pdfIsOpen: true, pdfHasOutline: false)
                     == [.sourcePane, .textFiles, .pages])
         #expect(ContentView.spineRungs(workspace: .browse, pdfIsOpen: true) == [.sourcePane],
@@ -59,8 +56,8 @@ import Design
 
     // MARK: What a button does
 
-    /// Not on screen — folded by hand or put away by Expand: either button brings the list back,
-    /// on its own tab, whichever tab was showing last.
+    /// Not on screen (folded by hand or put away by Expand): either button brings the list back on
+    /// its own tab, whichever tab was showing last.
     @Test(arguments: EditorRailTab.allCases)
     func aButtonShowsAHiddenListOnItsOwnTab(last: EditorRailTab) {
         for tab in EditorRailTab.allCases {
@@ -70,8 +67,8 @@ import Design
         }
     }
 
-    /// On screen: the lit button — the tab showing — folds it; the other switches tabs and leaves
-    /// it open. Mutation: make `.switchTo` fold and the other-tab row fails.
+    /// On screen: the lit button (the tab showing) folds it; the other switches tabs and leaves it
+    /// open. Making `.switchTo` fold must fail it.
     @Test func theLitButtonFoldsAndTheOtherSwitchesTabs() {
         #expect(EditorRailFold.rungAct(for: .files, railDrawn: true, currentTab: .files) == .fold)
         #expect(EditorRailFold.rungAct(for: .outline, railDrawn: true, currentTab: .outline) == .fold)
@@ -81,8 +78,8 @@ import Design
         #expect(!EditorRailFold.rungIsLit(.outline, railDrawn: true, currentTab: .files))
     }
 
-    /// The tooltip names the next act, as Expand's word does: Hide on the lit button, Show on the rest.
-    /// The lit button hides the whole list, on every tab, in the fold chevron's words (TE156).
+    /// The tooltip names the next act, as Expand's does: Hide on the lit button, Show on the rest.
+    /// The lit button hides the whole list, on every tab, in the fold chevron's words.
     @Test func theTitleNamesTheNextAct() {
         #expect(EditorRailFold.rungTitle(.files, railDrawn: true, currentTab: .files) == "Hide the file list")
         #expect(EditorRailFold.rungTitle(.outline, railDrawn: true, currentTab: .files) == "Show the outline")
@@ -95,9 +92,9 @@ import Design
 
     // MARK: The hand fold beside Expand
 
-    /// **Expand gives back a list folded by hand still folded, and an open one open.** Expand moves
-    /// only its own bit; the hand fold is the other. So entering and leaving Expand from either
-    /// state lands where it began.
+    /// Expand gives back a list folded by hand still folded, and an open one open. Expand moves only
+    /// its own bit and the hand fold is the other, so entering and leaving Expand lands where it
+    /// began.
     @Test(arguments: [false, true])
     func expandRoundTripsAListFoldedByHand(folded: Bool) {
         var expand = EditorExpand(railHidden: false, paneFolded: true,
@@ -113,8 +110,8 @@ import Design
                 "leaving Expand did not give back the list as it was (folded=\(folded))")
     }
 
-    /// **Folding by hand does not turn Expand on.** Expand's lit state reads its own bit and the
-    /// pane; the hand fold touches neither.
+    /// Folding by hand doesn't turn Expand on: Expand's lit state reads its own bit and the pane,
+    /// and the hand fold touches neither.
     @Test func aHandFoldLeavesExpandOff() {
         let expand = EditorExpand(railHidden: false, paneFolded: true,
                                   sidebarPutAway: false, paneFoldedByExpand: false)
@@ -132,17 +129,17 @@ import Design
         #expect(EditorRailFold.paneRungTitle(paneOpen: false, source: "iCloud").hasPrefix("Show the iCloud pane"))
     }
 
-    /// A list button beside an open pane shows the list: the list is not drawn there, so the rule
-    /// answers `.show` — and the host folds the pane on the way (`showEditorRail`).
+    /// A list button beside an open pane shows the list: the list isn't drawn there, so the rule
+    /// answers `.show`, and the host folds the pane on the way (`showEditorRail`).
     @Test(arguments: EditorRailTab.allCases)
     func aListButtonBesideAnOpenPaneShowsTheList(tab: EditorRailTab) {
         #expect(EditorRailFold.rungAct(for: tab, railDrawn: false, currentTab: .files) == .show(tab))
     }
 
-    /// **One width for the four columns, and one column for the pane by default.** The pane's slot
-    /// is the column plus the gutter its card's insets add (none in Unified), as the rail's own slot is; and at
-    /// the default width that card is under where Columns stops showing a second column, so the
-    /// pane shows one with ‹ to walk back. Mutation: raise `railWidth` past 280 and the second fails.
+    /// One width for the four columns, and one column for the pane by default. The pane's slot is
+    /// the column plus its card's gutter (none in Unified), as the rail's is. At the default width
+    /// that is under where Columns shows a second column, so the pane shows one with ‹ to walk back.
+    /// Raising `railWidth` past 280 must fail it.
     @Test func theOpenPaneIsTheListsWidthAndOneColumnWideByDefault() {
         for style in SurfaceStyle.allCases {
             let slot: CGFloat = ContentView.editorColumnSlot(EditorLayoutMetrics.railWidth, style: style)
@@ -152,8 +149,8 @@ import Design
         #expect(PaneViewMode.usesPushNavigation(paneWidth: EditorLayoutMetrics.railWidth))
     }
 
-    /// **The shared width drags between the tabs' floor and the cap**, and never below the floor:
-    /// the list's three tabs are measured to fit at exactly `railWidth`.
+    /// The shared width drags between the tabs' floor and the cap, never below the floor: the list's
+    /// three tabs are measured to fit at exactly `railWidth`.
     @Test func theColumnWidthStaysBetweenTheTabsFloorAndTheCap() {
         #expect(EditorLayoutMetrics.clampedRailWidth(100) == EditorLayoutMetrics.railWidth)
         #expect(EditorLayoutMetrics.clampedRailWidth(300) == 300)

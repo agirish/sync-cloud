@@ -2,12 +2,12 @@ import Foundation
 import Testing
 @testable import SyncCloud
 
-/// **Help says what Edit does** (TE120, TE131): the file list is never "the rail", and the keys and
-/// controls the article left out are in it. Each phrase is one the article must carry verbatim, so
-/// rewording one is a decision this test makes visible.
+/// Help says what Edit does: the file list is never "the rail", and Edit's keys and controls are
+/// in the article. Each phrase is one the article must carry verbatim, so rewording one is a
+/// decision this test makes visible.
 @Suite struct EditorHelpCatchesUpTests {
 
-    /// Edit's article — or, with `pdf`, the PDF's, which the PDF lines moved to (TE171).
+    /// Edit's article, or with `pdf` the PDF's, which carries the PDF lines.
     private static func editText(pdf: Bool = false) throws -> String {
         let topic = try #require(HelpBook.topic(id: pdf ? "pdf-workspace" : "editor-workspace"))
         var out = [topic.title, topic.article.intro]
@@ -45,7 +45,7 @@ import Testing
         ] {
             #expect(text.contains(phrase), "Help no longer says “\(phrase)”")
         }
-        // TE144: the header's buttons by their words, and the rule they shed them by.
+        // The header's buttons by their words, and the rule they shed them by.
         #expect(pdf.contains("then Expand and Close;"), "the PDF's article no longer names its header's buttons")
         for phrase in ["Close, at the right-hand end of that row, closes the file",
                        "New Text File, Find, Files and Close drop their words together",

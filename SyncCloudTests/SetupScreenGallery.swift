@@ -8,22 +8,17 @@ import Testing
 
 /// Photographs all ten setup screens, so a person can look at them.
 ///
-/// **Off unless `SETUP_GALLERY` names a directory**, so it costs a normal run and CI nothing. It is
-/// a tool rather than an assertion, and it is kept because the defects it found could not have been
-/// found any other way: a segmented control centred 32pt right of everything else, three cards of
-/// three heights, two tiles with the same label, a tree sliced through the middle of a word. Every
-/// one of those is invisible to a layout assertion and obvious in a picture, and rebuilding this
-/// from nothing is most of a day.
+/// Off unless `SETUP_GALLERY` names a directory, so a normal run and CI pay nothing. A tool, not an
+/// assertion: misalignment, uneven cards, duplicate labels and clipped text are invisible to a
+/// layout assertion and obvious in a picture.
 ///
-/// Two things it must keep doing, both learned the expensive way:
+/// Two things it must keep doing:
 ///
-/// - **Render through a real `NSWindow`.** Half the ink on the Welcome screen arrives in an
-///   `onAppear` animation; an offscreen `cacheDisplay` never fires one, so a harness without a
-///   window photographs blank artwork and reports it as a defect. It did.
-/// - **Take `startScreen`, and give each screen its own sheet.** `@StateObject`'s `wrappedValue`
-///   builds a *new* object on every access outside a view, so setting `model.screen` on a sheet
-///   held as a value sets it on an instance the renderer never sees — the first version of this
-///   photographed ten copies of whichever screen the defaults implied.
+/// - Render through a real `NSWindow`. Much of the Welcome screen's ink arrives in an `onAppear`
+///   animation, which an offscreen `cacheDisplay` never fires, so the artwork would come out blank.
+/// - Take `startScreen`, and give each screen its own sheet. `@StateObject`'s `wrappedValue`
+///   builds a new object on every access outside a view, so setting `model.screen` on a sheet held
+///   as a value changes an instance the renderer never sees.
 ///
 /// ```sh
 /// TEST_RUNNER_SETUP_GALLERY=/tmp/shots xcodebuild test … -only-testing:SyncCloudTests/SetupScreenGallery
@@ -32,10 +27,8 @@ import Testing
 @Suite struct SetupScreenGallery {
 
     private func manager() async -> SettingsManager {
-        // **One of each kind, plus a second Drive account.** The Locations screen and its Why panel
-        // both turn on how many *kinds* of location there are — the panel draws one mark per kind —
-        // so a fixture of three Google Drive accounts photographs a one-mark strip and says nothing
-        // about the four-mark row a real Mac draws.
+        // One of each kind, plus a second Drive account. The Locations screen and its Why panel
+        // draw one mark per kind of location, so a fixture of one kind shows only one mark.
         let folders = [
             "Dropbox",
             "OneDrive-Personal",
@@ -81,18 +74,15 @@ import Testing
                         walk: SetupSheetFitTests.realisticWalk, startScreen: screen, draftURL: nil,
                         onOpenSettings: { _ in }, onFinish: {}, onDismiss: {})
                     let w = host.width, h = host.height
-                    // The whole sheet, not just the card: `onAppear` on the sheet is what runs
-                    // `model.onOpen()`, which seeds the name from the Mac account. A card rendered
-                    // on its own photographs every name field empty.
+                    // The whole sheet, not just the card: the sheet's `onAppear` runs
+                    // `model.onOpen()`, which seeds the name from the Mac account.
                     let view = sheet
                         .frame(width: w, height: h)
                         .environment(\.appFontScale, scale)
                         .environment(\.colorScheme, scheme)
                         .background(scheme == .dark ? Color(white: 0.12) : Color(white: 0.97))
-                    // **In a real window, because `onAppear` is where half the ink is.** Several
-                    // illustrations start at `opacity(0)` and are brought in by an `onAppear`
-                    // animation; an offscreen `cacheDisplay` never fires it, so a harness without a
-                    // window photographs blank artwork and reports it as a defect.
+                    // In a real window: several illustrations start at `opacity(0)` and fade in
+                    // from `onAppear`, which an offscreen `cacheDisplay` never fires.
                     let hv = NSHostingView(rootView: view)
                     hv.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
                     hv.frame = CGRect(x: 0, y: 0, width: w, height: h)
@@ -126,11 +116,9 @@ import Testing
             walk: SetupSheetFitTests.realisticWalk, startScreen: .welcome, draftURL: nil,
             onOpenSettings: { _ in }, onFinish: {}, onDismiss: {})
         print("[gallery] ceiling \(Int(ceiling))")
-        // **Measured at every text size, not just the default.** The card's width scales with the
-        // text and its height stops at the window, so the budget a screen is held to changes shape
-        // as the size rises — a measurement taken only at 100% cannot see the size that overflows.
-        // The scale has to reach the layout too: `screenBody` read at the ambient 100% reports the
-        // height of type nobody is looking at.
+        // Measured at every text size: the card's width scales with the text and its height stops
+        // at the window, so the budget changes shape as the size rises. The scale must reach the
+        // layout too, or `screenBody` reports the height at 100%.
         for size in FontSize.allCases {
             let scale = size.scale
             let ceiling = SetupSheetMetrics.contentHeight(availableSize: host, scale: scale)
@@ -151,8 +139,8 @@ import Testing
         }
     }
 
-    /// People over a roster this sheet cannot write (review L1): the chips carry no ✕, Add is
-    /// greyed, and the note says why. Beside it, the same names on a roster that can change.
+    /// People over a roster this sheet cannot write: the chips carry no ✕, Add is greyed, and the
+    /// note says why. Beside it, the same names on a roster that can change.
     @Test(.enabled(if: ProcessInfo.processInfo.environment["SETUP_GALLERY"] != nil))
     func photographPeopleOverAReadOnlyRoster() async throws {
         let out = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SETUP_GALLERY"]!)

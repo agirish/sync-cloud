@@ -3,12 +3,10 @@ import Foundation
 import Sync
 @testable import SyncCloud
 
-/// The lens scan target follows where the pane is **browsing**, not just its comparison focus.
-///
-/// Column clicks move `PaneBrowsePath` and deliberately not the pane's focus (browsing must not
-/// re-run the comparison), but every lens scan and the "Scan '<folder>'" offer read only the focus
-/// root — so clicking through columns never moved the target, and the offer sat dead at the
-/// provider root no matter what folder was selected. `PaneLogic.lensScanRoot` is the join.
+/// The lens scan target follows where the pane is browsing, not just its comparison focus. Column
+/// clicks move `PaneBrowsePath` and not the focus (browsing must not re-run the comparison), so
+/// reading only the focus root would leave every lens scan and the "Scan '<folder>'" offer stuck at
+/// the provider root. `PaneLogic.lensScanRoot` is the join.
 @Suite struct LensScanRootTests {
 
     // MARK: The join
@@ -21,9 +19,8 @@ import Sync
     }
 
     @Test func atRestTheFocusRootComesBackUntouched() {
-        // Trailing slash kept on purpose: the browse join normalizes it away, so this passing
-        // proves the at-rest path really returns early rather than round-tripping through the
-        // join — deleting the `browsePath.isEmpty` guard fails here.
+        // Trailing slash kept on purpose: the browse join normalizes it away, so this proves the
+        // at-rest path returns early. Deleting the `browsePath.isEmpty` guard must fail it.
         let root = "/Users/me/Documents/"
         #expect(PaneLogic.lensScanRoot(focusRootExpanded: root, browsePath: PaneBrowsePath()) == root)
     }
@@ -44,9 +41,8 @@ import Sync
     }
 
     @Test func theFilesystemRootJoinsToAbsoluteChildren() {
-        // "/" normalizes to "" inside the join, which is what makes "/" + "A" come out as "/A"
-        // rather than "//A" — and at rest the guard hands "/" back verbatim instead of letting
-        // that same normalization collapse it to "".
+        // "/" normalizes to "" inside the join, so "/" + "A" is "/A", not "//A"; at rest the guard
+        // hands "/" back verbatim rather than letting that normalization collapse it to "".
         let browse = PaneBrowsePath(relativePath: "A")
         #expect(PaneLogic.lensScanRoot(focusRootExpanded: "/", browsePath: browse) == "/A")
         #expect(PaneLogic.lensScanRoot(focusRootExpanded: "/", browsePath: PaneBrowsePath()) == "/")
@@ -54,10 +50,9 @@ import Sync
 
     // MARK: The call site
 
-    /// A rule extracted for testability is one revert away from being unused: the join above stays
-    /// green even if `ContentView` goes back to reading the bare focus root. Same conventions as
-    /// `OrganizeScopeCallSiteTests` in FileExplorer — the scan names its file and fails if it
-    /// cannot be read, and the body is bounded by its closing brace, not a character count.
+    /// A rule extracted for testability is one revert from unused: the join stays green even if
+    /// `ContentView` reads the bare focus root. As in FileExplorer's `OrganizeScopeCallSiteTests`,
+    /// the scan names its file, fails if it can't read it, and bounds the body by its closing brace.
     static let contentViewURL = URL(fileURLWithPath: #filePath)  // …/SyncCloudTests/<this>.swift
         .deletingLastPathComponent()                             // …/SyncCloudTests
         .deletingLastPathComponent()                             // repo root
@@ -74,21 +69,18 @@ import Sync
         let body = String(rest[..<end.lowerBound])
         #expect(body.contains("PaneLogic.lensScanRoot"),
                 "lensScanRootExpanded no longer routes through the browse-aware join")
-        // The PAIRING, not just the ingredients: a review found that asserting the two browse
-        // paths merely appear leaves a flipped ternary — the right pane's root joined with the
-        // LEFT pane's browse trail — passing every test in this file, since the pure-function
-        // tests exercise one pane at a time. Pin each ternary whole, both sides in scan order.
+        // The pairing, not just the ingredients: a flipped ternary (the right pane's root with the
+        // left pane's browse trail) would pass the pure-function tests, which see one pane at a
+        // time. Each ternary is pinned whole, both sides in order.
         #expect(body.contains("lensTargetIsRight ? currentRightPath : currentLeftPath"),
                 "the focus root no longer follows the targeted pane (or the ternary flipped)")
         #expect(body.contains(
                     "lensTargetIsRight ? syncManager.rightBrowsePath : syncManager.leftBrowsePath"),
                 "the browse path no longer follows the targeted pane (or the ternary flipped)")
-        // And the presentation gate, whole and with its argument — the same hazard one level out.
-        // In Tree the stack is parked state the pane does not draw, so joining it names a folder
-        // that pane is not showing and then SCANS it. `paneDrawsColumns` takes `isLeft` and
-        // `lensTargetIsRight` is its negation: written without the `!` this asks the OTHER pane
-        // which presentation it is in — invisible to every pure-function test above, because the
-        // function never learns which pane it was asked about.
+        // The presentation gate too, whole with its argument. In Tree the stack is parked state the
+        // pane doesn't draw, and joining it would scan a folder the pane isn't showing.
+        // `paneDrawsColumns` takes `isLeft`, the negation of `lensTargetIsRight`; without the `!`
+        // it would ask the other pane, which no pure-function test above can see.
         #expect(body.contains("paneDrawsColumns(isLeft: !lensTargetIsRight)"),
                 "the scan target no longer asks the TARGETED pane whether it draws columns")
         #expect(body.contains(": PaneBrowsePath()"),

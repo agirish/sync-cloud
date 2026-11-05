@@ -1,8 +1,8 @@
 import Testing
 @testable import SyncCloud
 
-/// **Where a result message shows** (Banner Room, CA): where the reader was working — never over
-/// the window's top, where it covered the pane header's Delete for five seconds after a delete.
+/// Where a result message shows: where the reader was working, never over the window's top, where
+/// it would cover the pane header's Delete just after a delete.
 @Suite struct ResultMessageRouteTests {
 
     private func home(_ layout: ContentView.ContentLayout, focusedLeft: Bool = true,
@@ -15,8 +15,8 @@ import Testing
         #expect(home(.browseFull, focusedLeft: false) == .pane(isLeft: true))
     }
 
-    /// Compare: the pane the action happened in, which every pane action focuses first — so the
-    /// other pane, and the seam's ⇄ and 🔗 between them, stay uncovered (TE212).
+    /// Compare: the pane the action happened in, which every pane action focuses first, so the
+    /// other pane and the seam's ⇄ and 🔗 stay uncovered.
     @Test func compareShowsItInTheFocusedPane() {
         #expect(home(.compareSplit, focusedLeft: true) == .pane(isLeft: true))
         #expect(home(.compareSplit, focusedLeft: false) == .pane(isLeft: false))
@@ -46,9 +46,9 @@ import Testing
                 "the pane's list no longer docks the message beside its bar")
     }
 
-    /// **A long run's ending goes where it was started, unless the reader moved on** (Run Room CG,
-    /// CP): a merge clicked in Organize and ending in Browse goes to the capsule; ending in Organize,
-    /// to Organize's own place; a click's result, with no run behind it, never to the capsule.
+    /// A long run's ending goes where it was started, unless the reader moved on: a merge started
+    /// in Organize and ending in Browse goes to the capsule; ending in Organize, to Organize's own
+    /// place. A click's result, with no run behind it, never goes to the capsule.
     @Test func aRunsEndingFollowsTheWorkspaceItStartedIn() {
         #expect(ResultMessageRoute.endsInCapsule(startedIn: .filing, showing: .browse))
         #expect(!ResultMessageRoute.endsInCapsule(startedIn: .filing, showing: .filing))

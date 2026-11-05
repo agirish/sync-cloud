@@ -3,7 +3,7 @@ import FileExplorer
 import Testing
 import AppKit
 
-/// **Edit ▸ Undo waits during a long run, for the file operations' stack only** (Banner Room, CF).
+/// Edit ▸ Undo waits during a long run, for the file operations' stack only.
 ///
 /// A window of the test's own, whose stack holds one file operation, as the app's holds
 /// `FileSyncManager`'s; the gate's chain is the window's responder chain, which `NSApp` would only
@@ -74,7 +74,7 @@ import AppKit
                                       charactersIgnoringModifiers: characters, isARepeat: false, keyCode: 6))
     }
 
-    /// **With the file pane focused, Undo waits and says why**: greyed, the reason its tooltip and
+    /// With the file pane focused, Undo waits and says why: greyed, the reason its tooltip and
     /// the step still named; pressed anyway it is refused aloud and the file stays where it is. When
     /// the run ends, the same press undoes it.
     @Test func aFileOperationsUndoWaitsForTheRun() throws {
@@ -101,7 +101,7 @@ import AppKit
         #expect(rig.marker.undone == 1, "Undo after the run did not undo the file operation")
     }
 
-    /// **Typing undo goes on**: with a text view that names its own stack holding the keyboard, Undo
+    /// Typing undo goes on: with a text view that names its own stack holding the keyboard, Undo
     /// is live during a run and undoes the typing, and the file operation stays.
     @Test func typingUndoGoesOnDuringARun() async throws {
         let rig = try Rig()
@@ -134,8 +134,8 @@ import AppKit
         #expect(RunUndoGate.undoRedoAction(of: try Self.key("x", .command)) == nil)
     }
 
-    /// **The app's own Edit ▸ Undo and Redo go through the gate** — installed at launch, and the test
-    /// host is the app — and `adopt` takes them in any menu it is given, at any depth.
+    /// The app's own Edit ▸ Undo and Redo go through the gate (installed at launch, and the test
+    /// host is the app), and `adopt` takes them in any menu it is given, at any depth.
     @Test func theAppsUndoAndRedoAreTheGates() throws {
         func items(_ menu: NSMenu) -> [NSMenuItem] {
             menu.items.flatMap { [$0] + ($0.submenu.map(items) ?? []) }
@@ -159,7 +159,7 @@ import AppKit
         #expect(other.target == nil, "the gate took an item that is not Undo or Redo")
     }
 
-    /// **Every Undo the window draws waits with ⌘Z**: the result message's button greys under the
+    /// Every Undo the window draws waits with ⌘Z: the result message's button greys under the
     /// run lock (inside its own tooltip, so the reason shows), the gate is fed the window's run and
     /// stack, and Sync History's Undo Last Run greys too, in a window the main one's environment does
     /// not reach.

@@ -2,23 +2,15 @@ import Foundation
 import Testing
 @testable import SyncCloud
 
-/// The first-run sheet's hover affordances use the **padding-compensation idiom**: a control too
-/// small to hold a wash is padded IN inside the button's label and the same amount is taken back
-/// OUT with a negative padding on the button, so the wash has somewhere to land while the row's
-/// resting footprint does not move.
+/// The first-run sheet's hover affordances use the padding-compensation idiom: a control too small
+/// to hold a wash is padded in inside the button's label, and the same amount is taken back out
+/// with a negative padding on the button, so the wash has room while the row's footprint holds.
 ///
-/// **The idiom shipped at four sites with no test of any kind.** Its whole promise — "at rest the
-/// row's footprint is byte-identical to before" — rests on two numbers agreeing, written eight
-/// lines apart with a `buttonStyle` between them and nothing connecting them. Change one and the
-/// row silently shifts by the difference: no build error, no failing assertion, and a wash that no
-/// longer sits over the control. This is the pairing check `InlineSpinner` got — its footprint is
-/// pinned against the recipe it replaced — and this idiom did not.
+/// The promise rests on two numbers lines apart with a `buttonStyle` between them. Change one and
+/// the row silently shifts, with the wash off the control.
 ///
-/// **Paired per button, not per file.** The first draft of this test counted negative paddings
-/// across the whole source and immediately failed on the selected-hue ring, which is
-/// `Circle().strokeBorder(…).padding(-3)` — a negative padding that expands an overlay beyond its
-/// content and has nothing to do with compensation. Two different uses of the same spelling, so
-/// locality is what distinguishes them: a compensating padding is one that follows a `buttonStyle`.
+/// Paired per button, not per file: the selected-hue ring's `.padding(-3)` expands an overlay and
+/// is no compensation. A compensating padding is one that follows a `buttonStyle`.
 @Suite struct SetupSheetHoverPaddingTests {
 
     /// One `buttonStyle` and the paddings on either side of it.
@@ -30,11 +22,9 @@ import Testing
         var outside: [String: Int] = [:]
     }
 
-    /// Every source file the sheet is made of, as one stream of lines.
-    ///
-    /// **The sheet is a directory now, not a file.** Scanning only `SetupSheet.swift` after the
-    /// split would have looked at the host — which has no affordance in it at all — and reported a
-    /// clean sweep of nothing, which is why the floor below is a floor.
+    /// Every source file the sheet is made of, as one stream of lines. The sheet is a directory;
+    /// `SetupSheet.swift` alone is the host, with no affordance in it, so the file-count floor keeps
+    /// the scan from passing on nothing.
     static func setupSheetSource() throws -> [String] {
         let repo = URL(fileURLWithPath: #filePath)     // …/SyncCloudTests/<this>.swift
             .deletingLastPathComponent()               // …/SyncCloudTests
@@ -108,10 +98,8 @@ import Testing
         let all = Self.sites(lines)
         #expect(all.count >= 7, "expected the sheet's hover-affordance buttons, saw \(all.count)")
 
-        // **Two, and the number came down honestly.** The form this replaced compensated four
-        // controls; two of them — the card's own dismiss glyph and a Change link — are now a
-        // `CloseButton` from `Design` and a plain button, neither of which needs the idiom. What is
-        // left is the accent swatch and the remove glyph inside a chip.
+        // Two: the accent swatch and a chip's remove glyph. The card's dismiss glyph and Change
+        // link are a `CloseButton` and a plain button, which don't need the idiom.
         let compensated = all.filter { !$0.outside.isEmpty }
         #expect(compensated.count == 2, """
             expected 2 compensated controls (the accent swatch, a chip's remove glyph), \
@@ -132,12 +120,9 @@ import Testing
     /// The scan must be able to SEE a broken pair, or the assertion above is decoration.
     @Test func theScanFindsADriftedPair() throws {
         var lines = try Self.setupSheetSource()
-        // Edit the INSIDE half of a compensated control, exactly as a careless tweak would.
-        //
-        // Targeted by walking back from the button's OWN style, not by the first `.padding(4)` in
-        // the file — the first draft did that, hit an unrelated one several hundred lines earlier,
-        // mutated nothing that any site could see, and reported that the scan was blind when it
-        // was the mutation that had missed.
+        // Edit the inside half of a compensated control, as a careless tweak would. Found by
+        // walking back from the button's own style: the first matching padding in the file may
+        // belong to no site, and mutating it would prove nothing.
         let styleLine = try #require(lines.firstIndex {
             $0.contains(".buttonStyle(.hoverAffordance(.circular")
         }, "the accent swatch's button style moved — retarget this mutation")

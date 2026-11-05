@@ -31,10 +31,9 @@ import Sync
     // MARK: actionBarSymbols
 
     @Test func testActionBarSymbolsMoveArrowPointsTowardTheTargetPane() {
-        // Copy uses the universal duplicate glyph in every state; only Move is directional,
-        // pointing toward the pane it targets — right for a left selection, and vice versa.
-        // Both come from the shared TransferGlyph vocabulary so the toolbar can't drift from
-        // the Differences header and the right-click menus.
+        // Copy uses the duplicate glyph in every state; only Move points toward the pane it
+        // targets. Both come from TransferGlyph so the toolbar can't drift from the Differences
+        // header and the right-click menus.
         let fromLeft = PaneLogic.actionBarSymbols(activePane: .left)
         #expect(fromLeft.copy == TransferGlyph.copy)
         #expect(fromLeft.copy == "doc.on.doc")
@@ -90,9 +89,8 @@ import Sync
     }
 
     @Test func testSettingEmptySelectionDoesNotClearTheOtherPane() {
-        // Deselecting (or SwiftUI re-writing an unchanged empty set, e.g. on right-click)
-        // must leave the other pane's selection alone — "Copy N items from other pane"
-        // in the context menu depends on it surviving.
+        // Deselecting (or SwiftUI re-writing an unchanged empty set, e.g. on right-click) must
+        // leave the other pane's selection alone: "Copy N items from other pane" relies on it.
         let afterLeftDeselect = PaneLogic.reconciledSelections(
             settingSelection: [],
             isLeft: true,
@@ -120,18 +118,15 @@ import Sync
         #expect(PaneLogic.activePane(leftSelection: ["/l/a"], rightSelection: ["/r/b"]) == .left)
     }
 
-    // `primarySelectionPath`'s tests lived here. The rule moved to `CurrentSelection.primaryPanePath`
-    // in `Sync` so the Differences table and the Info inspector could share it, and
-    // `CurrentSelectionTests` now owns these cases (alphabetical-not-hash-order, left-first, empty,
-    // plus the single-source rule this pair never covered).
+    // The primary selected path is `CurrentSelection.primaryPanePath` in `Sync`, shared by the
+    // Differences table and the Info inspector; `CurrentSelectionTests` covers it.
 
     // MARK: lensTargetsRightPane
 
     @Test func testASingleSourceScanAlwaysTargetsLeftEvenWithStaleRightSelection() {
-        // The single-source rail IS the left pane, so single-source mode must never target the right pane —
-        // even when a selection lingers in the hidden right pane from a prior Compare session, and
-        // even when a focused side lingers there too. Both are reachable: `focusedPaneSide` is not
-        // cleared on the way out of Compare.
+        // The single-source rail is the left pane, so it must never target the right pane, even
+        // with a selection or a focused side lingering there from Compare (`focusedPaneSide` isn't
+        // cleared on the way out).
         for focused: PaneTree.Side? in [nil, .left, .right] {
             for active: PaneLogic.ActivePane? in [nil, .left, .right] {
                 #expect(!PaneLogic.lensTargetsRightPane(isCompare: false, focusedSide: focused,
@@ -141,24 +136,22 @@ import Sync
         }
     }
 
-    /// **A lens scan in Compare follows the FOCUSED pane, not the selection** — the same rule the
-    /// accent border draws from, so the pane wearing it is the pane the scan reads.
+    /// A lens scan in Compare follows the focused pane, not the selection: the rule the accent
+    /// border draws from, so the pane wearing it is the pane the scan reads.
     @Test func testALensScanInCompareFollowsTheFocusedPane() {
         #expect(PaneLogic.lensTargetsRightPane(isCompare: true, focusedSide: .right, activePane: nil))
         #expect(!PaneLogic.lensTargetsRightPane(isCompare: true, focusedSide: .left, activePane: nil))
     }
 
-    /// **The focused side beats the selection**, which is the whole reason this moved. It read
-    /// `activePane` alone, so with nothing selected every Compare lens scan went to the left pane
-    /// whatever the user was looking at, and the only way to aim one right was to select a file
-    /// there first.
+    /// The focused side beats the selection. Reading `activePane` alone would send every Compare
+    /// lens scan left whenever nothing was selected, whatever pane the user was in.
     @Test func testTheFocusedPaneOutranksALingeringSelection() {
         #expect(PaneLogic.lensTargetsRightPane(isCompare: true, focusedSide: .right, activePane: .left))
         #expect(!PaneLogic.lensTargetsRightPane(isCompare: true, focusedSide: .left, activePane: .right))
     }
 
-    /// With no focus recorded the selection is still the fallback, and the left pane the floor
-    /// under that — a cold window has neither, and a scan still has to go somewhere.
+    /// With no focus recorded the selection is the fallback, then the left pane: a cold window has
+    /// neither, and a scan still has to go somewhere.
     @Test func testALensScanFallsBackToTheSelectionThenLeft() {
         #expect(PaneLogic.lensTargetsRightPane(isCompare: true, focusedSide: nil, activePane: .right))
         #expect(!PaneLogic.lensTargetsRightPane(isCompare: true, focusedSide: nil, activePane: .left))
@@ -254,12 +247,10 @@ import Sync
         #expect(targets == ["receipt.pdf", "sub/scan.png"])
     }
 
-    /// **A focus on a folder the root only LINKS to.** The iCloud source focused on `Documents`
-    /// composed `<iCloud Drive>/Documents` lexically, while every node the walk produces under it
-    /// is spelled `~/Documents/…` — so `relativeIgnoreTargets` stripped nothing and each ignore
-    /// went into the durable per-pair store as a verbatim absolute path, which is pane-specific
-    /// and invisible to the other side. The same defect that drew "Empty" over the Columns view's
-    /// second column (`FileSyncManager.focusURL`), reached through a different door.
+    /// A focus on a folder the root only links to. The iCloud source focused on `Documents` would
+    /// compose `<iCloud Drive>/Documents` lexically while the walk's nodes are spelled
+    /// `~/Documents/…`, so nothing would be stripped and each ignore would be stored as a
+    /// pane-specific absolute path. `FileSyncManager.focusURL` resolves the same link.
     @Test func testIgnoreBasePathResolvesAFocusOnALinkedFolder() {
         let links: PathBoundary.LinkedFolders = ["/iCloud": ["Documents": "/home/Documents"]]
         let base = PaneLogic.ignoreBasePath(isLeft: true, leftRoot: "/iCloud", rightRoot: "/Right",
@@ -268,8 +259,8 @@ import Sync
         #expect(base == "/home/Documents")
         #expect(PaneLogic.relativeIgnoreTargets(nodeIds: ["/home/Documents/Home/deed.pdf"],
                                                 basePath: base) == ["Home/deed.pdf"])
-        // A root the table does not name, and a linked name that is not the FIRST component,
-        // compose exactly as before.
+        // A root the table doesn't name, and a linked name that isn't the first component, compose
+        // lexically.
         #expect(PaneLogic.ignoreBasePath(isLeft: true, leftRoot: "/Other", rightRoot: "/Right",
                                          leftRelativePath: "Documents", rightRelativePath: "",
                                          links: links) == "/Other/Documents")
@@ -278,8 +269,8 @@ import Sync
                                          links: links) == "/iCloud/Word/Documents")
     }
 
-    // The toggledIgnoredPaths cases moved to Sync's PersistentIgnoresTests alongside
-    // `FileSyncManager.toggleIgnored(focusRelativePaths:)`, which superseded the helper.
+    // Toggling ignores is `FileSyncManager.toggleIgnored(focusRelativePaths:)`, covered by Sync's
+    // PersistentIgnoresTests.
 
     // MARK: swappedProviderIds
 
@@ -423,7 +414,7 @@ import Sync
         #expect(isClose(PaneLogic.verticalDragFraction(locationY: 600, panesHeight: 800), 0.25))
     }
 
-    // inspectorFollowsLeft (TE317·5)
+    // inspectorFollowsLeft
 
     /// In Compare the inspector follows the pane the user is working in, even when the other pane
     /// also holds a selection — the left-first rule described the left pane after a click on the right.
@@ -474,10 +465,9 @@ import Sync
     // MARK: bootstrapSteps
 
     @Test func testFirstAppearanceRunsTheFullBootstrapInOrder() {
-        // First launch must behave exactly as before the single-window change: launch
-        // defaults, per-window wiring, then provider discovery with the distinct-pair
-        // selection and initial scan. Order is part of the contract — the undo manager and
-        // action handler must be wired before the discovery task can trigger a refresh.
+        // First launch: launch defaults, per-window wiring, then provider discovery with the
+        // distinct-pair selection and initial scan. Order is part of the contract: the undo
+        // manager and action handler must be wired before discovery can trigger a refresh.
         #expect(PaneLogic.bootstrapSteps(isFirstAppearance: true) == [
             .resetShowHiddenFilesFromDefault,
             .honorLaunchOverlayDiagnostics,
@@ -517,10 +507,9 @@ import Sync
 
     // MARK: - Duplicate-review drift gate (trashRightCopy, both ends)
 
-    /// **The gate compares dates too, because size alone waves through an equal-length rewrite.**
-    /// `2025` → `2026`, `true` → `fals`, any `sed -i` over fixed-width text. The engine's
-    /// `copyDriftedInPlace` was fixed to compare both; this is the same rule, so Compare cannot be
-    /// the weaker door.
+    /// The gate compares dates too, because size alone waves through an equal-length rewrite
+    /// (`2025` → `2026`, any `sed -i` over fixed-width text). The same rule as the engine's
+    /// `copyDriftedInPlace`, so Compare can't be the weaker path.
     @Test func testGateRefusesASameLengthRewrite() {
         let scanned = Date(timeIntervalSince1970: 1_000_000)
         let edited = Date(timeIntervalSince1970: 1_000_500)
@@ -532,8 +521,8 @@ import Sync
             currentDate: scanned, scannedDate: scanned))
     }
 
-    /// A missing date on either end is not a mismatch — a scan that recorded none must not refuse
-    /// every review, which is the engine's own rule.
+    /// A missing date on either end isn't a mismatch: a scan that recorded none must not refuse
+    /// every review. The engine's rule too.
     @Test func testGateDoesNotRefuseWhenADateIsUnknown() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         #expect(PaneLogic.duplicateCopyMatchesScan(
@@ -555,11 +544,9 @@ import Sync
     }
 
     @Test func testKeeperGateRefusesDriftedFileSize() {
-        // Round-4 fix: trashRightCopy used to check existence only, while the engine's
-        // keeperStillExists also compares the file's current byte size against the scan
-        // snapshot — an in-place edit or replacement means the right copy is no longer
-        // provably identical to the keeper, so trashing it could trash the last copy of
-        // the original content.
+        // Like the engine's keeperStillExists, the size must match the scan: after an in-place
+        // edit or replacement the right copy is no longer provably identical to the keeper, so
+        // trashing it could trash the last copy of the original content.
         #expect(!PaneLogic.duplicateCopyMatchesScan(
             exists: true, isDirectory: false, statSucceeded: true, currentSize: 555, scannedSize: 100))
         #expect(PaneLogic.duplicateCopyMatchesScan(
@@ -567,11 +554,9 @@ import Sync
     }
 
     @Test func testKeeperGateFolderVerdictComesFromTheSharedReWalk() {
-        // A folder's stat size isn't its recursive content size, so stat facts still never
-        // decide a directory — but "existence decides", which this rule used to be, meant the
-        // folder-ONLY review flow had NO content check at all. The directory verdict is the
-        // engine's shared re-walk against the scan's baseline, computed by the coordinator
-        // off-main and handed in here as a fact.
+        // A folder's stat size isn't its recursive content size, so stat facts never decide a
+        // directory, and existence alone must not either. The verdict is the engine's shared
+        // re-walk against the scan's baseline, computed off-main and handed in as a fact.
         #expect(!PaneLogic.duplicateCopyMatchesScan(
             exists: true, isDirectory: true, statSucceeded: true, currentSize: 100, scannedSize: 100,
             folderContentsMatchScan: false),
@@ -580,7 +565,7 @@ import Sync
         #expect(PaneLogic.duplicateCopyMatchesScan(
             exists: true, isDirectory: true, statSucceeded: false, currentSize: 555, scannedSize: 100,
             folderContentsMatchScan: true))
-        // No verdict at all refuses — a directory must never pass on existence alone again.
+        // No verdict refuses: a directory must never pass on existence alone.
         #expect(!PaneLogic.duplicateCopyMatchesScan(
             exists: true, isDirectory: true, statSucceeded: true, currentSize: 100, scannedSize: 100),
             "a directory with no re-walk verdict passed on existence alone")
@@ -599,9 +584,9 @@ import Sync
     // MARK: Escape clears the selection
 
     @Test func testEscapeOnTheSingleSourceRailReadsThePanesOwnSelection() {
-        // The rail has no action bar, so `barSelectionNodes` — which is hard-gated to compare mode —
-        // is always empty there. Gating Escape on it meant the ONE surface with no ✕ and no action
-        // bar was also the one where Escape did nothing: a picked folder could never be un-picked.
+        // The rail has no action bar, so `barSelectionNodes` (Compare-only) is always empty there.
+        // Gating Escape on it would leave the one surface with no ✕ and no action bar unable to
+        // un-pick a folder.
         #expect(PaneLogic.escapeClearsSelection(
             isSingleSource: true, hasActionBarSelection: false, paneHasSelection: true))
         // Nothing selected: Escape must bubble (a sheet or the window may want it).
@@ -610,8 +595,8 @@ import Sync
     }
 
     @Test func testEscapeInCompareModeStillGatesOnTheActionBarExactly() {
-        // Unchanged on the compare side, deliberately: a selected path the action bar cannot resolve
-        // to a node leaves Escape to bubble, exactly as before.
+        // In Compare, a selected path the action bar can't resolve to a node leaves Escape to
+        // bubble.
         #expect(PaneLogic.escapeClearsSelection(
             isSingleSource: false, hasActionBarSelection: true, paneHasSelection: true))
         #expect(!PaneLogic.escapeClearsSelection(
@@ -624,12 +609,9 @@ import Sync
         FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: isDirectory)
     }
 
-    /// **One file arms a pick — the case that makes the button reachable.**
-    ///
-    /// Reported from the running app: the two-file offer was never seen, because ⌘-clicking two
-    /// rows is not something the Columns view actually does. One file is the selection every click
-    /// produces, and arming is also the ONLY route to a counterpart in the other pane — a selection
-    /// there clears this one, so "one selected on each side" is not a state that exists.
+    /// One file arms a pick, the case that makes the button reachable. One file is what a click
+    /// selects, and arming is the only route to a counterpart in the other pane: a selection there
+    /// clears this one, so "one selected on each side" never exists.
     @Test func oneFileArmsAPickAndSaysSoOnTheButton() throws {
         let file = node("/root/Lease — Signed.pdf")
         let offer = try #require(PaneLogic.compareOffer(for: [file]))
@@ -659,16 +641,16 @@ import Sync
         #expect(PaneLogic.compareOffer(for: [b, a]) == .filePair(b, a))
     }
 
-    /// **Everything else is withheld, and each of these was a way to offer a button that could not
-    /// act.** A single file is the arming case (CC15.2) and not a pair; three files have no
-    /// two-column viewer; and a folder mixed with a file is neither comparison.
+    /// Everything else is withheld, since each would offer a button that can't act. A single file
+    /// arms a pick, not a pair; three files have no two-column viewer; a folder with a file is
+    /// neither comparison.
     @Test func noOtherSelectionIsOffered() {
         let file = node("/root/a.pdf")
         let other = node("/root/b.pdf")
         let folder = node("/root/Contracts", isDirectory: true)
 
         #expect(PaneLogic.compareOffer(for: []) == nil, "an empty selection offered a comparison")
-        // One file is NOT withheld any more — it arms a pick; see the test above.
+        // One file isn't withheld: it arms a pick (see above).
         #expect(PaneLogic.compareOffer(for: [file, other, node("/root/c.pdf")]) == nil,
                 "three files offered a two-column viewer")
         #expect(PaneLogic.compareOffer(for: [folder, file]) == nil,
@@ -677,10 +659,9 @@ import Sync
                 "two folders offered a file pair — the folder case is ONE folder, scanned against the other pane")
     }
 
-    /// **⇧⌘C reads `filePair`, and a folder must not answer it.** The chord opens the two-column
-    /// viewer; a folder selection is the action bar's two-folder scan and belongs to the button,
-    /// under a name that says so. A `guard let` where `guard case .filePair` was meant would hand
-    /// the pair viewer a directory.
+    /// ⇧⌘C reads `filePair`, and a folder must not answer it. The chord opens the two-column
+    /// viewer; a folder selection is the button's two-folder scan. A `guard let` where
+    /// `guard case .filePair` was meant would hand the pair viewer a directory.
     @Test func onlyAPairAnswersTheChordsRead() throws {
         let folder = node("/root/Contracts", isDirectory: true)
         #expect(PaneLogic.CompareOffer.folderScan(folder).filePair == nil,
@@ -697,8 +678,8 @@ import Sync
 
     // MARK: escapeAction — the pick wins, and the selection survives for a second press
 
-    /// **An armed pick takes esc ahead of the selection**, in every state the selection can be in.
-    /// The strip names esc; if a selection could swallow it the indicator would be lying.
+    /// An armed pick takes esc ahead of the selection, in every state the selection can be in.
+    /// The strip names esc, so a selection must not swallow it.
     @Test func anArmedPickTakesEscapeFirst() {
         for singleSource in [true, false] {
             for bar in [true, false] {
@@ -712,7 +693,7 @@ import Sync
         }
     }
 
-    /// And with no pick it is the rule it always was — the delegation is real, not a rewrite.
+    /// With no pick, esc follows `escapeClearsSelection`: a real delegation, not a rewrite.
     @Test func withNoPickEscapeIsTheSelectionRuleUnchanged() {
         for singleSource in [true, false] {
             for bar in [true, false] {

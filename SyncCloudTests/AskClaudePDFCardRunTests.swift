@@ -8,11 +8,11 @@ import FileExplorer
 import Sync
 @testable import SyncCloud
 
-/// **A PDF card from Claude's call to Undo, end to end** (TE294): a scripted model calls `pdf`,
-/// the app's own runner offers the card, the chat reads its file, the click runs the real PDF
-/// tool, Claude is told what it made, and Undo — the card's button or Edit ▸ Undo — takes it back.
-/// Only the model and the Trash are stand-ins: Undo moves into a folder of the test's own, so a
-/// run never fills his Trash.
+/// A PDF card from Claude's call to Undo, end to end: a scripted model calls `pdf`, the app's own
+/// runner offers the card, the chat reads its file, the click runs the real PDF tool, Claude is
+/// told what it made, and Undo (the card's button or Edit ▸ Undo) takes it back. Only the model
+/// and the Trash are stand-ins: Undo moves into a folder of the test's own, so a run never fills
+/// his Trash.
 @MainActor
 @Suite(.serialized) final class AskClaudePDFCardRunTests {
     let folder = NSTemporaryDirectory() + "ask-claude-pdf-run-" + UUID().uuidString
@@ -95,17 +95,16 @@ import Sync
     private func pageCount(_ path: String) -> Int? { PDFDocument(url: URL(fileURLWithPath: path))?.pageCount }
 
     /// The window's undo stack as a test can drive it. The app's groups by event: a step joins a
-    /// group the run loop closes, and a click comes in a later event. Here the main actor's tasks
-    /// never turn that loop, so the group never closed; the test opens one before the click and
-    /// closes it after the run, as the loop would. (Taken off while its group is still open, a
-    /// step leaves an empty one named for it on the menu — the order no click can make.)
+    /// group the run loop closes. The main actor's tasks never turn that loop here, so the test
+    /// opens a group before the click and closes it after the run, as the loop would. (A step
+    /// taken off while its group is open leaves an empty one named for it on the menu.)
     private func undoStack() -> UndoManager {
         let undo = UndoManager()
         undo.groupsByEvent = false
         return undo
     }
 
-    /// **Delete Pages, clicked and undone on the card**: the card reads the file, nothing is written
+    /// Delete Pages, clicked and undone on the card: the card reads the file, nothing is written
     /// before the click, the click writes a copy without page 1 next to the original and tells
     /// Claude its name, pages and mark, and the card's Undo moves it out and takes the Edit ▸ Undo
     /// step off with it.
@@ -158,7 +157,7 @@ import Sync
         #expect(!cards.askClaudePDFOffersUndo(id))
     }
 
-    /// **Extract, taken back by Edit ▸ Undo**: the menu's step does what the card's button does.
+    /// Extract, taken back by Edit ▸ Undo: the menu's step does what the card's button does.
     @Test func editUndoTakesAnExtractCardBack() async throws {
         let statement = realPDF("Statement.pdf", pages: 5)
         let chat = chat("extract", calling: #"{\"action\":\"extract\",\"handles\":[\"r1\"],\"pages\":\"2-3\"}"#)
@@ -186,7 +185,7 @@ import Sync
         #expect(chat.sinceLastAnswer.last?.hasPrefix("They undid your card “Extract Pages”: ") == true)
     }
 
-    /// **A file changed after the card read it is not run**: the click reads it again and says why.
+    /// A file changed after the card read it is not run: the click reads it again and says why.
     @Test func aFileChangedSinceTheCardReadItIsNotRun() async throws {
         let statement = realPDF("Statement.pdf", pages: 3)
         let chat = chat("changed", calling: #"{\"action\":\"delete_pages\",\"handles\":[\"r1\"],\"pages\":\"2\"}"#)
@@ -206,7 +205,7 @@ import Sync
 
     // MARK: Hand checks a test can make (MANUAL_CHECKS "Ask Claude's PDF cards")
 
-    /// **"Compress while a duplicate scan holds the PDF reader"**: while another job holds the PDF
+    /// "Compress while a duplicate scan holds the PDF reader": while another job holds the PDF
     /// lane, the card says it is checking and its click runs nothing; let go, it fills in.
     @Test func aCardWaitsOutAHeldPDFReaderThenFillsIn() async throws {
         let scan = realPDF("Scan.pdf", pages: 2)
@@ -234,7 +233,7 @@ import Sync
         #expect(chat.pdfCard(id)?.rows.first?.stamp == nil, "the card read the file through a held lane")
         cards.askClaudePDFRun(id, password: nil)
         #expect(chat.pdfCard(id)?.state == .checking, "a click ran a card that hadn't read its file")
-        // And it was refused, not merely re-read (review 2 of 11-04): a refusal says nothing on the card.
+        // And it was refused, not merely re-read: a refusal says nothing on the card.
         #expect(chat.pdfCard(id)?.message == nil, "\(String(describing: chat.pdfCard(id)?.message))")
 
         release.signal()
@@ -244,7 +243,7 @@ import Sync
         #expect(try FileManager.default.contentsOfDirectory(atPath: folder).sorted() == ["Scan.pdf", "Trash"])
     }
 
-    /// **"Click while Claude is answering"**: the card waits, saying so, and runs nothing; once the
+    /// "Click while Claude is answering": the card waits, saying so, and runs nothing; once the
     /// answer is in, the same click runs it.
     @Test func aClickWhileClaudeAnswersWaits() async throws {
         let statement = realPDF("Statement.pdf", pages: 3)
@@ -273,7 +272,7 @@ import Sync
         #expect(chat.pdfCard(id)?.state == .done)
     }
 
-    /// **"Undo, on two cards"**: Edit ▸ Undo takes back the latest card and leaves the first; the
+    /// "Undo, on two cards": Edit ▸ Undo takes back the latest card and leaves the first; the
     /// first card's own Undo then takes back its own.
     @Test func twoCardsEachUndoTheirOwn() async throws {
         let a = realPDF("A.pdf", pages: 3), b = realPDF("B.pdf", pages: 4)
@@ -318,8 +317,8 @@ import Sync
         #expect(FileManager.default.fileExists(atPath: a) && FileManager.default.fileExists(atPath: b), "Undo took an original")
     }
 
-    /// **"Protect"**: the password typed on the card locks the new file and goes nowhere else —
-    /// not the saved chat, not what Claude is told, not the log.
+    /// "Protect": the password typed on the card locks the new file and goes nowhere else: not
+    /// the saved chat, not what Claude is told, not the log.
     @Test func aPasswordLocksTheCopyAndGoesNowhereElse() async throws {
         let notice = realPDF("Notice.pdf", pages: 1)
         let store = URL(fileURLWithPath: (folder as NSString).appendingPathComponent("chat.json"))
@@ -347,8 +346,8 @@ import Sync
         let heard = entries.contains { $0.message == marker }
         try #require(heard, "the capture never saw this test's own line, so the absence below would have examined nothing")
         #expect(!entries.contains { $0.message.contains(secret) }, "the password is in the log")
-        // What Claude is told of the run is there to examine (review 2 of 11-04), or the absence
-        // below would hold of an empty list.
+        // What Claude is told of the run is there to examine, or the absence below would hold of
+        // an empty list.
         try #require(!chat.sinceLastAnswer.isEmpty, "Claude was told nothing of the run, so the absence below proves nothing")
         #expect(!chat.sinceLastAnswer.joined().contains(secret), "Claude would be told the password")
         let saved = try String(contentsOf: store, encoding: .utf8)

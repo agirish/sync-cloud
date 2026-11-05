@@ -249,7 +249,7 @@ import Sync
     @MainActor
     @Test func resolvesASupersededStoredModelToTodaysModelOfTheSameFamily() async throws {
         let scratch = ClassifierScratch()
-        // Picked back when the Opus option was 4.8 — the scan should still run on Opus, today's one.
+        // A stored Opus model that has since been superseded: the scan should run on today's Opus.
         scratch.defaults.set("claude-opus-4-8", forKey: FileSyncManager.cloudModelDefaultsKey)
         let box = RequestBox()
         let env = Self.environment(defaults: scratch.defaults, box: box,

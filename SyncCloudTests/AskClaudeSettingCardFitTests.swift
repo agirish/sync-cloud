@@ -7,8 +7,8 @@ import Settings
 import Sync
 @testable import SyncCloud
 
-/// TE290 step 4a: a settings card fits the panel at its narrowest. Inside a card at a 300 pt panel
-/// there are 256 pt, and about 240 pt when macOS shows scroll bars all the time.
+/// A settings card fits the panel at its narrowest. Inside a card at a 300 pt panel there are
+/// 256 pt, and about 240 pt when macOS shows scroll bars all the time.
 @MainActor
 @Suite struct AskClaudeSettingCardFitTests {
 
@@ -50,7 +50,7 @@ import Sync
         }
     }
 
-    /// TE290 step 4c: Claude's own change says so, with the longest "was" and a raising Undo.
+    /// Claude's own change says so, with the longest "was" and a raising Undo.
     @Test(arguments: [
         ("intelligence.monthlyLimit", "0.0", SettingValue.double(5)),
         ("intelligence.readsFiles", "true", SettingValue.bool(false)),
@@ -67,7 +67,7 @@ import Sync
         #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
     }
 
-    /// TE290 step 6: the at-limit card, raised, with Ask Again and its badge line.
+    /// The at-limit card, raised, with Ask Again and its badge line.
     @Test func theAtLimitCardFits240() {
         var card = AskClaudeSettingCard.atLimit(spent: 25.4, limit: 25, resets: Date(), question: "which folders changed most?")
         card.rows[0].changedFrom = "25.0"
@@ -78,7 +78,7 @@ import Sync
         #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
     }
 
-    /// TE290 step 7: the API key card, with a key saved, and a caught message with its buttons.
+    /// The API key card, with a key saved, and a caught message with its buttons.
     @Test(arguments: [false, true])
     func theKeyCardsFit240(caught: Bool) {
         let message = "here’s my new key sk-ant-api03-" + String(repeating: "x", count: 30) + " for Refine and Ask Claude both"
@@ -89,8 +89,8 @@ import Sync
         #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
     }
 
-    /// TE290 step 8: a full list — its first rows, the rest counted, Claude's pattern as a switch,
-    /// the field — and the status of a few edits.
+    /// A full list (its first rows, the rest counted, Claude's pattern as a switch, the field), and
+    /// the status of a few edits.
     @Test func aListCardFits240() {
         var card = AskClaudeSettingCard(rows: [.init(id: "sync.ignorePatterns", pick: "~$*")])
         card.rows[0].listEdits = [.init(item: "Thumbs.db", present: false), .init(item: "*.photoslibrary/resources/derivatives", present: true)]
@@ -101,7 +101,7 @@ import Sync
         #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
     }
 
-    /// TE290 step 9: a text field, and a folder with a long path, Choose… and Reset.
+    /// A text field, and a folder with a long path, Choose… and Reset.
     @Test(arguments: ["organize.inbox", "sources.openAt", "sources.addFolder"])
     func textAndFolderCardsFit240(id: String) {
         var card = AskClaudeSettingCard(rows: [.init(id: id, target: id == "sources.openAt" ? "Acct" : nil, pick: id == "organize.inbox" ? "Loose Files" : nil)])
@@ -114,7 +114,7 @@ import Sync
         #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
     }
 
-    /// TE290 step 9, part 2: a person's fields and moves, Add Person, and a read-only roster.
+    /// A person's fields and moves, Add Person, and a read-only roster.
     @Test(arguments: [("people.edit", false), ("people.add", false), ("people.edit", true)])
     func peopleCardsFit240(id: String, readOnly: Bool) {
         var card = AskClaudeSettingCard(rows: [.init(id: id, target: id == "people.edit" ? "mother" : nil)])
@@ -129,7 +129,7 @@ import Sync
         #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
     }
 
-    /// TE290 step 10: a button card at rest, with its outcome, and Reset All's question open in it.
+    /// A button card at rest, with its outcome, and Reset All's question open in it.
     @Test func buttonCardsAndTheirQuestionFit240() {
         var card = AskClaudeSettingCard(rows: [.init(id: "intelligence.savedSuggestionsClear")])
         card.rows[0].outcome = "Cleared 1,284 saved suggestions."

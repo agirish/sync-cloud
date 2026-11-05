@@ -4,13 +4,13 @@ import FileExplorer
 import Sync
 @testable import SyncCloud
 
-/// §11's two deferred verbs, landed (proposal O10). The menu is where a keyboard user finds a
-/// plan at all, and until now `Plan…` was reachable only by locating the card and clicking it.
+/// Restructure's two folder verbs in the Organize menu, which is where a keyboard user finds a
+/// plan at all; otherwise `Plan…` is reachable only by finding the card and clicking it.
 @MainActor
 @Suite struct RestructureMenuVerbTests {
 
-    /// **Both items exist in the Organize menu**, which is the whole claim — a verb with a
-    /// handler and no menu route cannot be found without already knowing where to look.
+    /// Both items exist in the Organize menu: a verb with a handler and no menu route can't be
+    /// found without already knowing where to look.
     @Test func theOrganizeMenuCarriesBothVerbs() throws {
         let organize = try #require(NSApp.mainMenu?.items
             .first { $0.title == "Organize" }?.submenu)
@@ -19,8 +19,8 @@ import Sync
         #expect(titles.contains("Set Up Like Its Siblings"))
     }
 
-    /// **Above the Undo divider.** These are things to do with a folder; Undo is about a landing
-    /// that already happened, and §11's one hard constraint is that it not be mistaken for ⌘Z.
+    /// Above the Undo divider. These act on a folder; Undo reverses a landing that already
+    /// happened, and must not be mistaken for ⌘Z.
     @Test func theyPrecedeTheLedgerUndo() throws {
         let organize = try #require(NSApp.mainMenu?.items
             .first { $0.title == "Organize" }?.submenu)
@@ -33,8 +33,8 @@ import Sync
         #expect(plan < setUp, "plan then set up — the order the roadmap lists them in")
     }
 
-    /// **No chords.** This menu's own rule, and the palette law: a verb reaches ⌘K only after it
-    /// has a menu item, never the other way round.
+    /// No chords, by this menu's own rule. (A verb reaches ⌘K only after it has a menu item, never
+    /// the other way round.)
     @Test func neitherVerbTakesAChord() throws {
         let organize = try #require(NSApp.mainMenu?.items
             .first { $0.title == "Organize" }?.submenu)
@@ -44,8 +44,8 @@ import Sync
         }
     }
 
-    /// The Edit menu stays clean of them — the constraint that keeps the ledger undo out of it
-    /// applies to its neighbours too.
+    /// The Edit menu stays clean of them: what keeps the ledger undo away from ⌘Z keeps its
+    /// neighbours away too.
     @Test func theEditMenuCarriesNoneOfThem() throws {
         let edit = try #require(NSApp.mainMenu?.items.first { $0.title == "Edit" }?.submenu)
         let titles = edit.items.map(\.title)
@@ -55,8 +55,9 @@ import Sync
         }
     }
 
-    /// A request is a VALUE the workspace carries out — a sheet presented from the menu bar
-    /// would sit outside the anchor that keeps it alive across a lens switch.
+    /// A request is a value the workspace carries out, since a sheet presented from the menu bar
+    /// would sit outside the anchor that keeps it alive across a lens switch. Two presses must
+    /// differ, or the second is swallowed as no change.
     @Test func aRequestReFiresWhenTheSameVerbIsPressedTwice() {
         let first = RestructureVerbRequest(verb: .plan, folder: "/x/Finance")
         let second = RestructureVerbRequest(verb: .plan, folder: "/x/Finance")
@@ -66,17 +67,12 @@ import Sync
         #expect(first.folder == second.folder)
     }
 
-    /// **Availability and the handler read ONE answer.** `RestructureVerbResolver.resolve` is
-    /// where the decision lives and where it is tested; what no test in either module can reach
-    /// is whether these two call sites *ask it the same question* — `ContentView` is not
-    /// constructible here, and `carryOut` is private to a view in another package.
-    ///
-    /// So this reads the two call sites and checks their arguments agree. It is a source scan,
-    /// with a source scan's limits: it proves the store gate and the scaffolded set are passed at
-    /// both, and it would not notice either one passing a *wrong value*. Its worth is that the
-    /// specific drift it forbids — one site consulting the store and the other not — is exactly
-    /// what shipped: `Plan…` was offered on a store the card withheld it for, and `Set Up Like Its
-    /// Siblings` stayed enabled after its scaffold had landed.
+    /// Menu availability and the handler read one answer. `RestructureVerbResolver.resolve` owns
+    /// and tests the decision, but no test can call both sites (`ContentView` can't be built here,
+    /// and `carryOut` is private to another package's view). So this checks both pass the store
+    /// gate and the scaffolded set. It can't see a wrong value, only a site that skips one, which
+    /// would offer `Plan…` on a store the card withholds it for, or keep `Set Up Like Its Siblings`
+    /// enabled after its scaffold landed.
     @Test func bothCallSitesAskTheResolverTheSameQuestion() throws {
         let repo = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -95,22 +91,18 @@ import Sync
             #expect(text.contains("alreadyScaffolded:"),
                     "\(name) drops the landed-scaffold check")
         }
-        // And neither reaches past it to the finding lookup, which is the seam that let the two
-        // drift in the first place.
+        // Neither reaches past it to the finding lookup, the seam that would let the two drift.
         #expect(!menu.contains("RestructureVerbResolver.finding("),
                 "the menu asks for a resolution, not a finding")
         #expect(!workspace.contains("RestructureVerbResolver.finding("),
                 "and so does the workspace")
     }
 
-    /// **The app's own binary is the test host**, so `SyncCloudApp`'s launch path runs under
-    /// `xcodebuild test` — and O16's trend stamp, added there, wrote a point into the developer's
-    /// real `restructure.json` on every test run. Found by reading the file after an install and
-    /// seeing the test run's mtime on it, not the launch's.
-    ///
-    /// `attach` defaults to not stamping and the launch site passes `!isRunningTests`. This is a
-    /// source scan with a source scan's limits — it cannot run the launch path — but the thing it
-    /// forbids is precise: an unconditional stamp inside a function the test host calls.
+    /// The app's own binary is the test host, so `SyncCloudApp`'s launch path runs under
+    /// `xcodebuild test`, and an unconditional trend stamp would write into the developer's real
+    /// `restructure.json` on every test run. `attach` defaults to not stamping and the launch site
+    /// passes `!isRunningTests`. A source scan: it can't run the launch path, but it forbids an
+    /// unconditional stamp in a function the test host calls.
     @Test func attachDoesNotWriteUnlessARealLaunchAsksItTo() throws {
         let repo = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -127,8 +119,8 @@ import Sync
         #expect(app.contains("recordingTrend: !isRunningTests"),
                 "the launch site is the one that opts in, and it excludes the test host")
 
-        // A positive control: `isRunningTests` is a real flag on this type, so the clause above
-        // is not naming something that quietly evaluates to nothing.
+        // Positive control: `isRunningTests` is a real flag here, not a name that evaluates to
+        // nothing.
         #expect(app.contains("XCTestConfigurationFilePath"))
     }
 }

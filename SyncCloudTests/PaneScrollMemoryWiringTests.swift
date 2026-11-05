@@ -2,14 +2,10 @@
 import Testing
 import Foundation
 
-/// **That the app actually hands each pane its scroll memory**, and names the pane's surface by
-/// workspace AND side.
-///
-/// `paneScrollMemory` defaults to nil in the environment, and a pane with no memory scrolls exactly as
-/// it always did — so dropping the app's wiring breaks nothing any test can see, and the only symptom
-/// is the one this was built to end: every workspace switch putting the columns back at their first.
-/// Scanned against the app's own source for `PaneColumnsGraftWiringTests`' reason: `ContentView` is a
-/// `View` with `@State` and cannot be instantiated here.
+/// The app hands each pane its scroll memory, and names the pane's surface by workspace and side.
+/// `paneScrollMemory` defaults to nil, and a pane without it still scrolls, so dropping the wiring
+/// breaks nothing a test sees; every workspace switch would just put the columns back at their
+/// first. A source scan, as in `PaneColumnsGraftWiringTests`: `ContentView` can't be built here.
 @Suite struct PaneScrollMemoryWiringTests {
 
     @Test func everyPaneIsHandedTheWindowsScrollMemory() throws {

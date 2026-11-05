@@ -1,21 +1,15 @@
 import Testing
 import Foundation
 
-/// **The person gather reads the corpus under a profile id, and that id has to be the FOLDER the
-/// artifacts came from.**
+/// The person gather reads the corpus under a profile id, and that id must be the folder the
+/// artifacts came from. `FilingProfileStore.active` treats the directory as the identity; the
+/// `profileId` field in `folder-profile.json` decodes to `"default"` when a hand-built profile
+/// omits it. Keyed on the field, the gather would ask `FilingSurveyStore.corpus(id:in:)` for an
+/// empty folder and quietly show nothing.
 ///
-/// `FilingProfileStore.active` states the law — "The DIRECTORY is the identity" — and warns when
-/// the folder name and the `profileId` field inside `folder-profile.json` disagree, which they do
-/// whenever a hand-built profile omits the field: it decodes to `"default"`. Keyed on the field,
-/// `acceptPersonScope` asked `FilingSurveyStore.corpus(id:in:)` for a folder holding nothing, got
-/// nil, and "show me everything that's Daughter's" quietly produced nothing at all.
-///
-/// **This is a scan because the function cannot be driven.** `PersonGatherSupersedeTests` says so
-/// in as many words — `acceptPersonScope` needs a whole `ContentView` with a live environment —
-/// and its own tests reach past it to `ContentView.gatherOffMainActor`, passing `profileId:`
-/// explicitly, so they exercise the callee and are blind to what the caller hands it. The two Sync-
-/// side doors of this same defect (`resurveyFilingMemory`, `rejectedIdentifiers`) have real
-/// behavioural tests; this one has the seam pinned instead of nothing.
+/// A scan, because `acceptPersonScope` needs a whole `ContentView` and can't be driven.
+/// `PersonGatherSupersedeTests` calls `ContentView.gatherOffMainActor` with `profileId:` given,
+/// so it can't see what the caller passes.
 @Suite struct PersonGatherProfileIdTests {
 
     /// The gather's id comes from the manager's directory-derived value, not the profile's field.
@@ -34,14 +28,13 @@ import Foundation
                 "the gather is back on the field inside the profile, which can name another folder")
     }
 
-    /// And the loader actually hands that id over, or the line above resolves to the fallback on
-    /// every launch and the fix is inert.
+    /// The loader hands that id over, or the line above falls back to the field on every launch.
     @Test func theLoaderHandsTheDirectoryIdToTheManager() throws {
         let source = try macAppSources()
         #expect(source.contains("manager.filingProfileDirectoryId = loaded.id"),
                 "nothing sets the directory id, so every reader falls back to the field")
-        // `loaded.id` is the folder; the three stores beside it already take it, and this is the
-        // premise that makes them comparable rather than two conventions in one function.
+        // `loaded.id` is the folder; the stores beside it take it too, so one function keeps one
+        // convention.
         #expect(source.contains("profileId: loaded.id"),
                 "the sibling stores stopped using the folder id — the convention has drifted")
     }

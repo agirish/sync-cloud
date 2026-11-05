@@ -5,35 +5,24 @@ import AppKit
 
 /// Does the tour's artwork actually paint?
 ///
-/// The illustrations are the one part of the welcome card no assertion could previously reach:
-/// they are decorative and `accessibilityHidden`, and most of them reveal some or all of their
-/// drawing from an `onAppear` — Welcome and Browse draw nothing at all until it runs. A page whose
-/// art never arrives renders as a 120pt blank band above the copy and nothing else changes — the
-/// card still lays out, the titles still read, and the suite stays green. A page whose reveal never
-/// runs is quieter still: it stays in its first frame, so every page is also compared with that frame.
+/// The illustrations are decorative and `accessibilityHidden`, and most reveal some or all of their
+/// drawing from an `onAppear`; Welcome and Browse draw nothing until it runs. A page whose art never
+/// arrives is a blank 120pt band while the card still lays out and every other test stays green. A
+/// page whose reveal never runs stays in its first frame, so every page is compared with that frame.
 ///
-/// **The harness validates itself against a shipped illustration first.** `ImageRenderer` is not
-/// obliged to run `onAppear`, so a blank result here would be indistinguishable from art that is
-/// genuinely broken — and "assert ink > 0" against a renderer that paints nothing is a test that
-/// can only ever fail for the wrong reason. `testTheRendererSeesAShippedIllustration` is the
-/// control: if the renderer cannot see `DuplicatesArt`, which has shipped since the tour existed, then
-/// it cannot see any of them and the Browse check below is not evidence. It must see it *revealed*,
-/// too: a renderer that skipped `onAppear` would read every page before its reveal.
-///
-/// **And against a blank one, because the renderer can fail the other way too.** Its own image is
-/// a buffer it recycles, and a render with nothing to draw handed that buffer back holding an
-/// earlier page's pixels — so a page with no art at all passed here, in some runs and not others.
-/// `render` draws into a bitmap of its own for that reason, and
-/// `testABlankPageReadsAsBlankRightAfterAPaintedOne` is the control that keeps it honest.
+/// Two controls keep the harness honest. `testTheRendererSeesAShippedIllustration` checks the
+/// renderer sees `DuplicatesArt`, revealed, since `ImageRenderer` isn't obliged to run `onAppear`.
+/// `testABlankPageReadsAsBlankRightAfterAPaintedOne` checks a blank reads as blank, since the
+/// renderer's own image is a recycled buffer that can hand back an earlier page's pixels; `render`
+/// draws into a bitmap of its own for that reason.
 @Suite(.machinePinned(.pixelSampling)) struct SetupArtworkRenderTests {
 
     /// Renders one page's artwork at the size the card gives it, and returns the bitmap.
     ///
-    /// Reduce Motion is not injected here, so each page takes whichever branch the machine's setting
-    /// picks. `accessibilityReduceMotion` itself is read-only, but its writable spelling,
-    /// `_accessibilityReduceMotion`, is how `testEveryTourPageRevealsWhenItAppears` pins both. What
-    /// lands in the bitmap is whatever a single render pass produces, which is precisely why the
-    /// control test below exists rather than an assumption that `onAppear` ran.
+    /// Reduce Motion isn't injected, so each page takes the machine's branch;
+    /// `testEveryTourPageRevealsWhenItAppears` pins both through the writable
+    /// `_accessibilityReduceMotion`. The bitmap is one render pass, so the control test checks that
+    /// `onAppear` ran rather than assuming it.
     @MainActor
     static func render(_ art: SetupArt.Art) throws -> NSBitmapImageRep {
         try render(SetupIllustration(art: art, leftName: "iCloud", rightName: "Dropbox", accent: Self.accent), named: "\(art)")
@@ -44,19 +33,14 @@ import AppKit
 
     /// Renders any view the way `render(_:)` renders a page: same size, same scale.
     ///
-    /// **Into a bitmap this function allocates and clears — never the renderer's own image.**
-    /// `ImageRenderer`'s `nsImage` and `cgImage` come back in a buffer it recycles between renders
-    /// of the same pixel size, and a render with nothing visible to draw does not clear it: it
-    /// returns whatever the last same-sized render painted, once that render's image has been
-    /// freed. Measured 2026-09-26 with Browse's art replaced by `Color.clear`: the blank page read
-    /// 18,351 painted pixels, `.duplicates`' exact count, and each of the three Browse tests passed,
-    /// in one run or another, on a page that drew nothing. Art whose reveal never ran is the same
-    /// case wherever all of it waits for the reveal, as Welcome's and Browse's does — everything at
-    /// `opacity(0)` draws nothing.
+    /// Draws into a bitmap this function allocates and clears, never the renderer's own image.
+    /// `ImageRenderer`'s `nsImage` and `cgImage` reuse a buffer between same-sized renders, and a
+    /// render with nothing visible doesn't clear it, so a blank page (or art held at `opacity(0)`)
+    /// would read as the last page's pixels once that image is freed.
     ///
     /// `render(rasterizationScale:renderer:)` is the same renderer, `onAppear` included; only the
-    /// destination is ours. An unattached `NSHostingView` is no substitute: through `cacheDisplay`
-    /// it drew Browse and Welcome as nothing at all, captured before their reveals showed.
+    /// destination is ours. An unattached `NSHostingView` is no substitute: its `cacheDisplay`
+    /// captures Browse and Welcome before their reveals show.
     @MainActor
     static func render(_ content: some View, named name: String) throws -> NSBitmapImageRep {
         let scale: CGFloat = 2
@@ -79,9 +63,7 @@ import AppKit
     }
 
     /// Pixels that are not fully transparent, and how many of them carry a hue rather than grey.
-    ///
-    /// Each distinct pixel value is asked once (`PixelMemo`), the question unchanged — this used to
-    /// convert every painted pixel of every page to device RGB, on the main actor.
+    /// Each distinct pixel value is classified once (`PixelMemo`), to keep the main actor free.
     static func ink(_ bitmap: NSBitmapImageRep) -> (painted: Int, tinted: Int) {
         let classify = PixelMemo(bitmap) { colour -> (painted: Bool, tinted: Bool) in
             guard let colour, colour.alphaComponent > 0.02 else { return (false, false) }
@@ -118,12 +100,10 @@ import AppKit
 
     /// The control. If this fails, nothing else in this file is evidence of anything.
     ///
-    /// **It counts the reveal, not just the drawing.** `DuplicatesArt` paints its documents before
-    /// its `onAppear` runs — 8,723 pixels with every reveal suppressed, measured 2026-09-27 — so
-    /// `painted > 500` held whether or not the renderer ran `onAppear` at all. Its check mark is the
-    /// one part only the reveal draws: 1,423 green pixels revealed, none before, and nothing else it
-    /// draws is green. It heads no panel any more, so nothing edits it for a page's sake, which is
-    /// what lets it stand as the reference.
+    /// It counts the reveal, not just the drawing: `DuplicatesArt` paints its documents before
+    /// `onAppear` runs, so the ink floor holds either way. Its green check mark is the one part only
+    /// the reveal draws. It heads no panel, so nothing edits it for a page's sake, which lets it
+    /// stand as the reference.
     @MainActor
     @Test func testTheRendererSeesAShippedIllustration() throws {
         let bitmap = try Self.render(.duplicates)
@@ -135,14 +115,12 @@ import AppKit
                 "DuplicatesArt rendered without its check mark, which only its onAppear reveal draws — the renderer is reading pages before their reveal, so a blank page below would be the harness, not the art")
     }
 
-    /// The other control: a page that paints nothing reads as nothing — straight after one that
-    /// painted, at the same size.
+    /// The other control: a page that paints nothing reads as nothing, straight after one that
+    /// painted at the same size (see `render(_:named:)`).
     ///
-    /// Every floor below is only evidence if a blank reads as blank, and through the renderer's own
-    /// image it did not (see `render(_:named:)`). The two blanks are the two a broken page produces:
-    /// a body that draws nothing, and art held at `opacity(0)` because its reveal never ran. Each
-    /// follows a shipped illustration whose image is freed first, inside its own autorelease pool,
-    /// because a recycled buffer is only handed out once the image holding it is gone.
+    /// The two blanks are the ones a broken page produces: a body that draws nothing, and art held
+    /// at `opacity(0)` by a reveal that never ran. Each follows a shipped illustration freed in its
+    /// own autorelease pool, because a recycled buffer is only handed out once its image is gone.
     @MainActor
     @Test func testABlankPageReadsAsBlankRightAfterAPaintedOne() throws {
         let blanks: [(String, AnyView)] = [
@@ -160,11 +138,8 @@ import AppKit
         }
     }
 
-    /// Browse's own art paints, and paints its tint.
-    ///
-    /// Both halves matter. A stack of column outlines with no lit row would still clear an ink
-    /// count while saying nothing about drilling into a tree, which is the entire thing the
-    /// illustration is for.
+    /// Browse's own art paints, and paints its tint: column outlines with no lit row would clear an
+    /// ink count while showing nothing about drilling into a tree, which is the illustration's point.
     @MainActor
     @Test func testTheBrowseIllustrationPaintsColumnsAndASelection() throws {
         let (painted, tinted) = Self.ink(try Self.render(.browse))
@@ -172,11 +147,8 @@ import AppKit
         #expect(tinted > 40, "the Browse artwork painted no lit row — the column trail is missing")
     }
 
-    /// Three columns, not one blob.
-    ///
-    /// The columns are separated by 5pt of clear space, so a correct render leaves three runs of
-    /// painted pixel-columns with gaps between them. This is what would catch the stack collapsing
-    /// into a single frame — a failure an ink count cannot see, because the ink is all still there.
+    /// Three columns, not one blob. They are 5pt apart, so a correct render leaves three runs of
+    /// painted pixel-columns. Catches the stack collapsing into one frame, which an ink count can't.
     @MainActor
     @Test func testTheBrowseIllustrationDrawsThreeSeparateColumns() throws {
         let bitmap = try Self.render(.browse)
@@ -191,16 +163,11 @@ import AppKit
         #expect(runs == 3, "expected three separated columns, found \(runs) run(s) of ink")
     }
 
-    /// Every page's art paints — by construction, not by roll-call. This suite rendered 2 of 6
-    /// cases for its first weeks, so a blank illustration on four tour pages (or on whatever case
-    /// is added next — `Art` is `CaseIterable` for exactly this loop) would have shipped with the
-    /// suite green. The floor is far below any shipped illustration's ink and far above a page that
-    /// lost its body. It catches a reveal that never runs only where a page draws nothing before
-    /// it — Welcome and Browse; the rest already paint before it (1,712 to 73,664 pixels with every
-    /// reveal suppressed, measured 2026-09-27), which is `testEveryTourPageRevealsWhenItAppears`'s
-    /// to catch. The two controls above establish that the renderer sees a shipped illustration,
-    /// revealed, and that a blank reads as blank, so a blank here is the ART, not the harness — and
-    /// a pass is not an earlier page.
+    /// Every page's art paints, over `Art.allCases` so a new case is covered too. The floor is far
+    /// below any shipped illustration's ink and far above a page that lost its body. It catches a
+    /// dead reveal only on Welcome and Browse, which draw nothing before it; the rest are
+    /// `testEveryTourPageRevealsWhenItAppears`'s. With the two controls green, a blank here is the
+    /// art, not the harness.
     @MainActor
     @Test(arguments: SetupArt.Art.allCases)
     func testEveryTourPagePaintsItsIllustration(art: SetupArt.Art) throws {
@@ -210,21 +177,17 @@ import AppKit
 
     /// Pages whose `onAppear` adds nothing but motion, so there is no reveal to hold them to.
     ///
-    /// Transfer only starts a drift, which Reduce Motion skips — and which this renderer draws
-    /// unmoved in the first Transfer render of a process and drifted in every one after (measured
-    /// 2026-09-27), so its before-and-after would depend on test order. Held to having no reveal
-    /// instead: gain one, and the check below says so.
+    /// Transfer only starts a drift, which Reduce Motion skips, and the renderer draws it unmoved in
+    /// a process's first Transfer render and drifted after, so a before-and-after would depend on
+    /// test order. Held to having no reveal instead: gain one, and the check below says so.
     static let pagesWithoutAReveal: Set<SetupArt.Art> = [.transfer]
 
-    /// Every page changes when it appears — so a reveal that never runs is caught on every page, not
-    /// only on the two that draw nothing before it.
+    /// Every page changes when it appears, so a dead reveal is caught on every page.
     ///
-    /// Each page is drawn twice through the same renderer: as it stands before `onAppear`
-    /// (`setupArtReveals` off — the frame a dead reveal leaves on screen) and revealed. Both
-    /// renders are exact and repeatable, so a reveal that never runs leaves the two identical,
-    /// pixel for pixel — measured, on every page. Run with Reduce Motion off and on, because every
-    /// page reveals down a different branch for each and either can break alone. The floor is far
-    /// below the smallest reveal, Compare's 2,900 pixels, and far above the 0 a dead one leaves.
+    /// Each page is drawn before `onAppear` (`setupArtReveals` off, the frame a dead reveal leaves)
+    /// and revealed. Both renders are exact, so a dead reveal leaves them identical. Run with Reduce
+    /// Motion off and on, since each takes its own branch and either can break alone. The floor is
+    /// far below the smallest reveal (Compare's, about 2,900 pixels) and far above zero.
     @MainActor
     @Test(arguments: SetupArt.Art.allCases)
     func testEveryTourPageRevealsWhenItAppears(art: SetupArt.Art) throws {

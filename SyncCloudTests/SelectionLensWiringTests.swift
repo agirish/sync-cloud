@@ -3,14 +3,12 @@ import Foundation
 import Design
 @testable import SyncCloud
 
-/// The app-target half of the selection lens (roadmap RD46): every window hands the stored
-/// appearance down, and the controls that live in `MacApp` host their lens.
-///
-/// Source scans, because these controls cannot be rendered on their own — the workspace bar is a
-/// `ContentView` computed property inside a toolbar item. The seam's behaviour is pinned by
-/// `SelectionLensTests` (Design), and each package control's wiring by a probe render in its own
-/// package; what a scan can and must catch here is a window or a control that forgot to opt in,
-/// which would fail safe to today's look and so would never be noticed on screen.
+/// The app-target half of the selection lens: every window hands the stored appearance down, and
+/// the controls in `MacApp` host their lens. Source scans, because these controls can't render on
+/// their own (the workspace bar is a `ContentView` property inside a toolbar item). The seam is
+/// pinned by `SelectionLensTests` (Design) and each package control by a probe render in its own
+/// package. A window or control that forgot to opt in falls back to the plain look, so nobody
+/// would notice it on screen.
 @Suite struct SelectionLensWiringTests {
 
     static func source(_ name: String) throws -> String {
@@ -33,7 +31,7 @@ import Design
     @Test func everyWindowHandsTheAppearanceToItsLenses() throws {
         let app = try Self.source("SyncCloudApp.swift")
         let scenes = Self.windowScenes(app)
-        // Three since Activity took in the Activity Log and Sync History windows (TE232).
+        // At least three: Activity holds the Activity Log and Sync History, not windows of their own.
         try #require(scenes.count >= 3, "the app declares at least three windows; found \(scenes.count)")
         for scene in scenes {
             // The scene's own text runs to the next `Window(`; its root modifiers sit inside it.
@@ -44,8 +42,8 @@ import Design
     }
 
     @Test func theAppearanceSitsBesideTheFontSizeAtEveryRoot() throws {
-        // The two are the same kind of thing — a stored setting read into the environment at a
-        // window's root — and a root that has one and not the other is a root someone half-wired.
+        // Both are a stored setting read into the environment at a window's root, so a root with
+        // one and not the other is half-wired.
         let app = try Self.source("SyncCloudApp.swift")
         let fonts = app.components(separatedBy: ".appFontSizeFromSettings()").count - 1
         let lenses = app.components(separatedBy: ".selectionLensAppearanceFromDefaults()").count - 1
@@ -61,7 +59,7 @@ import Design
     }
 
     @Test func theWorkspaceBarsChosenLabelIsDarkOnGlass() throws {
-        // White on Solid's fill; on a glass lens `.primary` — white there all but vanished.
+        // White on Solid's fill; `.primary` on a glass lens, where white all but vanishes.
         let toolbar = try Self.source("ContentView+Toolbar.swift")
         #expect(toolbar.contains(".selectionLensLabelInk(isSelected: isSelected, onFill: onAccent, unselected: Color.secondary)"))
     }
@@ -85,9 +83,9 @@ import Design
         #expect(help[marker.upperBound...].prefix(240).contains(".fill(accentFill)"))
     }
 
-    /// ⌘N from another workspace sets Edit's rail tab BEFORE it switches there, so the rail is built
-    /// on its files half rather than switching to it in its first update — which glided its lens
-    /// across the tabs of a window nobody had touched.
+    /// ⌘N from another workspace sets Edit's rail tab before switching there, so the rail is built
+    /// on its files half. Switched in its first update instead, the lens would glide across the
+    /// tabs of a window nobody touched.
     @Test func newTextFileSetsTheRailTabBeforeTheRailIsBuilt() throws {
         let editor = try Self.source("ContentView+Editor.swift")
         let body = try #require(editor.range(of: "var shortcutNewTextFile"), "no ⌘N handler")
@@ -104,21 +102,19 @@ import Design
         #expect(app.contains("UserDefaults.didChangeNotification"))
         #expect(app.contains("NSWorkspace.accessibilityDisplayOptionsDidChangeNotification"))
         #expect(app.contains("increasedContrast: workspace.accessibilityDisplayShouldIncreaseContrast"))
-        // Never a queue-based observer: see the test below for what one did.
+        // Never a queue-based observer: the test below says why.
         #expect(!app.contains("queue: .main) { [weak self] _ in\n                MainActor.assumeIsolated { self?.log() }"))
     }
 
-    /// **A defaults write off the main thread never waits for it.** The `[glass]` line's first
-    /// observer was `queue: .main`, which makes the POSTER wait for the main thread: a background
-    /// writer holding a lock waited on a main thread that was waiting on that lock, and the test host
-    /// hung for good (2026-10-03, `FilingSpendStore`). Here the main thread is held while another
-    /// thread writes a default; with the old observer the write cannot finish until the hold ends,
-    /// and the hold gives up after five seconds and says so.
+    /// A defaults write off the main thread never waits for it. An observer on `queue: .main`
+    /// makes the poster wait for the main thread, so a background writer holding a lock the main
+    /// thread is waiting on deadlocks the app. Here the main thread is held while another thread
+    /// writes; with such an observer the write can't finish, and the hold gives up after five
+    /// seconds and says so.
     ///
-    /// The writer is a thread of its own, not a block on a global queue. This test starts in a full
-    /// run's opening burst, when source scans fill every user-initiated thread of the pool, and a
-    /// default-QoS block waited up to 3.9 s for a thread there, once more than 5 s, before its
-    /// 10 ms write began (2026-10-20). That timed the pool, not the write.
+    /// The writer is its own thread, not a global-queue block: this test runs in a full run's
+    /// opening burst, when source scans fill the pool, and a queued block can wait seconds for a
+    /// thread, which would time the pool rather than the write.
     @Test @MainActor func aDefaultsWriteOffTheMainThreadNeverWaitsForIt() throws {
         let line = GlassLogLine()
         line.start()
@@ -130,17 +126,15 @@ import Design
             UserDefaults(suiteName: suite)?.set(1, forKey: "probe")
             written.signal()
         }
-        // The main thread, held — as a lock holder's main-thread waiter would hold it.
+        // The main thread, held, as a main-thread waiter on a lock would hold it.
         #expect(written.wait(timeout: .now() + 5) == .success,
                 "a background defaults write waited on the main thread — a lock held across one deadlocks")
     }
 
-    /// **No defaults observer anywhere makes its writer wait.** The test above holds the main thread
-    /// only against the `[glass]` line, and the next observer added with `queue: .main` would park
-    /// every background write to its domain on the main thread without failing it: 9d170742's two,
-    /// on the PDF reader's layout and its saved signatures, did, and every scratch-suite wipe in an
-    /// app-target run then waited for main (2026-10-20). Each observer of the notification must run
-    /// on the posting thread — `queue: nil` — and hop to the main actor without waiting.
+    /// No defaults observer anywhere makes its writer wait. The test above covers only the
+    /// `[glass]` line; any other observer on `queue: .main` would park every background defaults
+    /// write on the main thread without failing it. Each must run on the posting thread
+    /// (`queue: nil`) and hop to the main actor without waiting.
     @Test func noDefaultsObserverMakesItsWriterWait() throws {
         var observers = 0
         var queued: [String] = []
@@ -168,15 +162,15 @@ import Design
         let screen = try Self.source("Setup/AppearanceScreen.swift")
         #expect(screen.contains(".selectionLensHost(Self.swatchLensChannel"))
         #expect(screen.contains(".selectionLensStop(Self.swatchLensChannel, id: offered)"))
-        // Today's ring is the marker the halo replaces — drawn as well, it would ring the swatch twice.
-        // Settings' neutral ring, not `.tint`: nothing sets a tint, so that drew the SYSTEM accent.
+        // Today's ring is the marker the halo replaces; drawn as well, it would ring the swatch twice.
+        // Settings' neutral ring, not `.tint`: nothing sets a tint, so `.tint` is the system accent.
         let marker = try #require(screen.range(of: "SelectionLensTodayMarker {"),
                                   "the setup swatch's ring is not wrapped as today's marker")
         #expect(screen[marker.upperBound...].prefix(120).contains("strokeBorder(Self.ringColor, lineWidth: 2)"))
     }
 
     @Test func theSetupHaloIsNeverTintedAndMatchesTodaysRing() {
-        // It rings a colour, so it must not wear one; and it is today's 2pt ring, carried.
+        // It rings a colour, so it must not wear one; and it is today's 2pt ring.
         #expect(AppearanceScreen.swatchLensStyle.markerOpacity == 0)
         #expect(AppearanceScreen.swatchLensStyle.ring?.width == 2)
         #expect(AppearanceScreen.swatchLensStyle.outset == 0,
@@ -184,8 +178,8 @@ import Design
     }
 
     @Test func theWorkspaceBarsSlidingCapsuleIsTodaysMarker() throws {
-        // Solid keeps the 0.22 s matched-geometry slide; it must be the thing the lens replaces,
-        // or Frosted and Clear would draw the opaque pill AND the glass.
+        // Solid keeps the matched-geometry slide; it must be what the lens replaces, or Frosted and
+        // Clear would draw the opaque pill and the glass.
         let toolbar = try Self.source("ContentView+Toolbar.swift")
         let marker = try #require(toolbar.range(of: "SelectionLensTodayMarker {"),
                                   "the bar's capsule is not wrapped as today's marker")
@@ -195,16 +189,14 @@ import Design
 
     // MARK: - The chosen label on glass
 
-    /// **Every lens that stands for a solid fill colours its labels for glass.** Such a control's
-    /// chosen label is white at Solid, because its fill was chosen to carry white; on the lens
-    /// there is no fill, only glass, and on light glass white all but vanished (reported
-    /// 2026-10-03). `selectionLensLabelInk` gives it `.primary`, black, on light glass — and a
-    /// control added with a `.fill` lens and the old ternary would ship white-on-glass with every
-    /// test of its geometry green. Wash lenses are exempt: their labels were never white.
+    /// Every lens that stands for a solid fill colours its labels for glass. The chosen label is
+    /// white at Solid, on a fill chosen to carry white; on the lens there is only glass, and on
+    /// light glass white all but vanishes. `selectionLensLabelInk` gives it `.primary` there. Wash
+    /// lenses are exempt: their labels are never white.
     ///
-    /// Counted per file — at least as many label-ink calls as fill hosts — so one control's ink
-    /// cannot vouch for a second fill lens added beside it. (A style passed by name rather than
-    /// written `.fill(` inline is not seen; none is today, and the floor below would not notice one.)
+    /// Counted per file (at least as many label inks as fill hosts), so one control's ink can't
+    /// vouch for a second fill lens beside it. A style passed by name instead of an inline `.fill(`
+    /// isn't seen; none is today.
     @Test func everyFillLensColoursItsLabelsForGlass() throws {
         var fillHosts = 0
         var missing: [String] = []
@@ -224,7 +216,7 @@ import Design
 
     // MARK: - Where glass may be written
 
-    /// What draws glass, or a lens's glass: each must go ON a button, after its style — never
+    /// What draws glass, or a lens's glass: each must go on a button, after its style, never
     /// inside its label.
     static let glassModifiers = [".chromeGlassGround(", ".chromeGlassGroup(", ".chromeGlassGlyphButton(",
                                  ".chromeGlassTrack()", ".paneNavGlass()", ".compareBarGlass(",
@@ -247,7 +239,7 @@ import Design
         return files
     }
 
-    /// Every offset of `word` in `bytes`, by `memmem` — string, comment or code alike; the caller
+    /// Every offset of `word` in `bytes`, by `memmem`, in string, comment or code alike; the caller
     /// asks the lexer which.
     static func offsets(of word: [UInt8], in bytes: [UInt8]) -> [Int] {
         bytes.withUnsafeBytes { big in
@@ -268,10 +260,10 @@ import Design
     private static let labelWord = Array("label:".utf8), buttonWord = Array("Button(".utf8),
                        actionWord = Array("action:".utf8)
 
-    /// The byte ranges of every button and menu LABEL in `source`: a `label: {` closure, or the
+    /// The byte ranges of every button and menu label in `source`: a `label: {` closure, or the
     /// trailing closure of `Button(action: …)`. (`Button("Title") { … }`'s trailing closure is its
-    /// action, and `Menu { … }`'s its content — neither is a label.) Braces and parentheses are
-    /// counted in code only, so a `{` in a string or a comment cannot end a label early.
+    /// action, and `Menu { … }`'s its content.) Braces and parentheses count in code only, so a `{`
+    /// in a string or comment can't end a label early.
     static func labelBlocks(_ source: LexedSource) -> [Range<Int>] {
         let b = source.bytes, r = source.roles, n = b.count
         func code(at i: Int, _ word: [UInt8]) -> Bool {
@@ -309,15 +301,13 @@ import Design
         return opens.compactMap { open in matching(open).map { open..<$0 } }
     }
 
-    /// **No glass inside a button's label, anywhere.** `.filled`, `.circular`, `.chrome` and
-    /// `.actionBar` flatten their label into a compositing group, and Liquid Glass renders NOTHING
-    /// through one — while every offscreen test still passes, because glass draws nothing offscreen
-    /// either. That is how the first chrome glass shipped invisible on half the bar. The fix was to
-    /// put glass on the button, after its style; this is what keeps it there, in every package.
+    /// No glass inside a button's label, anywhere. `.filled`, `.circular`, `.chrome` and
+    /// `.actionBar` flatten their label into a compositing group, and Liquid Glass renders nothing
+    /// through one, while offscreen tests still pass because glass draws nothing offscreen either.
+    /// Glass goes on the button, after its style, in every package.
     ///
-    /// Searched with `memmem` and lexed only where a glass modifier occurs: the first version
-    /// compared byte by byte over the whole repo — 10 MB — and took 25 s in a Debug test build,
-    /// the kind of synchronous scan that starves the pool every suite here shares (see `lexed`).
+    /// Searched with `memmem` and lexed only where a glass modifier occurs, since a byte-by-byte
+    /// scan of the whole repo is slow enough to starve the pool every suite shares (see `lexed`).
     @Test func noGlassIsWrittenInsideAButtonsLabel() throws {
         var files = 0, labels = 0, uses = 0
         var offenders: [String] = []

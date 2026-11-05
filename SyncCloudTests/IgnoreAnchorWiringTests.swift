@@ -3,23 +3,12 @@ import Foundation
 import Sync
 
 /// The two closures `ContentView` hands `FileSyncManager` so it can answer questions about the
-/// panes' *sources* — and the reason forgetting either is silent.
-///
-/// `FileSyncManager` owns the panes and knows nothing about which source each is on; the app owns
-/// that mapping. Both closures default to an answer that reproduces the pre-roots behaviour exactly
-/// — `paneOpenAt` answers `""` for both panes, `paneSourceId` answers `""` — which is what makes
-/// every package test that does not set them still ask the old question and get the old answer.
-///
-/// **It is also what makes an unwired app indistinguishable from a working one until it matters.**
-/// With `paneOpenAt` unset, linked navigation drives a mixed pair with one root-relative path and
-/// sends the sibling to a folder two components off. With `paneSourceId` unset, the durable ignore
-/// store quotes its entries against whichever source is on the left, so a pane swap re-reads them
-/// against the other source's root and every ignored row comes back. Neither throws, neither logs,
-/// and neither is reachable from a package test — the closures are wired in the app target, which
-/// has no `SettingsManager` a package can stand up.
-///
-/// So this reads the source. It is the narrowest check that fails when the wiring is dropped, and
-/// the behaviour on the far side of it is tested properly in `PersistentIgnoresTests`.
+/// panes' sources. The manager doesn't know which source each pane is on, and both closures
+/// default to `""`, so package tests that don't set them behave as before, and an unwired app
+/// looks fine until it matters. Unset `paneOpenAt` sends linked navigation's sibling to a folder two
+/// components off; unset `paneSourceId` anchors the durable ignores to the left source, so a pane
+/// swap brings every ignored row back. Neither throws or logs, so this reads the source; the
+/// behaviour is tested in `PersistentIgnoresTests`.
 @Suite struct IgnoreAnchorWiringTests {
 
     static func contentViewSource() throws -> String {
@@ -31,8 +20,8 @@ import Sync
                             "cannot read ContentView.swift — every check below would be vacuous")
     }
 
-    /// Both closures are assigned, and in the same place: the action that creates the handler, which
-    /// is the one moment the manager exists and the view's own state is readable.
+    /// Both closures are assigned in the action that creates the handler, the one moment the manager
+    /// exists and the view's own state is readable.
     @Test func bothPaneSourceClosuresAreWired() throws {
         let source = try Self.contentViewSource()
         #expect(source.contains("syncManager.paneOpenAt = paneOpenAtForSyncManager"),
@@ -41,13 +30,10 @@ import Sync
                 "the manager cannot tell which source each pane is on — the durable ignore set falls back to left-anchored and a swap loses it")
     }
 
-    /// **Read live, both of them.** A captured `String` goes stale on the next provider switch or
-    /// the next discovery pass, and the failure is a translation onto the folder a source *used* to
-    /// open at — which looks like a navigation bug rather than a caching one.
-    ///
-    /// Asserted as the absence of a stored copy rather than the presence of a closure, because the
-    /// tempting mistake is `syncManager.paneOpenAt = { [openAt] _ in openAt }`, which is still a
-    /// closure and still compiles.
+    /// Both read live. A captured `String` goes stale on the next provider switch or discovery pass,
+    /// translating onto the folder a source used to open at, which looks like a navigation bug.
+    /// Checked by reading each body, since `{ [openAt] _ in openAt }` is still a closure and
+    /// compiles.
     @Test func neitherClosureCapturesAStoredCopy() throws {
         let source = try Self.contentViewSource()
         for name in ["paneOpenAtForSyncManager", "paneSourceIdForSyncManager"] {

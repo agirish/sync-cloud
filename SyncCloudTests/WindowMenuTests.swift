@@ -4,14 +4,12 @@ import Sync
 import Testing
 import AppKit
 
-/// **The Window and Help menus, read off the running app rather than out of the source.**
+/// The Window and Help menus, read off the running app rather than out of the source.
 ///
-/// The test host IS the app, so `NSApp.mainMenu` is what AppKit actually built. That matters more
-/// here than anywhere else in the menu bar, because the defect this suite pins was **invisible to a
-/// source scan**: SwiftUI creates a Window-menu opener for every `Window` scene automatically, and
-/// nothing in `MacApp/` writes those items down. Help carried a hand-written second copy of all
-/// three auxiliary windows under a comment asserting the Activity Log "otherwise has no menu
-/// entry", and every one of them was listed twice, in two menus, under two different names.
+/// The test host is the app, so `NSApp.mainMenu` is what AppKit actually built. A source scan
+/// cannot see these items: SwiftUI creates a Window-menu opener for every `Window` scene, and
+/// nothing in `MacApp/` writes them down, so a hand-written copy in Help would list each window
+/// twice under two names.
 @MainActor
 @Suite struct WindowMenuTests {
 
@@ -24,8 +22,8 @@ import AppKit
         menu.items.filter { !$0.isSeparatorItem }.map(\.title)
     }
 
-    /// Each auxiliary window is reachable, and reachable **once**. Sync History is Activity's
-    /// History tab now (TE232), and keeps its item under the name people know.
+    /// Each auxiliary window is reachable, and reachable once. Sync History is Activity's History
+    /// tab, and keeps its item under the name people know.
     @Test(arguments: ["Activity", "Sync History", "Keyboard Shortcuts"])
     func eachAuxiliaryWindowAppearsExactlyOnceInTheWholeMenuBar(window: String) throws {
         let everywhere = try (NSApp.mainMenu?.items ?? []).flatMap { top -> [String] in
@@ -38,21 +36,18 @@ import AppKit
                 "\(window) is not in the Window menu, which is where a Mac user looks for a window")
     }
 
-    /// **The main window keeps its own opener**, and this is the assertion that stops the obvious
-    /// fix from shipping. Suppressing the automatic entries of all three auxiliary scenes with
-    /// `.commandsRemoved()` takes the main window's "SyncCloud" opener with them — measured twice,
-    /// reproducibly — which would leave no menu route back after closing it. Only Keyboard Shortcuts'
-    /// is suppressed, for its ⌘/; suppressing Activity's too (for ⌘L) took the opener with it, again,
-    /// measured 2026-10-27 — so ⌘L is put on Activity's automatic entry instead (`ActivityMenuKey`).
+    /// The main window keeps its own opener. **Never** suppress more scenes' automatic entries with
+    /// `.commandsRemoved()`: doing it for the auxiliary scenes takes the main window's "SyncCloud"
+    /// opener too, leaving no menu route back after closing it. Only Keyboard Shortcuts' is
+    /// suppressed, for ⌘/; Activity's ⌘L goes on its automatic entry instead (`ActivityMenuKey`).
     @Test func theMainWindowKeepsItsOpener() throws {
         #expect(Self.titles(try Self.menu("Window")).contains("SyncCloud"),
                 "the Window menu lost the main window's own entry — closing it would strand the user")
     }
 
-    /// ⌘L survives the move to one Activity window (TE232). It is a registered `AppChord` and a
-    /// documented row in the ⌘/ reference. Activity's entry is SwiftUI's automatic one, which carries
-    /// no key equivalent — a scene's own `.keyboardShortcut` does not reach it (measured 2026-10-27)
-    /// — so `ActivityMenuKey` puts ⌘L on it. The Activity Log's old item is gone.
+    /// Activity carries ⌘L, a registered `AppChord` and a documented row in the ⌘/ reference. Its
+    /// entry is SwiftUI's automatic one, which a scene's own `.keyboardShortcut` does not reach, so
+    /// `ActivityMenuKey` puts ⌘L on it. No item for the retired Activity Log window remains.
     @Test func activityKeepsTheLogsChord() throws {
         let window = try Self.menu("Window")
         let item = try #require(window.items.first { $0.title == "Activity" })
@@ -61,19 +56,10 @@ import AppKit
         #expect(!Self.titles(window).contains("Activity Log"), "the retired Activity Log window still has an item")
     }
 
-    /// **Every chord the app declares is actually on a menu item.**
-    ///
-    /// The guard that was missing, and the regression it catches shipped inside the very commit
-    /// this suite was written for. `cd87b08e` took the auxiliary windows out of the Help menu —
-    /// correctly — and `ShortcutsWindowCommand` was the only thing in the app registering ⌘/. It
-    /// was not put anywhere else, so from that commit the app's own keyboard-shortcut chord opened
-    /// nothing: a `View` with no call site, and a documented row in the ⌘/ reference pointing at a
-    /// key that did nothing.
-    ///
-    /// Nothing could see it. `AppChordTests` reads the registry, `ShortcutsReferenceTests` compares
-    /// the registry against the reference table, and neither knows whether anything *registers* the
-    /// chord — the same blindness that let a menu carry two copies of one window. Only the built
-    /// menu knows, and the test host is the app, so it can be asked.
+    /// Every chord the app declares is actually on a menu item. `AppChordTests` and
+    /// `ShortcutsReferenceTests` read the registry and the reference table, but neither knows
+    /// whether anything registers the chord; only the built menu does. A command `View` left with
+    /// no call site would leave a documented key answering nothing.
     ///
     /// Presence, not enabled state: most of these are `@FocusedValue` items that are correctly grey
     /// with no window focused. An item that is not there at all is the failure.
@@ -92,8 +78,8 @@ import AppKit
         #expect(registered.count > 20,
                 "only \(registered.count) chords found in the menu bar — the walk lost its way")
 
-        // ⌘. is the progress capsule's stop, not a menu item — see `AppChord.controlOnly`, whose
-        // key is proved through a real window by `ProgressCapsuleCancelKeyTests` instead.
+        // ⌘. is the progress capsule's stop, not a menu item (`AppChord.controlOnly`); its key is
+        // proved through a real window by `ProgressCapsuleCancelKeyTests` instead.
         let controlOnly = Set(AppChord.controlOnly.map { Self.chordKey($0) })
         #expect(controlOnly.count == AppChord.controlOnly.count)
         // And the other way: no menu item may claim it, or the menu answers ⌘. before the dialog.
@@ -130,15 +116,9 @@ import AppKit
         return out + String(chord.key.character).lowercased()
     }
 
-    /// **View ▸ Sidebar is in the bar, and it carries ⌃⌘S** — the column is on for v4.4 (item #13),
-    /// and where it cannot be drawn (collapsed panes) the item is disabled rather than deleted.
-    ///
-    /// **This test has now asserted both directions, and the swap each way is the point.** A menu
-    /// item is built from a `Commands` declaration whether or not anything answers it, so while the
-    /// column was held it would have been possible to leave the tick, the chord and a greyed row
-    /// exactly where they were — ⌃⌘S doing nothing, in the place a Mac user reaches for a sidebar.
-    /// This is what said no then, and it is what says the item is really registered now: neither
-    /// direction is visible in review, because both compile and both read correctly.
+    /// View ▸ Sidebar is in the bar and carries ⌃⌘S; where the column cannot be drawn (collapsed
+    /// panes) the item is disabled rather than deleted. A menu item is built from a `Commands`
+    /// declaration whether or not it is wired, so only the built menu shows it registered.
     ///
     /// Both halves, because either alone can go missing: an item titled "Sidebar" that lost its key
     /// equivalent passes a title check and leaves Finder's chord dead.
@@ -156,7 +136,7 @@ import AppKit
             }
         }
         walk(try #require(NSApp.mainMenu, "the app built no menu bar — this check would be vacuous"))
-        // The walk can see a switch that IS there, or every check below is a check on an empty list.
+        // The walk can see a switch that is there, or every check below runs on an empty list.
         #expect(titles.contains("Tab Bar"), "the walk cannot see View ▸ Tab Bar — it is not reading the bar")
 
         #expect(titles.contains("Sidebar"),
@@ -179,17 +159,14 @@ import AppKit
                 "the log reveal is a Finder action, not a window — it belongs here")
     }
 
-    /// About is in the application menu, where AppKit puts it — the half of the duplication that
-    /// was always correct.
+    /// About is in the application menu, where AppKit puts it, and only there.
     @Test func aboutIsInTheApplicationMenu() throws {
         #expect(Self.titles(try Self.menu("SyncCloud")).contains("About SyncCloud"))
     }
 }
 
-/// The Organize menu — its sections, then its verbs.
-///
-/// Read off the running app rather than the source: whether a `CommandMenu` landed as its own
-/// top-level menu, and in what order, is not a question the declaration can answer.
+/// The Organize menu: its sections, then its verbs. Read off the running app, since whether a
+/// `CommandMenu` landed as its own top-level menu, and in what order, the declaration cannot say.
 @MainActor
 @Suite struct OrganizeMenuTests {
 
@@ -208,9 +185,9 @@ import AppKit
                 "the Organize menu opens with \(organize.prefix(5))")
     }
 
-    /// Six verbs since §11's two deferred ones landed (proposal O10). The order is the argument:
-    /// the four folder verbs, then the two that open a Restructure surface, then the ledger undo
-    /// — which is about a landing that already happened, not a thing to do with a selection.
+    /// The order is the argument: the four folder verbs, then the two that open a Restructure
+    /// surface, then the ledger undo, which is about a landing that already happened, not a thing
+    /// to do with a selection.
     @Test func theVerbsFollowTheSections() throws {
         let organize = Self.titles(try Self.menu("Organize"))
         #expect(organize.suffix(7) == ["Organize This Folder…", "Find Duplicates of This",
@@ -220,20 +197,17 @@ import AppKit
                 "the Organize menu ends with \(organize.suffix(7))")
     }
 
-    /// §11's one hard constraint on the new verb: it must never sit beside ⌘Z's Undo. Edit is
-    /// where that mistake would live, so Edit is asserted clean of it.
+    /// The ledger undo must never sit beside ⌘Z's Undo, where the two would be confused, so Edit
+    /// is asserted clean of it.
     @Test func editNeverCarriesTheReorganisationUndo() throws {
         let edit = Self.titles(try Self.menu("Edit"))
         #expect(!edit.contains("Undo This Reorganization…"),
                 "the ledger undo sat down beside ⌘Z — exactly the confusion §11 forbids")
     }
 
-    /// **The word appears once per menu, and that is the whole point of the arrangement.**
-    ///
-    /// The first cut put the sections in a `Menu("Organize")` inside View, four rows below the ⌘3
-    /// workspace item — one menu, one word, two meanings, and a test asserting they were "distinct"
-    /// rather than fixing it. View now carries only the workspace item, exactly as it carries
-    /// "Compare ⌘2" beside a separate Compare menu.
+    /// The word appears once per menu: View carries only the ⌘3 workspace item, as it carries
+    /// "Compare ⌘2" beside a separate Compare menu. A sections submenu there would give one word two
+    /// meanings in one menu.
     @Test func viewCarriesTheWorkspaceItemAndNothingElseCalledOrganize() throws {
         let organizeItems = try Self.menu("View").items.filter { $0.title == "Organize" }
         #expect(organizeItems.count == 1,
@@ -251,7 +225,7 @@ import AppKit
         }
     }
 
-    /// No verb or section takes a chord — every free one is spent, and ⌘3 already reaches the
+    /// No verb or section takes a chord: every free one is spent, and ⌘3 already reaches the
     /// workspace these all live inside.
     @Test func theOrganizeMenuRegistersNoChords() throws {
         #expect(try Self.menu("Organize").items.allSatisfy { $0.keyEquivalent.isEmpty },
@@ -273,8 +247,8 @@ import AppKit
         #expect(!a.fixName && !a.keepName, "a name that is not risky has nothing to fix")
     }
 
-    /// **Files are not organized.** The lens answers "where does this live", which is a question
-    /// about a folder's contents — but duplicates are a question about any node.
+    /// Files are not organized: the lens answers "where does this live", a question about a
+    /// folder's contents. Duplicates are a question about any node.
     @Test func oneFileOffersDuplicatesButNotOrganise() {
         let a = Self.resolve(isDirectory: false)
         #expect(!a.organizeFolder)
@@ -317,15 +291,11 @@ import AppKit
         #expect(item.keyEquivalentModifierMask == .command)
     }
 
-    /// **None of the four may be disabled, and this is the guard on that.**
-    ///
-    /// A menu item cannot know where the caret is when it renders, so disabling Copy when no files
-    /// are selected would grey it out while somebody is typing in the ⌘K field — and `.disabled()`
-    /// on a SwiftUI menu item is static per render, not a validator that could ask. The items stay
-    /// live and `TextEditingChord.route` picks the meaning at fire time.
-    ///
-    /// The test host has no selection and no caret, which is precisely the state that would tempt
-    /// someone to disable them.
+    /// None of the four may be disabled. `.disabled()` on a SwiftUI menu item is static per render
+    /// and cannot know where the caret is, so disabling Copy with no files selected would also grey
+    /// it while someone types in the ⌘K field. The items stay live and `TextEditingChord.route`
+    /// picks the meaning at fire time. The test host has no selection and no caret, the very state
+    /// that tempts disabling them.
     @Test(arguments: ["Select All", "Cut", "Copy", "Paste"])
     func theEditItemsAreNeverDisabled(title: String) throws {
         #expect(try Self.item(title).isEnabled,
@@ -354,9 +324,9 @@ import AppKit
                 "the overview is not a section and ticks nothing")
     }
 
-    /// **Outside Organize nothing is ticked**, because nothing is showing. The stored key survives
-    /// leaving — that is what makes ⌘3 return you where you were — so ticking it from Browse would
-    /// be the menu claiming a section is on screen while the window shows a file tree.
+    /// Outside Organize nothing is ticked, because nothing is showing. The stored key survives
+    /// leaving, so ⌘3 returns you where you were, but ticking it from Browse would claim a section
+    /// is on screen while the window shows a file tree.
     @Test(arguments: [Workspace.browse, .compare, .editor])
     func outsideOrganizeNothingIsTicked(workspace: Workspace) {
         #expect(OrganizeLensSwitch.tick(workspace: workspace, stored: .duplicates) == nil,
@@ -373,20 +343,20 @@ import AppKit
         #expect(SelectAllScope.appliesToPane(surface: surface))
     }
 
-    /// **A differences selection withholds it.** ⌘A is registered app-wide as a menu equivalent, so
-    /// without this it fires in a Compare window whose selection lives in the Differences table and
-    /// selects the whole pane instead — re-aiming ⌘⌫ and the transfer verbs at rows the user was not
-    /// looking at. The table has no select-all of its own, so nothing that worked stops working.
+    /// A differences selection withholds it. ⌘A is an app-wide menu equivalent, so otherwise it
+    /// would select the whole pane in a Compare window whose selection lives in the Differences
+    /// table, re-aiming ⌘⌫ and the transfer verbs at rows the user was not looking at. The table has
+    /// no select-all of its own, so nothing is lost.
     @Test func aDifferencesSelectionWithholdsIt() {
         #expect(!SelectAllScope.appliesToPane(surface: .differences))
     }
 }
 
-/// ⌘X, ⌘C, ⌘V and ⌘A while Edit's file pane is folded (TE153, decision BR).
+/// ⌘X, ⌘C, ⌘V and ⌘A while Edit's file pane is folded.
 @Suite struct EditorFoldedPaneKeysTests {
 
-    /// **Folded in Edit, and only there.** An open pane shows the selection the keys act on, and
-    /// every other workspace's pane is on screen whenever it has the keys.
+    /// Folded in Edit, and only there. An open pane shows the selection the keys act on, and every
+    /// other workspace's pane is on screen whenever it has the keys.
     @Test func onlyEditsFoldedPaneRefuses() {
         #expect(EditorFoldedPaneKeys.refuses(workspace: .editor, paneFolded: true))
         #expect(!EditorFoldedPaneKeys.refuses(workspace: .editor, paneFolded: false))
@@ -395,8 +365,8 @@ import AppKit
         }
     }
 
-    /// **All three clipboard verbs answer, so each one is heard to refuse.** A `nil` half would
-    /// make the key silent — the item stays live (`theEditItemsAreNeverDisabled`) and does nothing.
+    /// All three clipboard verbs answer, so each is heard to refuse. A `nil` half would make the key
+    /// silent: the item stays live (`theEditItemsAreNeverDisabled`) and does nothing.
     @Test func everyClipboardVerbAnswers() {
         let refused = EditorFoldedPaneKeys.clipboard
         #expect(refused.cut != nil && refused.copy != nil && refused.paste != nil)
@@ -428,12 +398,10 @@ import AppKit
                                         opensInEdit: opensInEdit)
     }
 
-    /// **File ▸ Open in Edit: one row, a file, and a file the editor opens.**
-    ///
-    /// Each term is asserted by removing it and nothing else, because all three have been the
-    /// wrong answer somewhere in this family: a folder is the case the row menu's own gate exists
-    /// for, a multi-selection would hand over whichever node happened to be first, and a `.pdf`
-    /// would open a document the editor then refuses.
+    /// File ▸ Open in Edit: one row, a file, and a file the editor opens. Each term is asserted by
+    /// removing it alone: a folder is what the row menu's own gate exists for, a multi-selection
+    /// would hand over whichever node came first, and a `.pdf` would open a document the editor
+    /// then refuses.
     @Test func openInEditNeedsASingleTextFile() {
         #expect(Self.resolve(count: 1, isDirectory: false, opensInEdit: true).openInEditor)
         #expect(!Self.resolve(count: 1, isDirectory: true, opensInEdit: true).openInEditor,
@@ -458,12 +426,12 @@ import AppKit
         #expect(a.singleNodeVerbs)
     }
 
-    /// The pane decides whether tabs are available at all — the row menu asks the same question.
+    /// The pane decides whether tabs are available at all, as the row menu does.
     @Test func aPaneThatCannotOpenTabsWithholdsIt() {
         #expect(!Self.resolve(canOpenInNewTab: false).openInNewTab)
     }
 
-    /// **A batch still picks a destination.** Copy to… and Move to… work on many; the picker and
+    /// A batch still picks a destination. Copy to… and Move to… work on many; the picker and
     /// `FileOperations` both prune nested nodes, so a folder and its child cannot both travel.
     @Test(arguments: [2, 9])
     func aBatchKeepsTheDestinationPickerAndLosesTheSingleNodeVerbs(count: Int) {
@@ -473,20 +441,18 @@ import AppKit
                 "Quick Look, Reveal and Rename have no referent for \(count) rows")
     }
 
-    /// **Ignoring is a statement about a comparison**, so Browse and Storage have nothing to say.
+    /// Ignoring is a statement about a comparison, so a pane with no comparison has nothing to say.
     @Test func withoutAComparisonThereIsNothingToIgnore() {
         #expect(!Self.resolve(isComparing: false).ignore)
         #expect(Self.resolve(isComparing: false).chooseDestination,
                 "a destination pick is not about comparing and must survive")
     }
 
-    /// The call-site half: `shortcutPaneRowVerbs` answers `isCloudOnly` from the badge cache — a
-    /// memo of what the drawn row already found — and never with an `lstat` of its own, which on a
-    /// wedged provider would stall every `ContentView` body pass. Both halves, because the memo
-    /// read is one edit away from being "fixed" into the stat the row menu is allowed to make.
-    ///
-    /// The offer itself is `CloudDownloadOffer.forActiveSelection`, which also takes the folders'
-    /// one read off the main thread, so its body is scanned too.
+    /// The call-site half: `shortcutPaneRowVerbs` answers `isCloudOnly` from the badge cache, a
+    /// memo of what the drawn row already found, and never with an `lstat` of its own, which on a
+    /// wedged provider would stall every `ContentView` body pass. The offer itself,
+    /// `CloudDownloadOffer.forActiveSelection`, takes the folders' one read off the main thread, so
+    /// its body is scanned too.
     @Test func theMenuItemReadsTheBadgeCacheAndNeverStats() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()

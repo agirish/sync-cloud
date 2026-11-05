@@ -7,9 +7,7 @@ import Testing
 
 /// The rules the guided sheet runs on, without a window.
 ///
-/// **`SetupModel` exists so these can be asked at all.** Every one of them lived on a 1,978-line
-/// view before, where nothing could reach them — which is how the caret rule came to fire on the
-/// one path nobody uses and not on the one everybody does.
+/// `SetupModel` exists so these rules can be tested at all; on the view, nothing could reach them.
 @MainActor
 @Suite struct SetupModelTests {
 
@@ -43,9 +41,8 @@ import Testing
 
     // MARK: - The name, and the folder that corroborates it
 
-    /// **The sentence the You screen exists to say could never appear.** The folder match was
-    /// computed inside the field-seeding function, which guards on the fields being empty — so it
-    /// ran once at open, before any tree existed, found nothing, and never ran again.
+    /// The folder match is found once the tree arrives, not only at open: field seeding runs while
+    /// the fields are empty, before any tree exists.
     @Test func theFolderMatchIsFoundOnceTheTreeArrives() async {
         let model = await self.model()
         model.firstName = "Abhishek"
@@ -66,10 +63,8 @@ import Testing
 
     // MARK: - The forms of the name
 
-    /// Editing the name takes the old name's forms with it.
-    ///
-    /// They used to be the answer itself, so they outlived the name they were about: the screen
-    /// offered `Abhishek Girish` under a first name now reading `Abhi`, ticked, and filed under it.
+    /// Editing the name takes the old name's forms with it, so a corrected name doesn't leave the
+    /// old one ticked and filed under.
     @Test func editingTheNameDropsTheOldNamesForms() async {
         let model = await self.model()
         model.firstName = "Abhishek"
@@ -149,8 +144,8 @@ import Testing
         #expect(!model.crumbs.contains(.structure))
     }
 
-    /// **Learn cannot be pressed with nothing to read.** It used to be: the press did nothing at
-    /// all, and the sheet then could not reach Structure with no line anywhere saying why.
+    /// Learn cannot be pressed with nothing to read, where the press would do nothing and Structure
+    /// would be unreachable with no line saying why.
     @Test func learnIsRefusedWithoutAFolderOrAnEngine() async {
         let model = await self.model()
         model.walkRoot = nil
@@ -180,13 +175,9 @@ import Testing
         #expect(!bare.canWriteProfile)
     }
 
-    /// Seeding the root cannot throw away a reading that has finished.
-    ///
-    /// **The sheet re-seeds on every change to the provider list**, so this is not hypothetical:
-    /// learn a folder, go Back to Locations and switch that location off, and `reconcilePrimary`
-    /// moves the primary, `seedWalkRoot` finds a different path and `invalidateProposals` wipes the
-    /// walk — with no screen saying so. Structure then reads "Nothing has been learned yet" over a
-    /// tree the user watched being read a moment earlier.
+    /// Seeding the root cannot throw away a reading that has finished. The sheet re-seeds on every
+    /// change to the provider list: switching a location off after Learn moves the primary, and a
+    /// re-seed that followed it would wipe the walk with no screen saying so.
     @Test func seedingTheRootKeepsAFinishedReading() async throws {
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Home/Water"]))
         #expect(model.walkState.isDone)
@@ -210,11 +201,8 @@ import Testing
         #expect(model.walkRoot != nil, "the first screen never got a folder to offer")
     }
 
-    /// A reading that lands while Structure is already on screen draws the tree it read.
-    ///
-    /// **Continue never waits**, so on a large tree Structure can open while the reading still
-    /// runs. Arriving there was the only thing that rebuilt the preview, so the button turned into
-    /// "Save and Start Reading" over "Nothing has been learned yet."
+    /// A reading that lands while Structure is already on screen draws the tree it read. Continue
+    /// never waits, so on a large tree Structure can open before the reading lands.
     @Test func aReadingThatLandsOnStructureDrawsItsTree() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-land-\(UUID().uuidString)")
@@ -240,11 +228,11 @@ import Testing
         #expect(model.canWriteProfile)
     }
 
-    /// **A reading that lands before Structure builds no preview; one that lands after it does.**
+    /// A reading that lands before Structure builds no preview; one that lands after it does.
     ///
-    /// The rebuild is heavy main-actor work. On You or People — where a reading usually lands,
-    /// Continue never waiting — it ran under the user's typing, for a tree arrival at Structure
-    /// builds anyway. Past Structure it is the only rebuild: Workspaces reads the loose-file routes.
+    /// The rebuild is heavy main-actor work, and on You or People it would run under the user's
+    /// typing for a tree that arrival at Structure builds anyway. Past Structure it is the only
+    /// rebuild: Workspaces reads the loose-file routes.
     @Test(.timeLimit(.minutes(2)))
     func aReadingRebuildsThePreviewOnlyWhereItIsRead() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -281,11 +269,8 @@ import Testing
                 "a reading landing on Workspaces left it saying “No loose files” (\(late.looseRoutes.count) routes)")
     }
 
-    /// **A reading of the old folder that lands after Change… is dropped.**
-    ///
-    /// Change… does not wait for the reading it supersedes. The late result landed as the reading
-    /// of the new folder, and Learn's primary — Continue over a finished reading — kept the old
-    /// folder's tree under the new folder's name.
+    /// A reading of the old folder that lands after Change… is dropped. Change… doesn't wait for
+    /// the reading it supersedes, and a late result must not land as the new folder's reading.
     @Test(.timeLimit(.minutes(2)))
     func aReadingOfTheOldFolderThatLandsLateIsDropped() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -315,12 +300,9 @@ import Testing
                 "Learn offered \(model.learnPrimaryTitle) over a folder nobody has read")
     }
 
-    /// **Skip during a reading stays skipped when the reading lands**, and of two readings of one
-    /// folder only the later one lands.
-    ///
-    /// The landing guard checked the folder alone, so a Skip was overridden — Countries and
-    /// Structure came back into a flow the user had just dropped them from — and Back to Learn
-    /// again mid-reading had two walks land, each resetting the Countries ticks.
+    /// Skip during a reading stays skipped when the reading lands, and of two readings of one
+    /// folder only the later lands. A guard on the folder alone would bring Countries and Structure
+    /// back after a Skip, and let two walks land, each resetting the Countries ticks.
     @Test(.timeLimit(.minutes(2)))
     func onlyTheLatestAwaitedReadingLands() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -367,11 +349,9 @@ import Testing
         #expect(model.learnAgainTitle == nil)
     }
 
-    /// Learn's card names the location the chosen folder is in, measured from the folder.
-    ///
-    /// **It named the primary location whatever was picked**, so Change… to a folder outside every
-    /// location read "in Google Drive" under its name. The outside folder is asked first, so the
-    /// old answer — the primary's name — cannot pass it.
+    /// Learn's card names the location the chosen folder is in, measured from the folder, not the
+    /// primary location. The outside folder is asked first, so answering with the primary's name
+    /// can't pass.
     @Test func learnsCardNamesTheLocationTheFolderIsIn() async {
         let model = await self.model()
         let drive = model.settings.enabledProviders.first {
@@ -397,10 +377,8 @@ import Testing
     // MARK: - People
 
     /// The ✕ on a person who was already on the roster asks first; one added in this run does not.
-    ///
-    /// **On a re-run the chips are the real `people.json`.** One click on the 10pt ✕ deleted a
-    /// person along with the full names and aliases curated for them in Settings, where the same
-    /// removal asks first.
+    /// On a re-run the chips are the real `people.json`, so one click would delete a person with
+    /// the full names and aliases curated in Settings, where the same removal asks first.
     @Test func removingARosterPersonAsksFirst() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-remove-\(UUID().uuidString)")
@@ -425,10 +403,9 @@ import Testing
         #expect(store.people.map(\.displayName) == ["Maya"])
     }
 
-    /// **A person removed on People after a first-run Save stays removed.**
-    ///
-    /// Save lands the draft in the roster it creates, but the draft in memory still named them, so
-    /// leaving People applied it again and the person came back.
+    /// A person removed on People after a first-run Save stays removed. Save lands the draft in the
+    /// roster it creates; if the draft in memory still named them, leaving People would bring them
+    /// back.
     @Test func aPersonRemovedAfterAFirstRunSaveStaysRemoved() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-unremove-\(UUID().uuidString)")
@@ -474,12 +451,9 @@ import Testing
 
     // MARK: - Closing
 
-    /// **Closing keeps the open screen's answers, as a screen change does** (ST4).
-    ///
-    /// Esc, ✕ and a click outside committed nothing, so a name typed on You and closed was gone,
-    /// while the same name with Continue pressed first was in the draft. Asked of the draft on disk,
-    /// in a scratch folder — never the real `setup-draft.json` — because the draft is what the next
-    /// open reads. Nothing marks setup finished: the model never touches that key.
+    /// Closing keeps the open screen's answers, as a screen change does, so a name typed on You
+    /// survives Esc, ✕ or a click outside. Read from the draft on disk in a scratch folder, never the
+    /// real `setup-draft.json`. Closing must not mark setup finished.
     @Test func closingKeepsTheOpenScreensAnswers() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-close-\(UUID().uuidString)")
@@ -504,13 +478,10 @@ import Testing
 
     // MARK: - Saving
 
-    /// Two presses write one profile.
-    ///
-    /// **And the second press must not break the first.** Both presses mint their id before either
-    /// has written anything, so inside one second they mint the *same* id — and the store refuses
-    /// over an id that now exists. The count on disk therefore stays at one either way; what the
-    /// guard actually saves is the model, which without it takes the refusal as a failed walk and
-    /// throws away a profile that had just been written successfully.
+    /// Two presses write one profile, and the second must not break the first. Within one second
+    /// both mint the same id and the store refuses the second, so the count on disk is one either
+    /// way; the guard protects the model, which would otherwise record the refusal as a failed walk
+    /// and throw away the profile just written.
     @Test func twoSavesAtOnceWriteOneProfile() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-save-\(UUID().uuidString)")
@@ -540,11 +511,9 @@ import Testing
         #expect(model.writtenReport != nil)
     }
 
-    /// **A failed write stays on Structure, keeps the reading, and says it was the write.**
-    ///
-    /// It used to move on regardless and record the failure as a failed walk: the tree was thrown
-    /// away, Summary said nothing had been learned, and the reason sat on People and Countries —
-    /// screens already behind — headed "Couldn't read that folder".
+    /// A failed write stays on Structure, keeps the reading, and says it was the write. Recorded as
+    /// a failed walk, it would throw the tree away and show its reason on screens already behind,
+    /// headed "Couldn't read that folder".
     @Test func aFailedSaveStaysOnStructureAndKeepsTheReading() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-savefail-\(UUID().uuidString)")
@@ -618,11 +587,9 @@ import Testing
         }
     }
 
-    /// Starts a Save and returns once it is parked mid-write — the state the window shows
-    /// mid-press — with the gate that lets it finish. Open the gate before awaiting the press.
-    ///
-    /// It used to start the press and poll `isSaving`, which on a 3-vCPU hosted VM missed the whole
-    /// press about one run in four: the diagnostic said "the press had already finished" every time.
+    /// Starts a Save and returns once it is parked mid-write, with the gate that lets it finish.
+    /// Open the gate before awaiting the press. Parked rather than polled through `isSaving`, which
+    /// on a loaded machine can miss the whole press.
     private func startSaving(_ model: SetupModel) async throws -> (press: Task<Void, Never>, gate: SaveGate) {
         let gate = SaveGate()
         model.saveInFlight = { await gate.park() }
@@ -633,8 +600,8 @@ import Testing
         return (press, gate)
     }
 
-    /// **A retry keeps the last failure on screen while it writes.** It was cleared before the
-    /// write, so Structure jumped and Continue Without Saving vanished for the length of the press.
+    /// A retry keeps the last failure on screen while it writes, so Structure doesn't jump and
+    /// Continue Without Saving doesn't vanish for the length of the press.
     @Test(.timeLimit(.minutes(2)))
     func aRetryKeepsTheFailureUpWhileItWrites() async throws {
         let (model, root, _) = try await failedSave("retry")
@@ -647,10 +614,8 @@ import Testing
         await press.value
     }
 
-    /// **Back is refused while Save writes, and a Save that lands off Structure moves nothing.**
-    ///
-    /// The press advanced from whatever screen was current when it landed, so Back mid-write left
-    /// for Countries and was carried straight back to Structure.
+    /// Back is refused while Save writes, and a Save that lands off Structure moves nothing, so it
+    /// can't carry the sheet on from whatever screen is current when it lands.
     @Test(.timeLimit(.minutes(2)))
     func backIsRefusedWhileSaveWrites() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -684,7 +649,7 @@ import Testing
         #expect(model.screen == .countries, "a Save landing on Countries carried it to \(model.screen)")
     }
 
-    /// **Continue Without Saving moves on and writes nothing** — offered only after a failed Save.
+    /// Continue Without Saving moves on and writes nothing; it is offered only after a failed Save.
     @Test func continuingWithoutSavingMovesOnAndWritesNothing() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-nosave-\(UUID().uuidString)")
@@ -708,11 +673,9 @@ import Testing
         #expect(model.saveFailure == nil, "the failure line followed the sheet off Structure")
     }
 
-    /// **A reading Save has written is not written again.**
-    ///
-    /// Summary's Learn leads back through Structure, and its button still said "Save and start
-    /// reading": a second press wrote a second profile from the same tree, and asked for a second
-    /// reading of the documents.
+    /// A reading Save has written is not written again. Summary's Learn leads back through
+    /// Structure, where a second press must not write a second profile from the same tree or ask
+    /// for a second reading of the documents.
     @Test func aWrittenReadingIsNotOfferedForSavingAgain() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-twice-\(UUID().uuidString)")
@@ -738,12 +701,9 @@ import Testing
         #expect(model.canWriteProfile, "a fresh reading could not be saved")
     }
 
-    /// **A country changed after Save is written by a second Save** — and the documents are not
-    /// read a second time.
-    ///
-    /// The reading counted as written whatever the ticks said, so going back to Countries after a
-    /// Save left Structure on Continue: Summary listed the new countries and the profile on disk
-    /// held the old ones.
+    /// A country changed after Save is written by a second Save, and the documents are not read a
+    /// second time. Otherwise Summary would list the new countries while the profile on disk held
+    /// the old ones.
     @Test func aCountryChangedAfterSaveIsSavedAgain() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-recountry-\(UUID().uuidString)")
@@ -785,10 +745,8 @@ import Testing
 
     // MARK: - Structure over a reading still running
 
-    /// **While the reading runs, Structure's button is Skip Saving; once it lands, Save** (SR5).
-    ///
-    /// Continue never waits, so Structure opens before a big tree's reading lands. Its button said
-    /// Continue — a press that drops the reading — over "Nothing has been learned yet".
+    /// While the reading runs, Structure's button is Skip Saving; once it lands, Save. Continue
+    /// never waits, so Structure can open before a big tree's reading lands.
     @Test func structuresButtonSaysSkipSavingUntilTheReadingLands() async throws {
         let engine = FileSyncManager()
         engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
@@ -816,10 +774,8 @@ import Testing
                 "the landed reading is offered as \(model.structurePrimaryTitle)")
     }
 
-    /// **On a re-run, a reading in progress is not passed off as the profile already here.**
-    ///
-    /// With no reading in hand Structure shows this Mac's own profile, read-only. While a new
-    /// reading runs it says it is reading instead.
+    /// On a re-run, a reading in progress is not passed off as the profile already here. With no
+    /// reading in hand Structure shows this Mac's profile, read-only; while one runs it says so.
     @Test func aReadingInProgressHidesTheProfileAlreadyHere() async throws {
         let engine = FileSyncManager()
         engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
@@ -836,7 +792,7 @@ import Testing
         #expect(model.structurePrimaryTitle == "Skip Saving")
     }
 
-    /// **Skip Saving moves on without waiting, and writes nothing** — as Continue did.
+    /// Skip Saving moves on without waiting, and writes nothing.
     @Test func skipSavingMovesOnAndWritesNothing() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-skipsave-\(UUID().uuidString)")
@@ -877,12 +833,9 @@ import Testing
         #expect(model.screen == .workspaces)
     }
 
-    /// **A press made under Skip Saving moves on without saving, even if the reading has landed
-    /// since** (SR5).
-    ///
-    /// The sheet runs the press in a `Task`, so a reading that lands on the main actor between the
-    /// render that drew "Skip Saving" and the press used to make it a Save — with the switch on,
-    /// Save and Start Reading: hours of reading under a button that said it would skip.
+    /// A press made under Skip Saving moves on without saving, even if the reading has landed
+    /// since. The sheet runs the press in a `Task`, so a reading can land between the render and
+    /// the press; deciding then would start hours of reading under a button that said skip.
     @Test func aPressUnderSkipSavingNeverSavesTheReadingThatLandedSince() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-skiprace-\(UUID().uuidString)")
@@ -916,13 +869,9 @@ import Testing
 
     // MARK: - Structure over a reading that failed
 
-    /// **A reading that fails on Structure is said there** (SR5).
-    ///
-    /// The "Reading names…" line went, and Structure showed "Nothing has been learned yet", this
-    /// Mac's profile read-only, or — after Learn Again — the last reading's tree under "SyncCloud
-    /// read this from …". None said it failed. Now the walk's status line stands in the tree's box,
-    /// the counts are dashes, the switch is off limits, and the button is Continue: nothing to
-    /// save, nothing pending to skip.
+    /// A reading that fails on Structure is said there: the walk's status line stands in the
+    /// tree's box rather than the last reading's tree, the counts are dashes, the switch is off
+    /// limits, and the button is Continue, with nothing to save or skip.
     @Test func aReadingThatFailsOnStructureIsSaidThere() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-failed-\(UUID().uuidString)")
@@ -974,11 +923,9 @@ import Testing
         #expect(model.structureShownProfile == nil, "the old profile is drawn over the failed reading")
     }
 
-    /// **While the reading runs, Structure counts nothing and the switch waits** (SR5).
-    ///
-    /// The stats row said 0 folders and 0 files — or, after Learn Again, the last reading's counts —
-    /// and the "Read documents" switch stayed live with a tooltip about what happens after a Save
-    /// the screen could not make. The people are the roster's either way, so they stay.
+    /// While the reading runs, Structure counts nothing and the switch waits: no zeros or old
+    /// counts, and no "Read documents" switch for a Save the screen can't make yet. The people are
+    /// the roster's either way, so they stay.
     @Test func whileTheReadingRunsStructureCountsNothingAndTheSwitchWaits() async throws {
         let engine = FileSyncManager()
         engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
@@ -1002,10 +949,8 @@ import Testing
 
     // MARK: - Back to Learn
 
-    /// **Over a finished reading, Learn's primary is Continue, and it keeps the reading.**
-    ///
-    /// The primary was "Learn Again", so going Back to Learn left only a re-read — which resets the
-    /// Countries ticks to the rule's picks — or Skip, which throws the reading away.
+    /// Over a finished reading, Learn's primary is Continue, and it keeps the reading. A re-read
+    /// would reset the Countries ticks to the rule's picks, and Skip throws the reading away.
     @Test func continueOverAFinishedReadingKeepsIt() async throws {
         let engine = FileSyncManager()
         engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
@@ -1051,8 +996,8 @@ import Testing
         #expect(!model.walkState.isRunning, "the reading never finished")
     }
 
-    /// **Summary's Learn goes back to Learn, with the sheet still open.** It used to close setup
-    /// on a Settings tab that has no control to learn a folder with.
+    /// Summary's Learn goes back to Learn, with the sheet still open; no Settings tab can learn a
+    /// folder.
     @Test func summarysLearnReturnsToTheLearnScreen() async {
         let model = await self.model(walk: Self.walk(folders: ["Finance/US"]))
         model.screen = .summary
@@ -1061,10 +1006,8 @@ import Testing
         #expect(model.walkState.isDone, "the reading was dropped on the way back")
     }
 
-    /// **Summary describes what Save wrote, not the reading in hand.**
-    ///
-    /// A reading continued past without saving read "Learned", and a profile written earlier in the
-    /// run read "not learned" once Learn was skipped on the way back.
+    /// Summary describes what Save wrote, not the reading in hand: an unsaved reading isn't
+    /// "Learned", and a written profile stays learned after Learn is skipped on the way back.
     @Test func summarySaysWhatWasWritten() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-summary-\(UUID().uuidString)")
@@ -1131,12 +1074,9 @@ import Testing
         return (model, started, walk)
     }
 
-    /// **Setup reads the documents of the profile it wrote — so not when that profile is unused.**
-    ///
-    /// Beside a hand-built profile the walk's is saved and left unused, and the summary says so.
-    /// The reading went ahead anyway, and a reading covers the profile in use: hours spent on a
-    /// folder this run of setup never pointed at, or a refusal saying those documents had been
-    /// read already — neither of them what "Save and Start Reading" offered.
+    /// Setup reads the documents of the profile it wrote, so not when that profile is unused.
+    /// Beside a hand-built profile the walk's is saved and left unused, and a reading covers the
+    /// profile in use, so it would spend hours on a folder this run never pointed at.
     @Test func aWalkThatIsNotInUseStartsNoReading() async throws {
         let (model, started, _) = try await save(besideAHandBuiltProfile: true)
         #expect(model.walkNotInUse, "premise: the hand-built profile stayed in use")
@@ -1153,9 +1093,8 @@ import Testing
 
     // MARK: - Review of the v6.1 Setup work, 2026-10-27
 
-    /// **Learn pressed while the folder is still being read starts no second reading.** Back to
-    /// Learn mid-reading still says Learn, and its press walked the same tree again beside the
-    /// first walk, which nothing cancels.
+    /// Learn pressed while the folder is still being read starts no second reading. Back to Learn
+    /// mid-reading still says Learn, and nothing would cancel a second walk of the same tree.
     @Test(.timeLimit(.minutes(2)))
     func learnWhileTheFolderIsBeingReadReadsItOnce() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -1185,9 +1124,9 @@ import Testing
         #expect(model.walkState.isDone, "the reading under way was dropped")
     }
 
-    /// **Closing Setup after editing your name renames your record, rather than adding a second
-    /// "me"** (review M5). People hides "me", so the duplicate showed nowhere. The old name stays as
-    /// an alias, so the folders that call you by it still do.
+    /// Closing Setup after editing your name renames your record rather than adding a second "me",
+    /// which People hides, so a duplicate would show nowhere. The old name stays as an alias, so
+    /// folders that call you by it still find you.
     @Test func editingYourNameAndClosingRenamesYourRecord() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-rename-me-\(UUID().uuidString)")
@@ -1216,9 +1155,9 @@ import Testing
         #expect(store.people.map(\.displayName).sorted() == ["Abhi", "Maya"])
     }
 
-    /// **A person added after a Save offers Save again, and the second Save holds them** (review
-    /// M6). Only the reading and the countries counted, so Structure rebuilt its preview from the
-    /// new household beside a Continue, and the profile on disk kept the old person axis.
+    /// A person added after a Save offers Save again, and the second Save holds them. Otherwise
+    /// Structure would preview the new household beside a Continue while the profile on disk kept
+    /// the old person axis.
     @Test func aPersonAddedAfterSaveIsSavedAgain() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-rehousehold-\(UUID().uuidString)")
@@ -1262,8 +1201,8 @@ import Testing
         #expect(!model.canWriteProfile)
     }
 
-    /// **A roster Setup cannot write offers no ✕** (review L1). The chip vanished, the store
-    /// refused the save with a log line, and the person was back at the next launch.
+    /// A roster Setup cannot write offers no ✕: the chip would vanish, the store refuse the save,
+    /// and the person be back at the next launch.
     @Test func aReadOnlyRosterOffersNoRemove() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-readonly-\(UUID().uuidString)")

@@ -8,9 +8,9 @@ import Testing
 import UniformTypeIdentifiers
 @testable import SyncCloud
 
-/// Coverage for the text→tokens step of the on-device Filing content extractor (F2). The PDF/OCR
-/// readers need real files; this pins the NaturalLanguage + category-keyword tokenization that
-/// turns extracted text into the tokens the FilingEngine matches on.
+/// The on-device Filing content extractor: the NaturalLanguage and category-keyword tokenization
+/// that turns text into the tokens the FilingEngine matches on, and the text, PDF and OCR readers,
+/// driven with real fixture files.
 @Suite struct ContentSignalExtractorTests {
 
     @Test func pullsCategoryKeywordsFromDocumentText() {
@@ -44,16 +44,14 @@ import UniformTypeIdentifiers
         func path(_ name: String) -> String { url.appendingPathComponent(name).path }
     }
 
-    /// Writes a real one-or-more-page PDF whose pages each draw one line of genuine text ops
-    /// (so PDFKit's text extraction sees it), and returns its path.
-    /// One line per page — the shape most of these tests want.
+    /// Writes a real PDF with one line of genuine text ops per page, so PDFKit's text extraction
+    /// sees it. One line per page is the shape most of these tests want.
     private static func writePDF(lines: [String], to path: String) throws {
         try writePDF(pages: lines.map { [$0] }, to: path)
     }
 
-    /// Pages of lines. A single `CTLine` is clipped at the page edge, so a "long" string drawn as
-    /// one line extracts as about fifty characters however long it is — which is why a test about
-    /// a first page that says PLENTY has to draw many lines rather than one long one.
+    /// Pages of lines. A single `CTLine` is clipped at the page edge, so a long string drawn as one
+    /// line extracts as about fifty characters; a page that says plenty needs many lines.
     private static func writePDF(pages: [[String]], to path: String) throws {
         let data = NSMutableData()
         var mediaBox = CGRect(x: 0, y: 0, width: 612, height: 792)
@@ -94,8 +92,8 @@ import UniformTypeIdentifiers
         #expect(CGImageDestinationFinalize(destination))
     }
 
-    /// A plain local text file: readable head comes back verbatim, and the evicted-iCloud guard
-    /// (which this path always crosses) answers false for a non-ubiquitous file.
+    /// A plain local text file: its head comes back verbatim, and the evicted-iCloud guard (which
+    /// this path always crosses) answers false for a non-ubiquitous file.
     @Test func plainTextFileYieldsItsContentAndTokens() async {
         let dir = FixtureDir()
         let path = dir.path("note.txt")
@@ -146,10 +144,9 @@ import UniformTypeIdentifiers
         #expect(!snippet.contains("MARKERPAGE7"))
     }
 
-    /// **Five pages is a fallback for a thin first page, not a target.** Nothing downstream reads
-    /// that much — the router scores 400 characters, the on-device prompt carries 1,200, the cloud
-    /// one 800 — so a 14-page phone bill was parsed five pages deep to produce 16,910 characters of
-    /// which every consumer used the first few hundred, on every classifiable file in the scan.
+    /// Five pages is a fallback for a thin first page, not a target. Nothing downstream reads that
+    /// much (the router scores 400 characters, the on-device prompt carries 1,200, the cloud one
+    /// 800), so reading on past a first page that says plenty wastes a parse on every file.
     @Test func aPageThatSaysPlentyStopsTheRead() async throws {
         let dir = FixtureDir()
         let path = dir.path("bill.pdf")
@@ -176,8 +173,8 @@ import UniformTypeIdentifiers
     }
 
     /// End-to-end OCR over a synthetic scan: huge, clean, black-on-white text that Vision's `.fast`
-    /// recognizer reads reliably. (This is a real Vision call — the one environment-dependent piece
-    /// of the extractor — kept deliberately easy so the test stays deterministic.)
+    /// recognizer reads reliably. A real Vision call, the extractor's one environment-dependent
+    /// piece, kept easy so the test stays deterministic.
     @Test func imageTextIsExtractedViaOCR() async throws {
         let dir = FixtureDir()
         let path = dir.path("scan.png")
@@ -191,29 +188,20 @@ import UniformTypeIdentifiers
 
     /// A scan Vision reads must not also report that Vision failed.
     ///
-    /// The "OCR failed on …" warning exists so an operator can tell a broken recognizer from a
-    /// folder of blank scans — which only works if it is confined to the throwing branch. A line
-    /// emitted unconditionally (logged beside the `perform` rather than inside its `catch`) would
-    /// destroy exactly the distinction it was added for, and nothing else in this suite would
-    /// notice: the extracted text is identical either way.
+    /// The "OCR failed on …" warning lets an operator tell a broken recognizer from a folder of
+    /// blank scans, which works only if it stays inside the throwing branch. Logged beside the
+    /// `perform` instead of in its `catch`, it would fire every time, and the extracted text would
+    /// look the same.
     ///
-    /// **The failing direction is deliberately not tested.** `VNImageRequestHandler.perform` throws
-    /// only for a recognizer that cannot run at all, there is no seam to inject a stub handler, and
-    /// every image this suite can construct that CoreGraphics decodes is one Vision accepts — the
-    /// corrupt-image fixture above never reaches `perform`, it fails at `CGImageSourceCreate…`. So
-    /// this pins the half that a test can actually reach and says so rather than pretending.
+    /// The failing direction isn't tested: `VNImageRequestHandler.perform` throws only for a
+    /// recognizer that can't run, there is no seam for a stub handler, and every image CoreGraphics
+    /// decodes is one Vision accepts (the corrupt fixture above fails at `CGImageSourceCreate…`).
     ///
-    /// **The absence is read from a `LogCapture` opened before the call** — "A log assertion
-    /// reading a window that has already rolled" in `docs/flaky-tests.md`. `Logger.shared.entries`
-    /// is one process-wide 1000-line window that every suite writes into at once, and on a busy run
-    /// it can roll past the whole call: an absence measured over a window that no longer holds the
-    /// interval passes having examined nothing, the one failure shape in that file with no symptom
-    /// at all. A capture cannot roll, and a line this test writes after the call is `#require`d
-    /// from it, so a capture that heard nothing fails, loudly, instead of passing the absence.
-    ///
-    /// No `.serialized` is needed: the fragment carries `clean-scan.png`, a fixture name no other
-    /// test in this suite or this repo writes (`imageTextIsExtractedViaOCR` uses `scan.png`), so a
-    /// sibling running concurrently cannot drop the asserted line inside the window.
+    /// The absence is read from a `LogCapture` opened before the call ("A log assertion reading a
+    /// window that has already rolled" in `docs/flaky-tests.md`): `Logger.shared.entries` is one
+    /// process-wide window that can roll past the whole call and pass having examined nothing. A
+    /// line written after the call is `#require`d from the capture, so a capture that heard
+    /// nothing fails. No `.serialized` needed: no other test writes `clean-scan.png`.
     @MainActor
     @Test func aScanThatOCRsCleanlyReportsNoOCRFailure() async throws {
         let dir = FixtureDir()
@@ -226,13 +214,12 @@ import UniformTypeIdentifiers
         let snippet = try #require(await ContentSignalExtractor.snippet(forFileAt: path))
         #expect(snippet.uppercased().contains("INVOICE"))
 
-        // After the call under test, so a capture that holds it was listening across all of it.
+        // After the call under test, so a capture that holds it was listening throughout.
         let marker = "ocr-failure window close \(UUID().uuidString)"
         Logger.shared.debug(marker)
         let entries = await log.entries
-        // Reduced to a Bool before the `#require`, deliberately: `#require`ing anything that holds
-        // the entries themselves prints every one of them on failure, which buries the one
-        // sentence that explains what went wrong.
+        // A Bool before the `#require`: requiring anything holding the entries prints every one on
+        // failure, burying the sentence that explains it.
         let heard = entries.contains { $0.message == marker }
         try #require(heard, "the capture never saw this test's own line, so the absence below would have examined nothing")
         let failures = entries.filter {
@@ -243,23 +230,21 @@ import UniformTypeIdentifiers
 
     // MARK: PDF extraction is serialized
 
-    /// **PDFKit's text extraction is not thread-safe, so this queue must stay serial.**
+    /// PDFKit's text extraction is not thread-safe, so this queue must stay serial.
     ///
-    /// Measured on a real 10,286-document tree, this reader six at a time returned different text
-    /// for 0.83% of documents run to run; one mortgage statement read 30 times serially gave one
-    /// text and 18 distinct texts once read concurrently. The damage is silent — reordered or
-    /// dropped blocks, still perfectly decodable prose — so nothing downstream can notice it.
+    /// Read concurrently, about 1% of real documents return different text from run to run. The
+    /// damage is silent (reordered or dropped blocks, still decodable prose), so nothing downstream
+    /// can notice it.
     ///
-    /// Asserting the outcome (peak concurrency) rather than the source: a `.concurrent` attribute
-    /// added back to the shared lane fails this, and so does anything else that lets two overlap.
-    /// The counter is instrumentation for exactly this, since serialization has no other outside
-    /// signature short of the sub-2%-of-documents flake this suite has no corpus to reproduce.
+    /// Asserts the outcome, peak concurrency, not the source: a `.concurrent` shared lane fails
+    /// this, as does anything else that lets two parses overlap. The counter exists for this test,
+    /// since serialization has no other outside signature.
     @Test func pdfExtractionNeverRunsTwoParsesAtOnce() async throws {
         let dir = FixtureDir()
         let paths = try (0..<12).map { i -> String in
             let p = dir.path("doc\(i).pdf")
-            // One page per line, five pages — the cap this reader stops at, so each parse is long
-            // enough to overlap with its neighbours if the queue allows it.
+            // Five pages, the cap this reader stops at, so each parse is long enough to overlap
+            // its neighbours if the queue allows it.
             try Self.writePDF(lines: (0..<5).map { "Statement page \($0) of document \(i)." }, to: p)
             return p
         }
@@ -272,18 +257,16 @@ import UniformTypeIdentifiers
             for await didRead in group where didRead { ok += 1 }
             return ok
         }
-        // Non-vacuity, asserted separately: nothing parsed leaves the peak at 0, which `== 1` does
-        // catch — but a run where every parse came back EMPTY would still move the counter, so the
-        // fixture being readable is its own claim.
+        // Non-vacuity, separately: `== 1` catches a peak of 0, but a run where every parse came
+        // back empty still moves the counter, so the fixture being readable is its own claim.
         #expect(read == paths.count * 2, "only \(read) of \(paths.count * 2) reads produced anything")
 
         let peak = PDFKitSerialAccess.peakConcurrentParses
         #expect(peak == 1, "\(peak) PDF parses overlapped — extraction is no longer serialized")
     }
 
-    /// The companion to the above: the parses really did happen, and really were issued
-    /// concurrently. Without this, `peakConcurrentParses == 1` is satisfied by a run in which
-    /// the extractor read nothing at all.
+    /// The companion to the above: the parses really happen and are issued concurrently. Without
+    /// it, `peakConcurrentParses == 1` is satisfied by a run that read nothing.
     @Test func theSerializationTestActuallyParsesConcurrentlyIssuedWork() async throws {
         let dir = FixtureDir()
         let paths = try (0..<6).map { i -> String in
@@ -306,16 +289,13 @@ import UniformTypeIdentifiers
 
     // MARK: - "Could not look" is not "nothing to say"
 
-    /// **Every reader here answers `""` on failure, so a log line is the only thing that separates a
-    /// read failure from a document with nothing in it.** Two of the three branches had none: a text
-    /// file the scan cannot open, and a PDF that will not parse, each contributed no tokens and no
-    /// excerpt, and the document then went to the classifier on its filename alone with nothing
-    /// anywhere saying why. The OCR branch beside them already argues exactly that case in prose.
+    /// Every reader here answers `""` on failure, so a log line is the only thing that separates a
+    /// read failure from an empty document. Without one, a text file the scan can't open or a PDF
+    /// that won't parse goes to the classifier on its filename alone, with nothing saying why.
     ///
-    /// Driven with real files, because that is the only way to make these reads fail: `chmod 000`
-    /// for the text branch and bytes that are not a PDF for the other. Both are read from a
-    /// `LogCapture` opened before the read, like the OCR test above, and the fixture names are
-    /// unique to this test so that no other test's line can stand in for its own.
+    /// Driven with real files, the only way to make these reads fail: `chmod 000` for the text
+    /// branch, bytes that aren't a PDF for the other. Both read a `LogCapture` opened before the
+    /// read, like the OCR test above, and use fixture names no other test writes.
     @MainActor
     @Test func aFileThatCannotBeReadSaysSoRatherThanReadingAsEmpty() async throws {
         let dir = FixtureDir()
@@ -336,7 +316,7 @@ import UniformTypeIdentifiers
     }
 
     /// The same for the PDF branch. `PDFDocument(url:)` returns nil rather than throwing, so there
-    /// is no error to quote and the line says the one thing that is known — it did not open.
+    /// is no error to quote and the line says only that it didn't open.
     @MainActor
     @Test func aPDFThatWillNotOpenSaysSo() async throws {
         let dir = FixtureDir()
@@ -352,10 +332,8 @@ import UniformTypeIdentifiers
         #expect(!said.isEmpty, "a PDF that will not parse read as a PDF with no text in it")
     }
 
-    /// **The guard on both.** A file that reads fine logs nothing, so the two tests above are about
-    /// the failure rather than about this reader narrating every file it touches — a scan walks
-    /// thousands of documents, and a per-file line on the happy path would bury the warnings it is
-    /// there to surface.
+    /// The guard on both: a file that reads fine logs nothing. A scan walks thousands of
+    /// documents, and a per-file line on the happy path would bury the warnings above.
     @MainActor
     @Test func aFileThatReadsFineIsSilent() async throws {
         let dir = FixtureDir()
@@ -367,7 +345,7 @@ import UniformTypeIdentifiers
         #expect(ContentSignalExtractor.extractTextSync(URL(fileURLWithPath: path)).contains("GEICO"),
                 "the fixture did not read — a silent log would then prove nothing")
 
-        // After the read, so a capture that holds it was listening across the whole read.
+        // After the read, so a capture that holds it was listening throughout.
         let marker = "quiet-read window close \(UUID().uuidString)"
         Logger.shared.debug(marker)
         let entries = await log.entries

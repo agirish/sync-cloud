@@ -9,30 +9,22 @@ import Testing
 
 /// Does each step fit the opening the card can actually offer it?
 ///
-/// **Written against the CLAMPED opening, which is the whole reason this file exists.** The
-/// settings sheet learned this the expensive way: it was raised to 758pt, every fit test passed,
-/// and it still scrolled on a 1280×800-class display — because `resolvedSize` clamps the card to
-/// the host window and every one of those tests measured the *unclamped* number. The fixture below
-/// is a window on a small display, not a number taken from `SetupSheetMetrics.baseSize`.
+/// Written against the clamped opening: `resolvedSize` clamps the card to the host window, so a
+/// test of the unclamped size passes while the card scrolls on a 1280×800-class display. The
+/// fixture is a window on a small display, not `SetupSheetMetrics.baseSize`.
 ///
-/// It also measures `stepContent(_:)` rather than the card. A `ScrollView` accepts any height it is
-/// offered, so `fittingSize` taken on the card answers the card's own height however tall the step
-/// inside it is — a guard written that way passes with a step twice the size of its opening.
+/// It measures `screenBody(_:)`, not the card: a `ScrollView` accepts any height, so the card's
+/// `fittingSize` is its own height however tall the screen inside it is.
 @MainActor
 @Suite(.machinePinned(.layoutMetrics)) struct SetupSheetFitTests {
 
-    /// A window on a 1280×800-class display, after the app's own chrome.
-    ///
-    /// The same reasoning as the settings sheet's small-display fixture: the display is 800pt tall,
-    /// the window is smaller than the screen, and `hostMargin` comes off that again. This is the
-    /// tightest opening a real user has.
+    /// A window on a 1280×800-class display, after the app's own chrome: the window is smaller than
+    /// the 800pt screen, and `hostMargin` comes off that again. The tightest opening a real user
+    /// has.
     static let smallDisplayHost = CGSize(width: 1200, height: 740)
 
-    /// Providers enough to make Sources the tallest step it can honestly be.
-    ///
-    /// **Seven, because that is what a real Mac has**: iCloud plus the six accounts under
-    /// `~/Library/CloudStorage` on the machine this was designed against. A fixture with two would
-    /// measure a step that nobody has.
+    /// Providers enough to make Locations as tall as it honestly gets: seven, as on a real Mac
+    /// (iCloud plus six accounts under `~/Library/CloudStorage`).
     static let realisticProviderCount = 7
 
     private func manager(providerCount: Int) async -> SettingsManager {
@@ -50,15 +42,11 @@ import Testing
         return manager
     }
 
-    /// A household the size of a real one.
-    ///
-    /// **Seven, from this machine's `people.json`.** The People step draws a row per person, so a
-    /// fixture with an empty roster measures the empty state — which is exactly how the Organize
-    /// tab's fit guard passed for a release while real users scrolled, and it got there the same
-    /// way: by handing the view a nil dependency.
+    /// A household the size of a real one: seven people. The People step draws a row per person,
+    /// so an empty roster, or a nil dependency, would measure only the empty state.
     static let realisticRoster = ["Father", "Mother", "Daughter", "Son", "Granny", "Elder", "Uncle"]
 
-    /// Household names the fixture walk does **not** propose, for the growth control below.
+    /// Household names the fixture walk does not propose, for the growth control below.
     static let rosterOnlyNames = ["Ada", "Bruno", "Cosima", "Devendra", "Eun-ji", "Farhan",
                                   "Giulia"]
 
@@ -95,13 +83,8 @@ import Testing
 
     /// A tree with the shapes the screens after Learn actually draw: enough people to fill the
     /// chip row, the five country candidates the reference tree proposes, four levels of nesting
-    /// for Structure to open along, and loose files at the top for the routing view.
-    ///
-    /// **Without it every one of those screens measures its empty state.** The retired form
-    /// carried `placeCandidates:`/`peopleCandidates:` injection for exactly this reason, and the
-    /// note on it said so: "a fixture built with no engine proposes none — which is measuring the
-    /// empty state, the way the Organize tab's fit guard passed for a release while real users
-    /// scrolled."
+    /// for Structure, and loose files at the top for the routing view. Without it every one of
+    /// those screens measures its empty state.
     static let realisticWalk: SetupWalk = {
         var folders: [String] = ["Finance/TODO", "Finance/Archive", "Home/Utilities/Water",
                                  "Home/Insurance", "School/Transcripts", "Photos/2019"]
@@ -157,14 +140,14 @@ import Testing
         return nodes(top, prefix: "/tmp/Documents")
     }
 
-    /// The laid-out height of a screen's content at the width the card gives it.
-    /// The width the card gives this screen — the narrow column only where a Why panel takes the
+    /// The width the card gives this screen: the narrow column only where a Why panel takes the
     /// rest.
     private func width(for screen: SetupFlow.Screen, scale: CGFloat = 1) -> CGFloat {
         SetupSheetMetrics.contentWidth(availableSize: Self.smallDisplayHost, scale: scale,
                                        screen: screen)
     }
 
+    /// The laid-out height of a screen's content at the width the card gives it.
     private func height(of screen: SetupFlow.Screen, in sheet: SetupSheet,
                         width: CGFloat, scale: CGFloat = 1,
                         outlineRows: [SetupFlow.OutlineRow] = SetupFlow.outline) -> CGFloat {
@@ -191,11 +174,8 @@ import Testing
         SetupSheetMetrics.contentWidth(availableSize: Self.smallDisplayHost, scale: 1)
     }
 
-    /// The card never exceeds the window it is centred in.
-    ///
-    /// This is the property the settings sheet's tests were all missing — it was raised to 758pt,
-    /// every fit test passed, and it still hung off a 1280×800-class display, because they all
-    /// measured the unclamped number.
+    /// The card never exceeds the window it is centred in, so every fit test here measures the
+    /// size a user actually gets.
     @Test func theCardClampsToTheWindowItIsShownIn() {
         let tight = CGSize(width: 900, height: 560)
         #expect(SetupSheetMetrics.resolvedWidth(availableSize: tight, scale: 1)
@@ -211,11 +191,9 @@ import Testing
         #expect(SetupSheetMetrics.resolvedHeight(availableSize: huge, scale: 1) == SetupSheetMetrics.cardHeight)
     }
 
-    /// The footer really is no taller than the height the content budget is computed from.
-    ///
-    /// **An unverified constant inside a sizing rule makes every height that uses it unverified.**
-    /// `contentHeight` subtracts `footerHeight` from the card, so a real footer taller than the
-    /// number means every measurement here is optimistic by the difference.
+    /// The footer is no taller than the height the content budget is computed from:
+    /// `contentHeight` subtracts `footerHeight`, so a taller real footer makes every measurement
+    /// here optimistic by the difference.
     @Test func theFooterFitsTheHeightTheOpeningIsComputedFrom() async throws {
         let settings = await manager(providerCount: 2)
         let sheet = sheet(settings)
@@ -238,32 +216,18 @@ import Testing
 
     // MARK: - The steps
 
-    /// The steps that can be measured fit the one card they all share.
+    /// The screens that can be measured fit the one card they all share, at the clamped height,
+    /// not `SetupSheetMetrics.cardHeight`.
     ///
-    /// **Sources is exempt, and the exemption is a measurement rather than a label.** It draws a row
-    /// per source and a user may add any number of folders, so no card height promises to hold it —
-    /// at seven sources it wants ~600pt, more than a 1280×800 display can give *any* card. The
-    /// settings sheet keeps its Providers tab out of its fit guard for the same property, and that
-    /// exemption sat there for a release with nothing under it;
-    /// `sourcesOutgrowsTheOpeningEventually` is what stops this one going the same way.
-    ///
-    /// Measured against the CLAMPED height, not `SetupSheetMetrics.cardHeight`: the settings sheet
-    /// passed every fit test it had while scrolling on a small display, because all of them measured
-    /// the unclamped number.
+    /// Locations is exempt: it draws a row per location and a user may add any number of folders,
+    /// so no card height can promise to hold it. `sourcesOutgrowsTheOpeningEventually` measures
+    /// where it stops fitting, so the exemption isn't just a label.
     static let boundedScreens: [SetupFlow.Screen] = [
         .welcome, .learn, .you, .people, .countries, .structure, .workspaces, .appearance, .summary,
     ]
 
-    /// Places enough to make the Folders step the tallest it honestly gets.
-    ///
-    /// **Five, because that is what the reference tree proposes**: `US`, `IN`, `EMP`, `IT` and
-    /// `PRD` — two real and three inventions, which is the whole reason the step exists. A fixture
-    /// with none measures a step with no chips in it.
-    /// Household names enough to make the People step the tallest it honestly gets.
-    ///
-    /// Six, because the reference tree proposes 28 and the step shows the first twelve — and a
-    /// fixture with none measures a step with no chips in it, which is the trap the roster taught
-    /// me once already.
+    /// Household names enough to make the People step as tall as it honestly gets. A fixture with
+    /// none measures a step with no chips in it.
     static let realisticPeople: [PersonCandidate] = [
         PersonCandidate(name: "Granny", parents: ["Family"], folderCount: 5, householdParents: 2),
         PersonCandidate(name: "Mother", parents: ["Family"], folderCount: 28, householdParents: 1),
@@ -273,6 +237,9 @@ import Testing
         PersonCandidate(name: "Elder", parents: ["Family"], folderCount: 5, householdParents: 1),
     ]
 
+    /// Places enough to make the Countries step as tall as it honestly gets: the five the reference
+    /// tree proposes, `US`, `IN`, `EMP`, `IT` and `PRD`, two real and three not, which is why the
+    /// step exists.
     static let realisticPlaces: [JurisdictionCandidate] = [
         JurisdictionCandidate(value: "US", parents: ["Finance", "Legal", "School"], folderCount: 214),
         JurisdictionCandidate(value: "IN", parents: ["Finance", "Immigration"], folderCount: 168),
@@ -298,11 +265,9 @@ import Testing
                 "the fixture roster is empty — the People step would be measured with nothing in it")
 
         let sheet = sheet(settings, people: store, hasFilingProfile: true)
-        // **Every text size, not just the default.** The card's width follows the type and its
-        // height stops at the window, so the opening changes shape as the size rises — at 135% on
-        // this display it is *smaller* than at 125%, because the chrome went on growing after the
-        // card could not. A screen measured only at 100% cannot see the size that overflows, and
-        // Structure did: 552pt into a 516pt opening, with the Read documents switch below the fold.
+        // Every text size: the card's width follows the type and its height stops at the window,
+        // so the opening changes shape as the size rises, and can shrink at the largest sizes as
+        // the chrome keeps growing.
         for size in FontSize.allCases {
             let scale = size.scale
             let ceiling = SetupSheetMetrics.contentHeight(availableSize: Self.smallDisplayHost,
@@ -316,11 +281,9 @@ import Testing
         }
     }
 
-    /// **Structure fits with a failed Save on it**, the tallest that screen gets.
-    ///
-    /// The failure takes the place of the line about grey words, with a heading, the reason and the
-    /// two ways on — on the screen that has the least room of the ten. The fit test above measures
-    /// it with no failure, so nothing saw this state.
+    /// Structure fits with a failed Save on it, the tallest that screen gets. The failure's
+    /// heading, reason and two ways on replace the line about grey words, on the screen with the
+    /// least room; the test above measures it with no failure.
     @Test func structureFitsWithAFailedSaveOnIt() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-fit-fail-\(UUID().uuidString)")
@@ -363,8 +326,8 @@ import Testing
         }
     }
 
-    /// **Structure fits while the reading still runs** (SR5): the reading's line stands in the
-    /// tree's box, and the heading's blurb says it is still reading.
+    /// Structure fits while the reading still runs: the reading's line stands in the tree's box,
+    /// and the heading's blurb says it is still reading.
     @Test func structureFitsWhileTheReadingRuns() async throws {
         let settings = await manager(providerCount: Self.realisticProviderCount)
         func model() -> SetupModel {
@@ -387,16 +350,15 @@ import Testing
                     "at \(Int(scale * 100))% the running reading changed nothing — this measures the landed screen")
             #expect(running.height <= ceiling,
                     "at \(Int(scale * 100))% Structure over a running reading lays out at \(Int(running.height))pt against a \(Int(ceiling))pt opening")
-            // **No lens, no grey words, no legend while it runs** — they explain a tree there is
-            // none of yet. The box the tree fills is the same fixed height either way, so the
-            // screen is shorter by those three; drawn, the two come within a line of each other.
+            // No lens, grey words or legend while it runs: they explain a tree there isn't yet.
+            // The tree's box is a fixed height either way, so the screen is shorter by those three.
             #expect(other.height - running.height >= 40,
                     "at \(Int(scale * 100))% Structure over a running reading is \(Int(running.height))pt against \(Int(other.height))pt landed — it still draws the tree's lens and legend")
         }
     }
 
-    /// **Structure fits over a reading that failed, and says so** (SR5): the failure's line, its
-    /// reason and Try Another Folder… stand in the tree's box, where the last reading's tree stood.
+    /// Structure fits over a reading that failed, and says so: the failure's line, its reason and
+    /// Try Another Folder… stand in the tree's box, where the last reading's tree stood.
     @Test func structureFitsOverAFailedReading() async throws {
         let settings = await manager(providerCount: Self.realisticProviderCount)
         func model() -> SetupModel {
@@ -420,9 +382,8 @@ import Testing
             #expect(!drawn.pixels.isEmpty, "at \(Int(scale * 100))% Structure drew nothing")
             #expect(drawn.pixels != landed.pixels,
                     "at \(Int(scale * 100))% the failed reading is drawn as the last reading's tree")
-            // **The pixels alone are satisfied by the blurb**, which names the failure whatever
-            // the box below it draws: measured, a model that drew the old tree there still
-            // differed. The lens and legend go with the tree, so the screen is shorter by them.
+            // The pixels alone are satisfied by the blurb, which names the failure whatever the box
+            // draws. The lens and legend go with the tree, so the height tells them apart.
             #expect(landed.height - drawn.height >= 40,
                     "at \(Int(scale * 100))% Structure over a failed reading is \(Int(drawn.height))pt against \(Int(landed.height))pt landed — it still draws the old tree's lens and legend")
             #expect(drawn.pixels != renderStructure(running, scale: scale).pixels,
@@ -451,16 +412,9 @@ import Testing
         return (host.fittingSize.height, bytes ?? Data())
     }
 
-    /// **The welcome card fits too, and nothing measured it before.**
-    ///
-    /// Welcome is deliberately not a `Step` — it precedes the rail — so `everyBoundedStepFitsThe
-    /// CardTheyShare` above cannot reach it, and it is simultaneously the one screen in this app
-    /// that only ever renders on a machine nobody working on it is using. That combination is how
-    /// its "setting up asks for" list came to be dropped by a redraw with three tests still green
-    /// over the data behind it.
-    ///
-    /// Measured at three text sizes, because this is the screen with the most words on it and the
-    /// one nobody working on the app ever sees.
+    /// The welcome card fits at the card's full width, at three text sizes: it has the most words
+    /// of any screen, and it only ever renders on a fresh machine, so nobody working on the app
+    /// sees it.
     @Test func theWelcomeScreenFitsTheCardItIsDrawnIn() async throws {
         let settings = await manager(providerCount: Self.realisticProviderCount)
         let sheet = sheet(settings)
@@ -477,16 +431,12 @@ import Testing
         }
     }
 
-    /// The welcome card really **draws** the outline, not just the data behind it.
+    /// The welcome card really draws the outline, not just the data behind it.
     ///
-    /// **Measured twice, because the failure this catches is a render one.** `SetupFlow.outline`
-    /// and its three tests in `SetupFlowTests` survived `89373824`, which stopped drawing the list
-    /// while redrawing the card, and `e52076eb`, which brought the step it announces back and did
-    /// not bring the row with it. Those tests assert the TABLE, and a table nobody reads is exactly
-    /// as consistent as one somebody does. SwiftUI draws its own text — an `NSTextField` sweep of
-    /// the laid-out tree comes back empty, measured — so the only thing an offscreen host can
-    /// honestly report is the height, and the height is enough: a card that renders the rows is
-    /// taller than one handed none.
+    /// `SetupFlowTests` checks the `SetupFlow.outline` table, which stays consistent whether or not
+    /// the card draws it. SwiftUI draws its own text, so an `NSTextField` sweep finds nothing; the
+    /// height is what an offscreen host can report, and a card that draws the rows is taller than
+    /// one handed none.
     @Test func theWelcomeCardGrowsByTheOutlineItDraws() async throws {
         let settings = await manager(providerCount: Self.realisticProviderCount)
         let width = SetupSheetMetrics.resolvedWidth(availableSize: Self.smallDisplayHost, scale: 1)
@@ -504,10 +454,8 @@ import Testing
                 "drawing the outline added only \(Int(withRows - without))pt for \(SetupFlow.outline.count) rows — the card is not rendering the list it declares")
     }
 
-    /// Every screen is either measured against the shared height or explicitly exempt.
-    ///
-    /// Derived from `allCases`, so a screen added later joins the fit list or earns a line in
-    /// `boundedScreens` — it cannot skip the guard by not being named.
+    /// Every screen is either measured against the shared height or explicitly exempt. Derived from
+    /// `allCases`, so a new screen can't skip the guard by not being named.
     @Test func everyScreenIsEitherFitTestedOrExempt() {
         let exempt: Set<SetupFlow.Screen> = [.locations]
         #expect(Set(Self.boundedScreens).union(exempt) == Set(SetupFlow.Screen.allCases),
@@ -515,19 +463,17 @@ import Testing
         #expect(Set(Self.boundedScreens).isDisjoint(with: exempt))
     }
 
-    /// The shared height is not much taller than the tallest step it is measured against.
-    ///
-    /// The other side of that bound, and the reason the old 648pt card was wrong: a height chosen
-    /// above what any bounded step asks for is dead space on every one of them. Loose enough for a
-    /// copy edit, tight enough that a stale number fails rather than lingering.
+    /// The shared height is not much taller than the tallest step it is measured against: height
+    /// above what any bounded step asks for is dead space on all of them. Loose enough for a copy
+    /// edit, tight enough that a stale number fails.
     @Test func theSharedHeightIsNotMuchTallerThanItNeedsToBe() async throws {
         let settings = await manager(providerCount: Self.realisticProviderCount)
         let sheet = sheet(settings, people: try roster(), hasFilingProfile: true)
         let tallest = try #require(Self.boundedScreens
             .map { height(of: $0, in: sheet, width: width(for: $0)) }.max())
         #expect(tallest > 0, "a screen measured nothing at all")
-        // The card's whole budget, not the card minus its footer: the sheet also spends a top bar,
-        // two hairlines and the padding around the content before a screen sees a point of it.
+        // The content budget, not the card minus its footer: the sheet also spends a top bar, two
+        // hairlines and the padding around the content.
         let slack = SetupSheetMetrics.contentHeight(availableSize: Self.smallDisplayHost, scale: 1)
             - tallest
         #expect(slack >= 0, "the tallest bounded step does not fit the card at its unclamped size")
@@ -536,18 +482,11 @@ import Testing
     }
 
 
-    /// Where Sources stops fitting.
+    /// Where Locations stops fitting. It draws a row per location and a user may add any number of
+    /// folders, so the question is when it outgrows the opening, not whether.
     ///
-    /// **The card's height cannot promise to hold this step, and this is the honest form of saying
-    /// so.** Sources draws a row per source, and a user may add any number of folders, so the
-    /// question is not *whether* it outgrows the opening but *when* — the settings sheet keeps its
-    /// Providers tab out of its fit guard for the same reason, and the exemption sat there for a
-    /// release as a label with no measurement under it.
-    ///
-    /// The bound is two-sided on purpose. A realistic Mac has to fit, and the count where it stops
-    /// has to be far enough past that to be a real answer rather than a coincidence — but it must
-    /// also stay *findable*, so a step that silently stopped growing (a list that clipped rather
-    /// than scrolled, a measurement that flatlined) fails here rather than passing as "fits at
+    /// Two-sided on purpose: a realistic Mac must fit, and the overflow count must stay findable,
+    /// so a list that clipped or a measurement that flatlined fails rather than passing as "fits at
     /// every count".
     @Test func sourcesOutgrowsTheOpeningEventually() async throws {
         let opening = (width: contentWidth, height: contentCeiling)
@@ -561,21 +500,19 @@ import Testing
 
         let overflow = try #require(firstOverflow,
                                     "Sources fits at 24 sources — either the card grew a great deal or this measurement stopped seeing the list")
-        // **Where it starts scrolling, recorded rather than promised.** The card is one height for
-        // every step and Sources is the step that cannot promise to fit it, so the useful claim is
-        // not "it always fits" — it is that the count is known and has not collapsed. A regression
-        // that made it scroll at one or two sources is a broken row, not a long list.
+        // Where it starts scrolling, recorded rather than promised: the claim is that the count is
+        // known and hasn't collapsed. Scrolling at one or two locations is a broken row, not a
+        // long list.
         #expect(overflow >= 4,
                 "Sources scrolls at \(overflow) source(s) — that is not a long list, it is a row that got too tall")
     }
 
     /// The People step grows with the household, and the measurement sees it.
     ///
-    /// **The second positive control, and it is the one the first draft of this file was missing.**
-    /// Every fit assertion is an upper bound, and a step measured with an empty roster satisfies
-    /// one trivially — so "People fits" means nothing until it is shown that People *can* stop
-    /// fitting. This is the same claim `theMeasurementSeesAStepGrow` makes for Sources, on the
-    /// other list in this form that grows with the user's data.
+    /// Every fit assertion is an upper bound, which an empty roster satisfies trivially, so "People
+    /// fits" means nothing until People is shown to grow. The same claim
+    /// `sourcesOutgrowsTheOpeningEventually` makes for Locations, the other list that grows with the
+    /// user's data.
     @Test func theMeasurementSeesTheRosterGrow() async throws {
         let settings = await manager(providerCount: 2)
         let opening = (width: contentWidth, height: contentCeiling)
@@ -585,19 +522,14 @@ import Testing
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let store = PeopleStore(directory: dir, profileId: "grow", profile: nil)
 
-        // **One name first, and the reason is the disclosure.** The screen leads with the list and
-        // keeps the proposals behind `SetupMoreOptions`, which opens itself while the list is empty
-        // — that being the run where the proposals are the only thing to act on. So an empty roster
-        // draws *more* than a roster of one, and comparing empty against full asks whether the
-        // disclosure closed rather than whether the roster grew. Both measurements here are taken
-        // with it closed, so the only thing that moves is the rows.
+        // One name first: the proposals sit behind `SetupMoreOptions`, which opens itself while the
+        // list is empty, so an empty roster draws more than a roster of one. Both measurements are
+        // taken with it closed, so only the rows move.
         store.add(displayName: Self.rosterOnlyNames[0])
         let one = height(of: .people, in: sheet(settings, people: store, hasFilingProfile: true),
                          width: opening.width)
-        // **Names the walk did not propose.** Adding a proposed name moves it from the chip row to
-        // the roster row rather than adding a row — the two lists trade off by design — so
-        // measuring with the proposals would ask this control whether the screen shrinks, which is
-        // a different question and a true one.
+        // Names the walk did not propose: adding a proposed one moves it from the chip row to the
+        // roster rather than adding a row.
         for name in Self.rosterOnlyNames.dropFirst() { store.add(displayName: name) }
         let full = height(of: .people, in: sheet(settings, people: store, hasFilingProfile: true),
                           width: opening.width)
@@ -610,12 +542,9 @@ import Testing
                 "\(Self.rosterOnlyNames.count - 1) more people did not make the People screen taller (\(Int(one))pt vs \(Int(full))pt) — this measurement is not seeing the roster")
     }
 
-    /// The empty roster is not the smallest thing this screen can be.
-    ///
-    /// **Which is the other half of the control above.** People opens its proposals while the list
-    /// is empty, so the first-run screen carries the longest chip row it will ever draw. A fit
-    /// assertion taken against the roster alone would miss it entirely — this is the state a real
-    /// first run is in.
+    /// The empty roster is not the smallest this screen can be, the other half of the control
+    /// above. People opens its proposals while the list is empty, so a real first run draws the
+    /// longest chip row the screen ever shows, and it must still fit.
     @Test func theEmptyRosterDrawsTheProposalsAndStillFits() async throws {
         let settings = await manager(providerCount: 2)
         let opening = (width: contentWidth, height: contentCeiling)
@@ -637,11 +566,8 @@ import Testing
                 "the first-run People screen wants \(Int(empty))pt of \(Int(opening.height))")
     }
 
-    /// Where People stops fitting.
-    ///
-    /// Same shape as `sourcesOutgrowsTheOpeningEventually`, and needed for the same reason: the
-    /// roster is the user's data and no card height can promise to hold it. What can be promised is
-    /// that a real household fits, and that the number where it stops is known.
+    /// Where People stops fitting. Same shape as `sourcesOutgrowsTheOpeningEventually`: no card
+    /// height can hold any roster, but a real household must fit and the overflow count be known.
     @Test func peopleOutgrowsTheOpeningEventually() async throws {
         let settings = await manager(providerCount: 2)
         let opening = (width: contentWidth, height: contentCeiling)
@@ -652,8 +578,7 @@ import Testing
         let store = PeopleStore(directory: dir, profileId: "many", profile: nil)
 
         var firstOverflow: Int?
-        // Higher than the old bound, because the roster is a wrapping chip row now rather than a
-        // list: four names to a line, so it takes four times as many to fill the same height.
+        // A high bound, because the roster is a wrapping chip row of about four names to a line.
         for count in 1...200 {
             store.add(displayName: "Person \(count)")
             let measured = height(of: .people, in: sheet(settings, people: store, hasFilingProfile: true),
@@ -667,10 +592,9 @@ import Testing
                 "People scrolls at \(overflow) members, and this household has \(Self.realisticRoster.count) — the card is sized under a real roster")
     }
 
-    /// At the largest text size the card grows too, so the steps still have somewhere to go.
-    ///
-    /// Not a fit assertion — on a small display the card is already clamped, so the largest text
-    /// size legitimately scrolls. What must hold is that the opening did not get *smaller*.
+    /// At the largest text size the card grows too, so the steps still have somewhere to go. Not a
+    /// fit assertion: on a small display the card is already clamped and may scroll; what must hold
+    /// is that the opening doesn't shrink.
     @Test func theOpeningDoesNotShrinkWhenTextGrows() {
         let roomy = CGSize(width: 2000, height: 1400)
         #expect(SetupSheetMetrics.resolvedHeight(availableSize: roomy, scale: 1.35)

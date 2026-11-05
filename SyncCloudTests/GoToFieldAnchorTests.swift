@@ -2,17 +2,11 @@ import Testing
 import AppKit
 @testable import SyncCloud
 
-/// **Where the Go-to field is, asked of a real toolbar.**
-///
-/// The anchor decides three things — how wide the list draws, where it hangs, and (since the click
-/// rule started sparing the field) whether a click on the control the user is typing into closes
-/// the palette. All three go wrong the same way if this answers confidently about the wrong place,
-/// which is why the refusal below matters as much as the measurement above it.
-///
-/// This suite exists because `goToFieldItemView`'s window requirement was loosened on 2026-08-19
-/// and backed out the same hour: with `view.window != nil` in place of `view.window === host`, a
-/// fixture whose host was parked at `(-9000, -9000)` got a confident anchor at `(1272, 444)`. The
-/// rule's own doc carries the argument; these are the measurements.
+/// Where the Go-to field is, asked of a real toolbar. The anchor decides how wide the list draws,
+/// where it hangs, and whether a click on the field the user is typing into closes the palette.
+/// All three go wrong if it answers confidently about the wrong place, so the refusals matter as
+/// much as the measurement. `goToFieldItemView` needs `view.window === host`; `view.window != nil`
+/// would accept a view in another window and anchor somewhere plausible and wrong.
 @MainActor
 @Suite struct GoToFieldAnchorTests {
 
@@ -31,7 +25,7 @@ import AppKit
         }
     }
 
-    /// A field wrapped in the container the toolbar item hosts, which is what the anchor measures —
+    /// A field wrapped in the container the toolbar item hosts, which is what the anchor measures:
     /// the whole capsule, not the text field inside it.
     private func itemView() -> NSView {
         let container = NSView(frame: CGRect(x: 10, y: 20, width: 200, height: 28))
@@ -42,13 +36,10 @@ import AppKit
         return container
     }
 
-    /// Returns the delegate alongside the window because **`NSToolbar` holds its delegate weakly** —
-    /// dropping it on the floor leaves a toolbar with no items and every assertion here failing for
-    /// a reason that has nothing to do with the rule under test.
-    ///
-    /// The window is not parked off-display: a `.titled` window's frame is constrained onto a
-    /// screen whatever origin it is given (measured here and in `CommandPalettePanelTests.makeHost`),
-    /// so pretending otherwise would be a fixture lying about itself. Nothing is ordered in.
+    /// Returns the delegate with the window because **`NSToolbar` holds its delegate weakly**;
+    /// dropping it leaves a toolbar with no items and every assertion failing for an unrelated
+    /// reason. Not parked off-display: a `.titled` window's frame is constrained onto a screen
+    /// whatever origin it gets (as in `CommandPalettePanelTests.makeHost`). Nothing is ordered in.
     private func host(carrying view: NSView) -> (NSWindow, OneItem) {
         let host = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
                             styleMask: [.titled], backing: .buffered, defer: false)
@@ -75,14 +66,10 @@ import AppKit
                 == host.convertToScreen(view.convert(view.bounds, to: nil)))
     }
 
-    /// **The case the guard is for: an item whose view is not in the window.**
-    ///
-    /// That is what macOS leaves behind when it folds a toolbar item behind the overflow chevron,
-    /// and `convert(_:to: nil)` on such a view answers in its own bounds — so the frame that comes
-    /// back is a plausible 200×28 at some window's corner, which the caller cannot tell from a real
-    /// anchor. Reached here by taking the view back out of the hierarchy, which is the one way to
-    /// produce the state deterministically: a `.titled` host is constrained onto a display and its
-    /// toolbar is built whether or not anything is ordered in.
+    /// An item whose view isn't in the window is refused. macOS leaves that behind when it folds a
+    /// toolbar item behind the overflow chevron, and `convert(_:to: nil)` on such a view answers in
+    /// its own bounds: a plausible 200×28 at a window's corner the caller can't tell from a real
+    /// anchor. Removing the view from the hierarchy is the one deterministic way to reach that state.
     @Test func anItemViewOutsideTheWindowIsRefusedRatherThanMeasured() {
         let view = itemView()
         let (host, delegate) = host(carrying: view)
@@ -97,9 +84,8 @@ import AppKit
         #expect(ContentView.goToFieldScreenFrame(in: host) == nil)
     }
 
-    /// A view in a **different** window is refused too, and this is the measurement that backed out
-    /// the loosened guard: the rect it would otherwise have produced is real, plausible and nowhere
-    /// near the host.
+    /// A view in a different window is refused too: the rect it would produce is real, plausible and
+    /// nowhere near the host.
     @Test func anItemViewInAnotherWindowIsRefused() {
         let view = itemView()
         let (host, delegate) = host(carrying: view)

@@ -6,15 +6,12 @@ import Testing
 
 /// The setup card's three rows begin and end on one vertical line.
 ///
-/// **Measured off a rendered bitmap, because this is a defect no layout assertion can see.** The
-/// crumb strip, the screen's own heading and the footer's first control each sat behind their own
-/// `padding`, and two of those numbers were 14 while the third was 22 — a card whose chrome hugged
-/// its edges more tightly than its content did. Nothing failed: every view was correct in
-/// isolation, and the only thing that was wrong was where they landed relative to each other.
+/// Measured off a rendered bitmap, because no layout assertion can see it: the crumb strip, the
+/// heading and the footer's first control each sit behind their own `padding`, and each view can
+/// be right alone while they land on different lines.
 ///
-/// So the check is the pixels. Each band of the card is scanned for its first and last column of
-/// ink, rows that span the whole width (dividers, fills) are skipped, and the three bands must
-/// agree.
+/// Each band is scanned for its first and last column of ink, skipping rows that span the whole
+/// width (dividers, fills), and the three bands must agree.
 @MainActor
 @Suite struct SetupCardAlignmentTests {
 
@@ -48,7 +45,7 @@ import Testing
         var threshold: CGFloat = 0.35
 
         /// Each pixel's alpha as `colorAt` reports it, asked once per distinct pixel value
-        /// (`PixelMemo`) rather than of every pixel of every scanned row, on the main actor.
+        /// (`PixelMemo`) to keep the main actor free.
         private let alpha: PixelMemo<CGFloat?>
 
         init(rep: NSBitmapImageRep) {
@@ -56,13 +53,10 @@ import Testing
             alpha = PixelMemo(rep) { $0?.alphaComponent }
         }
 
-        /// `(first, last)` ink column for one row, or nil for a row with no ink — or one that is a
-        /// divider.
+        /// `(first, last)` ink column for one row, or nil for a row with no ink or a divider.
         ///
-        /// **A divider is told by how much of the row it inks, not by how far apart its ends are.**
-        /// The first spelling of this rejected any row whose ink spanned most of the width, which
-        /// is exactly what a row holding the crumb strip *and* the ✕ looks like — so it threw away
-        /// every row the test exists to measure and reported the leftovers.
+        /// A divider is told by how much of the row it inks, not how far apart its ends are: a row
+        /// holding the crumb strip and the ✕ spans most of the width too.
         func columns(row y: Int) -> (first: Int, last: Int)? {
             var first: Int?, last: Int?
             var inked = 0
@@ -119,10 +113,9 @@ import Testing
 
     /// The two kinds of thing that begin at the card's inset, each measured for what it is.
     ///
-    /// **Text against text, bezel against bezel.** A bordered button's *label* never lands where a
-    /// paragraph does — its bezel does, and the label sits inside that — so one threshold cannot
-    /// ask both questions. At 0.35 only glyphs survive, which is the crumb strip against the
-    /// heading; at 0.05 the translucent bezels appear, which is the Back button against the card.
+    /// Text against text, bezel against bezel: a bordered button's bezel lands at the inset, not its
+    /// label. At 0.35 only glyphs survive (crumb strip against heading); at 0.05 the translucent
+    /// bezels appear (Back against the card).
     @Test func theChromeAndTheContentBeginOnOneLine() throws {
         let width = SetupSheetMetrics.cardWidth, height = SetupSheetMetrics.cardHeight
         var ink = try render(width: width, height: height)
@@ -150,9 +143,8 @@ import Testing
 
     /// The top bar's trailing control ends where the footer's does, allowing for the ✕'s own inset.
     ///
-    /// **The allowance is measured, not chosen.** `CloseButton` draws its glyph inside a larger hit
-    /// area, so its ink stops short of its frame; rendering it alone is what says by how much,
-    /// which keeps this from being a magic number that quietly absorbs a real regression.
+    /// The allowance is measured, not chosen: `CloseButton` draws its glyph inside a larger hit
+    /// area, and rendering it alone says by how much, so no magic number absorbs a regression.
     @Test func theTopBarsTrailingControlEndsWhereTheFooterDoes() throws {
         let width = SetupSheetMetrics.cardWidth, height = SetupSheetMetrics.cardHeight
         var ink = try render(width: width, height: height)
@@ -168,18 +160,14 @@ import Testing
                 "the top bar's trailing control ends \(measured)pt from the card's edge; the ✕ on the card's \(SetupSheetMetrics.horizontalInset)pt inset would end at \(expected)pt")
     }
 
-    /// **Every step in the crumb strip is readable, at every text size.**
+    /// Every step in the crumb strip is readable, at every text size.
     ///
-    /// The strip carries about 186pt of chrome that had nothing to do with the type — seven gaps,
-    /// sixteen capsule insets and eight number-to-name gaps, all fixed points — inside a card whose
-    /// width *is* the type's. So the size that broke it was the small one: at 90% the card gives up
-    /// 72pt, the padding gives up nothing, and the words pay the difference. Rendered, the strip
-    /// read "1 Locat… 5 Count… Workspac… Appeara…" — four of the eight steps unreadable, at the
-    /// setting chosen by someone trying to fit more on screen.
+    /// The strip's gaps and capsule insets are fixed points inside a card whose width scales with
+    /// the type, so the small sizes are the risk: the card shrinks, the padding doesn't, and the
+    /// words truncate.
     ///
-    /// Measured against the real top bar's budget rather than a chosen number: the card at this
-    /// size, less its inset, less the two controls at the trailing end and the gaps the `HStack`
-    /// puts between them.
+    /// Measured against the real top bar's budget: the card at this size, less its inset, the two
+    /// trailing controls and the `HStack`'s gaps.
     @Test func theCrumbStripFitsTheTopBarAtEveryTextSize() throws {
         let window = CGSize(width: 1200, height: 740)
         // The widest set the strip can be asked to draw — every screen that gets a crumb.
@@ -233,7 +221,7 @@ import Testing
         case learnAgain
         /// Structure after a failed Save: Continue Without Saving, Save and Start Reading.
         case failedSave
-        /// Structure while the reading still runs: Back and Skip Saving (SR5).
+        /// Structure while the reading still runs: Back and Skip Saving.
         case skipSaving
 
         @MainActor
@@ -279,12 +267,10 @@ import Testing
 
     /// The footer's pieces do not touch, at the widest titles and the largest text.
     ///
-    /// **The lock line is an overlay, so it reserves no width** — which is what keeps it centred on
-    /// the card rather than sliding with the buttons, and is also the one way it could come to sit
-    /// under one of them. Structure's long primary keeps it, with clear air required on both sides
-    /// of the centre. A footer with a secondary button drops it: after a failed Save, "Continue
-    /// Without Saving" beside "Save and Start Reading" reached under the centre and the line sat
-    /// on top of them.
+    /// The lock line is an overlay, so it reserves no width: that keeps it centred rather than
+    /// sliding with the buttons, and is how it could end up under one. Structure's long primary
+    /// keeps it, with clear air both sides. A footer with a secondary button drops it, because two
+    /// long buttons reach under the centre.
     @Test(arguments: FooterCase.allCases)
     func theFooterPiecesDoNotCollide(_ footerCase: FooterCase) throws {
         for scale in [1.0, 1.35] as [CGFloat] {
@@ -304,19 +290,16 @@ import Testing
             }
 
             var ink = Ink(rep: rep)
-            // Below the text threshold the other assertions use: the closing line is `.tertiary`,
-            // which is about a quarter opacity, so a scan tuned for body text cannot see it at all
-            // — and a test that cannot see the thing it is about would have passed on a footer
-            // that had lost it.
+            // Below the body-text threshold: the closing line is `.tertiary`, about a quarter
+            // opacity, which a scan tuned for body text can't see.
             ink.threshold = 0.15
 
             // The row through the middle of the footer, where all three pieces have ink.
             let clusters = ink.clusters(row: rep.pixelsHigh / 2, gap: Int(6 * (CGFloat(rep.pixelsWide) / width)))
             #expect(clusters.count >= 3,
                     "at \(Int(scale * 100))% the footer drew \(clusters.count) group(s) of ink — Back, the closing line and the buttons should be at least three")
-            // The group nearest the card's centre is the lock line — chosen by distance rather
-            // than by "contains the midpoint", because the midpoint can land in the gap between
-            // the padlock and the words.
+            // The group nearest the centre is the lock line, chosen by distance rather than by
+            // containing the midpoint, which can fall between the padlock and the words.
             let midpoint = rep.pixelsWide / 2
             func distance(_ cluster: (first: Int, last: Int)) -> Int {
                 let centre: Int = (cluster.first + cluster.last) / 2
@@ -334,12 +317,9 @@ import Testing
         }
     }
 
-    /// The top bar really is no taller than the height the content budget is computed from.
-    ///
-    /// The companion to `theFooterFitsTheHeightTheOpeningIsComputedFrom`, and it exists because the
-    /// bar was not in that budget at all: `contentHeight` subtracted only the footer, so every fit
-    /// measurement was optimistic by a whole row of chrome and the Structure screen overflowed the
-    /// card while its own fit test passed.
+    /// The top bar is no taller than the height the content budget is computed from. The companion
+    /// to `theFooterFitsTheHeightTheOpeningIsComputedFrom`: if `contentHeight` misjudged the bar,
+    /// every fit measurement would be optimistic and a screen could overflow while its test passed.
     @Test func theTopBarFitsTheHeightTheOpeningIsComputedFrom() throws {
         for scale in [1.0, 1.35] as [CGFloat] {
             let width = SetupSheetMetrics.cardWidth * scale
@@ -369,10 +349,8 @@ import Testing
 
     /// A screen too tall for the card scrolls; it never takes the chrome with it.
     ///
-    /// **Reported from a real Mac: nine locations at 110% text.** A `VStack` taller than its frame
-    /// is not clipped at the bottom — it is centred and clipped at *both* ends — so the first
-    /// things to disappear were the crumb strip and the primary button, which are how a person
-    /// leaves the screen. The card's height is deliberately fixed, so the answer is that the
+    /// A `VStack` taller than its frame is centred and clipped at both ends, so the crumb strip and
+    /// primary button, the ways off the screen, would go first. The card's height is fixed, so the
     /// content column scrolls.
     @Test func aScreenTallerThanTheCardKeepsItsChrome() throws {
         for scale in [1.0, 1.1, 1.35] as [CGFloat] {
@@ -419,10 +397,8 @@ import Testing
         }
     }
 
-    /// The control: the scan can see a card whose rows disagree.
-    ///
-    /// Without it, a renderer that returned a blank bitmap — or a `colorAt` that always answered
-    /// clear — would let both assertions above pass over any layout at all.
+    /// The control: the scan can see a card whose rows disagree. Without it, a blank bitmap or a
+    /// `colorAt` that always answers clear would pass the assertions above on any layout.
     @Test func theScanCanSeeAMisalignedRow() throws {
         let width = SetupSheetMetrics.cardWidth
         let host = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {

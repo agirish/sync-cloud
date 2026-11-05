@@ -5,11 +5,10 @@ import UserNotifications
 import Settings
 import Sync
 
-/// Pins the background-notification path end to end short of UNUserNotificationCenter itself:
-/// the gate, the title mapping, the request `postIfEnabled` builds (via the injected `post`
-/// seam), and — the finding this suite grew from — that the app actually CALLS it. The gate and
-/// title were unit-tested to perfection while `postIfEnabled` and its one call site were pinned
-/// by nothing: one deleted line shipped the whole feature dead with every test green.
+/// Pins the background-notification path end to end, short of UNUserNotificationCenter: the gate,
+/// the titles, the request `postIfEnabled` builds (via the injected `post` seam), and that the app
+/// actually calls it. Without the call-site pin, deleting one line would ship the feature dead
+/// with every other test green.
 @MainActor
 @Suite struct OperationNotifierTests {
 
@@ -26,9 +25,8 @@ import Sync
         #expect(OperationNotifier.title(for: .error) == "Operation failed")
     }
 
-    /// The request really is built from the banner: title per severity, the banner message as the
-    /// body, and the banner's own id as the identifier — the per-publish UUID is what stops the
-    /// system coalescing two genuinely different outcomes into one notification.
+    /// The request is built from the banner: title per severity, message as body, and the
+    /// banner's id as identifier, so the system doesn't coalesce two different outcomes into one.
     @Test func postIfEnabledBuildsTheRequestFromTheBanner() {
         let test = TestDefaults()
         test.defaults.set(true, forKey: GeneralSettings.notifyOnBackgroundCompletionKey)
@@ -46,8 +44,8 @@ import Sync
         #expect(posted.first?.trigger == nil, "an outcome notification fires now, not on a schedule")
     }
 
-    /// **A message that ends a run is titled with the run, carries its detail, and names itself**
-    /// (Run Room TE227): the click opens that row in Activity, which the id in `userInfo` finds.
+    /// A message that ends a run is titled with the run, carries its detail, and names itself: the
+    /// click opens that row in Activity, which the id in `userInfo` finds.
     @Test func aRunsEndingIsTitledWithTheRunAndNamesItsRow() {
         let test = TestDefaults()
         test.defaults.set(true, forKey: GeneralSettings.notifyOnBackgroundCompletionKey)
@@ -66,15 +64,15 @@ import Sync
         let now = Date()
         #expect(OperationNotifier.runTitle(lastFinished: (title: "Copying 12 items", ended: now.addingTimeInterval(-1)),
                                            now: now) == "Copying 12 items")
-        // The same moment as the window's own routing: a copy that ended silently 5 s before
-        // another message is not that message's run.
+        // The same window as the app's own routing: a copy that ended 5 s before another message
+        // is not that message's run.
         #expect(OperationNotifier.runTitle(lastFinished: (title: "Copying 12 items", ended: now.addingTimeInterval(-5)),
                                            now: now) == nil)
         #expect(OperationNotifier.runTitle(lastFinished: nil, now: now) == nil)
     }
 
-    /// The three silent combinations stay silent through the REAL entry point, not just through
-    /// the extracted gate: opted out, or the app frontmost (a visible banner is enough).
+    /// The three silent combinations stay silent through the real entry point, not just the gate:
+    /// opted out, or the app frontmost (a visible banner is enough).
     @Test(arguments: [(false, false), (false, true), (true, true)])
     func postIfEnabledIsSilentUnlessOptedInAndBackground(enabled: Bool, active: Bool) {
         let test = TestDefaults()
@@ -87,9 +85,8 @@ import Sync
         #expect(postCount == 0)
     }
 
-    /// An absent key is opted OUT — the setting is default-off, and a fresh install must not
-    /// notify. Pinned apart from the explicit-false case because `bool(forKey:)` conflates them
-    /// and a future migration could seed the key.
+    /// An absent key is opted out: the setting is default-off, so a fresh install must not notify.
+    /// Pinned apart from explicit false, which `bool(forKey:)` conflates with it.
     @Test func anUnsetPreferenceMeansNo() {
         let test = TestDefaults()
         var postCount = 0
@@ -100,10 +97,9 @@ import Sync
     }
 
     /// The call-site pin: the banner `onChange` in ContentView must hand every new banner to
-    /// `postIfEnabled`. This is the one line whose deletion previously shipped the feature dead.
+    /// `postIfEnabled`. Deleting that one line would ship the feature dead.
     @Test func theBannerChangeHandlerCallsTheNotifier() throws {
-        // Comment lines stripped: a commented-out call left behind by a deletion is exactly the
-        // state this pin exists to refuse, and a whole-file `contains` would accept it.
+        // Comment lines stripped, so a commented-out call doesn't count as one.
         let code = try macAppFile("ContentView.swift")
             .split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
@@ -113,10 +109,8 @@ import Sync
     }
 }
 
-/// One MacApp file, with the same non-vacuity guard `macAppSources()` carries. Locates `MacApp/`
-/// from this file itself rather than through `macAppDirectory()` — the helper suites that carry
-/// that function are newer than the maintenance lines this test cherry-picks to, and a
-/// self-contained reader is what keeps the suite byte-identical across all three.
+/// One MacApp file, with the same non-vacuity guard `macAppSources()` carries. Finds `MacApp/`
+/// from this file itself, not through `macAppDirectory()`, so the suite stays self-contained.
 func macAppFile(_ name: String) throws -> String {
     let url = URL(fileURLWithPath: #filePath)   // …/SyncCloudTests/OperationNotifierTests.swift
         .deletingLastPathComponent()            // …/SyncCloudTests

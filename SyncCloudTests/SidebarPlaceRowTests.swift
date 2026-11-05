@@ -4,18 +4,13 @@ import Sync
 import Testing
 import Foundation
 
-/// **Where a place row goes, and what it is called, once it is also a source.**
+/// Where a place row goes, and what it is called, once it is also a source. Rows are built
+/// place-first, so a place that becomes a folder source keeps its name and band: `Macintosh HD`
+/// added as `/` stays `Macintosh HD` among the devices, and Desktop as a source stays in Favorites.
 ///
-/// Both bugs this suite pins were reported from the running app on 2026-08-24, and both came from
-/// one thing: the rows were built *provider*-first, so a place that became a folder source stopped
-/// being drawn as a place. Clicking `Macintosh HD` added `/` as a source, and the row promptly
-/// moved up among the cloud accounts and renamed itself `/`. On a machine that already had Desktop
-/// and Downloads as folder sources, those two never reached Favorites at all.
-///
-/// The rules are asserted against `ContentView`'s own source rather than a re-implementation, for
-/// the reason `FolderSidebarWiringTests` gives: `ContentView` is a `View` with `@State` and cannot
-/// be instantiated here, so the alternative is a copy of the logic that can agree with itself while
-/// disagreeing with the app.
+/// Asserted against `ContentView`'s own source, as `FolderSidebarWiringTests` is: `ContentView` is
+/// a `View` with `@State` and can't be instantiated here, and a copy of the logic could agree with
+/// itself while disagreeing with the app.
 @Suite struct SidebarPlaceRowTests {
 
     static func source() throws -> String {
@@ -38,8 +33,8 @@ import Foundation
         #expect(try Self.source().contains("buildFolderSidebarPlaceRows"))
     }
 
-    /// **Places are built before providers.** The claimed-by-a-provider check has to run against a
-    /// place, which is only possible if the places exist first.
+    /// Places are built before providers: the claimed-by-a-provider check runs against a place,
+    /// which needs the places to exist first.
     @Test func aPlaceKeepsItsOwnNameWhenASourceClaimsIt() throws {
         let code = try Self.source()
         #expect(code.contains("name: place.name"),
@@ -48,8 +43,8 @@ import Foundation
                 "the row takes its band from somewhere other than the place, so promoting a volume moves it out of the device band")
     }
 
-    /// A place that a source claims becomes `.configured` — reachable — rather than being dropped
-    /// from the place list and redrawn as a provider.
+    /// A place that a source claims becomes `.configured` (reachable) rather than being dropped from
+    /// the place list and redrawn as a provider.
     @Test func aClaimedPlaceBecomesConfiguredRatherThanDisappearing() throws {
         let code = try Self.source()
         #expect(code.contains("owner != nil ? .configured"),
@@ -58,15 +53,15 @@ import Foundation
                 "nothing records which providers a place claimed, so the same folder draws twice")
     }
 
-    /// **Only the providers no place claimed become cloud rows.** Without this, Desktop as a folder
-    /// source is drawn once in Favorites and again in Locations.
+    /// Only the providers no place claimed become cloud rows, or Desktop as a folder source would
+    /// be drawn in both Favorites and Locations.
     @Test func onlyUnclaimedProvidersBecomeCloudRows() throws {
         #expect(try Self.source().contains("providers.filter { !claimed.contains($0.id) }"),
                 "every provider becomes a cloud row again, so a place that is also a source draws twice")
     }
 
-    /// **The Trash is never a source**, whatever else is true of it — including on a machine where
-    /// somebody has added `~/.Trash` as a folder source by hand.
+    /// The Trash is never a source, even where somebody has added `~/.Trash` as a folder source by
+    /// hand.
     @Test func theTrashIsAlwaysRevealOnly() throws {
         let code = try Self.source()
         #expect(code.contains("if place.band == .trash"),
@@ -74,21 +69,17 @@ import Foundation
         #expect(code.contains("state: .revealOnly"))
     }
 
-    /// **Promotion does not rename the source**, and that is the second answer to the same bug.
-    ///
-    /// It did, briefly — writing the sidebar's own word over a volume root called `/`. Then
-    /// `FolderSource.defaultDisplayName` learned to ask the volume for its name, which fixes it for
-    /// every way a source can be added rather than only for a sidebar click. An override on top
-    /// would mark the source as user-renamed in Settings, and for the home folder would replace the
-    /// deliberate "Home folder" with the account's short name — which is exactly what that special
-    /// case exists to avoid. `FolderSourceVolumeNameTests` owns the rule now.
+    /// Promotion does not rename the source. `FolderSource.defaultDisplayName` asks the volume for
+    /// its name, for every way a source is added. An override would mark the source user-renamed
+    /// in Settings, and replace the home folder's "Home folder" with the account's short name.
+    /// `FolderSourceVolumeNameTests` owns the rule.
     @Test func promotingAPlaceDoesNotWriteANameOverride() throws {
         #expect(!(try Self.source().contains("setCustomName")),
                 "promotion writes a name override again — the name belongs to FolderSource.defaultDisplayName, which every other entry point goes through")
     }
 
-    /// **Bands are partitioned, not sorted.** `sorted(by:)` is not a stable sort in Swift, and every
-    /// cloud account shares a band — so a sort would leave them free to shuffle between renders.
+    /// Bands are partitioned, not sorted: `sorted(by:)` is not stable in Swift, and every cloud
+    /// account shares a band, so a sort would let them shuffle between renders.
     @Test func theBandsArePartitionedRatherThanSorted() throws {
         let code = try Self.source()
         #expect(!code.contains("sorted { $0.band < $1.band }"),
@@ -97,17 +88,11 @@ import Foundation
                 "the band order is no longer an explicit walk, so it cannot be read off the code")
     }
 
-    /// **The Locations drag is indexed against the rows it dragged, not the provider list.**
-    ///
-    /// These are different lists and the difference is not exotic: a provider whose folder is a
-    /// canonical place is CLAIMED by that place and drawn in Favorites, so it is absent from
-    /// Locations. With `~/Desktop` and `~/Downloads` as folder sources — the setup on this machine
-    /// — the cloud band is the provider list minus two, and indexing the providers meant every
-    /// position past the first claimed one reordered a DIFFERENT source than the one dragged.
-    /// Dragging a device row indexed past the end and silently did nothing.
-    ///
-    /// The bug is invisible without a claimed provider, which is why it survived the drag work's
-    /// own tests: they exercised `SidebarReorder` on a list, and the list was never the wrong one.
+    /// The Locations drag is indexed against the rows it dragged, not the provider list. A provider
+    /// whose folder is a canonical place is claimed by it and drawn in Favorites, so it's absent
+    /// from Locations; indexing the providers would reorder a different source than the one
+    /// dragged, or index past the end. Invisible without a claimed provider, which
+    /// `SidebarReorder`'s own tests don't have.
     @Test func theSourceDragIndexesTheRowsItDragged() throws {
         let code = try Self.source()
         #expect(code.contains("let shown = folderSidebarLocationRows"),
@@ -116,9 +101,9 @@ import Foundation
                 "moveFolderSidebarSource indexes the provider list again — a claimed provider is not drawn in Locations, so the indices do not line up")
     }
 
-    /// Sources not drawn in Locations keep their positions — see `SidebarReorder.reordering`.
-    /// Writing the visible ones out followed by everything else moves untouched sources to the end
-    /// of the pane header's dropdown as a side effect of a drag they had nothing to do with.
+    /// Sources not drawn in Locations keep their positions (see `SidebarReorder.reordering`).
+    /// Writing the visible ones then the rest would move untouched sources to the end of the pane
+    /// header's dropdown.
     @Test func theSourceDragLeavesUndrawnSourcesWhereTheyAre() throws {
         let code = try Self.source()
         #expect(code.contains("SidebarReorder.reordering(all, subsetInNewOrder: subset)"),
@@ -127,29 +112,20 @@ import Foundation
                 "the order is written as the visible list plus the rest, which relocates every source nobody dragged")
     }
 
-    /// One pass per refresh. Two would build every place row twice for one column.
+    /// One pass per refresh; two would build every place row twice for one column. The volume walk
+    /// is handed down (see the next test, and `EjectWiringTests.theRefreshWalksTheVolumesOnce`).
     ///
-    /// **The disk hit this used to be about has moved, and the guard is better for it.** The pass
-    /// no longer enumerates the mounted volumes itself — the refresh walks them once and hands the
-    /// result down (`deviceEntries(_:)`), because it now has to record what those volumes ARE for
-    /// the unmount that cannot ask. So the cost is guarded by the parameter rather than by this
-    /// count, and `EjectWiringTests.theRefreshWalksTheVolumesOnce` is where the walk is pinned.
-    /// What survives here is the plainer invariant: one build per refresh.
-    ///
-    /// Matched on the call's opening rather than on a whole argument list, so adding an argument
-    /// does not silently take the count to zero — which is what a signature change did to the
-    /// exact-match spelling this replaced, and a zero reads as "never called" rather than as a
-    /// stale scan.
+    /// Matched on the call's opening rather than a whole argument list, so adding an argument
+    /// doesn't silently take the count to zero.
     @Test func theRowsAreBuiltOncePerRefresh() throws {
         let code = try Self.source()
         let calls = code.components(separatedBy: "buildFolderSidebarPlaceRows(providers").count - 1
         #expect(calls == 1, "buildFolderSidebarPlaceRows runs \(calls) times per refresh")
     }
 
-    /// **The walk is handed down, not repeated.** `deviceEntries` making its own would put a second
-    /// `mountedVolumeURLs` plus a resource read per volume into every refresh — and under an
-    /// unreachable network mount each of those reads can block, which is the same reason the
-    /// refresh's `reachable` call answers both its lists in a single pass.
+    /// The walk is handed down, not repeated. `deviceEntries` making its own would add a second
+    /// `mountedVolumeURLs` and a resource read per volume to every refresh, and under an
+    /// unreachable network mount each read can block.
     @Test func thePlaceRowsTakeTheVolumeWalkRatherThanMakingOne() throws {
         let code = try Self.source()
         #expect(code.contains("Self.deviceEntries(volumes)"),
@@ -159,8 +135,8 @@ import Foundation
     }
 }
 
-/// **The standard folders belong to Favorites**, and that must not depend on whether they happen to
-/// be folder sources on this particular machine — which is exactly how the reported bug presented.
+/// The standard folders belong to Favorites, whether or not they are folder sources on this
+/// machine.
 @Suite struct StandardFolderPlacementTests {
 
     @Test func theStandardFoldersCarryTheShortcutBand() {
@@ -173,8 +149,8 @@ import Foundation
         }
     }
 
-    /// A row's section is decided by its band alone — not by its state — so being a source, being
-    /// inside one, or being neither all land in the same place.
+    /// A row's section is decided by its band alone, not its state, so being a source, inside one,
+    /// or neither all land in the same place.
     @Test func theSectionDoesNotDependOnWhetherThePlaceIsASource() {
         let states: [SidebarSourceRow.State] = [.configured, .unknown, .inside(sourceId: "icloud", sourceName: "iCloud")]
         for state in states {
@@ -186,14 +162,12 @@ import Foundation
     }
 }
 
-/// **A place that a source links in from outside reads "in" that source, and the source keeps its
-/// own row.** The case is iCloud Drive with Desktop & Documents syncing on: `~/Documents` is
-/// inside iCloud through the container's `Documents` link, and no arithmetic on the two paths —
-/// resolved or not — says so, because the link points from the container OUT to the real folder.
+/// A place that a source links in from outside reads "in" that source, and the source keeps its own
+/// row. With iCloud Desktop & Documents on, `~/Documents` is inside iCloud through the container's
+/// `Documents` link, which points out to the real folder, so no arithmetic on the paths says so.
 ///
-/// Built against the real `~/Documents` (the standard places are a constant) and a container that
-/// exists nowhere, with the link table injected — the machine's own table would make the test
-/// depend on whether this Mac syncs its Documents folder.
+/// Built against the real `~/Documents` and a container that exists nowhere, with the link table
+/// injected, so the test doesn't depend on whether this Mac syncs its Documents folder.
 @Suite struct LinkedPlaceRowTests {
 
     static let container = "/nowhere/com~apple~CloudDocs"
@@ -214,8 +188,8 @@ import Foundation
         #expect(documents.id == Self.documents, "the place became the source's row rather than a place inside it")
     }
 
-    /// The row the whole change exists for: Locations carries iCloud, with its own mark, because
-    /// the Documents favorite no longer claims the provider outright.
+    /// Locations carries iCloud, with its own mark, because the Documents favorite doesn't claim
+    /// the provider outright.
     @Test func iCloudKeepsItsLocationsRow() throws {
         let rows = Self.split(links: Self.links)
         let icloud = try #require(rows.locations.first { $0.id == "iCloud" })
@@ -225,7 +199,7 @@ import Foundation
         #expect(icloud.absolutePath == Self.container)
     }
 
-    /// Without the link, `~/Documents` is nothing to iCloud — the row is the one that promotes.
+    /// Without the link, `~/Documents` is nothing to iCloud: the row is the one that promotes.
     @Test func withoutTheLinkTheFavoriteIsUnowned() throws {
         let rows = Self.split(links: [:])
         let documents = try #require(rows.shortcuts.first { $0.name == "Documents" })
@@ -244,19 +218,16 @@ import Foundation
     }
 }
 
-/// **The tail of Locations, in the order it is drawn: the startup disk, then any card, then the
-/// Trash.**
+/// The tail of Locations, in the order it is drawn: the startup disk, then any card, then the
+/// Trash.
 ///
-/// Asked for directly on 2026-09-07, and asserted end to end because no single rule produces it.
-/// Three separate mechanisms have to agree: `SidebarFavoritePlaces.standard` leaving the disk out
-/// (so it stays a `.device` row rather than being lifted into Favorites),
-/// `SidebarSourceModel.orderedVolumes` putting the internal disk ahead of the removable one, and
-/// `splitFolderSidebarPlaceRows`' band walk putting `.trash` last. A unit test on any one of them
-/// passes while the column is wrong.
+/// Asserted end to end because three mechanisms must agree: `SidebarFavoritePlaces.standard`
+/// leaving the disk out (so it stays a `.device` row), `SidebarSourceModel.orderedVolumes` putting
+/// the internal disk ahead of the removable one, and `splitFolderSidebarPlaceRows`' band walk
+/// putting `.trash` last. A test of any one passes while the column is wrong.
 ///
-/// **The Trash row depends on `~/.Trash` existing**, which `isMountedFolder` checks — it does on a
-/// real Mac and the assertions below say so rather than assuming it, so a machine without one fails
-/// loudly instead of silently measuring a two-row list.
+/// The Trash row depends on `~/.Trash` existing, which `isMountedFolder` checks; the assertions
+/// name it, so a machine without one fails loudly instead of measuring a shorter list.
 @Suite struct LocationsDeviceBandOrderTests {
 
     static let card = SidebarSourceModel.Volume(name: "Untitled", path: "/Volumes/Untitled",
@@ -270,7 +241,7 @@ import Foundation
     }
 
     /// With nothing plugged in: the disk, then the Trash. Home is a default favorite, so the device
-    /// band starts at the volumes — which is what makes the disk the first row under the rule.
+    /// band starts at the volumes and the disk is the first row under the rule.
     @Test func theStartupDiskSitsAboveTheTrash() throws {
         let rows = Self.locations([Self.disk])
         #expect(rows.map(\.name) == ["Macintosh HD", "Trash"],
@@ -279,8 +250,8 @@ import Foundation
         #expect(rows.last?.state == .revealOnly)
     }
 
-    /// A card plugged in lands **below the disk and above the Trash** — the only gap it can take,
-    /// and it is `orderedVolumes` that puts it there rather than anything in the sidebar.
+    /// A card plugged in lands below the disk and above the Trash, put there by `orderedVolumes`
+    /// rather than anything in the sidebar.
     @Test func aCardLandsBetweenTheDiskAndTheTrash() throws {
         let rows = Self.locations([Self.card, Self.disk])
         #expect(rows.map(\.name) == ["Macintosh HD", "Untitled", "Trash"],
@@ -288,10 +259,8 @@ import Foundation
         #expect(rows.first { $0.name == "Untitled" }?.symbol == "sdcard")
     }
 
-    /// **The Trash is last whatever else is mounted**, including a volume whose name sorts after
-    /// it. Names are the trap here: the volumes sort among themselves, and a `Zip` disk beside a
-    /// row called `Trash` is exactly the fixture that would expose an ordering that sorted the
-    /// whole band by name instead of walking the bands.
+    /// The Trash is last whatever else is mounted, including a volume whose name sorts after it: a
+    /// `Zip` disk exposes an ordering that sorted the band by name instead of walking the bands.
     @Test func theTrashStaysLastWhateverIsMounted() throws {
         let extras = [SidebarSourceModel.Volume(name: "Zip", path: "/Volumes/Zip",
                                                isRemovable: true, isInternal: false),
@@ -302,9 +271,8 @@ import Foundation
                 "Locations reads \(rows.map(\.name))")
     }
 
-    /// **And the disk is only there because the default list leaves it out.** Favoriting it takes
-    /// it back out of Locations — the fallback both directions rest on — which is what stops this
-    /// suite from passing for a reason other than the one it claims.
+    /// And the disk is only there because the default list leaves it out: favoriting it takes it
+    /// back out of Locations, so this suite passes for the reason it claims.
     @Test func favoritingTheDiskTakesItBackOutOfLocations() throws {
         let split = ContentView.splitFolderSidebarPlaceRows(
             [], volumes: [Self.disk],
@@ -315,12 +283,10 @@ import Foundation
     }
 }
 
-/// **The Favorites defaults key is spelled twice, and this is what binds the two.**
-///
+/// The Favorites defaults key is spelled twice, and this binds the two.
 /// `SidebarFavoritePlaces.storageKey` is what the launch migration reads; `ContentView`'s
-/// `@AppStorage` is what the column reads, and it needs the literal at the property. Nothing fails
-/// when they drift — the migration rewrites a key nothing draws from, silently, which is the shape
-/// of every defaults-key bug in this app's history.
+/// `@AppStorage` needs the literal at the property. If they drift, the migration silently rewrites
+/// a key nothing draws from.
 @Suite struct FavoritePlacesKeyTests {
 
     @Test func favoritePlacesKeyMatchesTheAppStorageProperty() throws {
@@ -334,30 +300,21 @@ import Foundation
                 "ContentView reads a different key from the one SidebarFavoritePlaces.migrate writes")
     }
 
-    /// The salvage key is derived, so it cannot be left behind by a rename — asserted rather than
-    /// assumed, because it was a separate literal until 2026-09-07.
+    /// The salvage key is derived from the storage key, so a rename can't leave it behind.
     @Test func theSalvageKeyFollowsTheStorageKey() {
         #expect(SidebarFavoritePlaces.salvageKey == SidebarFavoritePlaces.storageKey + ".unreadable")
     }
 }
 
-/// **Clicking a place that lives inside another source must land ON that place, not at the
-/// owning source's root.**
+/// Clicking a place that lives inside another source lands on that place, not at the owning
+/// source's root (with `~` a source, clicking Downloads must open Downloads).
 ///
-/// Reported 2026-09-08: with `~` a folder source and `~/Downloads` not, the Downloads row read
-/// "in Home folder" — correct, and the user liked it — but clicking it switched the pane to Home
-/// folder and landed at Home's ROOT. "It jumps to home."
+/// A bare provider write makes `onChange(of: leftProviderId)` fire on the next view update and call
+/// `retargetPane()`, which re-homes the pane and throws away a `focusOn` issued in the same turn. So
+/// the switch arms `pendingTabProviderChanges` through `adoptProviderForTab`, as
+/// `CommandPaletteHost.switchSourceAndReveal` does for ⌘K, and drives the one reload itself.
 ///
-/// The cause is a documented hazard this call site had not adopted. A bare provider write makes
-/// `onChange(of: leftProviderId)` fire on the NEXT view update and call `retargetPane()`, which
-/// re-homes the pane at its new source's landing folder — throwing away a `focusOn` issued in the
-/// same turn. `CommandPaletteHost.switchSourceAndReveal` solved it for ⌘K by arming
-/// `pendingTabProviderChanges` through `adoptProviderForTab` so the handler consumes instead of
-/// resetting, then driving the one reload itself.
-///
-/// Asserted against `ContentView`'s own source, for the reason the suite above gives: `ContentView`
-/// is a `View` with `@State` and cannot be instantiated here, so the alternative is a copy of the
-/// logic that can agree with itself while disagreeing with the app.
+/// Asserted against `ContentView`'s own source, for the reason `SidebarPlaceRowTests` gives.
 @Suite struct SidebarInsideOwnerNavigationTests {
 
     static func source() throws -> String { try SidebarPlaceRowTests.source() }
@@ -371,11 +328,9 @@ import Foundation
                 "nothing drives the reload after the armed switch, so the moved pane keeps the old source's tree")
     }
 
-    /// **Order is the other half of the contract**, and it is invisible at a glance: `focusOn` must
-    /// precede the armed write, so both land in one synchronous turn and the handler finds the
-    /// navigation already done. Asserted as positions rather than presence, because a later edit
-    /// that merely reorders these three lines reintroduces the whole defect with every symbol still
-    /// spelled correctly.
+    /// Order is the other half of the contract: `focusOn` must precede the armed write, so both
+    /// land in one synchronous turn and the handler finds the navigation done. Asserted as
+    /// positions, since merely reordering these three lines would break it with every symbol intact.
     @Test func theNavigationIsAppliedBeforeTheProviderIsAdopted() throws {
         let code = try Self.source()
         let focus = try #require(code.range(of: "syncManager.focusOn(relativePath: relative, isLeft: isLeft)\n        adoptProviderForTab"),
@@ -387,7 +342,7 @@ import Foundation
                 "the reload runs before the provider is adopted, so it resolves the OLD ids")
     }
 
-    /// The pane already on the owning source must NOT arm anything — there is no switch to survive,
+    /// The pane already on the owning source must not arm anything: there is no switch to survive,
     /// and a stray armed counter would swallow the next real provider change's reset.
     @Test func aPaneAlreadyOnTheOwnerJustNavigates() throws {
         let code = try Self.source()

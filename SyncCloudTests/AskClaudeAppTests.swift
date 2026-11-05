@@ -8,7 +8,7 @@ import Settings
 import FileExplorer
 @testable import SyncCloud
 
-/// Ask Claude's app half (RD69, v7.0): the Browse tools and the thread the panel draws.
+/// Ask Claude's app half: the Browse tools and the thread the panel draws.
 @MainActor
 @Suite struct AskClaudeBrowseToolsTests {
 
@@ -56,8 +56,8 @@ import FileExplorer
                        moveAfter: Duration? = nil, settingsLookup: SettingsLookup? = nil, chatIsOpen: Bool = true,
                        setSetting: ((String, SettingValue, String?) -> SettingsWriter.Outcome)? = nil,
                        lookupsGo: Bool = true, shared: [String] = []) -> AskClaudeBrowseTools {
-        // Lookups beyond the folder on screen go, as with the card's tick (TE323): these tests are
-        // about what a lookup finds; `aLookupBeyondTheScreenWaitsOnACard` is about the card.
+        // Lookups beyond the folder on screen go, as with the card's tick: these tests are about
+        // what a lookup finds; `aLookupBeyondTheScreenWaitsOnACard` is about the card.
         var map: [String: FileNode] = [:]
         Self.index(Self.tree + extra, into: &map)
         let scope = root
@@ -97,7 +97,7 @@ import FileExplorer
         AskClaudeToolCall(id: "t", name: name, input: .object(input))
     }
 
-    /// TE290 step 2: the settings tool answers find, get and changed through the runner.
+    /// The settings tool answers find, get and changed through the runner.
     @Test func theSettingsToolFindsReadsAndListsWhatChanged() async {
         let suite = "AskClaudeSettingsTool.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -121,8 +121,8 @@ import FileExplorer
         #expect(changed.result == "Theme (Appearance): Dark — default System")
     }
 
-    /// TE290 step 4c: Claude changes a setting itself only for look-and-feel, or to lower its own
-    /// reach, never to a limit it has already spent, and never while the chat is hidden.
+    /// Claude changes a setting itself only for look-and-feel, or to lower its own reach, never to
+    /// a limit it has already spent, and never while the chat is hidden.
     @Test func setChangesOnlyWhatClaudeMayChangeItself() async throws {
         let suite = "AskClaudeSettingsSet.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -185,7 +185,7 @@ import FileExplorer
         #expect(defaults.string(forKey: LiquidGlass.appearanceModeKey) == AppearanceMode.dark.rawValue)
     }
 
-    /// TE290 step 4a: show checks every item before a card appears.
+    /// `show` checks every item before a card appears.
     @Test func showPutsACardUpOnlyForWhatItsClickCouldDo() async throws {
         let suite = "AskClaudeSettingsShow.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -220,14 +220,14 @@ import FileExplorer
         #expect(await show([["id": .string("sources.enabled")]]).result.contains("belongs to a source"))
         #expect(await show([]).isError)
 
-        // TE290 step 8: a list's pick is an item to add, and only a pattern may be Claude's.
+        // A list's pick is an item to add, and only a pattern may be Claude's.
         let patterns = await show([["id": .string("sync.ignorePatterns"), "pick": .string("  ~$*  ")]])
         #expect(!patterns.isError && patterns.settings?.rows == [AskClaudeSettingCard.Row(id: "sync.ignorePatterns", pick: "~$*")])
         #expect(!(await show([["id": .string("organize.keptNames")]])).isError)
         #expect(await show([["id": .string("organize.keptNames"), "pick": .string("Report .pdf")]]).isError)
         #expect(await show([["id": .string("intelligence.hidden"), "pick": .string("/Users/me/Medical")]]).isError)
 
-        // TE290 step 9: Claude never fills in a folder, its text is checked, and People wait.
+        // Claude never fills in a folder, its text is checked, and People wait.
         #expect(!(await show([["id": .string("sources.addFolder")]])).isError)
         #expect(await show([["id": .string("sources.addFolder"), "pick": .string("/Users/me/Projects")]]).isError)
         let inbox = await show([["id": .string("organize.inbox"), "pick": .string("To File")]])
@@ -237,14 +237,14 @@ import FileExplorer
         #expect(await show([["id": .string("people.edit")]]).result.contains("one of Jane"))
         let jane = await show([["id": .string("people.edit"), "target": .string("jane")]])
         #expect(!jane.isError && jane.settings?.rows == [AskClaudeSettingCard.Row(id: "people.edit", target: "jane")])
-        // TE290 step 10: buttons are cards, and asking twice doesn't stop one being shown; the
-        // key's Reveal never is one.
+        // Buttons are cards, and asking twice doesn't stop one being shown; the key's Reveal never
+        // is one.
         #expect(!(await show([["id": .string("people.remove"), "target": .string("Jane")]])).isError)
         #expect(!(await show([["id": .string("advanced.resetAll")]])).isError)
         #expect(await show([["id": .string("intelligence.apiKeyReveal")]]).isError)
 
-        // TE290 review: never a card whose click is always refused, a target of the wrong kind, or
-        // an inbox outside the source.
+        // Never a card whose click is always refused, a target of the wrong kind, or an inbox
+        // outside the source.
         #expect(await show([["id": .string("readability.presets")]]).isError)
         #expect(await show([["id": .string("oneWay.whenDeleted")]]).isError)
         #expect(await show([["id": .string("sources.removeFolder"), "target": .string("iCloud Drive")]]).isError)
@@ -836,8 +836,8 @@ import FileExplorer
         #expect(bad.isError)
     }
 
-    /// A review holds Compare's list (TE295): the rows are read, not shown, and Claude is told
-    /// why rather than "Showing these…" over a list nobody can see.
+    /// A review holds Compare's list: the rows are read, not shown, and Claude is told why rather
+    /// than "Showing these…" over a list nobody can see.
     @Test func showDuringAReviewReadsTheRowsAndSaysWhyTheyArentShown() async {
         let fake = CompareFake()
         fake.comparison.readAt = Date(timeIntervalSince1970: 1_792_000_000 - 60)
@@ -908,10 +908,9 @@ import FileExplorer
         }
     }
 
-    /// **Which files mention a word is held on a card while the switch is off** (decision IV,
-    /// TE320): the names say what is in the files, so Claude gets none of them, nor how they
-    /// matched; the card holds the rows Share These Names sends. With the switch on, the rows and
-    /// the matching line go as before.
+    /// Which files mention a word is held on a card while the switch is off: the names say what is
+    /// in the files, so Claude gets none of them, nor how they matched; the card holds the rows
+    /// Share These Names sends. With the switch on, the rows and the matching line go.
     @Test func aSearchInsideFilesHoldsItsNamesUntilShared() async throws {
         let receipt = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
         let biopsy = Self.root + "/Documents/Taxes/Biopsy results.txt"
@@ -930,7 +929,7 @@ import FileExplorer
         var handles = AskClaudeHandles()
         let search = call("find_in_contents", ["words": .string("diagnosis")])
         let off = await runner(readsFiles: false).run(search, handles: &handles)
-        // Not even how many (review of TE319–TE323): a count says whether a file mentions a word.
+        // Not even how many: a count says whether a file mentions a word.
         #expect(off.result.hasPrefix("Spotlight searched inside the files under") && off.result.contains("not even how many"))
         #expect(!off.result.contains("2 files"))
         #expect(!off.result.contains("Biopsy") && !off.result.contains("REI"))
@@ -947,9 +946,9 @@ import FileExplorer
         #expect(on.found == nil && on.result.contains("Biopsy results.txt") && on.result.contains("benign"))
     }
 
-    /// **A folder shared without asking reads and searches as with the switch on; hidden wins**
-    /// (his call on TE321): the answer and page go, the whole document still waits, a search's
-    /// names and lines go. A folder hidden as well is hidden.
+    /// A folder shared without asking reads and searches as with the switch on, and hidden wins:
+    /// the answer and page go, the whole document still waits, a search's names and lines go. A
+    /// folder hidden as well is hidden.
     @Test func aFolderSharedWithoutAskingSkipsTheCards() async throws {
         let receipt = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
         var map: [String: FileNode] = [:]
@@ -985,15 +984,15 @@ import FileExplorer
         #expect(!elsewhere.result.contains("84.10") && elsewhere.passage?.autoShared == nil)
         let ticked = await runner(shared: [], sharesAnswers: true).run(read, handles: &handles)
         #expect(ticked.result.contains("The total is $84.10.") && !ticked.result.contains("for the tent"))
-        // Nor the page: it is where the question's words were found (review 2 of 11-04).
+        // Nor the page: it is where the question's words were found.
         #expect(!ticked.result.contains("page 2"), "\(ticked.result)")
         #expect(ticked.passage?.autoShared == .answerForThisChat && ticked.passage?.answerSent == true)
         #expect(ticked.step == "Read Receipt REI 2025.pdf on this Mac · shared its answer")
     }
 
-    /// **A lookup beyond the folder on screen waits on a card** (his call on TE323): a name search
-    /// or a listing elsewhere sends Claude only how many; the card holds the rows. On screen and
-    /// below it, in a folder shared without asking, or with the chat's tick, the rows go as before.
+    /// A lookup beyond the folder on screen waits on a card: a name search or a listing elsewhere
+    /// sends Claude only how many; the card holds the rows. On screen and below it, in a folder
+    /// shared without asking, or with the chat's tick, the rows go.
     @Test func aLookupBeyondTheScreenWaitsOnACard() async throws {
         var handles = AskClaudeHandles()
         let held = tools(lookupsGo: false)
@@ -1037,9 +1036,9 @@ import FileExplorer
         #expect(indexed.found.map(AskClaudeHeldAnswer.foundTitle) == "Spotlight found 1 file named “receipt 2025” in Documents, on this Mac:")
     }
 
-    /// **A held read never names the page, and a held search never says how many** (review of
-    /// TE319–TE323): the page is where the question's words were found, and a count of 0 or 1 says
-    /// whether a file mentions a word. The card still names the page; "none" waits on a card too.
+    /// A held read never names the page, and a held search never says how many: the page is where
+    /// the question's words were found, and a count of 0 or 1 says whether a file mentions a word.
+    /// The card still names the page; "none" waits on a card too.
     @Test func heldReadsAndSearchesSayNothingOfWhatMatched() async throws {
         let receipt = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
         var map: [String: FileNode] = [:]
@@ -1069,8 +1068,8 @@ import FileExplorer
         #expect(one.result == none.result)
     }
 
-    /// **On screen is where the folder really is** (review 2 of 11-04): a link inside the folder on
-    /// screen to a folder elsewhere is not on screen, so a lookup through it waits on a card.
+    /// On screen is where the folder really is: a link inside the folder on screen to a folder
+    /// elsewhere is not on screen, so a lookup through it waits on a card.
     @Test func aLinkInTheFolderOnScreenIsNotOnScreen() throws {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("onscreen-\(UUID().uuidString)").path
         defer { try? FileManager.default.removeItem(atPath: base) }
@@ -1216,7 +1215,7 @@ import FileExplorer
         var handles = AskClaudeHandles()
         let handle = handles.handle(for: path)
         let off = await runner(readsFiles: false).run(call("read_text", ["handle": .string(handle), "question": .string("What was the total due?")]), handles: &handles)
-        // Decision IU: the answer can be the file's own fact, so it waits on the card too.
+        // The answer can be the file's own fact, so it waits on the card too.
         #expect(!off.result.contains("84.10"))
         #expect(off.result.hasPrefix("Read Receipt REI 2025.pdf on their Mac. Nothing from it was sent to you"))
         #expect(off.passage?.answer == "The total is $84.10." && off.passage?.asked == "What was the total due?")
@@ -1227,13 +1226,13 @@ import FileExplorer
         #expect(off.passage?.whereInFile == "page 2")        // the page that answers, offered as a button
         let on = await runner(readsFiles: true).run(call("read_text", ["handle": .string(handle), "question": .string("What was the total due?")]), handles: &handles)
         #expect(on.result.contains("Total due: $84.10 for the tent") && on.result.contains("The total is $84.10."))
-        // The page went; all of it still waits on a card (TE321: whole documents always ask).
+        // The page went; all of it still waits on a card: whole documents always ask.
         #expect(on.passage?.autoShared == .answerAndText && on.passage?.wholeWhere == "all 2 pages")
     }
 
-    /// **A scan's text is read as a text layer's is, and Claude is told it came from OCR** (TE264):
-    /// the note goes with the answer, the text stays here with the switch off, and the step says so.
-    /// A 34-page scan as `read` gives it: ten pages read, two with words, the rest past the limit.
+    /// A scan's text is read as a text layer's is, and Claude is told it came from OCR: the note
+    /// goes with the answer, the text stays here with the switch off, and the step says so. A
+    /// 34-page scan as `read` gives it: ten pages read, two with words, the rest past the limit.
     @Test func textReadByOCRIsSaidAndStaysOnTheMac() async {
         let path = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
         var map: [String: FileNode] = [:]
@@ -1278,10 +1277,9 @@ import FileExplorer
         #expect(unopened.isError && unopened.result == "Receipt REI 2025.pdf couldn’t be read here: it doesn’t open as a PDF, or reading it took over 30 seconds.")
     }
 
-    /// **The rest of a read, around what OCR gives** (TE264's second review): a file with no pages
-    /// and no text says why; a passage too long for the on-device model halves and asks again; Let
-    /// Claude read files is read after the file is, not before; and a stopped question offers
-    /// nothing to send.
+    /// The rest of a read, around what OCR gives: a file with no pages and no text says why; a
+    /// passage too long for the on-device model halves and asks again; Let Claude read files is
+    /// read after the file is, not before; and a stopped question offers nothing to send.
     @Test func aReadAnswersFromWhatFitsAndWhatHoldsNow() async {
         let pdf = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
         let note = Self.root + "/Documents/Taxes/Empty.txt"
@@ -1350,9 +1348,9 @@ import FileExplorer
         #expect(stoppedLater.isError && stoppedLater.result == "Not read: they stopped the question." && stoppedLater.passage == nil)
     }
 
-    /// v7.0 review: the Never show Claude list was read only before a read that can take minutes,
-    /// so a folder hidden meanwhile still had its text answered from and sent; and the passage
-    /// offered as a button held a key in the clear, saved with the chat and sent by the button.
+    /// The Never show Claude list is read again after a read, which can take minutes, so a folder
+    /// hidden meanwhile has nothing answered from or sent; and the passage offered as a button has
+    /// any key masked, since it is saved with the chat and sent by the button.
     @Test func aReadChecksTheHiddenListAfterAndMasksItsPassage() async {
         let path = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
         var map: [String: FileNode] = [:]
@@ -1386,9 +1384,9 @@ import FileExplorer
         #expect(offered.passage?.path == path)
     }
 
-    /// **Share All Content sends every page with text, held to the cap, and says "all" only of
-    /// what was all read** (his call on TE319): a file past `maxPages`, or with pages OCR didn't
-    /// reach, is its pages by name; past `wholeTokens` the first pages that fit go.
+    /// Share All Content sends every page with text, held to the cap, and says "all" only of what
+    /// was all read: a file past `maxPages`, or with pages OCR didn't reach, is its pages by name;
+    /// past `wholeTokens` the first pages that fit go.
     @Test func theWholeDocumentIsAllOnlyWhenAllWasRead() throws {
         let three = AskClaudeReading.Read(pages: ["One", "", "Three"], pageCount: 3)
         let all = try #require(AskClaudeReading.wholeDocument(three, paged: true))
@@ -1423,7 +1421,7 @@ import FileExplorer
         #expect(!AskClaudeReading.isNearEmpty("Parking space 17, garage B"))
     }
 
-    /// **Pages with no text don't stretch a passage**: it names the pages that hold what it sends.
+    /// Pages with no text don't stretch a passage: it names the pages that hold what it sends.
     @Test func emptyPagesDontStretchThePassage() {
         let found = AskClaudeReading.passage(from: ["", "Rent is $2,400.", "", "Deposit $2,400.", "", ""], question: "zzz", limit: 6_000)
         #expect(found.whereInFile == "pages 2–4" && found.text == "Rent is $2,400.\n\nDeposit $2,400.")
@@ -1438,8 +1436,8 @@ import FileExplorer
         #expect(AskClaudeReading.passage(from: [String(repeating: "word ", count: 40)], question: "zzz", limit: 100).whereInFile == "the start of the text")
     }
 
-    /// **What Claude may get is about 1,500 tokens in any script**, and Send says so: 6,000
-    /// characters of Japanese are near 4,700 tokens, which "about 1,500" undersold threefold.
+    /// What Claude may get is about 1,500 tokens in any script, and Send says so. Counted in
+    /// tokens, not characters: 6,000 characters of Japanese are near 4,700 tokens.
     @Test func claudesPassageIsHeldToItsTokensInAnyScript() {
         #expect(AskClaudePassage.estimatedTokens(String(repeating: "Rent is due. ", count: 100)) == 325)
         #expect(AskClaudePassage.estimatedTokens(String(repeating: "家賃は毎月払う。", count: 100)) == 800)
@@ -1552,7 +1550,7 @@ import FileExplorer
         let unknown = await runner.run(call("read_text", ["handle": .string(handles.handle(for: Self.mystery.id))]), handles: &handles)
         #expect(unknown.download != nil && unknown.download?.size == nil)
         #expect(extracted.value == 0)
-        // Up to 25 MB the read downloads it on its own (decision EJ).
+        // Up to 25 MB the read downloads it on its own.
         let fine = await runner.run(call("read_text", ["handle": .string(handles.handle(for: Self.small.id))]), handles: &handles)
         #expect(fine.download == nil && extracted.value == 1)
         let open = await runner.run(call("open", ["handle": .string(handles.handle(for: Self.lease.id)), "in": .string("edit")]), handles: &handles)
@@ -1645,7 +1643,7 @@ private struct OneLineTransport: AskClaudeTransport {
 }
 
 /// A one-line transport that answers as the model each request asked for, unless a scripted reply
-/// says which model served it (a fallback) or that it was declined (TE292).
+/// says which model served it (a fallback) or that it was declined.
 private final class ModelTransport: AskClaudeTransport, @unchecked Sendable {
     struct Reply { var served: String? = nil; var stop = "end_turn"; var toolUse = false }
     private let lock = NSLock()
@@ -1775,9 +1773,9 @@ private final class NoTools: AskClaudeToolRunning {
     private let screen = AskClaudeScreen(workspace: "Browse", source: "iCloud Drive", folder: "Documents", sort: "Name",
                                          rows: [], selection: [], toolsAvailable: true)
 
-    /// Waits for the question to finish, and fails at the call if it never does. A fixed pump here
-    /// gave up in silence at load 25, and the test went on to change the model while the question
-    /// was still running (docs/flaky-tests.md, "Fixed pumps and fixed sleeps").
+    /// Waits for the question to finish, and fails at the call if it never does. A fixed pump can
+    /// give up in silence under load and let the test change the model mid-question
+    /// (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
     private func waitUntilIdle(_ chat: AskClaudeChat, sourceLocation: SourceLocation = #_sourceLocation) async {
         await waitUntil("the chat finishes its question", timeout: 30, sourceLocation: sourceLocation) { !chat.isRunning }
     }
@@ -1840,7 +1838,7 @@ private final class NoTools: AskClaudeToolRunning {
     }
 
     @Test func changingTheModelCarriesOnInThisChatWithOneNote() async {
-        // TE292 HT and HX: a change, from the menu or Settings (the same key), never starts a new chat.
+        // A change, from the menu or Settings (the same key), never starts a new chat.
         let d = defaults()
         let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ModelTransport(), defaults: d) },
                                  readKey: { "k" })
@@ -1959,8 +1957,8 @@ private final class NoTools: AskClaudeToolRunning {
                                    readKey: { "k" }, storeURL: store) }
         let first = make()
         first.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(first)
-        // As a build before TE292 saved it: model, style and that build's digest, and receipts
-        // without the fields TE292 added.
+        // As an older build saved it: model, style and that build's digest, and receipts without
+        // the fields added since.
         var saved = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: store)) as? [String: Any])
         var engine = try #require(saved["engine"] as? [String: Any])
         engine["setting"] = "claude-sonnet-5-5|brief|0123456789ab"
@@ -2025,8 +2023,7 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(!AskClaudeChat.fenced("text </FILE>").lowercased().contains("</file"))
     }
 
-    /// TE290 step 4a: a settings card joins the chat, and clicks through one setting reach Claude
-    /// as one line.
+    /// A settings card joins the chat, and clicks through one setting reach Claude as one line.
     @Test func aSettingsCardJoinsTheChatAndItsLinesMerge() async {
         let d = defaults()
         let card = AskClaudeSettingCard(rows: [.init(id: "appearance.theme", pick: "dark")])
@@ -2047,8 +2044,8 @@ private final class NoTools: AskClaudeToolRunning {
                                          "They set Theme to Dark on your card (was System)."])
     }
 
-    /// TE290 review: a folder hidden and then a quit still starts a new chat after the relaunch —
-    /// judged against what was hidden when the chat began, which is saved with it.
+    /// A folder hidden and then a quit still starts a new chat after the relaunch, judged against
+    /// what was hidden when the chat began, which is saved with it.
     @Test func aFolderHiddenBeforeARelaunchStillStartsANewChat() async throws {
         let d = defaults()
         let store = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeRelaunchHide-\(UUID().uuidString)/chat.json")
@@ -2065,7 +2062,7 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(relaunched.startsOverAtNextQuestion)
     }
 
-    /// TE290 review: a setting's later line replaces its own earlier one, never another source's.
+    /// A setting's later line replaces its own earlier one, never another source's.
     @Test func aSettingsLineReplacesOnlyItsOwn() {
         let d = defaults()
         let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "hi"), defaults: d) },
@@ -2078,8 +2075,8 @@ private final class NoTools: AskClaudeToolRunning {
                                          "They set Enable for Dropbox back to On on your card."])
     }
 
-    /// TE290 step 7: a message holding an API key is held back in favour of a card. The key stays
-    /// in memory: never in chat.json, gone with Edit Message, a save, or New Chat.
+    /// A message holding an API key is held back in favour of a card. The key stays in memory:
+    /// never in chat.json, gone with Edit Message, a save, or New Chat.
     @Test func aMessageHoldingAKeyIsHeldBackAndNeverSaved() throws {
         let d = defaults()
         let store = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeKeyCatch-\(UUID().uuidString)/chat.json")
@@ -2111,8 +2108,8 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(chat.caughtKey(again) == nil)
     }
 
-    /// TE290 step 6: at the monthly limit the panel shows Monthly limit as a card, saved with the
-    /// chat and keeping the question for Ask Again, in place of the problem line.
+    /// At the monthly limit the panel shows Monthly limit as a card, saved with the chat and keeping
+    /// the question for Ask Again, in place of the problem line.
     @Test func atTheLimitTheChatShowsTheLimitItself() async throws {
         let d = defaults()
         d.set(5.0, forKey: AskClaudeSpend.limitDefaultsKey)
@@ -2132,8 +2129,8 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(saved == card)
     }
 
-    /// TE290 step 5: a Revert in Activity reaches an open chat with its next question, and an empty
-    /// chat hears nothing.
+    /// A Revert in Activity reaches an open chat with its next question, and an empty chat hears
+    /// nothing.
     @Test func aRevertInActivityIsToldToAnOpenChat() async {
         let d = defaults()
         let center = NotificationCenter()
@@ -2148,8 +2145,8 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(chat.sinceLastAnswer == [line["line"]!])
     }
 
-    /// TE290 step 3: a chat restarts for privacy only when something is hidden that wasn't when
-    /// it began; hiding and un-hiding before the next question starts nothing new.
+    /// A chat restarts for privacy only when something is hidden that wasn't when it began; hiding
+    /// and un-hiding before the next question starts nothing new.
     @Test func hidingAndUnhidingBeforeTheNextQuestionStartsNothingNew() async {
         let d = defaults()
         let center = NotificationCenter()
@@ -2164,8 +2161,9 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(chat.items.first?.kind == .user("one"))
     }
 
-    /// v7.0 review: a folder hidden when the chat began, shown to Claude for a question, and hidden
-    /// again matched the list the chat began with, so the next question resent what Claude saw of it.
+    /// A folder hidden when the chat began, shown to Claude for a question, and hidden again starts
+    /// the next question fresh, though the list matches the one the chat began with: otherwise it
+    /// would resend what Claude saw of it.
     @Test func aFolderShownForAQuestionAndHiddenAgainStartsTheNextQuestionFresh() async {
         let d = defaults()
         let center = NotificationCenter()
@@ -2184,8 +2182,8 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(!chat.items.contains { $0.kind == .user("what's in Medical?") })
     }
 
-    /// v7.0 review: a passage offered while its folder was shown kept its Send to Claude after the
-    /// folder was hidden, and the restart that followed sent the passage into the new chat.
+    /// A passage offered while its folder was shown loses its Send to Claude once the folder is
+    /// hidden, and the restart that follows doesn't send it into the new chat.
     @Test func aPassageFromAFolderHiddenSinceIsNotSent() async throws {
         let d = defaults()
         let center = NotificationCenter()
@@ -2222,10 +2220,10 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(chat.items.last?.kind == .note("Didn’t ask again: the question holds page 1 of Lab Results.pdf, which is in a folder hidden from Claude now."))
     }
 
-    /// **An answer the on-device model gives is held like the passage** (decision IU, TE319): with
-    /// the switch off nothing of the file reaches Claude by itself. Share This Answer shares the answer,
-    /// with the question it answers, once; Share Content from Page 2 still shares the passage; a key in the
-    /// answer is masked; and a file hidden since is refused, saying what wasn't sent.
+    /// An answer the on-device model gives is held like the passage: with the switch off nothing of
+    /// the file reaches Claude by itself. Share This Answer shares the answer, with the question it
+    /// answers, once; Share Content from Page 2 still shares the passage; a key in the answer is
+    /// masked; and a file hidden since is refused, saying what wasn't sent.
     @Test func aHeldAnswerGoesOnlyByItsOwnSend() async throws {
         let d = defaults()
         let center = NotificationCenter()
@@ -2260,8 +2258,8 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(later.items.contains { $0.kind == .note("Didn’t send what Lab Results.pdf says: it’s in a folder hidden from Claude now.") })
     }
 
-    /// **Search results go only by Share These Names, once, and never a file hidden since**
-    /// (decision IV, TE320); the card says who found them, for what and where.
+    /// Search results go only by Share These Names, once, and never a file hidden since; the card
+    /// says who found them, for what and where.
     @Test func foundNamesGoOnlyByTheirOwnShare() async throws {
         let d = defaults()
         let center = NotificationCenter()
@@ -2273,8 +2271,7 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(AskClaudeHeldAnswer.foundTitle(found) == "Spotlight found 8 files mentioning “diagnosis” in iCloud › Medical, on this Mac:")
         #expect(AskClaudeHeldAnswer.foundFoot(found, ticked: 8)
                 == "Not shared yet. Share Details sends each file’s name, folder, kind, size, date and tags. No file content.")
-        // A file left out under Customize goes by no share (his calls on TE320, TE323); a tick
-        // after the share does nothing.
+        // A file left out under Customize goes by no share; a tick after the share does nothing.
         let biopsy = "/Users/me/Medical/Biopsy results.pdf"
         chat.editFound(card.id, .customize(true))
         chat.tickFound(card.id, biopsy)
@@ -2283,7 +2280,7 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(AskClaudeHeldAnswer.customShareButton(ticked: 7, details: picked.chosenDetails, noun: picked.noun) == "Share 7 Files with All Details")
         let shared = try #require(chat.takeFound(card.id))
         #expect(shared.question.contains("Here are 7 of the 8 files whose text mentions “diagnosis” (I left the others out)"))
-        // Each row gets its handle with the share, and only then (TE323).
+        // Each row gets its handle with the share, and only then.
         #expect(shared.question.range(of: #"\nr\d+\|Referral\.pdf\|PDF\|"#, options: .regularExpression) != nil && !shared.question.contains("Biopsy"))
         #expect(shared.shown == "Shared 7 files mentioning “diagnosis”")
         #expect(chat.takeFound(card.id)?.question == nil)
@@ -2304,9 +2301,9 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(!later.items.contains { if case .found = $0.kind { true } else { false } })
     }
 
-    /// **Customize sends only the files and details still ticked** (his call on TE323): names
-    /// always go; with every detail unticked, the names alone; with no file ticked, nothing; Share
-    /// Details, after Cancel, every file with every detail.
+    /// Customize sends only the files and details still ticked: names always go; with every detail
+    /// unticked, the names alone; with no file ticked, nothing; Share Details, after Cancel, every
+    /// file with every detail.
     @Test func customizeSendsOnlyTheTickedFilesAndDetails() async throws {
         let d = defaults()
         func card() async throws -> (AskClaudeChat, UUID, [AskClaudeFoundNames.File]) {
@@ -2369,8 +2366,8 @@ private final class NoTools: AskClaudeToolRunning {
                                    options: .regularExpression) != nil)
     }
 
-    /// **The chat's tick lasts the chat and no longer** (his call on TE321): kept with a saved
-    /// chat, gone with New Chat; the folder choice's words are what the shield shows.
+    /// The chat's tick lasts the chat and no longer: kept with a saved chat, gone with New Chat;
+    /// the folder choice's words are what the shield shows.
     @Test func theAnswersTickLastsTheChat() async throws {
         let d = defaults()
         let store = FileManager.default.temporaryDirectory.appendingPathComponent("tick-\(UUID().uuidString).json")
@@ -2394,9 +2391,9 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(AskClaudeFolderAccess.share.caption.hasSuffix("Whole documents still ask"))
     }
 
-    /// **Every file one question reads joins one card** (his call on TE322): two reads in a turn are
-    /// one group at the foot of the thread; a tick leaves a file out of every share; each share goes
-    /// once; a new question starts a new card.
+    /// Every file one question reads joins one card: two reads in a turn are one group at the foot
+    /// of the thread; a tick leaves a file out of every share; each share goes once; a new question
+    /// starts a new card.
     @Test func aQuestionsReadsGatherOnOneCard() async throws {
         let d = defaults()
         let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: TwoReadsTransport(), defaults: d) },
@@ -2425,8 +2422,7 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(chat.items.filter { if case .reads = $0.kind { true } else { false } }.count == 2)
     }
 
-    /// **One file read twice in a question is one row** (review of TE319–TE323): both answers,
-    /// one tick, its text once.
+    /// One file read twice in a question is one row: both answers, one tick, its text once.
     @Test func aFileReadTwiceIsOneRow() async throws {
         let d = defaults()
         let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: TwoReadsTransport(), defaults: d) },
@@ -2439,10 +2435,9 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(passage.whole == "All of the pass")
     }
 
-    /// **A share goes only into its own chat, and never again once hidden** (review of
-    /// TE319–TE323): with a folder hidden since the chat began the next question starts over, so a
-    /// card refuses with a note; and a share's question asked again (Retry, Ask Again) refuses
-    /// once one of its files is hidden.
+    /// A share goes only into its own chat, and never again once hidden: with a folder hidden since
+    /// the chat began the next question starts over, so a card refuses with a note; and a share's
+    /// question asked again (Retry, Ask Again) refuses once one of its files is hidden.
     @Test func aShareNeverOutlivesItsChatOrItsFolder() async throws {
         let d = defaults()
         let center = NotificationCenter()
@@ -2469,8 +2464,8 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(shared.items.last?.kind == .note("Didn’t ask again: it shares what was found in Biopsy results.pdf, which is in a folder hidden from Claude now."))
     }
 
-    /// **A share of the first page of a long list says so, and how to see the rest** (review of
-    /// TE319–TE323); a card saved with the old on-card ticks keeps them.
+    /// A share of the first page of a long list says so, and how to see the rest; a card saved
+    /// with the old on-card ticks keeps them.
     @Test func aPartOfALongListIsSharedAsAPart() async throws {
         let names = (1...8).map { "Pass \($0).pdf" }
         let files = names.map { AskClaudeFoundNames.File(name: $0, folder: "Travel", modified: nil, row: "|\($0)|PDF|1 KB|2026-03-01||Travel", path: "/t/" + $0) }
@@ -2490,7 +2485,7 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(AskClaudeChat.foundQuestion(found).hasPrefix("Here are 7 of the 20 files"))
     }
 
-    /// **Never "all" of what wasn't all read** (review of TE319–TE323), on the group card too.
+    /// Never "all" of what wasn't all read, on the group card too.
     @Test func theGroupSaysAllOnlyOfWhatIsAll() {
         let all = AskClaudePassage(fileName: "a.pdf", whereInFile: "page 1", text: "a", path: "/a", whole: "aa", wholeWhere: "all 2 pages", wholeIsAll: true)
         let part = AskClaudePassage(fileName: "b.pdf", whereInFile: "page 1", text: "b", path: "/b", whole: "bb", wholeWhere: "pages 1–40", wholeIsAll: false)
@@ -2501,9 +2496,9 @@ private final class NoTools: AskClaudeToolRunning {
         #expect(AskClaudeHeldAnswer.readsSize(AskClaudeReadGroup(files: [all, part])).hasPrefix("What was read, not all of every file:"))
     }
 
-    /// **Each button on the held-answer card says what it shares** (his calls on TE319), under a
-    /// line saying what sharing is for: the answer above, or content from the page by name, never "the file",
-    /// and "also" once the answer has gone.
+    /// Each button on the held-answer card says what it shares, under a line saying what sharing is
+    /// for: the answer above, or content from the page by name, never "the file", and "also" once
+    /// the answer has gone.
     @Test func theHeldAnswerCardsButtonsNameWhatTheySend() {
         #expect(AskClaudeHeldAnswer.answerButton(sent: false) == "Share This Answer")
         #expect(AskClaudeHeldAnswer.answerButton(sent: true) == "Answer Shared")
@@ -2667,8 +2662,8 @@ private final class Counter: @unchecked Sendable {
         #expect(!FileManager.default.fileExists(atPath: store.path))
     }
 
-    /// TE290 step 0b: a saved card this build can't read costs a note, not the chat. Two unknown
-    /// cards side by side make one note; the rest comes back in order.
+    /// A saved card this build can't read costs a note, not the chat. Two unknown cards side by
+    /// side make one note; the rest comes back in order.
     @Test func aCardThisBuildCantReadBecomesANoteAndTheChatComesBack() async throws {
         let store = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeStore-\(UUID().uuidString)/chat.json")
         defer { try? FileManager.default.removeItem(at: store.deletingLastPathComponent()) }
@@ -2744,15 +2739,15 @@ private final class Counter: @unchecked Sendable {
 }
 
 /// The panel's resize handles in a real hosted panel: AppKit views that take the mouse at the
-/// panel's edges, the thread's scroll view included (TE248, round 3: SwiftUI gestures laid there
-/// lost the mouse to it).
+/// panel's edges, over the thread's scroll view too, which would take the mouse from SwiftUI
+/// gestures laid there.
 @MainActor
 @Suite struct AskClaudePanelHandleTests {
 
     static let place = AskClaudePlace(source: "iCloud", folder: "Documents/Immigration/Authorization/H-1B/2019-2022", itemCount: 2,
                                       isHidden: false, isOnScreen: true, workspace: "Browse", openFile: nil)
 
-    /// TE260: the header's subtitle and the shield popover's heading.
+    /// The header's subtitle and the shield popover's heading.
     @Test func theFolderIsNamedShortUnderTheTitleAndInFullInTheMenu() {
         let place = Self.place
         #expect(place.subtitle == "iCloud › …/H-1B/2019-2022 · 2 items")
@@ -2771,8 +2766,8 @@ private final class Counter: @unchecked Sendable {
         #expect(editing.subtitle == "Editing notes.md")
     }
 
-    /// TE288: a drop near a side docks at that side's nearer corner, near the bottom alone at the
-    /// nearer bottom corner; under the toolbar away from the sides it still floats.
+    /// A drop near a side docks at that side's nearer corner, near the bottom alone at the nearer
+    /// bottom corner; under the toolbar away from the sides it still floats.
     @Test func aDropDocksAtTheNearerCorner() {
         let container = CGSize(width: 1000, height: 800)
         let size = CGSize(width: 372, height: 420)
@@ -2805,8 +2800,9 @@ private final class Counter: @unchecked Sendable {
         #expect(AskClaudePanel.docked(.bottomLeft, size: CGSize(width: 372, height: 790), in: container).y == 8)
     }
 
-    /// 2026-11-01: each corner showed a square of blur outside the panel's curve. The mask,
-    /// stretched to a panel's size, is clear in each corner's square and solid along the sides.
+    /// The blur is masked to the panel's curve, or each corner shows a square of blur outside it.
+    /// The mask, stretched to a panel's size, is clear in each corner's square and solid along the
+    /// sides.
     @Test func theBlurIsMaskedToRoundedCorners() throws {
         let mask = AskClaudeWindowController.cornerMask(radius: Radius.card)
         let size = NSSize(width: 372, height: 420)
@@ -2875,8 +2871,8 @@ private final class Counter: @unchecked Sendable {
         withExtendedLifetime(window) {}
     }
 
-    /// The panel is its own child window over the main one (2026-10-31: as an overlay, the panes'
-    /// AppKit tables took its clicks). Parked far off every display, so the run shows nothing.
+    /// The panel is its own child window over the main one: as an overlay, the panes' AppKit tables
+    /// would take its clicks. Parked far off every display, so the run shows nothing.
     @Test func thePanelIsAChildWindowWhereItAsksToBe() async {
         let parent = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 1000, height: 800),
                               styleMask: [.borderless], backing: .buffered, defer: true)
@@ -2905,8 +2901,8 @@ private final class Counter: @unchecked Sendable {
         #expect(!controller.isShowing)
         controller.show(AnyView(Color.clear), over: parent, activate: false)
         #expect(parent.childWindows?.isEmpty ?? true)
-        // It comes back as a new window where the old one was: the old one, ordered back in,
-        // drew blank but for its composer's field.
+        // It comes back as a new window where the old one was: the old one, ordered back in, would
+        // draw blank but for its composer's field.
         controller.isSuspended = false
         controller.show(AnyView(Color.clear), over: parent, activate: false)
         let back = parent.childWindows?.first
@@ -2920,7 +2916,7 @@ private final class Counter: @unchecked Sendable {
     }
 }
 
-/// TE291: the panel paints a pane's surface and the window's accent, not a gray popover's.
+/// The panel paints a pane's surface and the window's accent, not a gray popover's.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct AskClaudePanelPaintTests {
 
@@ -2966,11 +2962,10 @@ private final class Counter: @unchecked Sendable {
     }
 
     @Test func clearHasTheHouseGroundOnClearGlass() throws {
-        // Decision IA: the text's ground is the house one, `groundedBackingOpacity`, as thick as
-        // the other floating panels' at every level. TE316 made Clear's 0.90 and its light glass
-        // clear rather than blurred (`floatingPanelGlass`), so Clear's thread now reads as near
-        // white over black as Frosted's 0.85 on its blur, where TE293's 0.45 left it 0.64. Blue,
-        // because None at Clear takes the window's glass instead (the next test).
+        // The text's ground is the house one, `groundedBackingOpacity`, as thick as the other
+        // floating panels' at every level. Clear's is 0.90 on clear rather than blurred glass
+        // (`floatingPanelGlass`), so its thread reads as near white over black as Frosted's 0.85 on
+        // its blur. Blue, because None at Clear takes the window's glass instead (the next test).
         let clear = try threadColor(hue: .blue, tint: 0, level: .clear)
         let frosted = try threadColor(hue: .blue, tint: 0, level: .frosted)
         print("[ask-claude-ground] blue clear \(clear), frosted \(frosted)")
@@ -2982,7 +2977,7 @@ private final class Counter: @unchecked Sendable {
         // With None in light at Clear the panel is the window's glass: its backdrop's blur under
         // the window's white film (`LiquidGlass.panelTakesWindowGlass`), not the 0.90 ground. Over
         // black, which the backdrop's blur can't draw offscreen, that film reads well short of the
-        // ground every accent keeps (TE316).
+        // ground every accent keeps.
         let none = try threadColor(hue: .none, tint: 0, level: .clear)
         let blue = try threadColor(hue: .blue, tint: 0, level: .clear)
         print("[ask-claude-ground] clear none \(none), blue \(blue)")
@@ -2994,9 +2989,9 @@ private final class Counter: @unchecked Sendable {
 @MainActor
 @Suite struct AskClaudePanelWindowFitTests {
 
-    /// 2026-10-31: placed from inside the panel's own layout (its first placement, or New Chat
-    /// shrinking a long thread), the window took the new size and the content kept another — an
-    /// 800-point panel in a 610-point window, its header cut off until it was closed and reopened.
+    /// Placed from inside the panel's own layout (its first placement, or New Chat shrinking a long
+    /// thread), the window and its content must take the same size, or the header is cut off until
+    /// the panel is closed and reopened.
     @Test func theContentFillsTheWindowAfterOpeningAndAfterNewChat() async throws {
         let parent = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 1000, height: 760),
                               styleMask: [.borderless], backing: .buffered, defer: true)
@@ -3023,7 +3018,7 @@ private final class Counter: @unchecked Sendable {
     }
 }
 
-/// A click on a resize edge with no drag changes nothing (it used to fix the automatic height).
+/// A click on a resize edge with no drag changes nothing, and doesn't fix the automatic height.
 @MainActor
 @Suite struct AskClaudeResizeHandleTests {
 
@@ -3053,8 +3048,8 @@ private final class Counter: @unchecked Sendable {
     }
 }
 
-/// Which ⌘-chords the panel hands to the main window while it has the keyboard (2026-10-31: ⌘⌫ in
-/// the composer offered to trash the selected folder once every chord went across).
+/// Which ⌘-chords the panel hands to the main window while it has the keyboard. Not every one:
+/// ⌘⌫ in the composer would offer to trash the selected folder.
 @MainActor
 @Suite struct AskClaudePanelChordTests {
 
@@ -3104,7 +3099,7 @@ private final class ToolThenTextTransport: AskClaudeTransport, @unchecked Sendab
     }
 }
 
-/// Claude reads two files in one turn, then answers (TE322).
+/// Claude reads two files in one turn, then answers.
 private final class TwoReadsTransport: AskClaudeTransport, @unchecked Sendable {
     private var sent = 0
     func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
@@ -3337,7 +3332,7 @@ private final class OffersADownload: AskClaudeToolRunning {
     }
 }
 
-/// Filing help's tool (TE255): the card it shows and what Claude is told.
+/// Filing help's tool: the card it shows and what Claude is told.
 @MainActor
 @Suite struct AskClaudeFilingToolTests {
 
@@ -3374,8 +3369,8 @@ private final class OffersADownload: AskClaudeToolRunning {
         return await runner.run(AskClaudeToolCall(id: "t", name: "where_to_file", input: .object(input)), handles: &handles)
     }
 
-    /// TE284: a place they name is found in their survey or their sources and handed over
-    /// absolute; one that is neither, or hidden, is refused before filing help runs.
+    /// A place they name is found in their survey or their sources and handed over absolute; one
+    /// that is neither, or hidden, is refused before filing help runs.
     @Test func aNamedPlaceIsResolvedBySurveyOrSource() async throws {
         let asked = PlaceBox()
         let high = FilingHelpAnswer(outcome: .suggested([suggestion("Travel/Trips", .high)]), surveyedAt: nil)
@@ -3390,7 +3385,7 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(asked.places.count == 3, "filing help ran for a refused place")
     }
 
-    /// Decision FY: a place outside the survey is named, and Claude is told to offer the survey.
+    /// A place outside the survey is named, and Claude is told to offer the survey.
     @Test func aPlaceOutsideTheSurveyOffersTheSurveyInstead() async throws {
         let out = await ask(runner(FilingHelpAnswer(outcome: .outsideProfile(surveyed: Self.root + "/Documents"), surveyedAt: nil)),
                             into: "Dropbox")
@@ -3400,7 +3395,7 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(out.step == "Dropbox is outside the folder survey")
     }
 
-    /// Decision FX: a home kept outside the named place says so, to the card and to Claude.
+    /// A home kept outside the named place says so, to the card and to Claude.
     @Test func aHomeOutsideTheNamedPlaceSaysSo() async throws {
         let w2 = FilingHelpAnswer.Suggestion(folder: Self.root + "/Documents/Taxes/2025", relativePath: "Taxes/2025",
                                              confidence: .high, reason: "Fits how this folder is used",
@@ -3448,7 +3443,7 @@ private final class OffersADownload: AskClaudeToolRunning {
     }
 }
 
-/// TE285: a folder's loose files on one card, asked where first, on a real folder.
+/// A folder's loose files on one card, asked where first, on a real folder.
 @MainActor
 @Suite struct AskClaudeLooseFilesToolTests {
 
@@ -3511,7 +3506,7 @@ private final class OffersADownload: AskClaudeToolRunning {
         return await runner.run(AskClaudeToolCall(id: "t", name: "file_loose_files", input: .object(input)), handles: &handles)
     }
 
-    /// Decision GB: no place yet, so a count and two buttons, and no card.
+    /// No place yet, so a count and two buttons, and no card.
     @Test func withoutAPlaceItCountsAndOffersButtons() async throws {
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let out = await call([:], runner())
@@ -3522,8 +3517,8 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(out.result.contains("1 apps or installers stay"))
     }
 
-    /// **Claude gets the counts, not the names and homes** (review of TE319–TE323): a home can be
-    /// picked from a file's first page. A folder that shares freely sends the rows, as before.
+    /// Claude gets the counts, not the names and homes: a home can be picked from a file's first
+    /// page. A folder that shares freely sends the rows.
     @Test func theCardsNamesAndHomesStayOnTheCard() async throws {
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let held = await call(["into": .string("Documents")], runner())
@@ -3542,8 +3537,8 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(none.filing?.kind == .noProfile)
     }
 
-    /// The card: High ticked (GC), a taken name said (GE), a copy already filed as an unticked
-    /// Trash row (GF), the folder its files empty (GA), installers and homeless files left here.
+    /// The card: High ticked, a taken name said, a copy already filed as an unticked Trash row, the
+    /// folder its files empty, installers and homeless files left here.
     @Test func theCardGroupsTicksAndChecksEachRow() async throws {
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let out = await call(["into": .string("Documents")], runner())
@@ -3563,7 +3558,7 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(!out.result.contains("Fits how this folder is used"), "a reason went to Claude")
     }
 
-    /// Decision GG: 10 a card, and a Next button that asks for the next ones in their own words.
+    /// 10 a card, and a Next button that asks for the next ones in their own words.
     @Test func aCardHoldsTenAndItsNextButtonAsksForMore() async throws {
         defer { try? FileManager.default.removeItem(atPath: dir) }
         for i in 0..<55 { try Data("\(i)".utf8).write(to: URL(fileURLWithPath: dir + "/Downloads/n\(i).txt")) }
@@ -3583,9 +3578,9 @@ private final class OffersADownload: AskClaudeToolRunning {
         func note(_ place: String?) { lock.withLock { _places.append(place) } }
     }
 
-    /// GM: a place in Google Drive, which has its own survey, is answered from Google Drive's
-    /// survey — not refused as outside the primary one — and filing help is handed the place, so
-    /// the card's rows come from the survey its title names.
+    /// A place in Google Drive, which has its own survey, is answered from Google Drive's survey,
+    /// not refused as outside the primary one, and filing help is handed the place, so the card's
+    /// rows come from the survey its title names.
     @Test func aPlaceInASourceWithItsOwnSurveyIsFiledFromThatSurvey() async throws {
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let google = dir + "/Google", googleSurvey = dir + "/Google/My Drive"
@@ -3674,7 +3669,7 @@ private final class OffersADownload: AskClaudeToolRunning {
     }
 }
 
-/// TE262: Claude proposes a card of changes; nothing runs from the tool.
+/// Claude proposes a card of changes; nothing runs from the tool.
 @MainActor
 @Suite struct AskClaudeProposeChangesTests {
 
@@ -3735,9 +3730,9 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(!FileManager.default.fileExists(atPath: dir + "/Documents/Travel/Trips/Japan 2026"))
     }
 
-    /// **A name in a hidden folder is refused as hidden, never as taken** (review of TE319–TE323):
-    /// "Private is already there" would say what the hidden folder's parent holds, and a name made
-    /// inside a hidden folder would say what it holds.
+    /// A name in a hidden folder is refused as hidden, never as taken: "Private is already there"
+    /// would say what the hidden folder's parent holds, and a name made inside a hidden folder
+    /// would say what it holds.
     @Test func aPlaceInAHiddenFolderIsRefusedBeforeTheDiskIsAsked() async throws {
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let (out, _) = await propose([
@@ -3786,8 +3781,8 @@ private final class OffersADownload: AskClaudeToolRunning {
     }
 }
 
-/// The card's one-line rows (decision GG): the destination has its own width and never pushes
-/// the name off the card.
+/// The card's one-line rows: the destination has its own width and never pushes the name off the
+/// card.
 @MainActor
 @Suite struct AskClaudeCardRowTests {
 
@@ -3809,7 +3804,7 @@ private final class OffersADownload: AskClaudeToolRunning {
     }
 }
 
-/// TE262: what they did on Claude's cards reaches Claude with their next question, once.
+/// What they did on Claude's cards reaches Claude with their next question, once.
 @MainActor
 @Suite struct AskClaudeSinceLastAnswerTests {
 
@@ -3819,9 +3814,9 @@ private final class OffersADownload: AskClaudeToolRunning {
     /// Wiped with its plist once the chat lets go: each question records its spend here.
     private func scratch() -> UserDefaults { ScratchDefaults("AskClaudeSinceLastAnswerTests") }
 
-    /// Waits for the question to finish, and fails at the call if it never does. A fixed pump here
-    /// gave up in silence at load 25, and the test went on to change the model while the question
-    /// was still running (docs/flaky-tests.md, "Fixed pumps and fixed sleeps").
+    /// Waits for the question to finish, and fails at the call if it never does. A fixed pump can
+    /// give up in silence under load and let the test change the model mid-question
+    /// (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
     private func waitUntilIdle(_ chat: AskClaudeChat, sourceLocation: SourceLocation = #_sourceLocation) async {
         await waitUntil("the chat finishes its question", timeout: 30, sourceLocation: sourceLocation) { !chat.isRunning }
     }
@@ -3927,7 +3922,7 @@ private final class OffersADownload: AskClaudeToolRunning {
     }
 }
 
-/// TE286: a correction in chat offered as a rule — the tool, the card, and what Claude is told.
+/// A correction in chat offered as a rule: the tool, the card, and what Claude is told.
 @MainActor
 @Suite struct AskClaudeRuleToolTests {
 
@@ -3983,11 +3978,11 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(card.destination == "Travel › Trips › IN-US › year of travel › month of travel")
         #expect(card.checkedDate)
         // Page 1 decided it (Japan Airlines and the date are on it), so Claude learns only that
-        // they see the result: one call per word would tell it what the page holds (review of
-        // TE319–TE323). They see why in the step line.
+        // they see the result: one call per word would tell it what the page holds. They see why in
+        // the step line.
         #expect(out.result.contains("they see the result and you don’t") && !out.result.contains("Airline Tickets"))
         #expect(out.step == "Offered a rule: Airline Tickets")
-        // Held: Save and Not Now tell Claude nothing of it either (review 2 of 11-04).
+        // Held: Save and Not Now tell Claude nothing of it either.
         #expect(card.held == true)
         // Shared freely, Claude gets the words and folders, never text from the file.
         let freely = await offer(runner(Asked(), readsFiles: true))

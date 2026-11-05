@@ -5,8 +5,8 @@ import SwiftUI
 import Testing
 @testable import SyncCloud
 
-/// Copy, Edit and Retry on a turn (TE296): what Copy puts on the pasteboard, and what taking
-/// turns back leaves in the thread, in Claude's transcript and in what Claude is told.
+/// Copy, Edit and Retry on a turn: what Copy puts on the pasteboard, and what taking turns back
+/// leaves in the thread, in Claude's transcript and in what Claude is told.
 @MainActor
 @Suite struct AskClaudeTurnTests {
 
@@ -111,8 +111,8 @@ import Testing
         #expect(chat.items.contains { $0.kind == .assistant("B again") } && !chat.items.contains { $0.kind == .assistant("B") })
     }
 
-    /// Decision IT: a card from the turns taken back that changed something stays, and Claude,
-    /// which no longer sees it, is told again what was done on it and what it did itself there.
+    /// A card from the turns taken back that changed something stays, and Claude, which no longer
+    /// sees it, is told again what was done on it and what it did itself there.
     @Test func aChangedCardStaysAndClaudeIsToldAgain() async throws {
         let transport = TurnTransport([.text("A"), .tool, .text("Dark now."), .tool, .text("Shown."), .text("ok")])
         let chat = chat(transport)

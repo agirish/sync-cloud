@@ -1,19 +1,14 @@
 import Testing
 import Foundation
 
-/// **Where the pane says it is, at the call sites.**
+/// Where the pane says it is, at the call sites. `PaneCombinedPathTests` proves the rule
+/// (`FileSyncManager.paneLocation(isLeft:drawsColumns:)` and the four navigation entry points) but
+/// not that the header asks it: one reverted line in `ContentView.swift` would put the breadcrumb
+/// back on the bare scope+stack join with those tests green.
 ///
-/// `FileSyncManager.paneLocation(isLeft:drawsColumns:)` and the four navigation entry points are
-/// pinned by `PaneCombinedPathTests`, which is a behavioural suite and proves the RULE. It cannot
-/// prove the header asks it — a revert of one line in `ContentView.swift` puts the breadcrumb back
-/// on the bare scope+stack join with every one of those tests still green, which is the state this
-/// whole change started from.
-///
-/// Source-level, therefore, with the blind spot that implies. Two habits keep it honest, both taken
-/// from `TidyScanRootTests`: the read fails loudly rather than scanning an empty haystack, and every
-/// check pins a ternary or an argument WHOLE rather than asserting that its ingredients appear
-/// somewhere. The flipped-`isLeft` mistake is invisible to every behavioural test in the package —
-/// the manager never learns which pane the app meant to ask about.
+/// So a source scan, as in `TidyScanRootTests`: the read fails loudly on an empty haystack, and each
+/// check pins an argument whole, not its ingredients. A flipped `isLeft` is invisible to every
+/// behavioural test, since the manager never learns which pane the app meant.
 @Suite struct PaneLocationCallSiteTests {
 
     private static func source(_ name: String) throws -> String {
@@ -27,8 +22,8 @@ import Foundation
         return text
     }
 
-    /// One declaration's body, bounded by its closing brace rather than a character count — a fixed
-    /// window runs past a short body into the next member and answers about the wrong text.
+    /// One declaration's body, bounded by its closing brace, not a character count: a fixed window
+    /// runs past a short body into the next member and answers about the wrong text.
     private static func body(of declaration: String, in source: String) throws -> String {
         let start = try #require(source.range(of: declaration),
                                  "`\(declaration)` is gone — this scan would read nothing")
@@ -37,8 +32,8 @@ import Foundation
         return String(rest[..<end.lowerBound])
     }
 
-    /// The reported bug's own line: the header's path. `mode` is the resolved presentation, so a
-    /// Tree pane reads out its scope and a Columns pane its scope joined with the open columns.
+    /// The header's path. `mode` is the resolved presentation, so a Tree pane reads out its scope
+    /// and a Columns pane its scope joined with the open columns.
     @Test func theHeadersPathAsksForTheLocationThePresentationActuallyShows() throws {
         let body = try Self.body(of: "func paneContext(isLeft: Bool) -> PaneContext {",
                                  in: try Self.source("ContentView.swift"))
@@ -48,8 +43,8 @@ import Foundation
                 the header's path is no longer resolved through the presentation — a Tree pane \
                 will name the folder its parked columns stopped in
                 """)
-        // The arrows have to be enabled from the same answer their press acts on, or `‹` lights up
-        // for a move that changes nothing on screen.
+        // The arrows must be enabled from the same answer their press acts on, or `‹` lights up for
+        // a move that changes nothing on screen.
         #expect(body.contains(
                     "canGoBack: syncManager.canGoBack(isLeft: isLeft, drawsColumns: mode == .columns)"),
                 "`‹` is enabled without regard to the presentation")
@@ -58,8 +53,8 @@ import Foundation
                 "`›` is enabled without regard to the presentation")
     }
 
-    /// And what pressing them does. `pane.viewMode` rather than a fresh read: the row was laid out
-    /// from that same context, so a click cannot be resolved against a mode it was not drawn in.
+    /// And what pressing them does. `pane.viewMode`, not a fresh read: the row was laid out from
+    /// that context, so a click can't be resolved against a mode it wasn't drawn in.
     @Test func theArrowsAndTheCrumbsActOnTheSamePresentationTheyWereDrawnIn() throws {
         let source = try Self.source("ContentView.swift")
         for call in ["onBack: { syncManager.goBack(isLeft: isLeft, drawsColumns: pane.viewMode == .columns) }",
@@ -74,8 +69,8 @@ import Foundation
     }
 
     /// A linked crumb click is two moves, and each pane answers for its own presentation. Both
-    /// arguments pinned whole: swapping them drives each pane through the other's mode, which no
-    /// behavioural test in the package can see.
+    /// arguments pinned whole: swapped, each pane is driven through the other's mode, which no
+    /// behavioural test can see.
     @Test func aLinkedClickAsksEachPaneAboutItself() throws {
         let body = try Self.body(of: "func navigateBothPanes(toCombinedPath combined: String, from isLeft: Bool) {",
                                  in: try Self.source("ContentView.swift"))
@@ -85,10 +80,9 @@ import Foundation
                 "the sibling is asked about the CLICKED pane's presentation (the `!` is gone)")
     }
 
-    /// The strip asks the same question the header does, and about the SAME pane. `paneTabItems`
-    /// takes an `isLeft` and hands it to `paneDrawsColumns`; written `!isLeft` the chips would be
-    /// resolved through the sibling's presentation, and every behavioural chip test would still pass
-    /// — they call `PaneTabChips.items` directly and never learn which pane the app asked about.
+    /// The strip asks the header's question, about the same pane. Written `!isLeft`, the chips
+    /// would resolve through the sibling's presentation and every chip test would still pass, since
+    /// they call `PaneTabChips.items` directly.
     @Test func theTabStripResolvesThroughItsOwnPanesPresentation() throws {
         let body = try Self.body(of: "func paneTabItems(isLeft: Bool) -> [PaneTabStrip.Item] {",
                                  in: try Self.source("ContentView+PaneTabs.swift"))
@@ -99,9 +93,9 @@ import Foundation
                 "the parked chips are no longer resolved through this pane's presentation")
     }
 
-    /// The negative, as an absence: nothing in the app may take the bare scope+stack join for a
-    /// readout again. `combinedRelativePath` is not deleted — a tab's stored location genuinely
-    /// wants both halves — it simply has no business describing what a pane is showing.
+    /// Nothing in the app may take the bare scope+stack join for a readout.
+    /// `combinedRelativePath` stays, since a tab's stored location wants both halves, but it
+    /// mustn't describe what a pane is showing.
     @Test func nothingReadsTheBareJoinForAReadoutAnyMore() throws {
         let source = try Self.source("ContentView.swift")
         #expect(!source.contains("syncManager.combinedRelativePath("),

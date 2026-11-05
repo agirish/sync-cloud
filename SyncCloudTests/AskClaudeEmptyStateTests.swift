@@ -5,9 +5,9 @@ import Sync
 import Testing
 @testable import SyncCloud
 
-/// An empty chat (TE315, TE299): set up first with no API key saved, and a few questions that fit
-/// the screen once one is. The key is asked about through the bridge, never read, and never
-/// touched here: these panels are given a key state of their own.
+/// An empty chat: set up first with no API key saved, and a few questions that fit the screen once
+/// one is. The key is asked about through the bridge, never read, and never touched here: these
+/// panels are given a key state of their own.
 ///
 /// Serialized: panels hosted side by side take the keyboard focus from each other.
 @MainActor

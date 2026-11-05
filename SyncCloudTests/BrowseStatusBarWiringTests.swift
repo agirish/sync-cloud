@@ -3,20 +3,16 @@ import Testing
 import Foundation
 @testable import SyncCloud
 
-/// Browse's status bar where it meets the app (roadmap RD6): the View menu item, the preference's
-/// default, and the one structural promise the bar makes — that it appears on Browse and nowhere
-/// else.
+/// Browse's status bar where it meets the app: the View menu item, the preference's default, and
+/// the one structural promise the bar makes, that it appears on Browse and nowhere else.
 @MainActor
 @Suite struct BrowseStatusBarWiringTests {
 
     // MARK: The menu
 
-    /// A noun with a tick, beside the other view switches, and **no chord**.
-    ///
-    /// The absence is the part worth pinning: ⌘/ is Finder's Show Status Bar and the two free
-    /// alternatives both carry ⌥ — the one kind of chord that fires through the ⌥-hold reveal,
-    /// which `AppChordTests` holds the whole app to. A chord arriving here later should have to
-    /// argue with this test rather than slip in.
+    /// A noun with a tick, beside the other view switches, and no chord. ⌘/ is Finder's Show Status
+    /// Bar, and the two free alternatives both carry ⌥, which fires through the ⌥-hold reveal
+    /// (`AppChordTests`). A chord added here later has to argue with this test.
     @Test func theViewMenuCarriesTheStatusBarSwitch() throws {
         let view = try #require(NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu,
                                 "the app has no View menu")
@@ -39,10 +35,9 @@ import Foundation
         #expect(view.items.filter { $0.title == "Format Bar" }.count == 1)
     }
 
-    /// **The View menu's builder is at its ten children**, which is why the two chrome switches are
-    /// grouped. A `ViewBuilder` silently takes only the first ten, so an eleventh added loose would
-    /// drop an item off the menu with nothing failing — which is exactly what the grouping in
-    /// `PaneChromeCommands` exists to prevent, and exactly what a later edit would undo.
+    /// The View menu's builder is at its ten children, which is why the two chrome switches are
+    /// grouped in `PaneChromeCommands`. A `ViewBuilder` silently takes only the first ten, so an
+    /// eleventh added loose would drop an item off the menu with nothing failing.
     @Test func theViewMenusBuilderStaysWithinItsTenChildren() throws {
         let group = try Self.slice(from: "CommandGroup(after: .sidebar) {", to: "\n            }\n",
                                    in: try Self.source("SyncCloudApp.swift"))
@@ -57,14 +52,10 @@ import Foundation
 
     // MARK: Browse only
 
-    /// **The bar is built in `browseLayout` and not in `paneColumn`** — which is the whole of the
-    /// v4.2 deferral being answered rather than dodged.
-    ///
-    /// `paneColumn` is the ONE pane that Browse, both Compare panes and the Organize/Storage rail
-    /// are all built from. A bar added there would appear on four surfaces, and Compare is the
-    /// surface the deferral is about: two panes want two answers and one strip can give one. The
-    /// scan reads structure rather than behaviour because there is no way to ask a rendered Compare
-    /// "is there a status bar under you" without standing up the whole window.
+    /// The bar is built in `browseLayout`, not in `paneColumn`. `paneColumn` is the one pane that
+    /// Browse, both Compare panes and the Organize/Storage rail are built from, so a bar there would
+    /// appear on four surfaces, and Compare's two panes want two answers that one strip can't give.
+    /// The scan reads structure because asking a rendered Compare needs the whole window.
     @Test func theBarIsBuiltForBrowseAndNotInTheSharedPaneColumn() throws {
         let layout = try Self.source("ContentView+SplitLayout.swift")
         let browse = try Self.slice(from: "func browseLayout(geo: GeometryProxy) -> some View {",
@@ -73,9 +64,8 @@ import Foundation
         #expect(browse.contains("if statusBarVisible"),
                 "the bar is drawn unconditionally — View ▸ Status Bar cannot hide it")
 
-        // **Exactly one construction in the whole app**, which is the check that cannot be
-        // satisfied by moving the call somewhere else: a second `BrowseStatusBar(` anywhere in
-        // MacApp is a second surface drawing it, whatever the enclosing function is called.
+        // Exactly one construction in the whole app, so moving the call can't satisfy it: a second
+        // `BrowseStatusBar(` anywhere in MacApp is a second surface drawing it.
         let built = try Self.appSources().reduce(into: [String: Int]()) { counts, entry in
             let hits = entry.value.components(separatedBy: "BrowseStatusBar(").count - 1
             if hits > 0 { counts[entry.key] = hits }
@@ -101,9 +91,9 @@ import Foundation
 
     // MARK: The preference
 
-    /// **On by default**, unlike the tab bar beside it — the bar states facts the window has
-    /// nowhere else to put, where a tab bar restates a folder name the header already shows. And
-    /// the key is its own: reusing `browseTabBarVisible` would tie two switches together.
+    /// On by default, unlike the tab bar beside it: the bar states facts the window has nowhere
+    /// else to put, where a tab bar restates a folder name the header already shows. The key is its
+    /// own: reusing `browseTabBarVisible` would tie two switches together.
     @Test func theStatusBarPreferenceDefaultsOnAndKeepsItsOwnKey() throws {
         let source = try Self.source("ContentView.swift")
         #expect(source.contains(#"@AppStorage("browseStatusBarVisible") var statusBarVisible: Bool = true"#),
@@ -124,8 +114,8 @@ import Foundation
         return text
     }
 
-    /// Every Swift file under `MacApp`, by file name. The scan derives its subject from the tree
-    /// rather than from a list, so a status bar built in a file added later is still caught.
+    /// Every Swift file directly in `MacApp`, by file name. Read from the tree rather than a list,
+    /// so a status bar built in a file added later is still caught.
     private static func appSources() throws -> [String: String] {
         let dir = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()

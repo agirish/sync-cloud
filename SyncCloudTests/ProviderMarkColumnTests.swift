@@ -6,17 +6,12 @@ import Design
 
 /// Every provider's mark draws at the same cap height, so a column of them sits on one line.
 ///
-/// **In the app target rather than in Design**, which is where the assertion has to live: the four
-/// brand assets are in `MacApp/Assets.xcassets`, so from the `Design` test target `NSImage(named:)`
-/// finds none of them, `ProviderLogo` falls through to its SF Symbol branch, and every measurement
-/// here would be of something else.
+/// In the app target, not Design, because the brand assets are in `MacApp/Assets.xcassets`; from
+/// the `Design` tests `ProviderLogo` would fall back to an SF Symbol and measure that.
 ///
-/// **Measured, because the numbers are the whole argument.** `ProviderLogo(_:size:)` fits each mark
-/// inside a square, and these four assets are not one shape: at `size: 24` iCloud's cloud and
-/// OneDrive's come out **24×16** while Drive's triangle and Dropbox's box come out **24×22**. The
-/// clouds are half again as wide as they are tall, so they meet the box's width first and stop 6pt
-/// short of its height, 3pt below its top edge. A list carrying all four draws two marks at one
-/// size and two at another, on two different lines — which is exactly what it looked like.
+/// `ProviderLogo(_:size:)` fits each mark in a square, and the assets differ in shape: at
+/// `size: 24` the two clouds come out 24×16 while Drive and Dropbox come out 24×22. The clouds hit
+/// the width first, so a column of all four sits on two lines.
 @MainActor
 @Suite struct ProviderMarkColumnTests {
 
@@ -58,8 +53,8 @@ import Design
                 "the marks measure \(heights) against a \(cap)pt cap — something is fitting on width")
     }
 
-    /// **The control**: the square mode really does draw them at two different sizes, so the test
-    /// above is measuring the fix rather than a property both modes already had.
+    /// The control: the square mode draws them at two sizes, so the test above measures the
+    /// cap-height mode rather than a property both modes share.
     @Test func theSquareModeIsWhereTheyDisagree() throws {
         let size: CGFloat = 24
         let box = CGSize(width: size + 20, height: size + 20)

@@ -4,10 +4,10 @@ import Testing
 import Sync
 @testable import SyncCloud
 
-/// Pins the pure string builders behind the invalid-destination-name alert and the cloud-Filing
-/// spend pre-flight (the collision and transfer-confirmation builders are pinned in
-/// SyncCloudTests.swift). The NSAlert plumbing itself stays untested — these builders are extracted
-/// `nonisolated` precisely so the wording is checkable headlessly.
+/// Pins the pure string builders behind the invalid-destination-name alert, the cloud-Filing spend
+/// pre-flight and the button mappings (more collision and transfer wording is pinned in
+/// SyncCloudTests.swift). The NSAlert plumbing stays untested; the builders are `nonisolated` so
+/// the wording is checkable headlessly.
 @Suite struct SyncOperationAlertsTests {
 
     // MARK: Invalid-destination-name alert
@@ -60,10 +60,10 @@ import Sync
                              unit: unit)
     }
 
-    /// §5.6's dialog: a mapping refine sends folder NAMES, and every branch of the prompt says
-    /// so — the verb ("Send", never "Classify"), the noun, and above a cap the consequence: the
-    /// filing refine falls back on-device, the mapping refine simply does not run, and the first
-    /// wording promised "free on-device suggestions" over a click that delivered nothing.
+    /// A mapping refine sends folder names, and every branch of the prompt says so: the verb
+    /// ("Send", never "Classify"), the noun, and above a cap the consequence. The filing refine
+    /// falls back on-device; the mapping refine just doesn't run, so it must not promise
+    /// "free on-device suggestions".
     @Test func aFolderNameUnitReshapesTheVerbAndTheCapSentence() {
         let names = Self.preflight(fileCount: 24, unit: "folder name")
         #expect(SyncOperationAlerts.filingSpendMessage(names)
@@ -156,11 +156,9 @@ import Sync
 
     // MARK: Button → decision mapping
     //
-    // The alerts themselves can't be driven headlessly, but the half that turns a click into a
-    // destructive decision now can: each test resolves a button BY TITLE to the response NSAlert
-    // would send for it, then asserts what that response means. A swapped title or a swapped
-    // switch arm turns a "Skip" click into a replace — silent, and only discovered once the
-    // user's file is gone.
+    // The alerts can't be driven headlessly, but the click-to-decision half can: each test resolves
+    // a button by title to the response NSAlert would send, then asserts what it means. A swapped
+    // title or switch arm would silently turn a "Skip" click into a replace.
 
     /// The response `NSAlert` reports when the user clicks the button titled `title`.
     private func response(for title: String, in titles: [String]) throws -> NSApplication.ModalResponse {
@@ -176,8 +174,8 @@ import Sync
     }
 
     @Test func collisionAlertOffersExactlyTheThreeChoicesWithKeepBothAsTheDefault() {
-        // Order is load-bearing twice over: it is the response mapping, and the FIRST button is
-        // the Return-key default — which must never be the destructive Replace.
+        // Order matters twice: it is the response mapping, and the first button is the Return-key
+        // default, which must never be the destructive Replace.
         #expect(SyncOperationAlerts.collisionButtonTitles == ["Keep Both", "Skip", "Replace"])
         #expect(SyncOperationAlerts.collisionResolution(for: .alertFirstButtonReturn) != .replace)
     }
@@ -208,7 +206,7 @@ import Sync
         #expect(SyncOperationAlerts.collisionResolution(for: .alertFirstButtonReturn, offersMerge: true) != .replace)
     }
 
-    /// B5: the folder a pane opens at, carried onto the other pane's, offers Merge and Skip only.
+    /// The folder a pane opens at, carried onto the other pane's, offers Merge and Skip only.
     @Test func aMergeOnlyCollisionDrawsMergeAndSkipAlone() throws {
         let collision = FileCollision(sourcePath: "/Users/me/Dropbox/Documents", destinationPath: "/Users/me/iCloud",
                                       isMove: false, isDirectory: true, offersMerge: true, mergeOnly: true)
@@ -294,13 +292,8 @@ import Sync
     @MainActor
     // MARK: Permanent-delete confirmation — the app's only unrecoverable action
 
-    /// **The one dialog must name what it destroys.** The `count > 1` branch rendered
-    /// "…permanently delete these N items?" and discarded `itemNames` entirely, so once the
-    /// duplicates batch redesign made ONE dialog cover every group, a 12-group batch asked about
-    /// "these 37 items" with nothing identifying them. `DuplicateBatchRedesignTests` asserted on
-    /// the ARGUMENT under the comment "the one dialog must name everything it is about to
-    /// destroy" — which is why the absence survived: the argument was right and the rendering
-    /// threw it away. This pins the rendering.
+    /// The dialog must name what it destroys, every item by path, since one dialog covers a whole
+    /// duplicates batch. `DuplicateBatchRedesignTests` checks the argument; this pins the rendering.
     @Test func permanentDeleteBodyNamesEveryItemByPath() {
         let paths = [NSHomeDirectory() + "/Pictures/2019/IMG_0421.jpg",
                      NSHomeDirectory() + "/Desktop/Old/IMG_0421.jpg"]
@@ -343,12 +336,11 @@ import Sync
                 "the cap did not apply")
     }
 
-    /// `@MainActor` because `confirmPermanentDelete` is: the suite as a whole is nonisolated, and
-    /// this call only ever typechecked by inference luck.
+    /// `@MainActor` because `confirmPermanentDelete` is, and the suite as a whole is nonisolated.
     @MainActor
     @Test func permanentDeleteOfNothingIsRefusedWithoutAnAlert() {
-        // The empty-list guard runs before any AppKit call, so this is reachable headlessly —
-        // and it is the guard that keeps a no-selection delete from presenting a modal.
+        // The empty-list guard runs before any AppKit call, so this is reachable headlessly; it
+        // keeps a no-selection delete from presenting a modal.
         #expect(!SyncOperationAlerts.confirmPermanentDelete(itemPaths: []))
     }
 }

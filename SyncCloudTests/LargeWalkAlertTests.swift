@@ -2,8 +2,8 @@
 import Sync
 import Testing
 
-/// **What the large-folder prompt actually says**, asserted on the pure text builders rather than
-/// by running the alert — an `NSAlert` in a test suite is a hang, not a test.
+/// What the large-folder prompt says, asserted on the pure text builders rather than by running
+/// the alert: an `NSAlert` in a test suite is a hang, not a test.
 @Suite struct LargeWalkAlertTests {
 
     private func preflight(_ pass: LargeWalkPreflight.Pass, root: String = "/Users/x/Stuff",
@@ -17,9 +17,9 @@ import Testing
         #expect(!text.contains("/Users/x"), "the prompt prints a whole path")
     }
 
-    /// **"More than", never a total.** The probe stopped, so it genuinely does not know how much of
-    /// the tree it did not see. A figure here would be a number the app invented — and it would be
-    /// wrong in the direction that matters, since the reader is deciding whether to wait.
+    /// "More than", never a total: the probe stopped, so it doesn't know how much of the tree it
+    /// didn't see. A figure would be invented, and wrong in the direction that matters to a reader
+    /// deciding whether to wait.
     @Test func theCountIsALowerBoundAndNeverTheProbesOwnTally() {
         let p = preflight(.storageLens)
         let text = SyncOperationAlerts.largeWalkInformativeText(p)
@@ -28,9 +28,9 @@ import Testing
         #expect(text.contains("400,000"), "the prompt names no figure at all")
     }
 
-    /// A pass that reads file CONTENT past the walk costs more, and its prompt says so — asked of
-    /// `readsFileContents` rather than of one named case, which is what let Filing quietly inherit
-    /// the cheaper sentence when it was added.
+    /// A pass that reads file content past the walk costs more, and its prompt says so. Asked of
+    /// `readsFileContents` rather than named cases, so a new pass can't quietly inherit the cheaper
+    /// sentence.
     @Test func onlyThePassesThatReadContentsSayTheyDo() {
         for pass in LargeWalkPreflight.Pass.allCases {
             let text = SyncOperationAlerts.largeWalkInformativeText(preflight(pass))
@@ -40,8 +40,8 @@ import Testing
         }
     }
 
-    /// Each pass's prompt is distinguishable from the others' — a prompt that described them
-    /// identically would understate whichever one costs more.
+    /// Each pass's prompt is distinct: describing them identically would understate whichever costs
+    /// more.
     @Test func thePassesDoNotAllSayTheSameThing() {
         let texts = LargeWalkPreflight.Pass.allCases.map {
             SyncOperationAlerts.largeWalkInformativeText(preflight($0))
@@ -49,8 +49,8 @@ import Testing
         #expect(Set(texts).count == texts.count, "two passes share a prompt")
     }
 
-    /// Both prompts say the pass can be stopped, because it can — every one of these has a cancel,
-    /// and "several minutes" without that sentence reads as a commitment.
+    /// Both prompts say the pass can be cancelled, because it can, and "several minutes" without
+    /// that reads as a commitment.
     @Test func bothPromptsSayItCanBeCancelled() {
         for pass in [LargeWalkPreflight.Pass.storageLens, .duplicates] {
             #expect(SyncOperationAlerts.largeWalkInformativeText(preflight(pass)).contains("cancel"),

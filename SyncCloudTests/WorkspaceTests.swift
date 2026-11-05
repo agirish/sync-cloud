@@ -8,19 +8,13 @@ import FileExplorer
 
     // MARK: The two defaults that have to agree
 
-    /// **Where a first run lands and where an unresolvable selection lands must be the same place.**
+    /// Where a first run lands and where an unresolvable selection lands must be the same place.
     ///
-    /// They are two constants in two files, reached by different paths: `migrateSelection` returns
-    /// nil when nothing is stored — deliberately, so `@AppStorage` answers a first run — while
-    /// ``WorkspaceSelection/default`` answers a stored value this build cannot read. Both files
-    /// claim the two agree. They did not: the fallback was `.browse` and the `@AppStorage` default
-    /// `.compare`, so a fresh install opened on Compare and a corrupted one on Browse, and the
-    /// claim was false in the direction nobody looks at.
-    ///
-    /// Source-level because there is no other way to see it: `ContentView` declares private stored
-    /// properties, so its memberwise initializer is `private` and `@testable` cannot mount it, and
-    /// a value that only ever comes from `@AppStorage`'s own default is not reachable from a test
-    /// at all. Reading the declaration is the only observation available.
+    /// They are two constants in two files: `migrateSelection` returns nil when nothing is stored,
+    /// so `@AppStorage`'s default answers a first run, while ``WorkspaceSelection/default`` answers
+    /// a stored value this build cannot read. Source-level because `ContentView` cannot be mounted
+    /// (private stored properties make its memberwise init private), and an `@AppStorage` default
+    /// is not reachable from a test otherwise.
     @Test func theFirstRunDefaultAgreesWithTheFallback() throws {
         /// The workspace case named at the end of the one line matching `anchor`.
         func workspaceCase(inFile name: String, after anchor: String) throws -> String {
@@ -33,16 +27,15 @@ import FileExplorer
             try #require(text.count > 500, "\(name) is implausibly short — truncated?")
             let start = try #require(text.range(of: anchor),
                                      "\(name) no longer contains “\(anchor)” — the declaration moved or was reworded, and this test is now measuring nothing")
-            // **Exactly once.** `range(of:)` returns the FIRST match, so a doc comment that quoted
-            // the declaration — the shape this file's own `declarationBody` reader refuses for the
-            // same reason — would silently be read instead of the code.
+            // Exactly once: `range(of:)` returns the first match, so a doc comment quoting the
+            // declaration would silently be read instead of the code.
             let occurrences = text.components(separatedBy: anchor).count - 1
             try #require(occurrences == 1,
                          "“\(anchor)” appears \(occurrences)× in \(name); this reads the first, which may not be the declaration")
-            // The rest of that line, then the token after its FIRST `.` — `.browse` from
+            // The rest of that line, then the token after its first `.`: `.browse` from
             // `= .browse`, and from `WorkspaceSelection(workspace: .browse, organizeLens: nil)`.
-            // First, not last: the fallback's line carries a second argument, so `organizeLens:`
-            // gaining a non-nil case would otherwise make this read *that* case instead.
+            // First, not last, because the fallback's line carries a second argument that could
+            // gain a non-nil case.
             let line = text[start.upperBound...].prefix { $0 != "\n" }
             let dot = try #require(line.firstIndex(of: "."), "no case named after “\(anchor)”")
             let name = line[line.index(after: dot)...]
@@ -55,9 +48,8 @@ import FileExplorer
         let fallback = try workspaceCase(inFile: "Workspace.swift",
                                          after: "static let `default` = WorkspaceSelection(workspace:")
 
-        // Non-vacuity: both reads must have produced a workspace that actually exists. Without
-        // this, an anchor that matched a comment — or a parse that came back empty — would compare
-        // "" to "" and pass while measuring nothing.
+        // Non-vacuity: both reads must name a real workspace, or an empty parse would compare ""
+        // to "" and pass.
         #expect(Workspace.allCases.map { String(describing: $0) }.contains(firstRun),
                 "first-run default parsed as “\(firstRun)”, which is not a Workspace case")
         #expect(Workspace.allCases.map { String(describing: $0) }.contains(fallback),
@@ -70,20 +62,14 @@ import FileExplorer
     // MARK: Persistence format
 
     @Test func testRawValuesAreAStablePersistenceFormat() {
-        // Persisted via @AppStorage(Workspace.defaultsKey). Every raw value is inherited from one
-        // of the enums this collapsed, so a stored selection keeps resolving; renaming one would
-        // silently drop that user onto the default. `title` is separate for exactly this reason —
-        // the display name differs from the id in two places.
-        //
-        // Browse is the one raw value that is NOT inherited, because nothing it replaces was ever
-        // persisted. That is what makes it safe as the new default: no stored selection can name
-        // it, so no existing install can be moved there by this change.
+        // Persisted via @AppStorage(Workspace.defaultsKey). Renaming a raw value would silently
+        // drop that user onto the default, which is why `title` is separate: the display name
+        // differs from the id in three places.
         #expect(Workspace.browse.rawValue == "Browse")
         #expect(Workspace.compare.rawValue == "Differences")
         #expect(Workspace.filing.rawValue == "Filing")
-        // "Storage" is no longer a workspace raw value — it is a RETIRED one, and it names an
-        // `OrganizeLens` case now. `testAStoredStorageWorkspaceMigratesToTheStorageLens` is where
-        // that stored string is followed to its new destination.
+        // "Storage" is a retired workspace raw value that names an `OrganizeLens` case;
+        // `testAStoredStorageWorkspaceMigratesToTheStorageLens` follows it to its destination.
         #expect(!Workspace.allCases.map(\.rawValue).contains("Storage"))
 
         #expect(Workspace.browse.title == "Browse")
@@ -95,7 +81,7 @@ import FileExplorer
         for workspace in Workspace.allCases {
             #expect(Workspace(rawValue: workspace.rawValue) == workspace)
         }
-        // An unrecognised stored value must fail the RawRepresentable init — that is what makes
+        // An unrecognised stored value must fail the RawRepresentable init, which is what makes
         // @AppStorage fall back to its default rather than crash.
         #expect(Workspace(rawValue: "NotAWorkspace") == nil)
     }
@@ -103,26 +89,23 @@ import FileExplorer
     // MARK: The five-segment bar
 
     @Test func testTheBarIsFiveKindsOfPlace() {
-        // Browse shows one tree and proposes nothing, Compare holds two, Storage reads one,
-        // Organize changes one, and Editor changes what is inside one file. Everything that moves
-        // a file inside a single tree ON THE APP'S SUGGESTION is a lens inside Organize — a sixth
-        // segment appearing means something was promoted back out of the umbrella.
-        //
-        // **Editor is the one addition that was not a promotion**, which is why it is a segment
-        // and not a lens: it is the first surface in the app that writes a file's CONTENTS, so
-        // there was no umbrella for it to come out of.
+        // Browse shows one tree and proposes nothing, Compare holds two, Organize changes one, and
+        // Editor changes what is inside one file. Everything that moves a file inside a single
+        // tree on the app's suggestion is a lens inside Organize, so a new segment means something
+        // was promoted out of it. Editor is a segment, not a lens, because it writes a file's
+        // contents.
         #expect(Workspace.allCases.count == 4)
         #expect(Workspace.allCases.map(\.title)
                 == ["Browse", "Compare", "Organize", "Edit"])
-        // The raw values are the persistence format, and `Editor`'s happens to match its title —
-        // which is exactly the coincidence that invites renaming both at once later.
+        // The raw values are the persistence format, so `Editor` stays even though the title is
+        // "Edit".
         #expect(Workspace.allCases.map(\.rawValue)
                 == ["Browse", "Differences", "Filing", "Editor"])
     }
 
     @Test func testTheFoldedWorkspacesAreGoneFromTheBar() {
-        // Duplicates and Automations are rail items now. Their raw values still have to be
-        // *handled* (below) — what must not come back is a segment.
+        // Duplicates and Automations are rail items. Their raw values still have to be handled
+        // (below); what must not come back is a segment.
         let titles = Set(Workspace.allCases.map(\.title))
         for retired in ["Duplicates", "Automations", "Rename"] {
             #expect(Workspace(rawValue: retired) == nil, "\(retired) is a lens, not a workspace")
@@ -130,22 +113,15 @@ import FileExplorer
         }
     }
 
-    /// **The bar no longer groups, and this is what is left of the rule that used to.**
-    ///
-    /// A 1pt divider sat before Organize, separating the tree-lookers (Browse, Compare) from the
-    /// tree-actors (Organize, Storage), and a test here asserted the property behind it rather than
-    /// the index. Editor is the case that grouping cannot place — it neither looks at a tree nor
-    /// acts on one — so the rule was removed rather than redefined around a third kind.
-    ///
-    /// What survives is the part that still means something: **Browse leads**, because it is the
-    /// plainest place in the bar, and the two workspaces that own a lens stay adjacent, so the bar
-    /// still reads as ordered rather than arbitrary.
+    /// The bar's order: Browse leads, as the plainest place in the bar, and the workspaces that own
+    /// a lens stay adjacent, so the bar reads as ordered rather than arbitrary. The bar has no
+    /// groups, since Editor neither looks at a tree nor acts on one.
     @Test func testBarOrderPutsBrowseFirstAndKeepsTheLensPairTogether() {
         #expect(Workspace.allCases.first == .browse)
         let lensIndices = Workspace.allCases.indices.filter { Workspace.allCases[$0].lens != nil }
         #expect(lensIndices == Array(lensIndices.first!...lensIndices.last!),
                 "the workspaces that own a lens are no longer adjacent in the bar")
-        // Editor is last, which is what hands it ⌘5 — the chords are positional.
+        // Editor is last, which hands it ⌘4: the chords are positional.
         #expect(Workspace.allCases.last == .editor)
     }
 
@@ -160,18 +136,17 @@ import FileExplorer
     // MARK: Programmatic navigation needs BOTH halves
 
     @Test func testALensDestinationCarriesTheRailItemNotJustTheWorkspace() {
-        // The fold made the workspace insufficient on its own: "Find duplicates of this" used to
-        // name a workspace that WAS the answer and now names one of six lenses inside Organize. A
-        // caller that set only the workspace would land on the overview and lose the request.
+        // The workspace alone is not enough: "Find duplicates of this" names one of the lenses
+        // inside Organize, and a caller that set only the workspace would land on the overview
+        // and lose the request.
         #expect(Workspace.destination(for: .duplicates)
                 == WorkspaceSelection(workspace: .filing, organizeLens: .duplicates))
         #expect(Workspace.destination(for: .filing)
                 == WorkspaceSelection(workspace: .filing, organizeLens: .toFile))
         #expect(Workspace.destination(for: .automations)
                 == WorkspaceSelection(workspace: .filing, organizeLens: .rules))
-        // Storage is a rail item like the rest since the fold. This assertion used to read
-        // `WorkspaceSelection(workspace: .storage, organizeLens: nil)`, and inverting it is what
-        // makes "Analyze this folder's storage" from ⌘K land on the lens rather than on a tab.
+        // Storage is a rail item like the rest, so "Analyze this folder's storage" from ⌘K lands
+        // on the lens.
         #expect(Workspace.destination(for: .storage)
                 == WorkspaceSelection(workspace: .filing, organizeLens: .storage))
     }
@@ -185,41 +160,36 @@ import FileExplorer
         #expect(Workspace.browse.lens == nil)
         #expect(Workspace.compare.lens == nil)
         #expect(Workspace.filing.lens == .filing)
-        // Organize is the ONLY workspace with a lens slot now. Every `WorkspaceLensKind` reaches it
-        // through the rail — which is what the loop above checks, and it could not be true while
-        // Storage held a slot of its own.
+        // Organize is the only workspace with a lens slot; every `WorkspaceLensKind` reaches it
+        // through the rail, which is what the loop above checks.
         #expect(Workspace.lensWorkspaces == [.filing])
     }
 
     // MARK: Migration off the two-level selection
 
     @Test func testEveryOldPairMigratesToTheMatchingPlace() {
-        // The table is the point: folding keys together deletes destinations, and a stored value
-        // that stops resolving fails SILENTLY (@AppStorage just takes its default). Each of these
-        // was reachable in 2.8, so each has to land somewhere deliberate — and now each lands on
-        // the LENS it named, not merely on the umbrella that swallowed it.
+        // The table is the point: a stored value that stops resolving fails silently (@AppStorage
+        // just takes its default). Each legacy pair has to land on the lens it named, not merely on
+        // Organize.
         #expect(Workspace.migrated(tab: "Differences", lens: "Duplicates") == .default)
         #expect(Workspace.migrated(tab: "Tidy", lens: "Duplicates")
                 == WorkspaceSelection(workspace: .filing, organizeLens: .duplicates))
-        // Renames, the rail item hosting the risky-name findings since the Names fold (P10) —
-        // migrating to the folded `.names` would write "Names" back into the stored selection.
+        // Renames, the rail item hosting the risky-name findings; migrating to the retired
+        // "Names" would write a value nothing decodes back into the stored selection.
         #expect(Workspace.migrated(tab: "Tidy", lens: "Rename")
                 == WorkspaceSelection(workspace: .filing, organizeLens: .renames))
         #expect(Workspace.migrated(tab: "Tidy", lens: "Filing")
                 == WorkspaceSelection(workspace: .filing, organizeLens: .toFile))
         #expect(Workspace.migrated(tab: "Tidy", lens: "Automations")
                 == WorkspaceSelection(workspace: .filing, organizeLens: .rules))
-        // **The arm that inverted.** A legacy Tidy lens of "Storage" used to resolve through
-        // `Workspace(rawValue:)` to the Storage tab; it is in `retiredWorkspaceRawValues` now, so
-        // the retired-table branch catches it first and lands it on the lens.
+        // A legacy Tidy lens of "Storage" is in `retiredWorkspaceRawValues`, so the retired-table
+        // branch catches it before `Workspace(rawValue:)` and lands it on the lens.
         #expect(Workspace.migrated(tab: "Tidy", lens: "Storage")
                 == WorkspaceSelection(workspace: .filing, organizeLens: .storage))
     }
 
     @Test func testTheFoldKeepsEveryDestinationDistinct() {
-        // Five lenses, five distinct destinations — the fold cost nothing this time, because the
-        // rail has a permanent place for each. When Rename folded in it had to share Organize
-        // with Filing (a chip might not exist); that collision is gone.
+        // Five legacy lenses, five distinct destinations: the rail has a permanent place for each.
         let lenses = ["Duplicates", "Rename", "Filing", "Automations", "Storage"]
         let keys = lenses.map { name -> String in
             let selection = Workspace.migrated(tab: "Tidy", lens: name)
@@ -228,25 +198,19 @@ import FileExplorer
         #expect(Set(keys).count == 5)
     }
 
-    /// A stored selection that no longer reads lands in Browse — and so does a fresh install,
-    /// which is a separate constant reached by a separate path (`ContentView.selectedWorkspace`'s
-    /// own `@AppStorage` default). The two disagreed for a release while both files claimed they
-    /// did not; `theFirstRunDefaultAgreesWithTheFallback` above is what holds them together now.
-    /// This test owns only the fallback half.
-    ///
-    /// Asserted as the CONCRETE place, not as `.default == .default`, which is the shape that
-    /// cannot fail: the point of this test is that the default moved, so it has to name where to.
+    /// A stored selection that no longer reads lands in Browse. A fresh install's default is a
+    /// separate constant, held to this one by `theFirstRunDefaultAgreesWithTheFallback`; this test
+    /// owns the fallback half. Asserted as the concrete place, not `.default == .default`, which
+    /// cannot fail.
     @Test func testTheDefaultIsBrowse() {
         #expect(WorkspaceSelection.default == WorkspaceSelection(workspace: .browse, organizeLens: nil))
         #expect(Workspace.migratedWorkspace("NotAWorkspace").workspace == .browse)
         #expect(Workspace.migrated(tab: nil, lens: nil).workspace == .browse)
     }
 
-    /// …and the two Tidy arms do NOT follow it there.
-    ///
-    /// This is the half a "default moved" change breaks silently. Someone whose session ended
-    /// inside Tidy with an unreadable lens was in a lens; a lens is the nearer answer than a file
-    /// browser, so `tidyDefault` stays put while the default around it moves.
+    /// …and the two Tidy arms do not follow it there. Someone whose session ended inside Tidy with
+    /// an unreadable lens was in a lens, which is a nearer answer than a file browser, so
+    /// `tidyDefault` stays put whatever the default.
     @Test func testTheTidyFallbacksDidNotFollowTheDefaultToBrowse() {
         #expect(Workspace.tidyDefault == WorkspaceSelection(workspace: .filing, organizeLens: .duplicates))
         #expect(Workspace.migrated(tab: "Tidy", lens: nil).workspace == .filing)
@@ -256,12 +220,11 @@ import FileExplorer
 
     @Test func testUnrecognisedInputLandsWhereAnEmptyDefaultWould() {
         // An unreadable stored value and no stored value at all must agree, or a corrupt pair
-        // sends someone somewhere no fresh install ever starts.
+        // sends someone somewhere no fresh install starts.
         #expect(Workspace.migrated(tab: nil, lens: nil) == .default)
         #expect(Workspace.migrated(tab: "NotATab", lens: "NotALens") == .default)
-        // Tidy with a lens that no longer exists takes Tidy's own former default rather than
-        // bouncing to the default workspace — the user was in a lens, so a lens is the nearer
-        // answer. See `testTheTidyFallbacksDidNotFollowTheDefaultToBrowse`.
+        // Tidy with a lens that no longer exists takes Tidy's own former default rather than the
+        // default workspace; see `testTheTidyFallbacksDidNotFollowTheDefaultToBrowse`.
         #expect(Workspace.migrated(tab: "Tidy", lens: nil) == Workspace.tidyDefault)
         #expect(Workspace.migrated(tab: "Tidy", lens: "NotALens") == Workspace.tidyDefault)
         // "Differences" is a Workspace raw value too; it must not be read as a *lens* and let
@@ -270,13 +233,10 @@ import FileExplorer
     }
 
     @Test func testEveryRetiredWorkspaceValueLandsOnItsOwnLens() {
-        // Three raw values have now been a Workspace and stopped being one. NONE of them resolves
-        // any more, so @AppStorage would silently take its default and drop the user in Browse —
-        // nowhere near what they were doing. This is the table that prevents it, and it is
-        // asserted through the lens as well as the workspace: landing on Organize's overview
-        // instead of the duplicates list would be a quieter version of the same loss.
-        // `Rename` lands on Renames — the rail item hosting its findings since the Names fold —
-        // because a migration must write only presented raw values (see the map's own doc).
+        // These raw values were once workspaces and no longer resolve, so @AppStorage would
+        // silently drop the user in Browse. Asserted through the lens too: landing on Organize's
+        // overview instead of the duplicates list is a quieter version of the same loss. `Rename`
+        // lands on Renames because a migration must write only presented raw values.
         let retirements: [(String, OrganizeLens)] = [("Rename", .renames),
                                                      ("Duplicates", .duplicates),
                                                      ("Automations", .rules)]
@@ -308,26 +268,24 @@ import FileExplorer
     }
 
     @Test func testMigratingToAWorkspaceWithNoLensClearsTheRailKey() {
-        // A migration that wrote only the workspace would leave whatever rail item happened to be
-        // stored, so someone migrating to a lensless workspace and then clicking Organize would
-        // land on a lens they never picked.
+        // A migration that wrote only the workspace would leave whatever rail item was stored, so
+        // someone migrated to a lensless workspace who then clicks Organize would land on a lens
+        // they never picked.
         let d = defaults("clears")
         d.set(OrganizeLens.duplicates.rawValue, forKey: Workspace.organizeLensKey)
         d.set("NotAWorkspace", forKey: Workspace.defaultsKey)
 
         #expect(Workspace.migrateSelection(in: d) == .default)
-        // The raw value the default WRITES, spelled out: an unreadable selection is rewritten to
-        // Browse now, not to Differences. Naming the string rather than deriving it from
-        // `.default` is deliberate — this asserts what lands on disk, and a derived expectation
-        // would agree with any future move of the default without anyone deciding to make it.
+        // The raw value the default writes, spelled out rather than derived from `.default`: this
+        // asserts what lands on disk, and a derived expectation would agree with any future move
+        // of the default.
         #expect(d.string(forKey: Workspace.defaultsKey) == "Browse")
         #expect(d.string(forKey: Workspace.organizeLensKey) == nil)
     }
 
     @Test func testARetiredValueAlreadyInTheNewKeyIsRemapped() {
-        // The gap the pure-function tests cannot see: a value the flat bar wrote ITSELF. Anyone
-        // sitting in Duplicates when this shipped has "Duplicates" in `selectedWorkspace`, not in
-        // the legacy pair, and an early return on "is the new key present?" would skip them.
+        // A retired value the flat bar wrote itself sits in `selectedWorkspace`, not in the legacy
+        // pair, so an early return on "is the new key present?" would skip it.
         let d = defaults("retired-in-new-key")
         d.set("Duplicates", forKey: Workspace.defaultsKey)
 
@@ -343,15 +301,15 @@ import FileExplorer
         d.set("Storage", forKey: Workspace.legacyLensKey)
         Workspace.migrateSelection(in: d)
 
-        // The user then picks something else. The legacy keys are still sitting there — App.init
-        // runs again (SwiftUI re-runs it), and must not stomp the new choice with the stale pair.
+        // The user then picks something else. The legacy keys are still there, and App.init runs
+        // again (SwiftUI re-runs it), so it must not stomp the new choice with the stale pair.
         d.set(Workspace.compare.rawValue, forKey: Workspace.defaultsKey)
         #expect(Workspace.migrateSelection(in: d) == nil)
         #expect(d.string(forKey: Workspace.defaultsKey) == "Differences")
     }
 
     @Test func testADeliberateRailChoiceSurvivesARerun() {
-        // The rail key must not be touched when the workspace still resolves — re-running would
+        // The rail key must not be touched when the workspace still resolves, or re-running would
         // clear a lens the user is standing in.
         let d = defaults("rail-survives")
         d.set(Workspace.filing.rawValue, forKey: Workspace.defaultsKey)
@@ -363,13 +321,9 @@ import FileExplorer
 
     // MARK: The retired rail case
 
-    /// **A stored "Names" is rewritten, because nothing can decode it any more.**
-    ///
-    /// Names was a rail item until the v4.0 polish folded its findings into the Renames backlog,
-    /// and the case outlived the fold only so this stored value would keep decoding. Retiring the
-    /// case moves that job here: without it `@AppStorage` takes this key's default, which is
-    /// *absent* — the overview — so someone who left the app in the rename backlog would reopen it
-    /// somewhere else with nothing to explain the move.
+    /// A stored "Names" is rewritten to Renames, because no case decodes it. Otherwise
+    /// `@AppStorage` takes this key's default, which is absent (the overview), and someone who left
+    /// the app in the rename backlog would reopen elsewhere with nothing to explain the move.
     @Test func testAStoredNamesRailSelectionBecomesRenames() {
         let d = defaults("names-retired")
         d.set(Workspace.filing.rawValue, forKey: Workspace.defaultsKey)
@@ -377,23 +331,20 @@ import FileExplorer
 
         Workspace.migrateOrganizeLens(in: d)
         #expect(d.string(forKey: Workspace.organizeLensKey) == "Renames")
-        // And the rewritten value is one the type can actually read back — the whole point.
+        // And the rewritten value is one the type can actually read back, which is the point.
         #expect(OrganizeLens(rawValue: d.string(forKey: Workspace.organizeLensKey) ?? "") == .renames)
     }
 
-    /// **It runs even though `migrateSelection` would have stopped**, which is why it is its own
-    /// function rather than a clause inside that one.
-    ///
-    /// That function returns before it ever looks at the rail key whenever the stored workspace
-    /// still resolves — and "Organize" resolves perfectly well. Everyone this migration exists for
-    /// is in exactly that state, so folding it in would have produced a migration that only helps
-    /// people who happen to be mid-upgrade on the *other* key.
+    /// It runs even though `migrateSelection` would have stopped, which is why it is its own
+    /// function. `migrateSelection` returns before reading the rail key whenever the stored
+    /// workspace resolves, and "Organize" does, which is exactly the state everyone this migration
+    /// exists for is in.
     @Test func testTheRailMigrationDoesNotDependOnTheWorkspaceMigration() {
         let d = defaults("names-retired-standalone")
         d.set(Workspace.filing.rawValue, forKey: Workspace.defaultsKey)
         d.set("Names", forKey: Workspace.organizeLensKey)
 
-        // The workspace half declines to act, exactly as it does in the shipping app…
+        // The workspace half declines to act, as it does in the shipping app…
         #expect(Workspace.migrateSelection(in: d) == nil)
         #expect(d.string(forKey: Workspace.organizeLensKey) == "Names",
                 "migrateSelection rewrote the rail key — this test no longer proves the two are separate")
@@ -402,11 +353,9 @@ import FileExplorer
         #expect(d.string(forKey: Workspace.organizeLensKey) == "Renames")
     }
 
-    /// A live selection is left exactly as it is, and so is an absent one.
-    ///
-    /// The table is keyed by raw value, so a bug that rewrote unconditionally would silently move
-    /// everyone onto Renames — and an absent key must stay absent, since writing one here would
-    /// turn "no lens picked" into a lens for every user who had never chosen one.
+    /// A live selection is left exactly as it is, and so is an absent one. A rewrite that ran
+    /// unconditionally would move everyone onto Renames, and writing an absent key would turn "no
+    /// lens picked" into a lens for every user who never chose one.
     @Test func testTheRailMigrationTouchesNothingElse() {
         let d = defaults("names-retired-noop")
         d.set("Duplicates", forKey: Workspace.organizeLensKey)
@@ -428,8 +377,8 @@ import FileExplorer
     }
 
     @Test func testAPartialLegacyStateStillMigrates() {
-        // 2.8 wrote `selectedTidyLens` the first time a lens was picked, so a session that never
-        // left Compare can have a lens key and no tab key — and vice versa.
+        // The legacy app wrote `selectedTidyLens` the first time a lens was picked, so a session
+        // that never left Compare can have a lens key and no tab key, and vice versa.
         let lensOnly = defaults("lensonly")
         lensOnly.set("Filing", forKey: Workspace.legacyLensKey)
         #expect(Workspace.migrateSelection(in: lensOnly) == .default)
@@ -439,13 +388,8 @@ import FileExplorer
         #expect(Workspace.migrateSelection(in: tabOnly) == Workspace.tidyDefault)
     }
 
-    /// Every destination the bridge can mint is a rail item.
-    ///
-    /// This began as a claim about the folded Names lens: `OrganizeLens(.rename)` once answered
-    /// `.names`, so a destination minted from it could write a lens the rail does not draw into the
-    /// stored selection, from outside the migration seam. `WorkspaceLensKind.rename` is retired
-    /// along with the case, so what survives is the general form — which is what the specific claim
-    /// was ever protecting.
+    /// Every destination the bridge can mint is a rail item, so no destination can write a lens
+    /// the rail does not draw into the stored selection from outside the migration seam.
     @Test func testEveryLensDestinationLandsOnARailItem() {
         for kind in WorkspaceLensKind.allCases {
             let destination = Workspace.destination(for: kind)
@@ -461,11 +405,9 @@ import FileExplorer
         #expect(Workspace.destination(for: .storage).organizeLens == .storage)
     }
 
-    /// Fixture from the STORED string, because a test starting from the in-memory default cannot
-    /// see what a migration writes: someone who quit 2.x sitting in the Rename workspace has the
-    /// literal "Rename" on disk, and what lands back on disk must be a raw value the rail
-    /// presents. Writing the folded "Names" would work today only via the read-side resolve —
-    /// and it is exactly the value the migration exists to stop minting.
+    /// Fixture from the stored string, because a test starting from the in-memory default cannot
+    /// see what a migration writes: someone who quit in the old Rename workspace has "Rename" on
+    /// disk, and what lands back on disk must be a raw value the rail presents, not "Names".
     @Test func testAStoredRenameWorkspaceMigratesWritingThePresentedRailItem() {
         let d = defaults("stored-rename")
         d.set("Rename", forKey: Workspace.defaultsKey)
@@ -476,17 +418,9 @@ import FileExplorer
         #expect(d.string(forKey: Workspace.organizeLensKey) == "Renames")
     }
 
-    /// The same follow-the-stored-string check for the Storage fold, and it matters more than the
-    /// Rename one did.
-    ///
-    /// **Storage is the workspace people were most likely to be sitting in when they quit** — it is
-    /// the one whose results survive a launch, so "reopen where I left off" is its whole habit. A
-    /// stored `"Storage"` that stopped resolving would not fail loudly: `@AppStorage` would take its
-    /// default and drop them into Browse with nothing to explain the move, and their restored
-    /// report would be one rail click away with no sign it was there.
-    ///
-    /// Started from the STORED string rather than the in-memory default, for the reason the Rename
-    /// fixture gives: a test that begins from a live enum cannot see what a migration writes.
+    /// The same stored-string check for the old Storage workspace. Its results survive a launch, so
+    /// people are likely to have quit in it; a stored `"Storage"` that stopped resolving would drop
+    /// them into Browse silently, their restored report one rail click away with no sign of it.
     @Test func testAStoredStorageWorkspaceMigratesToTheStorageLens() {
         let d = defaults("stored-storage")
         d.set("Storage", forKey: Workspace.defaultsKey)
@@ -498,7 +432,7 @@ import FileExplorer
         #expect(d.string(forKey: Workspace.organizeLensKey) == "Storage")
     }
 
-    /// And the legacy pair's spelling of the same install: `Rename` stored as a TIDY LENS.
+    /// And the legacy pair's spelling of the same install: `Rename` stored as a Tidy lens.
     @Test func testAStoredRenameLensMigratesWritingThePresentedRailItem() {
         let d = defaults("stored-rename-lens")
         d.set("Tidy", forKey: Workspace.legacyTabKey)

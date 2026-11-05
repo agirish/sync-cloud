@@ -2,19 +2,13 @@ import Testing
 import Foundation
 @testable import SyncCloud
 
-/// The auto-rescan refreshes **the subject**, not wherever the pane is standing.
+/// The auto-rescan refreshes the subject, not wherever the pane is standing.
+/// `autoRescanLensIfShowing` fires on every pane-folder change; aimed at the pane, browsing from a
+/// scoped `Legal` into another scanned folder would republish `filingSuggestions` with that
+/// folder's files, which the scope then filters to nothing, and To File empties unexplained.
 ///
-/// `autoRescanLensIfShowing` fires on every pane-folder change and used to target
-/// `lensScanRootExpanded`. With a scope set that is the queue-destroying failure the design rejects
-/// live-binding to prevent, arriving through a different door: browse from a scoped `Legal` into
-/// some other previously-scanned folder and the rescan silently republishes `filingSuggestions`
-/// with *that* folder's files, which the `Legal` scope then filters to nothing. To File empties and
-/// nothing on screen explains it.
-///
-/// `ContentView` is a SwiftUI view in the app target with no seam to instantiate here, so the
-/// wiring is read from source — bounded by the declaration's own closing brace, and failing loudly
-/// if the declaration cannot be found, because a scan that matches nothing passes just as green as
-/// one that proves something.
+/// `ContentView` has no seam to instantiate here, so the wiring is read from source, bounded by
+/// the declaration's closing brace, failing loudly if the declaration can't be found.
 @Suite struct OrganizeScopeAutoRescanTests {
 
     static func contentView() throws -> String {
@@ -23,15 +17,14 @@ import Foundation
             .appendingPathComponent("MacApp/ContentView.swift")
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read MacApp/ContentView.swift — this scan would be vacuous")
-        // `#require`, not `#expect`: a file that exists but is truncated hands a short string on,
-        // after which every `contains` here answers false and every `!contains` answers true. One
-        // quiet issue standing in front of a page of green is the wrong signal — stop instead.
+        // `#require`, not `#expect`: on a truncated file every `!contains` below would pass, so
+        // stop instead of reporting one issue in front of a page of green.
         try #require(text.count > 10_000, "ContentView.swift is implausibly short — the scans below would be near-vacuous")
         return text
     }
 
-    /// The shared reader — see ``declarationBody(of:in:)``. This copy had no uniqueness guard, so
-    /// a decoy declaration above the real one was read silently.
+    /// The shared reader, ``declarationBody(of:in:)``, whose uniqueness guard stops a decoy
+    /// declaration above the real one being read silently.
     static func body(of declaration: String, in source: String) throws -> String {
         try declarationBody(of: declaration, in: source)
     }
@@ -41,8 +34,8 @@ import Foundation
         let body = try Self.body(of: "func autoRescanLensIfShowing() {", in: source)
         #expect(body.contains("let target = organizeScope?.path ?? lensScanRootExpanded"),
                 "the auto-rescan is aimed at the pane again — browsing will replace a scoped queue")
-        // Both arms must use it. Leaving either on the pane root reintroduces the defect for that
-        // lens alone, which is the shape that hides: five lenses behave and one does not.
+        // Both arms must use it: one left on the pane root breaks that lens alone, which is easy to
+        // miss.
         #expect(body.contains("autoRescanDuplicatesIfEligible(root: URL(fileURLWithPath: target)"))
         #expect(body.contains("folder: URL(fileURLWithPath: target)"))
         // And neither arm may still read the pane directly.
@@ -50,12 +43,10 @@ import Foundation
                 "an arm is still resolving the pane's folder as its scan target")
     }
 
-    /// **The same rule for the scans the user starts by hand, which never had it.** The auto-rescan
-    /// was corrected for exactly this hazard while `findDuplicatesAction` and
-    /// `findFilingSuggestionsAction` — the closures behind every run control on the All screen —
-    /// went on targeting the pane. Scoped to `Legal` with the pane in `Photos/2024`, the Rescan
-    /// whose tooltip promises "every file in scope is hashed" hashed `Photos/2024`, replaced the
-    /// duplicate list, and left the overview reporting "clean" for `Legal`.
+    /// The same rule for the scans the user starts by hand: `findDuplicatesAction` and
+    /// `findFilingSuggestionsAction`, behind every run control on the All screen. Aimed at the
+    /// pane, a Rescan scoped to `Legal` with the pane in `Photos/2024` would hash `Photos/2024`,
+    /// replace the duplicate list, and report `Legal` clean.
     @Test func theManualScansPreferTheScopeOverThePaneToo() throws {
         let source = try Self.contentView()
 
@@ -67,25 +58,22 @@ import Foundation
                                    in: source)
         #expect(filing.contains("organizeScope?.path ?? filingScanTargetFolder"),
                 "the filing scan is aimed at the pane again")
-        // File Into's folder is the taxonomy root (TE287) — the source ANCHOR unless the source is a
-        // folder or the user chose another, for the reason below.
+        // File Into's folder is the taxonomy root: the source anchor unless the source is a folder
+        // or the user chose another, for the reason below.
         #expect(filing.contains("let root = lensFilingDestinationRoot"))
     }
 
     @Test func theSourceAnchorIsStillTheTaxonomyRoot() throws {
-        // The scope narrows what is *scanned*; destinations still anchor at the source, or a rule's
-        // "Home/Utilities/…" would nest under whatever subtree happened to be scoped.
+        // The scope narrows what is scanned; destinations still anchor at the source, or a rule's
+        // "Home/Utilities/…" would nest under whatever subtree is scoped.
         //
-        // The ANCHOR — the landing folder — and not the account root, which is a different folder
-        // since sources gained one above their documents tree. Every automation destination and
-        // every filing taxonomy was authored when "provider-relative" meant relative to the
-        // documents folder, so anchoring at the root would repoint them all silently: `TODO`, the
-        // inbox default, names a real folder at the top of a OneDrive account as well as one inside
-        // its Documents. See `ContentView.lensProviderAnchorExpanded`.
+        // The anchor (the landing folder), not the account root above it: destinations and
+        // taxonomies are relative to the documents folder, so anchoring at the root would repoint
+        // them all silently. `TODO`, the inbox default, can name a real folder at both levels of a
+        // OneDrive account. See `ContentView.lensProviderAnchorExpanded`.
         //
-        // Since TE287 the root is File Into's folder, which for a cloud source with no choice made
-        // IS the anchor — so the anchor rule now lives in `filingDestinationRoot(forProviderId:)`,
-        // and is pinned there.
+        // The root is File Into's folder, which for a cloud source with no choice made is the
+        // anchor, so the anchor rule lives in `filingDestinationRoot(forProviderId:)`, pinned here.
         let source = try Self.contentView()
         let body = try Self.body(of: "func autoRescanLensIfShowing() {", in: source)
         #expect(body.contains("let root = lensFilingDestinationRoot"))
@@ -108,9 +96,9 @@ import Foundation
         return text
     }
 
-    /// TE287: every door that starts a filing scan files into File Into's folder, and says when
-    /// that tree is not the source — so Names and Renames are not answered about another tree.
-    /// Row menus resolve it from the ROW's anchor, not the focused pane's.
+    /// Every entry point that starts a filing scan files into File Into's folder, and says when
+    /// that tree isn't the source, so Names and Renames aren't answered about another tree. Row
+    /// menus resolve it from the row's anchor, not the focused pane's.
     @Test func everyFilingScanFilesIntoFileIntosFolder() throws {
         let source = try Self.contentView()
         let manual = try Self.body(of: "func findFilingSuggestionsAction(ignoringCache: Bool = false) {", in: source)
@@ -124,20 +112,14 @@ import Foundation
         #expect(source.contains("fileInto: fileIntoChoice,"), "the lens is not handed File Into")
     }
 
-    /// The lens workspace is handed BOTH folders, and each of its two questions gets the right one.
+    /// The lens workspace is handed both folders, and each of its two questions gets the right one.
+    /// Given only the root, the rule editor would store `…/OneDrive-X/Documents/Invoices` as
+    /// `Documents/Invoices` and the preview would apply it at `…/Documents/Documents/Invoices`,
+    /// creating a folder and moving files into it. And `looseFileScanCovers`, comparing by
+    /// equality, would report a finished unscoped pass as never run.
     ///
-    /// It was handed only the account root, under a parameter whose own doc said its consumers
-    /// "must not drift apart" — and they had. The rule editor relativized a browsed destination
-    /// against the root while `startAutomationPreviewAction` resolved it at the anchor, so
-    /// `…/OneDrive-X/Documents/Invoices` was stored as `Documents/Invoices` and applied at
-    /// `…/Documents/Documents/Invoices`: a folder created and files moved into it, with no
-    /// containment check rejecting it because the result was still under the anchor. And
-    /// `passCoverage`'s no-scope fallback named the root while an unscoped scan enumerates the
-    /// landing folder, so `looseFileScanCovers` — which compares by equality — reported a completed
-    /// pass as never having run, permanently.
-    ///
-    /// A scan rather than a render because the wiring IS the defect: both values are plain strings
-    /// and swapping them compiles, runs, and produces wrong folders rather than an error.
+    /// A source scan, because both values are plain strings: swapped, they compile and run and
+    /// produce wrong folders, not an error.
     @Test func theLensWorkspaceGetsTheAnchorAndTheRootSeparately() throws {
         let source = try Self.contentView()
         // A `Comment` takes a literal, not a concatenation — kept on one line each.
@@ -147,24 +129,21 @@ import Foundation
                 "the scope lost the root that bounds it: a folder above the landing folder now normalizes to the global view")
     }
 
-    /// The three actions that anchor at the taxonomy and had no guard of their own.
-    ///
-    /// `autoRescanLensIfShowing` and `findFilingSuggestionsAction` were pinned above; these three
-    /// took the same anchor in the same change and nothing held them there, so swapping any one
-    /// back to `lensProviderRootExpanded` left the whole suite green.
+    /// The other actions that anchor at the taxonomy, so swapping one back to
+    /// `lensProviderRootExpanded` fails here too.
     @Test func everyTaxonomyAnchoredActionUsesTheAnchor() throws {
         let source = try Self.contentView()
         let survey = try Self.body(of: "func updateFolderMemoryAction() {", in: source)
         #expect(survey.contains("lensProviderAnchorExpanded"), "the re-survey is anchored at the account root again")
-        // The Rules preview resolves into To File's tree (TE287), which is anchored — see above.
+        // The Rules preview resolves into To File's tree, which is anchored (see above).
         let preview = try Self.body(of: "func startAutomationPreviewAction(only: UUID? = nil) {", in: source)
         #expect(preview.contains("let providerRoot = lensFilingDestinationRoot"),
                 "the Rules preview resolves into a different tree from To File's")
     }
 
     @Test func theScopeIsResolvedThroughOneHelperForReadsAndWrites() throws {
-        // The read has to agree with the write that a stored provider root means "no scope", or the
-        // chip and the filter would disagree about the same stored string.
+        // Read and write must agree that a stored provider root means "no scope", or the chip and
+        // the filter would disagree about the same string.
         let source = try Self.contentView()
         #expect(source.contains("var organizeScope: OrganizeScope? { resolvedOrganizeScope(organizeScopePath) }"))
         let setter = try Self.body(of: "func setOrganizeScope(_ path: String?, providerRoot: String) {", in: source)

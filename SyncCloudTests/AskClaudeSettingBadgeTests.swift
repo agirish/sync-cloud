@@ -3,7 +3,7 @@ import Testing
 import Settings
 @testable import SyncCloud
 
-/// TE290 step 6: what a change does beyond its value, as a card badges it — one table, judged from
+/// The badges a setting card shows for what a change does beyond its value: one table, judged from
 /// the old value to the new, for a click, a suggestion and an Undo alike.
 @MainActor
 @Suite struct AskClaudeSettingBadgeTests {

@@ -3,13 +3,10 @@ import Foundation
 @testable import SyncCloud
 import Sync
 
-/// **A manager publish does not re-run the App scene** (speed audit item 9).
-///
-/// The App held the manager as `@StateObject`, which subscribes the scene to every publish: measured
-/// 2026-10-29 in this host, ten publishes ran `SyncCloudApp.body` — and its ~90-item `.commands`
-/// tree — ten times. Held as `@State` it runs none, and every reader of the manager below the scene
-/// observes it itself. Reverting the property to `@StateObject` turns this red (checked the same
-/// day), which is the control a counter that never moves needs.
+/// A manager publish does not re-run the App scene. Holding the manager as `@StateObject` would
+/// subscribe the scene to every publish, re-running `SyncCloudApp.body` and its ~90-item `.commands`
+/// tree each time; held as `@State`, readers below the scene observe it themselves. Changing the
+/// property back to `@StateObject` must turn this red.
 @MainActor
 @Suite struct AppSceneObservationTests {
     @Test func aManagerPublishDoesNotReRunTheScene() async throws {

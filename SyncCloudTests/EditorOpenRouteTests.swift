@@ -5,12 +5,11 @@ import Sync
 import FileExplorer
 @testable import SyncCloud
 
-/// **What is open in Edit: the text document or a PDF, never both** — `EditorOpenRoute`, run as the
-/// app runs it, against real files.
-///
-/// The guarantee these hold is the one the separate PDF model exists for: **no PDF can reach a text
-/// save path.** Every write the editor makes needs the text document's path; while a PDF is open
-/// that document is empty, so ⌘S, autosave, the settle and the quit flush have nothing to write.
+/// What is open in Edit is the text document or a PDF, never both: `EditorOpenRoute`, run as the
+/// app runs it, against real files. The guarantee is the one the separate PDF model exists for:
+/// **no PDF can reach a text save path.** Every editor write needs the text document's path, and
+/// while a PDF is open that document is empty, so ⌘S, autosave, the settle and the quit flush have
+/// nothing to write.
 @MainActor
 @Suite(.serialized) final class EditorOpenRouteTests {
 
@@ -31,8 +30,8 @@ import FileExplorer
         return file
     }
 
-    /// A small real PDF with a text layer — small enough that the text reader would once have
-    /// decoded it, lossily, and opened it read-only as garbage.
+    /// A small real PDF with a text layer, small enough that the text reader would decode it
+    /// lossily and open it read-only as garbage.
     private func pdfFile(_ name: String, pages: Int = 2) -> String {
         let file = path(name)
         var box = CGRect(x: 0, y: 0, width: 612, height: 792)
@@ -56,9 +55,9 @@ import FileExplorer
                              log: { [weak self] in self?.lines.append($0) })
     }
 
-    /// Waits for the PDF model's load to come back from the lane — bounded in lane TURNS, not
-    /// seconds (`docs/flaky-tests.md`, "The wait that hangs instead of failing"), and a labeled
-    /// failure rather than a hang when it never does.
+    /// Waits for the PDF model's load to come back from the lane, bounded in lane turns, not
+    /// seconds (`docs/flaky-tests.md`, "The wait that hangs instead of failing"), and fails with a
+    /// label rather than hanging when it never does.
     private func settled(_ pdf: EditorPDFDocument) async {
         for _ in 0..<1000 {
             if pdf.phase != .loading { return }
@@ -70,8 +69,8 @@ import FileExplorer
 
     // MARK: Routing
 
-    /// **A PDF opens into the PDF model and never into the text document**, whose path stays nil.
-    /// Mutation: route a PDF through `EditorDocumentLoad.run` and every expectation here fails.
+    /// A PDF opens into the PDF model and never into the text document, whose path stays nil.
+    /// Routing a PDF through `EditorDocumentLoad.run` must fail it.
     @Test func aPDFOpensIntoThePDFModelAndNeverIntoTheTextDocument() async {
         let file = pdfFile("report.pdf", pages: 3)
         let document = EditorDocument(), store = EditorUndoStore()
@@ -85,9 +84,9 @@ import FileExplorer
         #expect(lines.last == "Editor opened \(file) (PDF, 3 pages)")
     }
 
-    /// **The defect this fixes, with its control.** The text reader, handed a small PDF, decodes it
-    /// lossily and opens it read-only as garbled text — that is what `Open With ▸ Other…` did. The
-    /// hand-off, run with the app's load, no longer gets there.
+    /// A small PDF handed in from outside (`Open With ▸ Other…`) opens as a PDF. The control shows
+    /// the text reader alone would open it read-only as garbled text; the hand-off, run with the
+    /// app's load, must not get there.
     @Test func aSmallPDFFromOutsideNoLongerOpensAsText() async {
         let file = pdfFile("small.pdf", pages: 1)
         // The control: the text path, asked directly, does produce text for it.
@@ -110,8 +109,8 @@ import FileExplorer
 
     // MARK: Settling first
 
-    /// **Opening a PDF writes a dirty note first, as text → text does** — the hand-off's settle,
-    /// then the route. Asserted on the bytes on disk: the edit must be there after the PDF opens.
+    /// Opening a PDF writes a dirty note first, as text → text does: the hand-off's settle, then
+    /// the route. Checked on the bytes on disk, which must hold the edit after the PDF opens.
     @Test func openingAPDFSettlesADirtyNoteFirst() async throws {
         let notes = try note("notes.md", "first draft")
         let file = pdfFile("invoice.pdf")
@@ -141,8 +140,8 @@ import FileExplorer
 
     // MARK: Text after a PDF
 
-    /// **Opening text after a PDF closes the PDF model and lets its document go.**
-    /// Mutation: drop `pdf.close()` from the text arm and the model keeps its document.
+    /// Opening text after a PDF closes the PDF model and lets its document go. Dropping
+    /// `pdf.close()` from the text arm must fail it.
     @Test func openingTextAfterAPDFClosesThePDFAndReleasesIt() async throws {
         let file = pdfFile("scan.pdf", pages: 6)
         let notes = try note("after.md", "words")
@@ -162,10 +161,9 @@ import FileExplorer
 
     // MARK: No save path
 
-    /// **No save path runs while a PDF is open**: ⌘S is gated on the text document's path, which is
-    /// nil; autosave's attempt and snapshot have nothing to take; the quit flush is the same
-    /// attempt and the same dirty test. Mutation: skip `emptyText` and the note stays open,
-    /// dirty, under the PDF — and every line below fails.
+    /// No save path runs while a PDF is open: ⌘S needs the text document's path, which is nil;
+    /// autosave's attempt and snapshot have nothing to take; the quit flush is the same attempt and
+    /// dirty test. Skipping `emptyText` must fail it, leaving the note open and dirty under the PDF.
     @Test func noSavePathRunsWhileAPDFIsOpen() async throws {
         let notes = try note("draft.md", "draft")
         let file = pdfFile("contract.pdf")
@@ -173,8 +171,8 @@ import FileExplorer
         let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
         route(notes, document, store, pdf)
         document.text = "typed but not written"
-        // The route does not settle — the host does that first. Asked here without it, so what is
-        // measured is the route's own guarantee: nothing of the note is left to write.
+        // The host settles before the route; skipped here, so this measures the route's own
+        // guarantee that nothing of the note is left to write.
         route(file, document, store, pdf)
         await settled(pdf)
 
@@ -231,14 +229,14 @@ import FileExplorer
 
     // MARK: Recent files (TE58)
 
-    /// A store of its own, in memory, where every path is there — the rule under test is what is
-    /// RECORDED, not what is hidden.
+    /// An in-memory store where every path exists: the rule under test is what is recorded, not
+    /// what is hidden.
     private func recents() -> EditorRecentFiles {
         EditorRecentFiles(defaults: nil, exists: { _ in true })
     }
 
-    /// **What a load opened is listed, with its kind; what it refused is not.** The refused text is
-    /// opened FIRST, so a rule that recorded every path would put it on the list before the good one.
+    /// What a load opened is listed, with its kind; what it refused is not. The refused file opens
+    /// first, so a rule that recorded every path would list it.
     @Test func anOpenIsRecordedWithItsKindAndARefusalIsNot() async throws {
         let missing = path("gone.md")
         let note = try note("Pasta.md", "# Pasta")
@@ -257,8 +255,8 @@ import FileExplorer
         #expect(list.stored.first?.kind == .text)
     }
 
-    /// **A PDF is listed once the lane has read it, and a PDF it refuses is not.** The broken PDF's
-    /// refusal arrives only after `load` returns — so a rule that asked at once would list it.
+    /// A PDF is listed once the lane has read it, and one it refuses is not. The refusal arrives
+    /// only after `load` returns, so a rule that asked at once would list the broken PDF.
     @Test func aPDFIsListedOnlyOnceTheLaneHasReadIt() async throws {
         let good = pdfFile("Lease.pdf")
         let broken = path("broken.pdf")

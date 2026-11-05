@@ -5,11 +5,8 @@ import Settings
 import Sync
 @testable import SyncCloud
 
-/// `PaneActionDelegate`'s two doors out of a row — Find Duplicates and Organize — asserted on the
+/// `PaneActionDelegate`'s ways out of a row (Find Duplicates, Organize, PDF Tools), asserted on the
 /// real delegate, through the existential every caller uses, and on the handlers themselves.
-///
-/// This suite used to open with the `⌂ on this Mac only` badge's gate; the badge was removed on
-/// 2026-09-27 and its tests went with it. The door tests were always here too, and stay.
 @MainActor
 @Suite struct PaneDoorDelegateTests {
 
@@ -22,12 +19,10 @@ import Sync
             onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
     }
 
-    /// The protocol's defaults offer no door, so a conformer with no workspace behind it — every
-    /// test stub, every pane that is not a real provider view — draws neither menu item.
-    ///
-    /// Reached through an EXISTENTIAL deliberately: a member declared only in a protocol extension
-    /// is dispatched statically, which is how "Fix name" was unreachable from the moment it was
-    /// written. This is the call shape `FileTreeView` actually makes.
+    /// The protocol's defaults offer nothing, so a conformer with no workspace behind it (every
+    /// test stub, every pane that isn't a real provider view) draws none of these items. Reached
+    /// through an existential, the call shape `FileTreeView` makes, because a member declared only
+    /// in a protocol extension dispatches statically.
     @Test func aDelegateWithNoWorkspaceOffersNoDoorThroughTheExistential() {
         struct Stub: FileActionDelegate {
             func handleRefresh() {}
@@ -56,8 +51,8 @@ import Sync
                 "a stub with no window behind it offered the PDF Tools submenu")
     }
 
-    /// **The PDF Tools door, through the existential the row menu uses** — and its handler passes
-    /// on PDFs only, and passwords one file at a time, whatever the menu did.
+    /// PDF Tools, through the existential the row menu uses; its handler passes on PDFs only, and
+    /// password tools one file at a time, whatever the menu did.
     @Test func thePDFToolsDoorSurvivesTheExistentialAndGuardsItsHandler() {
         var asked: [(PDFToolRequest, [String])] = []
         var concrete = delegate(syncManager: FileSyncManager(), settings: SettingsManager())
@@ -74,20 +69,18 @@ import Sync
         #expect(asked.map(\.1) == [["/a/One.pdf", "/a/Two.pdf"], ["/a/One.pdf"]])
     }
 
-    /// A real pane DOES offer the Duplicates door — otherwise the test above passes because the
-    /// item is gated off everywhere.
+    /// A real pane does offer Find Duplicates and Organize, so the stub test above can't pass by
+    /// the items being gated off everywhere.
     @Test func aRealPaneOffersTheDuplicatesDoor() {
         let d = delegate(syncManager: FileSyncManager(), settings: SettingsManager())
         #expect(d.canFindDuplicates)
         #expect(d.canOrganizeFolder)
     }
 
-    /// **The dispatch trap, asserted through an existential.** Both members are protocol
-    /// requirements rather than extension-only additions, and this is the test that keeps them
-    /// that way: every caller reaches the delegate through `FileActionDelegate`, so a member
-    /// declared only in the extension dispatches statically to the default and the conformer's
-    /// override is never reached. That shipped once here and made "Fix name" unreachable from
-    /// the day it was written — silently, because the menu simply never drew the item.
+    /// The dispatch trap, through an existential. Every caller reaches the delegate through
+    /// `FileActionDelegate`, so a member declared only in the protocol extension dispatches
+    /// statically to the default and the conformer's override is never reached; the menu just
+    /// never draws the item. This keeps the member a protocol requirement.
     @Test func theOrganizeDoorSurvivesTheExistential() {
         let concrete = delegate(syncManager: FileSyncManager(), settings: SettingsManager())
         let existential: FileActionDelegate = concrete
@@ -95,10 +88,9 @@ import Sync
                 "the real pane's answer did not survive the existential — the member is extension-only and dispatching to the default")
     }
 
-    /// Files never reach the Organize handoff: "where do the loose files in
-    /// here belong" has no meaning aimed at a file, which already has a home. Asserted on the
-    /// HANDLER rather than only on the menu that gates it, so the guarantee travels with the
-    /// action — and in both directions, or the guard proves nothing.
+    /// Files never reach the Organize handoff: "where do the loose files in here belong" means
+    /// nothing for a file. Asserted on the handler, not only the menu, so the guarantee travels
+    /// with the action, and in both directions, or the guard proves nothing.
     @Test func theOrganizeHandoffIgnoresFiles() {
         var asked: [String] = []
         let base = delegate(syncManager: FileSyncManager(), settings: SettingsManager())
@@ -119,9 +111,8 @@ import Sync
                 "a folder did NOT reach the handoff — the guard above proves nothing")
     }
 
-    /// Folders never reach the duplicates handoff — a folder overlap group is
-    /// a different unit. Asserted on the HANDLER rather than only on the menu that gates it, so
-    /// the guarantee travels with the action.
+    /// Folders never reach the duplicates handoff: a folder overlap group is a different unit.
+    /// Asserted on the handler, not only the menu, so the guarantee travels with the action.
     @Test func theDuplicatesHandoffIgnoresFolders() {
         var asked: [String] = []
         var d = delegate(syncManager: FileSyncManager(), settings: SettingsManager())

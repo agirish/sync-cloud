@@ -10,20 +10,17 @@ import Foundation
 /// The menu-bar chords' window-side plumbing: the destination-pick suspension, and the ⌘/
 /// window still showing the whole reference it exists to show.
 ///
-/// **`.serialized`, and the reason is ⌘W's refusal line.** Four tests here call
-/// `CloseTabCommand.run`, one of them with `.suspended`, which writes to the process-wide
-/// `Logger.shared` — so `aSuspendedCloseSaysSoInTheLogAndTheOtherTwoStatesDoNot` measured its
-/// "an ordinary ⌘W says nothing" window with a sibling free to write that very line into it.
-/// Measured, not theorised: it failed exactly that way under a mutation run. No other suite in this
-/// target calls `run`, so keeping these four off each other is enough, and the suite is under a
-/// second.
+/// `.serialized` because of ⌘W's refusal line: four tests call `CloseTabCommand.run`, one with
+/// `.suspended`, which writes to the process-wide `Logger.shared`, so a sibling could write that
+/// line into the "an ordinary ⌘W says nothing" window of
+/// `aSuspendedCloseSaysSoInTheLogAndTheOtherTwoStatesDoNot`. No other suite calls `run`, and the
+/// suite takes under a second.
 @MainActor
 @Suite(.serialized) struct ShortcutCommandsTests {
 
     /// A publisher with every value present, so the suspended case cannot pass vacuously.
-    ///
-    /// `closeTab` is injectable because ⌘W is the one chord whose suspended behaviour is a
-    /// *silence* rather than a `nil`, so its tests have to watch what the published action DOES.
+    /// `closeTab` is injectable because ⌘W's suspended behaviour is a silence rather than a `nil`,
+    /// so its tests watch what the published action does.
     private func loadedPublisher(suspended: Bool, writesLocked: Bool = false,
                                  closeTab: @escaping () -> Void = {}) -> ShortcutValuePublisher {
         ShortcutValuePublisher(
@@ -53,8 +50,8 @@ import Foundation
             organizeVerbs: OrganizeVerbs(organizeFolder: {}, findDuplicates: {},
                                          fixName: {}, keepName: {}, undoReorganisation: {},
                                          planShape: {}, setUpLikeSiblings: {}),
-            // Every closure non-nil, `openInEditor` included: a nil here would let the suspension
-            // test below pass without ever proving the item was live to begin with.
+            // Every closure non-nil, `openInEditor` included, or the suspension test below would
+            // pass without proving the item was live to begin with.
             paneRowVerbs: PaneRowVerbs(openInNewTab: {}, quickLook: {}, openInEditor: {},
                                        download: PaneRowVerbs.SelectionDownload(title: "Download", run: {}),
                                        revealInFinder: {},
@@ -83,10 +80,10 @@ import Foundation
         )
     }
 
-    /// **A long run silences exactly the chords whose buttons it greys** (decision BZ). The window
-    /// stays live for reading, so this is not the suspension: navigation, search, tabs, Quick Look,
-    /// the clipboard and Edit's own saves stay live; what writes to the panes' files goes silent with
-    /// the button beside it, so a mouse user and a keyboard user meet the same lock.
+    /// A long run silences exactly the chords whose buttons it greys. Not the suspension: the
+    /// window stays live for reading, so navigation, search, tabs, Quick Look, the clipboard and
+    /// Edit's own saves stay live, while what writes to the panes' files goes silent with its
+    /// button, so mouse and keyboard meet the same lock.
     @Test func aLongRunSilencesTheWritingChordsAndOnlyThose() throws {
         let open = loadedPublisher(suspended: false, writesLocked: false)
         let locked = loadedPublisher(suspended: false, writesLocked: true)
@@ -125,15 +122,10 @@ import Foundation
                 "the chord publisher is no longer told when a run is going")
     }
 
-    /// **Every `effective…` value is actually published.**
-    ///
-    /// The suspension tests below hold the *rule* and cannot see whether anything reads it: deleting
-    /// a `.focusedSceneValue` line leaves them all green and the menu item permanently disabled,
-    /// which is how a chord dies silently. Measured — removing ⌘K's publication passed the whole
-    /// app suite before this existed.
-    ///
-    /// Derived from the source rather than listed here, so a thirteenth value is covered the moment
-    /// it is added rather than when someone remembers to extend a list.
+    /// Every `effective…` value is actually published. The suspension tests hold the rule and
+    /// can't see whether anything reads it: a deleted `.focusedSceneValue` line leaves them green
+    /// and the menu item permanently disabled. Derived from the source, so a new value is covered
+    /// as soon as it is added.
     @Test func everyEffectiveValueIsHandedToAFocusedSceneValue() throws {
         let source = try Self.publisherSource()
         let names = Self.effectiveValueNames(in: source)
@@ -146,36 +138,21 @@ import Foundation
         }
     }
 
-    /// **What FEEDS `suspended:` is not covered by the test above, and it is the whole mechanism.**
-    ///
-    /// `everyEffectiveValueIsHandedToAFocusedSceneValue` proves each `effective…` is published, and
-    /// `loadedPublisher(suspended:)` injects the flag, so nothing asserts the expression at the call
-    /// site. Deleting `pendingDestination != nil` from it — the entire subject of `a1c96082` — passes
-    /// every test in the repo, and so does deleting `showCommandPalette`. Same shape as the defect
-    /// that commit describes ("a value published outside it is a value nobody thinks to suspend"),
-    /// one layer down.
-    ///
-    /// Both terms by name rather than the whole expression, so reordering them or adding a third
-    /// reason to suspend is not a failure.
+    /// What feeds `suspended:` at the call site, which the tests above can't see:
+    /// `loadedPublisher(suspended:)` injects the flag, so deleting `pendingDestination != nil` or
+    /// `showCommandPalette` from the expression would pass them all. Both terms are checked by
+    /// name, so reordering them or adding a third reason is not a failure.
     @Test func bothReasonsToSuspendTheChordsSurviveInTheExpression() throws {
         let source = Self.codeOnly(try Self.publisherSource())
-        // EVERY `suspended:` line, not the first one. `range(of:)` found the *parameter declaration*
-        // (`suspended: Bool`) and asserted against the word "Bool" — the same first-match hazard
-        // these scans keep being fixed for, reintroduced by the fix. Which line carries the
-        // expression is not the point; that some line does is.
-        //
-        // **Trailing comments cut first, and the line must START with `suspended:`.** `codeOnly`
-        // strips only whole-line comments, so `suspended: false  // was: pendingDestination != nil
-        // || showCommandPalette` satisfied both checks below while every mirrored chord stayed live
-        // during a destination pick — measured, and the decoy fits on the real line, no second call
-        // site needed.
+        // Every `suspended:` line, not the first, which is the parameter declaration
+        // (`suspended: Bool`). Trailing comments are cut and the line must start with `suspended:`,
+        // so a decoy like `suspended: false  // pendingDestination != nil` can't satisfy the checks.
         let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
             .map { $0.prefix { $0 != "/" }.trimmingCharacters(in: .whitespaces) }
         let mentions = lines.filter { $0.hasPrefix("suspended:") }
         #expect(!mentions.isEmpty, "the chord publisher no longer takes a suspension at all")
-        // If the argument is a bare identifier, follow it. "Extract the condition into a named
-        // property" is the most likely next edit to this line, and it is behaviour-preserving —
-        // failing it would train the next person to delete this test rather than trust it.
+        // If the argument is a bare identifier, follow it: extracting the condition into a named
+        // property preserves behaviour and must not fail.
         let resolved = mentions.flatMap { mention -> [String] in
             let argument = mention.dropFirst("suspended:".count).trimmingCharacters(in: .whitespaces)
             guard !argument.isEmpty,
@@ -200,18 +177,14 @@ import Foundation
             .appendingPathComponent("MacApp/ShortcutCommands.swift")
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read ShortcutCommands.swift — the scan would be vacuous")
-        // `#require`, not `#expect` — the same argument the two scans further down already make in
-        // their own bodies: a truncated file makes every `contains` answer false and every
-        // `!contains` answer true, so one quiet issue would stand in front of a page of green.
+        // `#require`, not `#expect`: a truncated file makes every `contains` false and every
+        // `!contains` true, so one quiet issue would hide behind a page of green.
         try #require(text.count > 500, "ShortcutCommands.swift is implausibly short — the scans below would be near-vacuous")
         return text
     }
 
-    /// Whole-line `//` comments removed — a scan for what the code does must not read the prose
-    /// that describes it. The same helper, and the same reason, as `OrganizeScopeCallSiteTests`.
-    /// The shared stripper — see ``sourceCodeOnly(_:)``. Four suites in this target carried a
-    /// byte-identical copy of it; consolidating `body(of:in:)` and leaving the thing it depends on
-    /// duplicated would have been half a fix.
+    /// Comments removed, so a scan for what the code does doesn't read the prose that describes
+    /// it. The shared stripper, ``sourceCodeOnly(_:)``.
     nonisolated static func codeOnly(_ source: String) -> String { sourceCodeOnly(source) }
 
     /// While the destination picker is up its overlay blocks the mouse from every control these
@@ -225,8 +198,8 @@ import Foundation
         #expect(publisher.effectiveEnclosingFolder == nil)
         #expect(publisher.effectiveRescan == nil)
         #expect(publisher.effectiveNewFolder == nil)
-        // The editor's two. ⌘S under a destination pick would write the buffer to a path the
-        // pick is still deciding about; ⌘N would switch workspace out from under it.
+        // The editor's. ⌘S under a destination pick would write the buffer to a path the pick is
+        // still deciding about; ⌘N would switch workspace out from under it.
         #expect(publisher.effectiveSaveDocument == nil)
         #expect(publisher.effectiveNewTextFile == nil)
         #expect(publisher.effectiveCloseDocument == nil)
@@ -237,14 +210,11 @@ import Foundation
         #expect(publisher.effectiveDifferencesList == nil)
         #expect(publisher.effectiveDelete == nil)
         #expect(publisher.effectiveSwitchPaneFocus == nil)
-        // ⌘K was the one chord published outside this type, and so the one this suspension did not
-        // reach: the palette opened over an in-flight destination pick and could route out of it.
+        // ⌘K: the palette must not open over an in-flight destination pick and route out of it.
         #expect(publisher.effectiveCommandPalette == nil)
-        // ⌘F, and the five tabs added — every one of them published, wired to a chord, and asserted
-        // NOWHERE until now. Dropping `suspended ?` from `effectiveNewTab` let ⌘T open a tab under
-        // the destination picker; from `effectiveCloseTab`, ⌘W fell through to `performClose` and
-        // closed the window out from under the pick. `everySuspendableValueIsCoveredHere` is what
-        // stops the next value being added without landing in these two lists.
+        // ⌘F and the tab chords. Unsuspended, ⌘T would open a tab under the picker, and ⌘W would
+        // fall through to `performClose` and close the window out from under the pick.
+        // `everySuspendableValueIsCoveredHere` keeps new values landing in these two lists.
         #expect(publisher.effectiveBeginPaneSearch == nil)
         // The clipboard verbs go silent together, not one at a time: a paste answered under the
         // picker would write files into the pane the pick is describing.
@@ -277,9 +247,8 @@ import Foundation
         #expect(publisher.effectiveEditorExpand == nil)
     }
 
-    /// ...and the guard the test above depends on: unsuspended, the same loaded publisher passes
-    /// every value through — proving the nils really came from `suspended`, not from a fixture
-    /// that never carried values to silence.
+    /// ...and the control for the test above: unsuspended, the same publisher passes every value
+    /// through, so the nils really came from `suspended`.
     @Test func anUnsuspendedPublisherPassesEveryValueThrough() {
         let publisher = loadedPublisher(suspended: false)
         #expect(publisher.effectiveWorkspace != nil)
@@ -325,30 +294,21 @@ import Foundation
         #expect(publisher.effectiveEditorExpand != nil)
     }
 
-    /// **Every `effective…` the publisher exposes is named in BOTH lists above.**
-    ///
-    /// The two suspension tests are hand-listed, and the list went stale the moment a feature added
-    /// values: ⌘F and the five tab values were published, wired to chords, and silenced by nothing
-    /// any test could see. `everyEffectiveValueIsHandedToAFocusedSceneValue` could not catch it —
-    /// it proves each value is *published*, which the unsuspended ones are.
-    ///
-    /// Derived from both sources rather than from a third hand-kept list, so the fifteenth value is
-    /// covered when it is written rather than when someone remembers this file.
+    /// Every `effective…` the publisher exposes is named in both lists above. Those two tests are
+    /// hand-listed, and `everyEffectiveValueIsHandedToAFocusedSceneValue` only proves a value is
+    /// published. Derived from both sources, so a new value is covered when it is written.
     @Test func everySuspendableValueIsCoveredHere() throws {
         let names = Self.effectiveValueNames(in: try Self.publisherSource())
         #expect(names.count >= 14,
                 "found only \(names.count) effective values — this scan would be near-vacuous")
-        // A known member must be IN the derived set, or a parser that silently matched nothing
-        // would make the loop below vacuous no matter how many values went uncovered.
+        // A known member must be in the derived set, or a parser that matched nothing would make
+        // the loop below vacuous.
         #expect(names.contains("effectiveNewTab"),
                 "the name scan no longer finds a value that is definitely declared")
 
-        // **Bound to the two lists, and to `#expect(` — not to the file.** A whole-file substring
-        // search accepted a value whose two forms both sat in the UNSUSPENDED test
-        // (`#expect(publisher.effectiveFoo != nil)` beside `#expect(!(publisher.effectiveFoo == nil))`),
-        // which says nothing about suspension; and `sourceCodeOnly` stripped only whole comment
-        // lines until 2026-09-26, so a TRAILING comment naming a value satisfied it too — the decoy
-        // this suite's own `bothReasonsToSuspendTheChordsSurviveInTheExpression` was written to defeat.
+        // Bound to each of the two test bodies and to `#expect(`, not the whole file: a file-wide
+        // search would accept both forms sitting in the unsuspended test, or a comment naming the
+        // value.
         let own = try Self.ownSource()
         let silenced = Self.codeOnly(try Self.memberBody("func suspensionSilencesEveryPublishedValue", in: own))
         let live = Self.codeOnly(try Self.memberBody("func anUnsuspendedPublisherPassesEveryValueThrough", in: own))
@@ -361,9 +321,9 @@ import Foundation
     }
 
 
-    /// One member's body: its declaration to the first closing brace at member indentation. The
-    /// same slicer `PaneTabWiringTests` uses, and for the same reason — a fixed window goes stale
-    /// as the file grows and starts answering with a neighbour's text.
+    /// One member's body: its declaration to the first closing brace at member indentation. Like
+    /// `PaneTabWiringTests`' slicer, it avoids a fixed window that would read a neighbour's text as
+    /// the file grows.
     nonisolated static func memberBody(_ declaration: String, in source: String) throws -> String {
         let start = try #require(source.range(of: declaration),
                                  "\(declaration) is gone — this scan would be vacuous")
@@ -390,36 +350,26 @@ import Foundation
         }
     }
 
-    /// The Go menu item names the pane it moves focus TO — and it is the only surface that says
-    /// which pane is focused at all, because the panes carry no indicator. A title reading
-    /// "Switch Pane" would leave the state unreadable.
+    /// The Go menu item names the pane it moves focus to. It is the only surface that says which
+    /// pane is focused, since the panes carry no indicator.
     @Test func theFocusSwitchItemNamesItsDestinationPane() {
         #expect(PaneFocusSwitch.menuTitle(for: PaneFocusSwitch(targetName: "Dropbox", run: {}))
                 == "Focus Dropbox")
         // Same-provider panes are disambiguated upstream by `PaneProviderNames`, so the title
-        // still names ONE pane rather than repeating a word twice.
+        // still names one pane.
         #expect(PaneFocusSwitch.menuTitle(for: PaneFocusSwitch(targetName: "iCloud (right)", run: {}))
                 == "Focus iCloud (right)")
     }
 
-    /// The disabled form — a single-source workspace, where there is no second pane to name.
+    /// The disabled form: a single-source workspace, with no second pane to name.
     @Test func theFocusSwitchItemNamesNoPaneWhenThereIsNoOtherOne() {
         #expect(PaneFocusSwitch.menuTitle(for: nil) == "Focus Other Pane")
     }
 
-    /// The ⌘/ window is `.contentSize`-resizable — the user cannot enlarge it — so the whole
-    /// reference must fit its fixed frame at the default text size. It stopped fitting when the
-    /// twelve menu-bar chords nearly doubled the row count, and nothing failed: the ScrollView
-    /// swallowed the overflow. Measured on the laid-out content, at the window's width, against
-    /// the window's height; the floor guards against a render that measured nothing.
-    /// **⌘F is published through the publisher, and nowhere else.**
-    ///
-    /// It was hung straight off `ContentView.body` — never nil, never suspended — the exact shape
-    /// `a1c96082` moved ⌘K out of, and for the same consequence: with the destination picker up,
-    /// ⌘F opened the focused pane's search field under the scrim and `ExpandingSearchField` took
-    /// focus on appear, so the typing and the ↩ and the esc meant for the pick went to a field the
-    /// mouse cannot reach. Both halves are asserted, because "the new publication exists" stays
-    /// true if the old one is left beside it.
+    /// ⌘F is published through the publisher, and nowhere else. Published from `ContentView.body`
+    /// it would never be suspended: under the destination picker it would open a search field that
+    /// takes the typing, ↩ and Esc meant for the pick. Both halves are asserted, since a second
+    /// publication could sit beside the right one.
     @Test func findInPaneIsPublishedOnlyThroughTheSuspendablePublisher() throws {
         let publisher = Self.codeOnly(try Self.publisherSource())
         #expect(publisher.contains(".focusedSceneValue(\\.beginPaneSearch, effectiveBeginPaneSearch)"),
@@ -435,7 +385,7 @@ import Foundation
                 "ContentView still publishes ⌘F on its own, outside the suspension")
     }
 
-    /// And the suspension actually reaches it — the property, not just the publication.
+    /// And the suspension actually reaches it: the property, not just the publication.
     @Test func findInPaneIsSilencedWhileThePickerIsUp() {
         #expect(loadedPublisher(suspended: true).effectiveBeginPaneSearch == nil,
                 "⌘F tunnels under the destination picker")
@@ -445,8 +395,8 @@ import Foundation
 
     // MARK: ⌘W, whose published value has THREE states
 
-    /// A live tab — the ordinary case, and the control that stops the two below passing because
-    /// nothing was wired up at all.
+    /// A live tab: the ordinary case, and the control that stops the two below passing on nothing
+    /// wired up at all.
     @Test func closeTabClosesTheTabWhenAPaneOffersOne() {
         var closedTab = false
         var closedWindow = false
@@ -456,23 +406,16 @@ import Foundation
         #expect(!closedWindow, "⌘W closed the window as well as the tab")
     }
 
-    /// **Suspended, ⌘W does nothing at all — and above all does not close the window.**
-    ///
-    /// The destination picker and the ⌘K palette silence every mirrored chord, and ⌘W's silence
-    /// used to arrive at the item as the very same `nil` an auxiliary window publishes — which the
-    /// item reads as "this window has no tabs" and answers with `performClose`. So the one chord
-    /// that was not really suspended took the whole window out from under the pick, mid-answer, on
-    /// a keystroke the overlay's own scrim exists to refuse.
-    ///
-    /// Both halves asserted: a suspension that closed the *tab* instead would be the tunnelling
-    /// every other value here is nil'd to prevent.
+    /// Suspended, ⌘W does nothing at all, and above all doesn't close the window. A suspended ⌘W
+    /// published as `nil` would read as "this window has no tabs" and answer with `performClose`,
+    /// taking the window out from under the pick. Closing the tab instead would be the tunnelling
+    /// every other value is nil'd to prevent, so both are asserted.
     @Test func closeTabDoesNothingWhileTheChordsAreSuspended() {
         var closedTab = false
         var closedWindow = false
         let action = loadedPublisher(suspended: true, closeTab: { closedTab = true }).closeTabAction
-        // The distinction the fix rests on: suspended is published, not withheld. Were this `nil`
-        // the run below would take the `closeWindow` branch and the expectation after it would be
-        // reporting the old bug rather than the new rule.
+        // Suspended is published, not withheld: were this `nil`, the run below would take the
+        // `closeWindow` branch.
         #expect(action != nil,
                 "suspension flattened ⌘W back into `nil`, which the item reads as ‘no tabs here’")
         CloseTabCommand.run(action) { closedWindow = true }
@@ -481,24 +424,21 @@ import Foundation
                 "⌘W closed the main window out from under an in-flight destination pick")
     }
 
-    /// …and the case that must NOT become a no-op with it: the three auxiliary `Window` scenes
-    /// (Keyboard Shortcuts, Activity Log, Sync History) publish no focused value at all, and this
-    /// item replaced the standard Close group, so ⌘W is the only thing that closes them.
+    /// …and the case that must not become a no-op with it: the auxiliary `Window` scenes publish no
+    /// focused value, and this item replaced the standard Close group, so ⌘W is the only thing that
+    /// closes them.
     @Test func closeTabStillClosesAWindowThatPublishesNoTabAtAll() {
         var closedWindow = false
         CloseTabCommand.run(nil) { closedWindow = true }
         #expect(closedWindow, "⌘W is dead on a window that publishes no tab — it is also its Close")
     }
 
-    /// The wiring the three tests above cannot see: that `\.closeTab` is published from the
-    /// three-state value rather than from `effectiveCloseTab` directly. Republishing the plain
-    /// optional would restore the flattening — `.suspended` would never reach the item — and every
-    /// assertion above would still pass, because they call the rule rather than the scene.
+    /// The wiring the tests above can't see: `\.closeTab` is published from the three-state value,
+    /// not `effectiveCloseTab` directly. Publishing the plain optional would stop `.suspended`
+    /// reaching the item while they, calling the rule, still pass.
     ///
-    /// **`everyEffectiveValueIsHandedToAFocusedSceneValue` does not cover it either**, and this is
-    /// the one value it cannot: `effectiveCloseTab` now reaches the scene *through* `closeTabAction`
-    /// rather than by name, so that scan is satisfied by the resolver's own line — measured by
-    /// deleting the publication, which left it green and ⌘W unpublished.
+    /// `everyEffectiveValueIsHandedToAFocusedSceneValue` can't cover it either: `effectiveCloseTab`
+    /// reaches the scene through `closeTabAction`, so the resolver's own line satisfies that scan.
     @Test func theCloseTabValueIsPublishedThroughItsThreeStateForm() throws {
         let code = Self.codeOnly(try Self.publisherSource())
         #expect(code.contains(".focusedSceneValue(\\.closeTab, closeTabAction)"),
@@ -507,13 +447,10 @@ import Foundation
                 "`closeTabAction` no longer resolves the suspension — ⌘W would fall through to the window again")
     }
 
-    /// **The suspended refusal is the one state that greys the item out — and only that state.**
-    ///
-    /// `isSuspended` is what the menu item reads, and it cannot be spelled `close == .suspended`:
-    /// ``CloseTabAction`` holds a closure and so has no `==`. Asserted on all three values, because
-    /// the property that matters is as much what it answers `false` to: a `nil` value is one of the
-    /// three auxiliary windows, where this item stands in for File ▸ Close, and disabling there is
-    /// the dead-⌘W regression the three-state value exists to undo.
+    /// The suspended refusal is the one state that greys the item out. The item reads
+    /// `isSuspended`, since ``CloseTabAction`` holds a closure and has no `==`. All three values
+    /// are asserted: a `nil` is an auxiliary window, where this item is File ▸ Close, and must not
+    /// disable.
     @Test func onlyTheSuspendedCloseActionReadsAsSuspended() {
         #expect(CloseTabAction.suspended.isSuspended)
         #expect(!CloseTabAction.closeTab({}).isSuspended)
@@ -522,14 +459,11 @@ import Foundation
         #expect(none?.isSuspended != true, "a window that publishes no tab reads as suspended")
     }
 
-    /// **…and the item really is disabled by it, on the state rather than on `nil`.**
+    /// …and the item really is disabled by it, on the state rather than on `nil`. The menu item is
+    /// free never to read the rule above, so the modifier is pinned too, both ways: disabled on
+    /// `.suspended`, never on `nil`, which would take ⌘W out of the auxiliary windows.
     ///
-    /// The rule above is a value the menu item is free never to read — the exact "a rule extracted
-    /// for testability is one revert from being unused" shape — so the modifier is pinned too. Both
-    /// directions: the item must disable on `.suspended`, and it must NOT disable on `nil`, which
-    /// would take ⌘W out of the three auxiliary windows whose Close it replaced.
-    ///
-    /// Source-level because a `Commands` body cannot be mounted in a unit test: `CloseTabCommand`
+    /// Source-level because a `Commands` body can't be mounted in a unit test: `CloseTabCommand`
     /// reads a `@FocusedValue`, which needs a scene, a key window and a focus update.
     @Test func theCloseItemIsDisabledWhileSuspendedAndOnlyThen() throws {
         let body = Self.codeOnly(try Self.typeBody("struct CloseTabCommand: View {",
@@ -543,22 +477,14 @@ import Foundation
         #expect(body.contains("Self.run(close)"), "the item does not go through the tested rule")
     }
 
-    /// **A refused ⌘W leaves a line, because a disabled item is one deleted modifier away.**
+    /// A refused ⌘W leaves a line, because a disabled item is one deleted modifier away. The
+    /// disable is what a person reads; the log is what a report is answered from, at `.info` since
+    /// `.debug` is dropped at Settings ▸ Advanced ▸ Info, as ⌘K's refusal does.
     ///
-    /// The disable above is the surface a person reads; this is the one a report is answered from.
-    /// ⌘K's refusal logs for exactly this reason ("⌘K did nothing and the log is silent"), and at
-    /// `.info` rather than `.debug` for the same one — `.debug` is dropped entirely at Settings ▸
-    /// Advanced ▸ Info, which is where such reports come from.
-    ///
-    /// The two states that are NOT refusals are asserted silent in the same test, or the line would
-    /// arrive under every ordinary ⌘W and mean nothing.
-    ///
-    /// **Both halves are read from a capture opened just before the call**, never from the shared
-    /// buffer. `Logger.shared` is process-wide and `entries` is a rolled 1000-line window: a bare
-    /// `contains` would let the sibling suspended test's line satisfy the presence half, and let a
-    /// rolled window pass the absence half for free. A capture cannot roll, and each window
-    /// `#require`s its own closing line from it, so a capture that saw nothing cannot pass the
-    /// absence half either; the suite's `.serialized` trait is what makes the window exclusive.
+    /// The two states that aren't refusals are asserted silent too, or the line would mean
+    /// nothing. Both halves read a capture opened just before the call, since `Logger.shared` is
+    /// process-wide and rolled; each window requires its own closing line, and `.serialized` keeps
+    /// the window exclusive.
     @Test func aSuspendedCloseSaysSoInTheLogAndTheOtherTwoStatesDoNot() async throws {
         let refusal = "⌘W ignored"
         /// Everything logged while `act` runs, read from a capture opened before it.
@@ -589,8 +515,7 @@ import Foundation
     }
 
     /// One type's body: its declaration to the first closing brace at file scope. ``memberBody``
-    /// stops at the first `\n    }` and so would hand back the first METHOD of a type — which is
-    /// how a scan meant for `CloseTabCommand.body` would silently be reading `run`.
+    /// stops at the first `\n    }`, so it would hand back a type's first method.
     static func typeBody(_ declaration: String, in source: String) throws -> String {
         let start = try #require(source.range(of: declaration),
                                  "\(declaration) is gone — this scan would be vacuous")
@@ -603,16 +528,13 @@ import Foundation
         return body
     }
 
-    /// **The ambient panels cannot latch behind a destination pick.**
+    /// The ambient panels cannot latch behind a destination pick. The latches are plain `Bool`s and
+    /// the picker renders in front, so setting one mid-pick would show nothing, then the panel the
+    /// instant the pick resolved. ⌘, and ⌘? live in the App scene and see none of this window's
+    /// state, so the refusal lives at the latch, and the toolbar buttons disable to match.
     ///
-    /// `showSettings` and `showHelp` are plain `Bool` latches and the overlay chain renders the
-    /// picker in front of both, so setting either mid-pick did nothing visible and then produced
-    /// the panel the instant the pick resolved. ⌘, and ⌘? are registered in the App scene and see
-    /// none of this window's state, so the refusal has to live at the latch — which is also why
-    /// the toolbar button can be disabled without creating a keyboard/mouse split.
-    ///
-    /// Source-level because `ContentView`'s overlays need a live manager and a render pass; what
-    /// is pinned is that each latch has a guard and that the guard reads the picker.
+    /// Source-level because `ContentView`'s overlays need a live manager and a render pass; pinned
+    /// is that each latch has a guard that reads the picker.
     @Test func theAmbientPanelsRefuseToOpenDuringADestinationPick() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -622,11 +544,8 @@ import Foundation
         try #require(content.count > 500, "ContentView.swift is implausibly short")
         let code = Self.codeOnly(content)
 
-        // The setup form is the third member of the chain, and it replaced the welcome tour this
-        // check used to name. The tour's half was inverted — its "open" was a *cleared* dismissal,
-        // so the refusal had to write the persisted seen-flag — and the form's is not: an explicit
-        // `showSetup` latch refuses exactly like the other two, which is the simplification that
-        // came with dropping a screen whose only way back was to un-persist a flag.
+        // The setup form is the third member of the chain; its `showSetup` latch refuses exactly
+        // like the other two.
         for latch in ["showSettings", "showHelp", "showSetup"] {
             let start = try #require(code.range(of: ".onChange(of: \(latch)) { _, isOpen in"),
                                      "\(latch) has no open-guard at all")
@@ -639,14 +558,10 @@ import Foundation
                     "\(latch)'s guard notices the pick but does not refuse the open")
         }
 
-        // **A refused Settings open has to leave nothing behind either.**
-        //
-        // The deep links (the invalid-pane fix-it's Providers jump, the cloud-refine offer) preset
-        // `settingsTab` and only then flip the latch — they have to, since the overlay renders the
-        // tab as it finds it. A refusal that clears the latch alone therefore still moved Settings
-        // to a page that never appeared, and the next plain ⌘, — which presets nothing — landed
-        // there. Two halves, and the pair is what makes it hold: one door writes the latch, and the
-        // refusal consumes what that door stashed.
+        // A refused Settings open must leave nothing behind either. Deep links preset
+        // `settingsTab` before flipping the latch, so a refusal that only cleared the latch would
+        // leave Settings on a page that never appeared, for the next plain ⌘, to land on. One door
+        // writes the latch, and the refusal restores what that door stashed.
         let settingsLatchWrites = code.components(separatedBy: "showSettings = true").count - 1
         #expect(settingsLatchWrites == 1,
                 "\(settingsLatchWrites) places in ContentView raise Settings directly — a deep link that presets the tab outside `openSettings(on:)` leaves that tab changed when the open is refused")
@@ -664,11 +579,9 @@ import Foundation
                 "a toolbar control that cannot act during a pick still looks like it can")
     }
 
-    /// **The three-column deal keeps the reading order and minimises the tallest column.** The
-    /// reference went to three columns for v5.3 because two could not hold the Edit group in a
-    /// window a 13" display can show; this pins the dealing rule the fits-the-window test below
-    /// then measures. Both halves: the real groups come out as three non-empty runs in order, and a
-    /// synthetic list whose greedy deal would be lopsided is balanced instead.
+    /// The three-column deal keeps the reading order and minimises the tallest column: the real
+    /// groups come out as three non-empty runs in order, and a synthetic list a greedy deal would
+    /// make lopsided comes out balanced. The fits-the-window test below measures the result.
     @Test func theColumnsAreDealtInOrderAndBalanced() {
         let groups = ShortcutsReference.groups
         let columns = ShortcutsReference.balancedColumns(groups, count: ShortcutsReference.columnCount)
@@ -686,12 +599,10 @@ import Foundation
         let dealt = ShortcutsReference.balancedColumns(synthetic, count: 3)
         #expect(dealt.map { $0.map { $0.items.count + 1 }.reduce(0, +) } == [10, 10, 8],
                 "the deal weighed the columns as \(dealt.map { $0.map { $0.items.count + 1 }.reduce(0, +) })")
-        // The two-way form still agrees with its own pin, so the generalisation changed nothing
-        // for the case the older tests were written against.
+        // The two-way form still agrees with `balancedSplit`.
         let pair = ShortcutsReference.balancedColumns(groups, count: 2)
         #expect(pair.first?.count == ShortcutsReference.balancedSplit(groups))
-        // Fewer groups than columns: one per column, never an empty column and never one column
-        // holding everything.
+        // Fewer groups than columns: one per column, never an empty column or one holding all.
         let few = ShortcutsReference.balancedColumns(Array(groups.prefix(2)), count: 3)
         #expect(few.map(\.count) == [1, 1])
     }
@@ -705,9 +616,9 @@ import Foundation
         return (host.fittingSize.height, window)
     }
 
-    /// **At every text size, not only the default** — the window was a fixed 1240×760, so above
-    /// Default the rows outgrew it and it scrolled. Each selectable stop is held to the fit and to
-    /// the 60pt ceiling on empty space below.
+    /// The whole reference fits its window at every text size. The user can't resize the window
+    /// and a ScrollView would swallow any overflow, so each selectable stop is measured on the
+    /// laid-out content and held to the fit and to a ceiling on empty space below.
     @Test(.machinePinned(.layoutMetrics)) func theReferenceFitsItsWindowAtEveryTextSize() {
         #expect(ShortcutsReferenceView.windowSize(scale: 1) == ShortcutsReferenceView.windowSize,
                 "the default text size no longer gets the measured default window")
@@ -719,19 +630,12 @@ import Foundation
             #expect(height <= window.height,
                     "\(percent)%: the reference needs \(height)pt but the window shows \(window.height)pt — raise windowSize or trim rows")
 
-            // **And it must not be needlessly tall — the drift this test could not see until 2026-08-20.**
-            //
-            // Every earlier failure here was the content outgrowing the window, so the fix was always
-            // "raise `windowSize`" and the number only ever went up. Then Browse's sidebar row was
-            // removed and 780 was suddenly showing 707pt of rows over 73pt of nothing, with every
-            // check above green: a panel that is a third empty looks like it lost its last group. One
-            // row measures ~36pt, so a 60pt ceiling fails the moment a row leaves without the window
-            // following it.
+            // And not needlessly tall: a window with empty space below looks like it lost its last
+            // group. A row is about 36pt, so a 60pt ceiling fails the moment a row leaves without
+            // the window following it.
             let slack = window.height - height
-            // **And at least 12pt under the last row.** The window cannot be resized by hand, and
-            // less than 12pt is inside one line of ordinary text reflow — "it fits today" and "it
-            // fits after a system font metric moves" are different claims (the v4.4 note on
-            // `windowSize`). Largest once left 8pt.
+            // And at least 12pt under the last row: less is inside one line of text reflow, so a
+            // system font metric change could make it overflow.
             #expect(slack >= 12,
                     "\(percent)%: only \(slack)pt under the last row (\(height)pt of rows in \(window.height)pt) — raise the window")
             #expect(slack <= 60,
@@ -752,8 +656,8 @@ import Foundation
         #expect(ShortcutsReferenceView.fitted(largest, to: nil) == largest)
     }
 
-    /// **The window fits the screen it is ON**, not the main screen: the window's own screen wins,
-    /// and the main screen stands in only until the window has one.
+    /// The window fits the screen it is on, not the main screen; the main screen stands in only
+    /// until the window has one.
     @Test func theWindowFitsItsOwnScreen() {
         let laptop = CGSize(width: 1470, height: 900)
         let desk = CGSize(width: 2560, height: 1400)
@@ -799,10 +703,9 @@ import Foundation
         #expect(source.contains("to: Self.screenToFit(window: windowScreen, main: NSScreen.main?.visibleFrame.size)"))
     }
 
-    /// **A key string that fits its column at Default fits it at every size.** The column was a
-    /// fixed 165pt while its type grew, so at Largest the longer chords broke onto a second line
-    /// beside a one-line action. Strings that already wrap at Default (the find row) are left out:
-    /// that wrap is the layout the window was measured with, not a defect of the size.
+    /// A key string that fits its column at Default fits it at every size, so the column scales
+    /// with its type. Strings that already wrap at Default (the find row) are left out: that wrap is
+    /// the layout the window was measured with.
     @Test(.machinePinned(.layoutMetrics)) func aKeyStringThatFitsAtDefaultFitsAtEverySize() {
         func oneLine(_ keys: String, _ size: FontSize) -> CGFloat {
             NSHostingView(rootView: Text(keys)
@@ -823,12 +726,9 @@ import Foundation
     }
 }
 
-/// Whether ⌘Q may write the open document.
-///
-/// **The bug this pins was a write nobody asked for, at the moment it mattered most.** The quit
-/// flush was unconditional — right for the ordinary case, where what ⌘Q catches is the two-second
-/// debounce window — but it also wrote a file whose autosave switch the user had turned OFF, and
-/// it did so BEFORE the unsaved-changes warning, so the question was asked after the answer.
+/// Whether ⌘Q may write the open document. The quit flush catches the autosave debounce window in
+/// the ordinary case, but must not write a file whose autosave the user turned off; it runs before
+/// the unsaved-changes warning, so it would answer the question before it is asked.
 @MainActor
 @Suite struct QuitFlushPolicyTests {
 
@@ -846,9 +746,8 @@ import Foundation
         #expect(SyncCloudAppDelegate.mayFlushOnQuit(path: "/n/b.md", policy: policy))
     }
 
-    /// Before `ContentView` has adopted a policy there is nobody to ask, and the flush is right in
-    /// the ordinary case — an app that declined to save on quit because a wire was not yet
-    /// connected would be the worse of the two failures.
+    /// Before `ContentView` has adopted a policy there is nobody to ask, so flush: declining to save
+    /// on quit for want of a wire is the worse failure.
     @Test func noPolicyMeansFlush() {
         #expect(SyncCloudAppDelegate.mayFlushOnQuit(path: "/n/a.md", policy: nil))
         #expect(SyncCloudAppDelegate.mayFlushOnQuit(path: nil, policy: nil))

@@ -4,7 +4,7 @@ import FileExplorer
 import SwiftUI
 import Testing
 
-/// **File ▸ Save as PDF and the window's wiring for it** (CV3).
+/// File ▸ Save as PDF and the window's wiring for it.
 ///
 /// The test host IS the app, so `NSApp.mainMenu` is what AppKit built from the `.commands`; with no
 /// `ContentView` publishing a selection, that is the nothing-selected state. The item's body is a
@@ -15,8 +15,8 @@ import Testing
 
     // MARK: As AppKit built it
 
-    /// **At the end of File's print group, after Fill & Sign's Save Filled Copy — greyed with
-    /// nothing selected, and with no chord.**
+    /// At the end of File's print group, after Fill & Sign's Save Filled Copy: greyed with nothing
+    /// selected, and with no chord.
     @Test func saveAsPDFEndsThePrintGroupGreyedWithNoSelection() throws {
         let file = try TextMarkupMenuTests.menu("File")
         file.update()
@@ -31,8 +31,8 @@ import Testing
 
     // MARK: Drawn for what the window publishes
 
-    /// **The row's offer, under the row's title, running the row's act over the selection's paths**
-    /// — chosen through AppKit, as a click in the menu bar chooses it.
+    /// The row's offer, under the row's title, running the row's act over the selection's paths,
+    /// chosen through AppKit as a click in the menu bar chooses it.
     @Test func theItemRunsTheRowsOfferOverTheSelection() throws {
         final class Box { var ran: [[String]] = [] }
         let box = Box()
@@ -60,7 +60,7 @@ import Testing
 
     // MARK: Wiring
 
-    /// **File ▸ is the row menu's gate, question and act**, on the same pane's delegate — and the row
+    /// File ▸ uses the row menu's gate, question and act, on the same pane's delegate, and the row
     /// menu still asks the question for both of its items.
     @Test func theMenuBarAsksTheRowsQuestion() throws {
         let commands = try macAppFile("ShortcutCommands.swift")
@@ -86,7 +86,7 @@ import Testing
                 "the row menu no longer asks forSelection for both its items")
     }
 
-    /// **The pane delegate's act reaches the window's run**, and the window draws its banner.
+    /// The pane delegate's act reaches the window's run, and the window draws its banner.
     @Test func theRowsActReachesTheWindowsRun() throws {
         let delegate = CodeText(try declarationBody(of: "func handleSaveAsPDF(paths: [String])",
                                                     in: try macAppFile("PaneActionDelegate.swift")))

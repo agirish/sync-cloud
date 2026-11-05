@@ -6,9 +6,9 @@ import Testing
 import Sync
 @testable import SyncCloud
 
-// Tap to talk in Ask Claude (TE311). Every clip is made with `say` and fed at the pace a
-// microphone would send it, then silence for as long as the turn lasts: the test host is
-// SyncCloud.app, so a test must never open the real microphone.
+// Tap to talk in Ask Claude. Every clip is made with `say` and fed at the pace a microphone would
+// send it, then silence for as long as the turn lasts: the test host is SyncCloud.app, so a test
+// must never open the real microphone.
 
 /// A spoken clip, made once per run.
 enum AskClaudeVoiceClips {
@@ -20,7 +20,7 @@ enum AskClaudeVoiceClips {
         try? FileManager.default.removeItem(at: url)
         let say = Process()
         say.executableURL = URL(fileURLWithPath: "/usr/bin/say")
-        // The voice the spike measured with; the default voice is a setting of the Mac's.
+        // A named voice, the one these clips were measured with; the default is a Mac setting.
         say.arguments = ["-v", "Samantha", "-o", url.path, text]
         try say.run()
         say.waitUntilExit()
@@ -144,8 +144,8 @@ private final class Heard {
     }
 }
 
-/// When a turn ends by itself (`AskClaudeVoice.ending`). His hand check, 2026-11-02: his voice
-/// settled words at a one-second pause mid-question, and the turn sent the first half.
+/// When a turn ends by itself (`AskClaudeVoice.ending`). Words can settle at a one-second pause
+/// mid-question, so settled words alone must not send the first half.
 @Suite struct AskClaudeVoiceEndingTests {
 
     private func ending(settled: String = "Find my latest", tentative: String = "", quiet: Double, sinceWords: Double = 0)
@@ -169,8 +169,8 @@ private final class Heard {
         #expect(ending(settled: "", tentative: "Find", quiet: 9, sinceWords: 9) == .goOn)
     }
 
-    /// v7.0 review: words left tentative kept the turn listening for good when the transcriber
-    /// stalled; ten seconds with nothing new ends it, in a quiet room or a loud one.
+    /// Ten seconds with nothing new ends a turn whose words are still tentative, in a quiet room or
+    /// a loud one, or a stalled transcriber would keep it listening for good.
     @Test func wordsTentativeForTenSecondsSend() {
         #expect(ending(tentative: "tax form", quiet: 10, sinceWords: 10) == .send)
         #expect(ending(settled: "", tentative: "Find", quiet: 0, sinceWords: 10) == .send)
@@ -277,9 +277,9 @@ private final class Heard {
         #expect(voice.notice == nil)
     }
 
-    /// The words on screen reach the transcriber. Measured with this clip: "Ellie" without the
-    /// hint, "Ally" with it, so the hint is what makes the difference here. (Given the whole name,
-    /// "Ally Statements", it still heard "Ellie".)
+    /// The words on screen reach the transcriber. This clip is heard as "Ellie" without the hint
+    /// and "Ally" with it. The whole name "Ally Statements" as one hint still gives "Ellie", so the
+    /// hints are its words.
     @Test func theNamesOnScreenAreListenedFor() async throws {
         let clip = try AskClaudeVoiceClips.clip("Show me the statements from Ally", named: "ally")
         func hear(hints: [String]) async -> String {
@@ -354,7 +354,7 @@ private final class Heard {
             host.frame = NSRect(origin: .zero, size: container)
             // Weak, not unowned: a turn still listening when a case ends (a failing one, or a
             // mutant that leaves the mic open) delivers its words after the fixture is gone, and an
-            // unowned capture there aborted the whole test host (2026-11-02, 16:07).
+            // unowned capture there would abort the whole test host.
             host.rootView = AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue, accentFill: .blue,
                                            onAccent: .white, onAsk: { [weak self] in self?.typed.append($0) },
                                            onClose: { [weak self] in self?.closed += 1 }, onOpenSettings: {}, container: container,
@@ -421,8 +421,8 @@ private final class Heard {
         withExtendedLifetime(panel) {}
     }
 
-    /// Said while Claude answers (TE297): it listens, and what was said waits for the answer to
-    /// end, as a typed question does, marked spoken.
+    /// Said while Claude answers: it listens, and what was said waits for the answer to end, as a
+    /// typed question does, marked spoken.
     @Test func whatIsSaidWhileClaudeAnswersWaitsForTheAnswer() async throws {
         let d = ScratchDefaults("AskClaudePanelVoiceTests")
         let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: NeverAnswers(), defaults: d) },

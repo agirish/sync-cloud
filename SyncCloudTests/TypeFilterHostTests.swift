@@ -2,14 +2,14 @@ import Testing
 import Foundation
 @testable import SyncCloud
 
-/// The host's half of Filter by Type (RD70). `ContentView` cannot be mounted in a test, so what it
-/// hands the manager is read from the source, as `PaneSearchHostTests` does.
+/// The host's half of Filter by Type. `ContentView` cannot be mounted in a test, so what it hands
+/// the manager is read from the source, as `PaneSearchHostTests` does.
 @MainActor
 @Suite struct TypeFilterHostTests {
 
-    /// The open folders reach the manager whatever the filter (G3). Guarded on the filter, a filter
-    /// turned on from none ran its first pass without the Columns stack, hid an open folder with no
-    /// match, and the stack closed past it before the second pass could keep it (GQ).
+    /// The open folders reach the manager whatever the filter. Guarded on the filter, a filter
+    /// turned on from none would run its first pass without the Columns stack, hide an open folder
+    /// with no match, and the stack would close past it before the second pass could keep it.
     @Test func testOpenFoldersAreReportedWithNoFilterOn() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -26,7 +26,7 @@ import Foundation
     }
 
     /// A linked drill and a linked crumb prune the sibling's stack against its tree before its
-    /// type filter (G4), so a folder that filter hides is walked into rather than stopped short of.
+    /// type filter, so a folder that filter hides is walked into rather than stopped short of.
     @Test func testMirroringPrunesAgainstTheSiblingsWholeFolder() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()

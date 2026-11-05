@@ -1,12 +1,10 @@
 @testable import SyncCloud
 import Testing
 
-/// **An overtaken rail survey still lands, unless a newer one already has** (`RefreshCounter`).
-///
-/// Edit's file rail re-lists its folder off the main actor after every autosave. Surveys overlap,
-/// and only "the latest ticket writes" used to stop an older one undoing a newer one — which also
-/// threw away every survey an autosave had overtaken, so on a folder slower to list than the
-/// autosave gap the rail stopped updating while the user typed.
+/// An overtaken rail survey still lands, unless a newer one already has (`RefreshCounter`). Edit's
+/// file rail re-lists its folder off the main actor after every autosave, and surveys overlap. A
+/// "latest ticket only" rule would drop every overtaken survey, so on a folder slower to list than
+/// the autosave gap the rail would stop updating while the user types.
 @MainActor @Suite struct EditorRailRefreshTicketTests {
 
     @Test func anOvertakenSurveyLandsWhenNothingNewerHas() {

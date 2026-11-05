@@ -3,14 +3,14 @@ import Foundation
 import FileExplorer
 @testable import SyncCloud
 
-/// **The PDF tools' window half.** `ContentView` cannot be built in a test, so the call sites that
-/// connect `EditorPDFTools` to the window are read — a rule one revert away from being unused is not
-/// covered by its own test (testing law 5).
+/// The PDF tools' window half. `ContentView` can't be built in a test, so the call sites that
+/// connect `EditorPDFTools` to the window are read as source: a rule one revert away from unused
+/// isn't covered by its own test (testing law 5).
 @MainActor
 @Suite struct EditorPDFToolsWiringTests {
 
-    /// **Every route out of the PDF asks before a pending order or a running tool is lost** — and
-    /// asks FIRST, before anything about the text document, which is empty while a PDF is open.
+    /// Every route out of the PDF asks before a pending order or a running tool is lost, and asks
+    /// first, before anything about the text document, which is empty while a PDF is open.
     @Test func everyRouteOutOfThePDFAsksFirst() throws {
         let settle = try EditorDiskWatchWiringTests.body("func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool")
         let ask = try #require(settle.range(of: "if asksAboutPDFWork { guard editorPDF.tools.mayLeave(thenRetry: retry) else { return false } }"),
@@ -25,9 +25,9 @@ import FileExplorer
         #expect(closeAsk.lowerBound < closePDF.lowerBound)
     }
 
-    /// **Save Filled Copy in the leave question saves, then leaves** (decision AX): every route out of
-    /// the PDF hands the question itself, to be run again once the copy has landed — the file opened,
-    /// the hand-off, ⌘N's new file, the close and the quit each retry as themselves.
+    /// Save Filled Copy in the leave question saves, then leaves: every route out of the PDF hands
+    /// the question itself to run again once the copy lands. Opening a file, the hand-off, ⌘N's new
+    /// file, the close and the quit each retry as themselves.
     @Test func everyRouteOutOfThePDFRetriesItselfAfterASavedFill() throws {
         let open = try EditorDiskWatchWiringTests.body("func openInEditor(path: String, selectsInPane: Bool = false)")
         #expect(open.contains("guard settleEditorDocument(thenRetry: { openInEditor(path: path, selectsInPane: selectsInPane) }) else { return }"))
@@ -37,15 +37,15 @@ import FileExplorer
         #expect(settle.contains("mayLeave(thenRetry: retry)"))
     }
 
-    /// **A window close does not ask** — the PDF belongs to the app and outlives the window, so its
-    /// order is not at risk, and the red close button never asked either.
+    /// A window close doesn't ask: the PDF belongs to the app and outlives the window, so its order
+    /// is not at risk.
     @Test func aWindowCloseDoesNotAskAboutThePDF() throws {
         let tabs = CodeText(try EditorDiskWatchWiringTests.source("ContentView+PaneTabs.swift"))
         #expect(tabs.contains("settle: { settleEditorDocument(asksAboutPDFWork: false, asksAboutTheOnlyCopy: false) }"))
     }
 
-    /// **⌘Q asks too**, from the delegate, which holds the tools the window adopted — in Quit's
-    /// words, not Leave's (TE158).
+    /// ⌘Q asks too, from the delegate, which holds the tools the window adopted, in Quit's words
+    /// rather than Leave's.
     @Test func quittingAsksAboutThePDF() throws {
         let app = CodeText(try EditorDiskWatchWiringTests.source("SyncCloudApp.swift"))
         #expect(app.contains("if let tools = Self.sharedPDFTools, !tools.mayLeave(quitting: true, thenRetry: { NSApp.terminate(nil) }) {"))
@@ -59,9 +59,9 @@ import FileExplorer
                 "nothing hands the quit guard the panes' PDF tools")
     }
 
-    /// **A written copy re-lists the rail and the panes, and the banner's doors are the window's
-    /// own** — Open through the rail click's door (which asks about the open file first), Reveal
-    /// through Reveal in Browse, logged as the banner's.
+    /// A written copy re-lists the rail and the panes, and the banner's doors are the window's own:
+    /// Open through the rail click's door (which asks about the open file first), Reveal through
+    /// Reveal in Browse, logged as the banner's.
     @Test func theHostIsTheWindowsOwnDoors() throws {
         let editor = CodeText(try EditorDiskWatchWiringTests.editor())
         #expect(editor.contains(".onAppear { editorPDF.tools.host = editorPDFToolHost }"),
@@ -74,16 +74,15 @@ import FileExplorer
             """))
         #expect(editor.contains("open: { path in openInEditor(path: path, selectsInPane: true) },"))
         #expect(editor.contains("reveal: { path in revealInBrowse(path, from: .pdfToolBanner) },"))
-        // A file only in the cloud now: Edit's own Download, from Edit's banner and a pane's (TE185).
+        // A file now only in the cloud: Edit's own Download, from Edit's banner and a pane's.
         #expect(editor.contains("download: { path in downloadFromEdit(path) })"))
         let pane = CodeText(try declarationBody(of: "func startPanePDFTool(_ request: PDFToolRequest, paths: [String]) {",
                                                 in: try EditorDiskWatchWiringTests.editor()))
         #expect(pane.contains("download: { path in downloadFromEdit(path) })"), "a pane's banner has no Download")
     }
 
-    /// **A pane-launched batch's Reveal selects every copy beside the first** (TE47's debt with
-    /// companions) and may replace the set the batch was run on — a one-file run replaces nothing,
-    /// so its Reveal is the one-row rule exactly.
+    /// A pane-launched batch's Reveal selects every copy beside the first, and may replace the set
+    /// the batch ran on. A one-file run replaces nothing, so its Reveal is the one-row rule exactly.
     @Test func thePanesBatchRevealOwesEveryCopyBesideTheFirst() throws {
         let editor = try EditorDiskWatchWiringTests.editor()
         let body = CodeText(try declarationBody(of: "func startPanePDFTool(_ request: PDFToolRequest, paths: [String]) {",

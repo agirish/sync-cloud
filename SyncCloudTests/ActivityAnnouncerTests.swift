@@ -2,7 +2,7 @@ import AppKit
 import Testing
 @testable import SyncCloud
 
-/// **VoiceOver hears each result once, and two at once as one** (Run Room TE226).
+/// VoiceOver hears each Activity result once, and two that arrive together as one sentence.
 @MainActor
 @Suite(.serialized) struct ActivityAnnouncerTests {
 

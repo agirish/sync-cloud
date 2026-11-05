@@ -3,19 +3,15 @@ import FileExplorer
 import AppKit
 @testable import SyncCloud
 
-/// **The test host puts none of the app's own windows on the user's screen.**
+/// The test host puts none of the app's own windows on the user's screen.
 ///
-/// The host is SyncCloud.app, and it came up with the main window at the user's saved frame:
-/// 1575×967, measured on screen for the whole 46 s of an app-target run, over whatever the user was
-/// doing — for their own runs, other sessions' and CI's on this Mac alike. Its content under tests
-/// is `Color.clear`, so it was a bare window and nothing else. `SyncCloudApp` now suppresses the
-/// main scene at launch and turns off restoration for every scene while a test configuration is
-/// set.
+/// The host is SyncCloud.app, so without care its main window comes up at the user's saved frame
+/// over whatever they are doing, for the whole run. `SyncCloudApp` suppresses the main scene and
+/// turns off restoration while a test configuration is set.
 ///
-/// Windows a suite builds for itself are that suite's to keep out of sight — buried or parked past
-/// every display — and are not counted here. Only the scenes' windows are, found the way
-/// `applicationShouldHandleReopen` finds the main window: by the identifier SwiftUI gives a scene's
-/// window, which starts with the scene's id.
+/// Windows a suite builds for itself are its own to keep out of sight and aren't counted. Scene
+/// windows are found as `applicationShouldHandleReopen` finds the main one: by the identifier
+/// SwiftUI gives them, which starts with the scene's id.
 @MainActor
 @Suite struct TestHostWindowTests {
 

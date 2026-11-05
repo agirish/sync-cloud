@@ -4,24 +4,19 @@ import AppKit
 import Design
 @testable import SyncCloud
 
-/// **A provider mark drawn as a shape rather than a brand.**
+/// A provider mark drawn as a shape rather than a brand, so the Browse sidebar tells clouds apart
+/// without a column of brand colours (Finder draws its Locations in one ink too). The mark must
+/// lose its colour and keep its silhouette.
 ///
-/// The Browse sidebar wants each cloud distinguishable at a glance without putting five brand
-/// colours down a column whose every other element is quiet — Finder draws its Locations in one ink
-/// for the same reason. Two claims hold that up, and neither is visible in a build that compiles:
-/// the mark loses its colour, and it *keeps its silhouette*.
-///
-/// **In the app target, not `Design`'s**, because the brand assets live in `MacApp/Assets.xcassets`:
-/// from a package test `NSImage(named:)` finds nothing, `ProviderLogo` takes its SF-Symbol branch,
-/// and every assertion below would pass while testing a fallback rather than a brand mark. The first
-/// check is there to make that failure loud rather than silent.
+/// In the app target, not `Design`'s, because the brand assets live in `MacApp/Assets.xcassets`:
+/// from a package test `NSImage(named:)` finds nothing and `ProviderLogo` falls back to an SF
+/// Symbol. The first test makes that failure loud.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct ProviderLogoMonochromeTests {
 
     static let marks = ["icloud", "dropbox", "googledrive", "onedrive"]
 
-    /// The scan is looking at brand assets. Without this, a catalog that stopped shipping them
-    /// would turn every test here into a statement about `folder.fill`.
+    /// The scan sees brand assets, not the `folder.fill` fallback.
     @Test func theBrandAssetsAreReachableFromThisTarget() {
         for name in Self.marks {
             #expect(NSImage(named: name) != nil,
@@ -76,7 +71,7 @@ import Design
         return count
     }
 
-    /// **Monochrome means monochrome.** Every mark renders in one ink; the brand colours are gone.
+    /// Every mark renders in one ink in monochrome mode; the brand colours are gone.
     @Test func aMonochromeMarkCarriesNoColour() throws {
         for name in Self.marks {
             let rep = try #require(render(name, monochrome: true))
@@ -85,8 +80,8 @@ import Design
         }
     }
 
-    /// And the control: the same marks in colour genuinely are coloured, so the check above is
-    /// measuring the mode rather than an artwork that was grey all along.
+    /// The control: the same marks in colour are coloured, so the check above measures the mode,
+    /// not artwork that was grey all along.
     @Test func theSameMarksInColourAreColoured() throws {
         for name in Self.marks where name != "icloud" {
             let rep = try #require(render(name, monochrome: false))
@@ -95,14 +90,9 @@ import Design
         }
     }
 
-    /// **The silhouette survives, which is the whole reason this works.** These marks carry no
-    /// opaque near-white pixels — Dropbox's folded-box seams, Drive's triangle joins and the gap
-    /// between OneDrive's lobes are *transparent*, supplied by the page behind. A template render
-    /// masks on alpha, so those gaps stay gaps rather than filling in and flattening each mark to a
-    /// blob.
-    ///
-    /// Asserted as ink coverage well under the full 32×32 box: a filled silhouette would approach
-    /// it, and an empty render would be zero.
+    /// The silhouette survives. The marks' inner gaps (Dropbox's seams, Drive's joins, OneDrive's
+    /// lobes) are transparent, and a template render masks on alpha, so they stay gaps instead of
+    /// filling in to a blob. Asserted as ink well under the 32×32 box and well above zero.
     @Test func aMonochromeMarkKeepsItsShapeRatherThanFillingItsBox() throws {
         let box = 32 * 32 * 4   // 2× backing store
         for name in Self.marks {
@@ -114,10 +104,8 @@ import Design
         }
     }
 
-    /// **The caller's tint reaches the mark**, which is what lets the sidebar accent the current row.
-    /// The first cut set an explicit style inside the monochrome branch; rendering it showed a
-    /// `folder.fill` coming out near-black in a row of grey brand marks, because an explicit style
-    /// overrides the caller's rather than deferring to it.
+    /// The caller's tint reaches the mark, which lets the sidebar accent the current row. An
+    /// explicit style inside the monochrome branch would override the caller's instead.
     @Test func theCallersTintReachesBothKindsOfMark() throws {
         for name in Self.marks + ["folder.fill"] {
             let rep = try #require(render(name, monochrome: true))
@@ -128,8 +116,7 @@ import Design
                     darkest = min(darkest, c.redComponent)
                 }
             }
-            // The supplied tint is 0.4 grey. A mark that ignored it and drew its own would come out
-            // materially darker — `folder.fill` measured ~0.1 before the fix.
+            // The tint is 0.4 grey; a mark drawing its own style comes out far darker (~0.1).
             #expect(darkest > 0.25,
                     "\(name) drew darker than the 0.4 tint it was given (\(darkest)) — it is overriding the caller's style")
         }

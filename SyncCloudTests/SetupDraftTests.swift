@@ -6,10 +6,9 @@ import Testing
 
 /// The answers setup collects before there is anywhere to put them.
 ///
-/// **The draft exists because of an ordering problem**: `people.json` lives *inside* a profile, and
-/// a fresh machine — the only machine setup is for — has no profile until the folder survey mints
-/// one. Everything here is about that gap being crossed exactly once, in one direction, without
-/// duplicating anybody.
+/// `people.json` lives inside a profile, and a fresh machine has no profile until the folder survey
+/// mints one. These tests pin that gap being crossed once, in one direction, without duplicating
+/// anybody.
 @Suite struct SetupDraftTests {
 
     private static func scratchDirectory() throws -> URL {
@@ -41,11 +40,9 @@ import Testing
         #expect(SetupDraftStore.read(at: dir.appendingPathComponent("nothing.json")) == nil)
     }
 
-    /// A draft this build cannot read is one setup asks for again — never one it half-applies.
-    ///
-    /// The cost of the two failures is not symmetric: asking again costs the user a minute, while a
-    /// partly-decoded draft costs them a wrong household, and the roster is the file every document
-    /// is attributed through.
+    /// A draft this build cannot read is asked for again, never half-applied: asking again costs a
+    /// minute, while a partly decoded draft builds a wrong household that every document is then
+    /// attributed through.
     @Test func aForeignSchemaIsIgnoredRatherThanGuessedAt() throws {
         let dir = try Self.scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -63,27 +60,16 @@ import Testing
         #expect(SetupDraftStore.read(at: url) == nil)
     }
 
-    /// **Absent and unreadable both answer `nil`, and only one of them may do it quietly.**
+    /// Absent and unreadable both answer `nil`, and only unreadable says so in the log.
     ///
-    /// Returning `nil` is the whole of what the two states have in common, and it is what the two
-    /// tests above already pin — so a test of the *return* cannot tell them apart, and neither
-    /// could the code until v4.2: both were a bare `try?`. The difference is what it costs the
-    /// user. Absent is every launch before they answer anything. Unreadable means the answers they
-    /// *did* give are about to be asked for again, and this file is the only copy of them
-    /// (`clear(at:)` refuses to run until they have reached a roster). That is the one worth a line
-    /// in `~/sync-cloud.log`, and the line has to name the path or it cannot be looked at by hand.
+    /// Absent is every launch before the user answers anything. Unreadable means answers they gave
+    /// are about to be asked for again, and this file is their only copy, so it earns a line in
+    /// `~/sync-cloud.log` naming the path.
     ///
-    /// Read from a capture opened before each read rather than from the whole buffer:
-    /// `Logger.shared` is process-wide and `entries` is a rolled 1000-line window, so a bare
-    /// `contains` would let a rolled window pass the absence half for free. Each window `#require`s
-    /// its own closing line from the capture, so one that saw nothing cannot pass it either.
-    ///
-    /// **Matched on this test's own scratch paths, not on the words the line uses**, and that is
-    /// what lets the suite stay unserialized. Two sibling tests here (`garbageIsIgnored…`,
-    /// `aForeignSchema…`) now log about a draft too, and a phrase match would let either of them
-    /// land inside this window and fail the absence half for a reason that is not this test's
-    /// subject. The scratch directory carries a UUID, so no other test in the process can produce
-    /// a line naming these files.
+    /// Read from a capture opened before each read, since `Logger.shared` is process-wide and
+    /// rolled; each window requires its own closing line, so one that saw nothing can't pass.
+    /// Matched on this test's UUID scratch paths, not the line's words, so sibling tests that also
+    /// log about a draft can't land in the window, and the suite can stay unserialized.
     @MainActor
     @Test func onlyAnUnreadableDraftSaysSoInTheLog() async throws {
         let dir = try Self.scratchDirectory()
@@ -138,11 +124,9 @@ import Testing
         #expect(blank.isEmpty, "whitespace is not a name")
     }
 
-    /// You lead the roster, and the order is load-bearing.
-    ///
-    /// `PeopleStore.add` derives an id from the display name and makes it unique *within the roster
-    /// as it stands*, so whoever is added first gets the plain id and a later namesake gets the
-    /// suffixed one. Your own record is what every other surface resolves through.
+    /// You lead the roster, and the order matters: `PeopleStore.add` makes an id unique within the
+    /// roster as it stands, so the first added gets the plain id. Your own record is what every
+    /// other surface resolves through.
     @Test func youLeadTheRosterAndAreMarkedAsYou() throws {
         var draft = SetupDraft()
         draft.yourName = "Father"
@@ -180,11 +164,9 @@ import Testing
         #expect(SetupDraft().registry == nil, "an empty registry is not the same as none")
     }
 
-    /// Two names that derive the same id both survive.
-    ///
-    /// **`PersonRegistry` collapses a repeated id to last-one-wins**, which is right there — an id
-    /// must name one person — and means a draft handing it duplicates would lose somebody silently
-    /// on the way into the walk. `Anne Marie` and `Anne-Marie` both fold to `anne-marie`.
+    /// Two names that derive the same id both survive. `PersonRegistry` collapses a repeated id to
+    /// the last one, so a draft handing it duplicates would silently lose somebody. `Anne Marie` and
+    /// `Anne-Marie` both fold to `anne-marie`.
     @Test func twoNamesThatShareAnIdBothReachTheWalk() throws {
         var draft = SetupDraft()
         draft.others = [SetupDraft.DraftPerson(displayName: "Anne Marie"),
@@ -195,9 +177,7 @@ import Testing
         #expect(Set(registry.people.map(\.id)).count == 2, "the ids are still the same id")
     }
 
-    /// The control: those two names really do derive one id.
-    ///
-    /// Without it the test above passes on any two names, and proves nothing about collisions.
+    /// The control: those two names really do derive one id, or the test above proves nothing.
     @Test func thoseTwoNamesReallyDoCollide() {
         #expect(Person.idCandidate(from: "Anne Marie") == Person.idCandidate(from: "Anne-Marie"),
                 "the fixture no longer collides, so the uniquing is untested")
@@ -229,13 +209,9 @@ import Testing
         #expect(me.fullNames == ["Father Elder"])
     }
 
-    /// Applying twice must not produce two of anybody.
-    ///
-    /// **It is called more than once by design** — a machine with a profile applies on every step
-    /// commit, and the survey stage applies again after minting one. This is the assertion that
-    /// makes that safe, and a duplicate here is not cosmetic: two records claiming one person is
-    /// the state `PersonRegistry` had to grow a collapse for, because one half of the matcher took
-    /// the last and the other accumulated both.
+    /// Applying twice must not produce two of anybody. It runs more than once by design: on every
+    /// step commit when a profile exists, and again after the survey mints one. Two records for one
+    /// person split the matcher, which keeps the last in one half and both in the other.
     @MainActor
     @Test func applyingIsIdempotent() throws {
         let dir = try Self.scratchDirectory()
@@ -269,11 +245,8 @@ import Testing
         #expect(store.people.count == 1, "“Mother” and “mother” are one person")
     }
 
-    /// Setup adds to a record; it never takes anything out of one.
-    ///
-    /// The user may have typed a full name into Settings ▸ People between running setup and setup
-    /// applying its draft — a form re-run overwriting that would delete work the user did by hand
-    /// in the surface that is supposed to own it.
+    /// Setup adds to a record, never takes from one: the user may have typed a full name into
+    /// Settings ▸ People before the draft applies, and overwriting it would delete their work.
     @MainActor
     @Test func applyingAddsFullNamesWithoutRemovingOnesTheUserTyped() throws {
         let dir = try Self.scratchDirectory()
@@ -310,11 +283,8 @@ import Testing
         #expect(me.fullNames.count == 1, "“Father Elder” was added beside “father elder”")
     }
 
-    /// The mutation that proves the two tests above are looking at anything.
-    ///
-    /// Both assert that a list did *not* grow, which a broken `apply` that wrote nothing at all
-    /// would satisfy perfectly. This one shows the same call really does write when it has
-    /// something new to say.
+    /// The control for the two tests above, which assert a list did not grow: an `apply` that
+    /// wrote nothing would pass them. This shows the same call writes when it has something new.
     @MainActor
     @Test func applyingReallyDoesWriteWhenItHasSomethingNew() throws {
         let dir = try Self.scratchDirectory()

@@ -3,24 +3,19 @@ import Foundation
 import FileExplorer
 @testable import SyncCloud
 
-/// **The ordering `EditorDocumentLoad.run` keeps between the document and its undo stacks** — the
-/// one property standing between a file switch and an `NSRangeException`.
+/// The order `EditorDocumentLoad.run` keeps between the document and its undo stacks, the one
+/// property standing between a file switch and an `NSRangeException`.
 ///
-/// `EditorUndoStoreTests` covers the store's own rules: one stack per path, a stack refused when its
-/// fingerprint no longer fits. What nothing covered was the SEQUENCE those calls are made in around
-/// the buffer being replaced, and that is where the crash comes from — `NSTextView` registers undo
-/// by character range in the buffer the edit was made against, so a stack reunited with the wrong
-/// buffer splices characters out of it or throws.
+/// `EditorUndoStoreTests` covers the store's own rules (one stack per path, a stack refused when
+/// its fingerprint no longer fits). This covers the sequence of those calls around replacing the
+/// buffer: `NSTextView` registers undo by character range in the buffer the edit was made against,
+/// so a stack reunited with the wrong buffer splices characters out of it or throws.
 ///
-/// **These run the shipped function.** An earlier version of this suite lived in the FileExplorer
-/// package with a local copy of the three calls, because `ContentView` cannot be built in a test —
-/// which pinned the transcription and would have passed with the real sequence written any way at
-/// all. Extracting `EditorDocumentLoad` is what made the invariant testable; this is the test that
-/// needed it.
+/// These run the shipped function, not a local copy of the calls, since `ContentView` can't be
+/// built in a test.
 ///
-/// **A class, for its `deinit`** — Swift Testing makes one instance per test, so each test's files
-/// live in one folder the instance owns and removes when it goes, rather than leaving a folder per
-/// call behind in the temporary directory.
+/// A class, for its `deinit`: Swift Testing makes one instance per test, so each test's files live
+/// in one folder the instance removes when it goes.
 @MainActor
 @Suite final class EditorDocumentLoadTests {
 
@@ -48,11 +43,11 @@ import FileExplorer
 
     // MARK: The invariant
 
-    /// **A round trip hands back the stack the document was left with.**
+    /// A round trip hands back the stack the document was left with.
     ///
-    /// This is the assertion that fails if `remember(text:)` moves to after the buffer is replaced:
-    /// the outgoing stack would be filed against the INCOMING text, its fingerprint would then agree
-    /// with a buffer it was never made against, and coming back would hand it over.
+    /// Fails if `remember(text:)` moves to after the buffer is replaced: the outgoing stack would
+    /// be filed against the incoming text, its fingerprint would agree with a buffer it was never
+    /// made against, and coming back would hand it over.
     @Test func aRoundTripReturnsTheStackTheDocumentWasLeftWith() throws {
         let a = try file("a.md", "alpha")
         let b = try file("b.md", "bravo")
@@ -74,9 +69,9 @@ import FileExplorer
         #expect(store.current.canUndo, "a's stack came back empty")
     }
 
-    /// **A load never evicts the file it is opening** (UND-7): `run` tells the store which path is
-    /// coming in. A limit of 2 and three edited files, a → b → c → a: before the fix the eviction
-    /// that made room for c's history took a's, on the way into a. Mutation: drop `opening: path`.
+    /// A load never evicts the file it is opening: `run` tells the store which path is coming in.
+    /// A limit of 2 and three edited files, a → b → c → a. Fails if `opening: path` is dropped, when
+    /// the eviction making room for c's history would take a's on the way into a.
     @Test func aLoadNeverEvictsTheFileItIsOpening() throws {
         let paths = try ["a.md", "b.md", "c.md"].map { try file($0, String($0.prefix(1))) }
         let document = EditorDocument()
@@ -92,11 +87,11 @@ import FileExplorer
         #expect(store.current.canUndo)
     }
 
-    /// **The incoming stack is checked against what ACTUALLY loaded**, so a file that changed while
-    /// it was away does not get its old registrations back.
+    /// The incoming stack is checked against what actually loaded, so a file that changed while it
+    /// was away doesn't get its old registrations back.
     ///
-    /// The positive control for the test above: it proves that one is asserting the sequence keeps
-    /// the two in step, rather than that the store never refuses anything.
+    /// The positive control for the round-trip test: it proves that one asserts the sequence keeps
+    /// the two in step, not that the store never refuses anything.
     @Test func aStackIsRefusedWhenTheFileChangedWhileItWasAway() throws {
         let a = try file("a.md", "alpha")
         let b = try file("b.md", "bravo")
@@ -112,7 +107,7 @@ import FileExplorer
                 "a stack was replayed into a buffer that changed while it was away")
     }
 
-    /// **A refused file replaces the buffer too, so it must take the stack with it.** `open`'s
+    /// A refused file replaces the buffer too, so it must take the stack with it. `open`'s
     /// `.refused` arm empties the text and clears the stamp; leaving the previous document's manager
     /// current would leave ⌘Z live over an empty buffer with another file's ranges in it.
     @Test func aRefusedOpenAlsoMovesTheUndoStack() throws {
@@ -133,11 +128,9 @@ import FileExplorer
         #expect(!store.current.canUndo)
     }
 
-    /// **Nothing in the load suspends**, which is what stops a render pass seeing one document's
-    /// text beside another's undo manager. Stated as a test rather than only as prose in
-    /// `EditorDocumentLoad`, because "it is synchronous" is exactly the property an innocent-looking
-    /// `await` takes away — and the day someone adds one, the document and the stack must still be
-    /// observed moving together.
+    /// Nothing in the load suspends, which stops a render pass seeing one document's text beside
+    /// another's undo manager. A test, not only prose in `EditorDocumentLoad`, because an innocent
+    /// `await` is exactly what would take that away.
     @Test func theDocumentAndTheUndoStackMoveInTheSameTurn() throws {
         let a = try file("a.md", "alpha")
         let b = try file("b.md", "bravo")
@@ -147,17 +140,16 @@ import FileExplorer
         load(a, document, store)
         let stackForA = store.current
         load(b, document, store)
-        // One turn: by the time `run` has returned, BOTH have moved to b. If the load ever gains a
-        // suspension in the wrong place, this is where the two are caught disagreeing.
+        // One turn: by the time `run` returns, both have moved to b. A suspension in the wrong
+        // place would show the two disagreeing here.
         #expect(document.text == "bravo")
         #expect(document.path == b)
         #expect(store.current !== stackForA)
     }
 
-    /// **A load also sweeps stacks whose files are gone.** `forgetMissingFiles` is in the load
-    /// because that is the moment a stack is put away, and a stack for a path that no longer exists
-    /// can never be handed back — keeping it holds memory for an outcome that cannot happen. Nothing
-    /// asserted that the load performs the sweep, only that the store can.
+    /// A load also sweeps stacks whose files are gone. `forgetMissingFiles` is in the load because
+    /// that is when a stack is put away, and a stack for a path that no longer exists can never be
+    /// handed back. This checks the load performs the sweep, not just that the store can.
     @Test func aLoadDropsTheHistoryOfFilesThatAreGone() throws {
         let a = try file("a.md", "alpha")
         let b = try file("b.md", "bravo")
@@ -165,7 +157,7 @@ import FileExplorer
         let document = EditorDocument()
         let store = EditorUndoStore()
 
-        // Each edited, so each has a history to keep: an empty one is not kept (2026-10-09).
+        // Each edited, so each has a history to keep: an empty one is not kept.
         load(a, document, store)
         store.current.registerUndo(withTarget: document) { _ in }
         load(b, document, store)
@@ -180,8 +172,8 @@ import FileExplorer
         #expect(store.keptCount == 1, "the sweep did not run, or took too much: \(store.keptCount)")
         load(b, document, store)
         #expect(store.current === stackForB, "b came back without its own history")
-        // And the proof that it was A that went: reopening a gets a stack, but never the old one,
-        // because the file it described is gone.
+        // And it was a's that went: reopening a gets a stack, but never the old one, because the
+        // file it described is gone.
         try "alpha".write(toFile: a, atomically: true, encoding: .utf8)
         load(a, document, store)
         #expect(store.keptCount <= 2)
@@ -189,7 +181,7 @@ import FileExplorer
 
     // MARK: The log
 
-    /// One line per load whatever the read did — a refusal is as visible as a success.
+    /// One line per load whatever the read did: a refusal is as visible as a success.
     @Test func everyLoadIsLoggedOnceAndSaysWhatHappened() throws {
         let a = try file("a.md", "alpha")
         let document = EditorDocument()
@@ -224,17 +216,16 @@ import FileExplorer
             #expect(lines.last?.hasPrefix("Editor opened \(path) read-only") == true,
                     "a read-only open was not logged as one: \(lines)")
         } else {
-            // Not the fixture's fault if the reader classifies it differently — say so rather than
-            // asserting the wrong thing.
+            // If the reader classifies it differently, say so rather than assert the wrong thing.
             Issue.record("fixture did not decode lossily; got \(result)")
         }
     }
 
     // MARK: The text storage (TE67.0)
 
-    /// **The first load writes the file into no storage but the one it keeps** (2026-10-09). The
-    /// buffer and the store started with a storage each, and the first load wrote the whole file
-    /// into the buffer's — then threw it away, after logging a resync when a view was mounted on it.
+    /// The first load writes the file into no storage but the one it keeps. The buffer and the
+    /// store start with a storage each, and writing into the buffer's would be thrown away, with a
+    /// resync logged if a view was mounted on it.
     @Test func theFirstLoadWritesIntoNoThrowawayStorage() throws {
         let a = try file("a.md", "alpha")
         let document = EditorDocument()
@@ -246,10 +237,10 @@ import FileExplorer
         #expect(document.buffer.source.textStorage.string == "alpha")
     }
 
-    /// **Step 4: the buffer follows the storage kept beside the stack** — on the way in, and back to
-    /// the same storage object on a round trip. Without it the text view goes on showing the
-    /// outgoing document's storage beside the incoming document's stack. Mutation: drop
-    /// `document.buffer.follow(undoStore.source)` from `run` and every assertion here fails.
+    /// The buffer follows the storage kept beside the stack, on the way in and back to the same
+    /// storage object on a round trip. Without it the text view shows the outgoing document's
+    /// storage beside the incoming document's stack. Fails if `run` drops
+    /// `document.buffer.follow(undoStore.source)`.
     @Test func theBufferFollowsTheStorageKeptBesideTheStack() throws {
         let a = try file("a.md", "alpha")
         let b = try file("b.md", "bravo")
@@ -260,7 +251,7 @@ import FileExplorer
         #expect(document.buffer.source === store.source, "the buffer does not follow a's storage")
         #expect(document.buffer.source.textStorage.string == "alpha")
         let storageForA = store.source
-        // An edit, so a's history — and with it a's storage — is kept: an empty one is not.
+        // An edit, so a's history, and with it a's storage, is kept: an empty one is not.
         store.current.registerUndo(withTarget: document) { _ in }
 
         load(b, document, store)
@@ -272,8 +263,8 @@ import FileExplorer
         #expect(document.buffer.source === storageForA, "a came back without the storage its stack edits")
     }
 
-    /// **An edit through the storage reaches the document, and ⌘Z takes it back out** — the bridge
-    /// the text view and the task tick both use, through the shipped load.
+    /// An edit through the storage reaches the document, and ⌘Z takes it back out: the bridge the
+    /// text view and the task tick both use, through the shipped load.
     @Test func anEditToTheFollowedStorageReachesTheDocument() throws {
         let a = try file("a.md", "- [ ] one\n")
         let document = EditorDocument()
@@ -290,13 +281,12 @@ import FileExplorer
 
     // MARK: A word being composed (UND-5)
 
-    /// **Every route out of a document ends a composition before anything reads the buffer** — the
-    /// settle that precedes every load and close, and the quit's flush. The buffer leaves a
-    /// half-composed word out while the storage holds it, so a switch mid-composition flushed the
-    /// file without the word and kept a storage that had it: on return the screen showed the word
-    /// and the document did not, and the next keystroke wrote it. The commit itself is tested in
-    /// the package (`PlainTextEditorBridgeTests`); `ContentView` cannot be built, so its call sites
-    /// are read. Mutation: remove either `endComposition()`.
+    /// Every route out of a document ends a composition before anything reads the buffer: the
+    /// settle before every load and close, and the quit's flush. The buffer leaves a half-composed
+    /// word out while the storage holds it, so otherwise a switch would flush the file without the
+    /// word and the screen and document would disagree on return. The commit itself is tested in
+    /// `PlainTextEditorBridgeTests`; `ContentView` can't be built, so its call sites are read.
+    /// Fails if either `endComposition()` is removed.
     @Test func leavingADocumentEndsTheCompositionFirst() throws {
         let settle = CodeText(try declarationBody(of: "func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool",
                                                   in: EditorHeaderDoorsWiringTests.editor()))

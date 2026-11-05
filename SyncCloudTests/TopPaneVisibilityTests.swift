@@ -16,15 +16,14 @@ import FileExplorer
         }
     }
 
-    /// **Browse is single-source, and deliberately gets no mode of its own.**
+    /// Browse is single-source, and deliberately gets no mode of its own. It is not in
+    /// `lensWorkspaces`, so the loop above never reaches it.
     ///
-    /// It is not in `lensWorkspaces`, so the loop above never reaches it — which is exactly how a
-    /// third case could be added here and every existing assertion stay green. A dozen sites ask
-    /// `layoutMode == .singleSource` to mean "there is only one tree", and a `.browse` case makes
-    /// all of them answer no for the workspace that is most purely one tree: the difference index
-    /// would stop being emptied, the row menu would offer Copy to the other provider, ⌥-click
-    /// would drive the hidden right pane, and Escape would stop clearing the selection. What
-    /// Browse does differently is layout, and layout is `ContentLayout`'s question.
+    /// A dozen sites read `layoutMode == .singleSource` as "there is only one tree". A `.browse`
+    /// mode would make them all answer no: the difference index would stop being emptied, the row
+    /// menu would offer Copy to the other provider, ⌥-click would drive the hidden right pane, and
+    /// Escape would stop clearing the selection. Browse differs only in layout, `ContentLayout`'s
+    /// question.
     @Test func testBrowseIsSingleSourceLikeTheLenses() {
         #expect(TopPaneVisibility.mode(for: .browse) == .singleSource)
         #expect(TopPaneVisibility.paneCount(for: .browse) == 1)
@@ -40,20 +39,13 @@ import FileExplorer
 
     // MARK: Defaults
 
-    /// **Every workspace that shows files starts with its pane up — and Editor, which shows a
-    /// document, does not.**
+    /// Every workspace that shows files starts with its pane up, and Editor, which shows a
+    /// document, does not. The flat bar's rule (the source browser is in the same place on every
+    /// workspace) holds on first use only if the pane starts up.
     ///
-    /// The rule the flat bar is built on — the source browser is in the same place on every
-    /// workspace — is only true on first use if the rail actually starts up. That changed what
-    /// `Tidy` defaulted to (its rail started collapsed), deliberately: you could not reach a lens
-    /// without the lens tabs, and picking one there opened the rail, so the collapsed default
-    /// described a state almost nobody saw.
-    ///
-    /// Editor is the one exception, and it is the opposite case: its pane exists for the session
-    /// where you must browse to a folder you have not kept or visited, while the ordinary session
-    /// opens a file from the rail and writes in it. Three columns between the window edge and the
-    /// text would be three things to look past every time. Listed by name rather than derived, so
-    /// that a workspace changing its mind about this is a decision somebody writes down.
+    /// Editor's pane is for the rare session that browses to an unvisited folder; the ordinary one
+    /// opens a file from the rail and writes, and three columns before the text would be in the
+    /// way. Listed by name rather than derived, so changing this is a decision somebody writes down.
     @Test func onlyTheEditorStartsWithItsPaneCollapsed() {
         let startCollapsed: Set<Workspace> = [.editor]
         for workspace in Workspace.allCases {
@@ -62,19 +54,19 @@ import FileExplorer
                     "\(workspace.title) starts \(expected ? "expanded" : "collapsed") — the opposite of the rule this test states")
             #expect(TopPaneVisibility.panesHidden(for: workspace, override: nil) == expected)
         }
-        // The control: if this ever became "all of them" or "none of them", the loop above would
-        // still pass while saying nothing.
+        // The control: if this became "all of them" or "none of them", the loop above would still
+        // pass while saying nothing.
         #expect(!startCollapsed.isEmpty && startCollapsed.count < Workspace.allCases.count)
     }
 
     // MARK: The editor's file rail
 
-    /// The quiet state: pane collapsed, nothing asked of the rail — it is the file list.
+    /// The quiet state: pane collapsed, nothing asked of the rail, so the rail is the file list.
     @Test func theRailIsDrawnInTheQuietState() {
         #expect(TopPaneVisibility.editorRailIsDrawn(paneHidden: true, railHidden: false, railFolded: false))
     }
 
-    /// An open pane IS the file list, so the rail steps aside rather than listing the folder twice.
+    /// An open pane is the file list, so the rail steps aside rather than listing the folder twice.
     @Test func theRailYieldsToAnOpenPane() {
         #expect(!TopPaneVisibility.editorRailIsDrawn(paneHidden: false, railHidden: false, railFolded: false))
     }
@@ -84,10 +76,10 @@ import FileExplorer
         #expect(!TopPaneVisibility.editorRailIsDrawn(paneHidden: true, railHidden: true, railFolded: false))
     }
 
-    /// **Folded by hand (TE77) withholds the list as Expand does, and through its own bit** — a
-    /// list folded by hand must not read as Expand, or the header would light Files. Every
-    /// combination: drawn only with the pane folded and BOTH rail bits clear. Mutation: drop
-    /// `!railFolded` from the rule and the folded rows fail.
+    /// Folded by hand withholds the list as Expand does, through its own bit, so a hand fold does
+    /// not read as Expand and light Files in the header. Every combination: drawn only with the
+    /// pane folded and both rail bits clear. Dropping `!railFolded` from the rule must fail the
+    /// folded rows.
     @Test func eitherRailBitWithholdsTheListAndOnlyAFoldedPaneDrawsIt() {
         for pane in [false, true] {
             for hidden in [false, true] {
@@ -100,17 +92,17 @@ import FileExplorer
         }
     }
 
-    /// **A new window opens with the list folded** (decision AF): the default is the folded state,
-    /// so the quiet layout is sidebar · strip · text. Pinned because the default IS the decision.
+    /// A new window opens with the list folded, so the quiet layout is sidebar · strip · text.
+    /// Pinned because the default is the decision.
     @Test func theListStartsFolded() {
         #expect(TopPaneVisibility.editorRailFoldedDefault)
         #expect(TopPaneVisibility.editorRailFoldedKey != TopPaneVisibility.editorRailHiddenKey,
                 "the hand fold shares Expand's key — folding the list would light Expand")
     }
 
-    /// With the pane open the bit is not consulted at all — both values of it answer the same —
-    /// which is what lets the bit survive a trip into the pane and back without being cleared.
-    /// The rule takes the bit by value and has nowhere to write, so "ignored" is the whole claim.
+    /// With the pane open the bit is not consulted (both values answer the same), which lets it
+    /// survive a trip into the pane and back. The rule takes the bit by value and has nowhere to
+    /// write, so "ignored" is the whole claim.
     @Test func anOpenPaneIgnoresTheRailBitRatherThanClearingIt() {
         let withBitClear = TopPaneVisibility.editorRailIsDrawn(paneHidden: false, railHidden: false, railFolded: false)
         let withBitSet = TopPaneVisibility.editorRailIsDrawn(paneHidden: false, railHidden: true, railFolded: true)
@@ -120,7 +112,7 @@ import FileExplorer
 
     // MARK: The sidebar beside Edit's folded pane, and Expand
 
-    /// **Only Edit's sidebar outlives a collapsed pane.** Listed by name: in a lens a click would
+    /// Only Edit's sidebar outlives a collapsed pane. Listed by name: in a lens a click would
     /// re-root a pane nobody can see, so a workspace joining this set is a decision to write down.
     @Test func onlyEditsSidebarOutlivesACollapsedPane() {
         for workspace in Workspace.allCases {
@@ -130,14 +122,14 @@ import FileExplorer
     }
 
     /// Every starting state, as the person sees it: list hidden or not, pane folded or not,
-    /// sidebar showing or not. The record bits start clear — what a state reached by hand has.
+    /// sidebar showing or not. The record bits start clear, as in a state reached by hand.
     static let startingStates: [(rail: Bool, pane: Bool, sidebar: Bool)] =
         [false, true].flatMap { r in [false, true].flatMap { p in [false, true].map { (r, p, $0) } } }
 
-    /// **Leaving gives back exactly what was showing** (asked 2026-10-04) — from every one of the
-    /// eight states Expand can be entered from (one of which is already on, see below). The
-    /// sidebar is read as drawn: the preference, less Expand's hold. Mutation: drop the pane
-    /// restore from `leave` and every state with the pane open fails.
+    /// Leaving gives back exactly what was showing, from every state Expand can be entered from
+    /// (list hidden with pane folded is already on; see below). The sidebar is read as drawn: the
+    /// preference, less Expand's hold. Dropping the pane restore from `leave` must fail every state
+    /// with the pane open.
     @Test(arguments: startingStates.filter { !($0.rail && $0.pane) })
     func leavingExpandGivesBackExactlyWhatWasShowing(start: (rail: Bool, pane: Bool, sidebar: Bool)) {
         let before = EditorExpand(railHidden: start.rail, paneFolded: start.pane,
@@ -150,14 +142,14 @@ import FileExplorer
         #expect(!expand.isOn)
         #expect(expand.paneFolded == start.pane, "the pane came back \(expand.paneFolded ? "folded" : "open")")
         #expect(!expand.hidesSidebar, "Expand still holds the sidebar off after leaving")
-        // The rail comes back whatever it was — leaving Expand is the request for the list.
+        // The rail comes back whatever it was: leaving Expand is the request for the list.
         #expect(!expand.railHidden)
         #expect(!expand.sidebarPutAway && !expand.paneFoldedByExpand, "a spent record was kept")
     }
 
-    /// **A second entry keeps the record** — a launch from Finder into a window already expanded.
-    /// Reading the state afresh would see Expand's own work (pane folded, sidebar held) and leave
-    /// owing nothing. Mutation: drop the `isOn` branch and the pane stays folded on leaving.
+    /// A second entry, such as a launch from Finder into a window already expanded, keeps the
+    /// record. Reading the state afresh would see Expand's own work (pane folded, sidebar held) and
+    /// owe nothing. Dropping the `isOn` branch must leave the pane folded on leaving.
     @Test func enteringAgainKeepsWhatTheFirstEntryOwes() {
         var expand = EditorExpand(railHidden: false, paneFolded: false,
                                   sidebarPutAway: false, paneFoldedByExpand: false)
@@ -180,11 +172,10 @@ import FileExplorer
         #expect(expand.hidesSidebar, "a sidebar shown by hand survived a second entry")
     }
 
-    /// **Opening the pane from its spine ends Expand completely, and spends the record** (CHR-3).
-    /// The sidebar comes back with the pane, and the rail bit goes too: a later fold from the pane's
-    /// header gives the ordinary folded layout — the Text Files list beside the text — rather than
-    /// re-lighting Expand with the sidebar still showing, which is what a surviving bit did.
-    /// Mutation: keep the rail bit in `paneOpenedByHand` and the fold re-lights Expand.
+    /// Opening the pane from its spine ends Expand completely and spends the record. The sidebar
+    /// comes back with the pane and the rail bit goes too, so a later fold from the pane's header
+    /// gives the ordinary folded layout (the Text Files list beside the text) rather than
+    /// re-lighting Expand. Keeping the rail bit in `paneOpenedByHand` must fail this.
     @Test(arguments: [false, true])
     func openingThePaneByHandSpendsTheRecord(paneWasFolded: Bool) {
         var expand = EditorExpand(railHidden: false, paneFolded: paneWasFolded,
@@ -204,11 +195,10 @@ import FileExplorer
         #expect(expand.paneFolded, "leaving reopened a pane the person folded themselves")
     }
 
-    /// **The strip's "Show the text files" rung shows the text files** (CHR-2), from either layout
-    /// Expand can begin in. It ran `leave()`, which reopens a pane Expand folded — and an open pane
-    /// draws no list, so the rung named the list and showed the pane. Now the list is drawn, the
-    /// pane stays folded, Expand is over and holds nothing, and its record is spent. Mutation: make
-    /// `textFilesShown` reopen the pane Expand folded, as `leave()` does, and the open-pane start fails.
+    /// The strip's "Show the text files" rung shows the text files, from either layout Expand can
+    /// begin in: the list is drawn, the pane stays folded, Expand is over and its record spent. An
+    /// open pane draws no list, so making `textFilesShown` reopen the pane Expand folded, as
+    /// `leave()` does, must fail the open-pane start.
     @Test(arguments: [false, true])
     func theStripsTextFilesRungShowsTheListAndLeavesThePaneFolded(paneWasFolded: Bool) {
         var expand = EditorExpand(railHidden: false, paneFolded: paneWasFolded,
@@ -235,10 +225,10 @@ import FileExplorer
         #expect(EditorExpand.moved(from: quiet, to: quiet) == "nothing")
     }
 
-    /// **The collapsed Edit row fits beside the sidebar at any width the clamp allows.** The
-    /// sidebar takes its width from `lensSidebarWidth`, which reserves a rail and a lens panel;
-    /// Edit's collapsed row is the spine's card and the rail-and-document workspace, and must not
-    /// need more, or the document column is squeezed under its floor at the window minimum.
+    /// The collapsed Edit row fits beside the sidebar at any width the clamp allows. The sidebar's
+    /// width comes from `lensSidebarWidth`, which reserves a rail and a lens panel; Edit's
+    /// collapsed row (the spine's card and the rail-and-document workspace) must not need more, or
+    /// the document column is squeezed under its floor at the window minimum.
     @Test func theCollapsedEditRowFitsTheLensClamp() {
         let spineSlot = PaneLogic.railSpineWidth + LiquidGlass.cardGutter
         let reserved = PaneLogic.minRailWidth + PaneLogic.minLensWorkspaceWidth
@@ -273,8 +263,7 @@ import FileExplorer
 
     @Test func testUnknownKeysAreIgnoredNotFatal() {
         // A retired entry stays in the map but is never looked up, so it can't affect any
-        // current workspace. Both examples here are real retirements: "Storage Lens" was a tab,
-        // and "Duplicates" was a workspace until it folded into Organize as a rail item.
+        // current workspace. Both examples are real retired keys.
         let raw = TopPaneVisibility.encodeOverrides(["Storage Lens": true, "Duplicates": false])
         let decoded = TopPaneVisibility.decodeOverrides(raw)
         #expect(decoded["Storage Lens"] == true)
@@ -283,19 +272,13 @@ import FileExplorer
         #expect(!TopPaneVisibility.panesHidden(for: .filing, override: decoded[Workspace.filing.rawValue]))
     }
 
-    /// **The memo answers about the string it was handed, not about the last one.**
+    /// The memo answers about the string it was handed, not about the last one.
     ///
-    /// `overrides(in:)` exists because `panesHiddenForCurrentTab` is read from around three dozen
-    /// sites — `contentLayout`, `folderSidebarIsShowing`, both shortcut gates, `showSourcePicker`,
-    /// two `.animation` modifiers and an `onChange` — several per body pass, each allocating a
-    /// `JSONDecoder` and parsing. It is a one-entry memo, which makes exactly one thing able to go
-    /// wrong: serving a previous string's answer for the current one. That would show up as the
-    /// panes not collapsing when a workspace's override is written, or a stale collapse persisting
-    /// — a stuck layout, with the stored value correct.
-    ///
-    /// Interleaved A → B → A rather than A → B, because a memo that overwrites unconditionally and
-    /// one that keys correctly both pass a single change; only coming BACK to a value distinguishes
-    /// them from a memo that never re-reads.
+    /// `overrides(in:)` exists because `panesHiddenForCurrentTab` is read from many sites, several
+    /// per body pass, and each read would otherwise decode JSON. A one-entry memo can go wrong one
+    /// way: serving a previous string's answer, which shows as a stuck layout with the stored
+    /// value correct. Interleaved A → B → A, since only coming back to a value catches a memo that
+    /// never re-reads.
     @MainActor
     @Test func theOverridesMemoFollowsTheStringItIsGiven() {
         let hidden = TopPaneVisibility.encodeOverrides([Workspace.filing.rawValue: true])
@@ -337,10 +320,8 @@ import FileExplorer
     // MARK: Migrating the single `Tidy` entry
 
     @Test func testTidysOverrideFansOutToEveryLensWorkspace() {
-        // One key covered every lens. Leaving it alone would silently discard a deliberate
-        // "keep the rail up in Tidy" the moment the lenses became peers with their own keys.
-        // Fewer keys than there once were — duplicates and automations are rail items inside
-        // Organize now and share its entry — but the fan-out still has to reach each survivor.
+        // One legacy key covered every lens, and each lens now has its own, so the fan-out must
+        // reach each lens workspace or a deliberate "keep the rail up in Tidy" is lost.
         let migrated = TopPaneVisibility.migratingOverrides(["Tidy": true])
         for workspace in Workspace.lensWorkspaces {
             #expect(migrated[workspace.rawValue] == true, "\(workspace.rawValue) lost Tidy's choice")
@@ -374,14 +355,11 @@ import FileExplorer
         let decoded = TopPaneVisibility.decodeOverrides(migrated)
         #expect(decoded["Tidy"] == nil)
         #expect(decoded["Differences"] == false)
-        // **Organize is the only lens workspace left**, so Tidy's value fans out to it alone. This
-        // asserted `decoded["Storage"] == true` while Storage was a workspace with a pane of its
-        // own; since the fold its panes are Organize's panes, and the single key above governs it.
+        // Organize is the only lens workspace, so Tidy's value fans out to it alone.
         #expect(decoded["Filing"] == true)
-        // Neither Rename nor Storage is a workspace, so the fan-out must not mint a key for either
-        // — an override for a place that cannot be selected is a row of dead state that would
-        // outlive every reader. Storage is the newer half of that rule and the easier to miss,
-        // because it WAS a workspace and its key was legitimately written until the fold.
+        // Neither Rename nor Storage is a workspace, so the fan-out must not mint a key for either:
+        // an override for a place that cannot be selected is dead state that outlives every
+        // reader.
         #expect(decoded[Workspace.retiredRenameRawValue] == nil)
         #expect(decoded["Storage"] == nil)
     }

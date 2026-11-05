@@ -3,21 +3,17 @@ import Foundation
 import Sync
 @testable import SyncCloud
 
-/// **"Trash Right Copy" checks the copy it destroys.**
+/// "Trash Right Copy" checks the copy it destroys.
 ///
-/// The context carried `keepPath`, `keepIsDirectory`, `keepScannedSize` — and nothing about the
-/// delete candidate beyond its path, so the check the comment claimed ("mirrors the FULL gate the
-/// other duplicate-removal paths honor") was structurally impossible on the half that matters. The
-/// engine calls the removal candidate the dangerous half and has always checked it: the keeper is
-/// the file being kept, the candidate is the file being destroyed.
-///
-/// A Compare review is designed to stay open. While it is, the provider re-downloads the right copy
-/// or you edit it — and the button trashed the only instance of the new content, saying the left
-/// copy is kept. The same action from the Duplicates card would have refused.
+/// The context carries the delete candidate's scan facts, not just its path, so the trash gate can
+/// check the dangerous half: the keeper is the file being kept, the candidate the one destroyed. A
+/// Compare review stays open, and meanwhile the provider can re-download the right copy or you can
+/// edit it. Unchecked, the button would trash the only instance of the new content; the same
+/// action from the Duplicates card refuses.
 @Suite struct DuplicateCompareContextTests {
 
-    /// The fields exist at all — a source-level guard would be weaker, but this is a value type, so
-    /// constructing one is the honest check that the facts are carried.
+    /// The fields exist. This is a value type, so constructing one is a stronger check that the
+    /// facts are carried than a source scan.
     @Test func theContextCarriesBothCopiesScanFacts() {
         let scanned = Date(timeIntervalSince1970: 1_700_000_000)
         let ctx = DuplicateCompareContext(
@@ -33,9 +29,9 @@ import Sync
         #expect(ctx.deleteIsDirectory == false)
     }
 
-    /// The FOLDER facts exist too: a directory review carries the scan's per-entry baseline for
-    /// each copy, because stat facts cannot answer for a directory — this is what the trash
-    /// gate's directory verdict is computed against.
+    /// The folder facts exist too: a directory review carries the scan's per-entry baseline for
+    /// each copy, because stat facts can't answer for a directory. The trash gate's directory
+    /// verdict is computed against it.
     @Test func theContextCarriesBothFolderBaselines() {
         let baseline = FolderContentSnapshot(
             entries: ["a.txt": .file(size: 100, modificationDate: nil)],
@@ -52,9 +48,9 @@ import Sync
         #expect(ctx.deleteContentSnapshot == baseline)
     }
 
-    /// **The scenario, as the gate answers it.** The right copy is re-downloaded during the review:
-    /// same path, new bytes. The keeper is untouched, so a keeper-only check passes and the trash
-    /// runs — which is the defect. Asked of the candidate, the same gate refuses.
+    /// The scenario, as the gate answers it. The right copy is re-downloaded during the review:
+    /// same path, new bytes. The keeper is untouched, so a keeper-only check would pass and trash
+    /// it. Asked of the candidate, the same gate refuses.
     @Test func aRightCopyRewrittenDuringTheReviewIsRefused() {
         let scanned = Date(timeIntervalSince1970: 1_700_000_000)
         // The keeper: unchanged, and a keeper-only gate is therefore satisfied.
@@ -62,7 +58,7 @@ import Sync
             exists: true, isDirectory: false, statSucceeded: true,
             currentSize: 4_096, scannedSize: 4_096,
             currentDate: scanned, scannedDate: scanned))
-        // The candidate: re-downloaded, so its bytes are new. This is the check that did not exist.
+        // The candidate: re-downloaded, so its bytes are new, and the gate refuses.
         #expect(!PaneLogic.duplicateCopyMatchesScan(
             exists: true, isDirectory: false, statSucceeded: true,
             currentSize: 5_120, scannedSize: 4_096,

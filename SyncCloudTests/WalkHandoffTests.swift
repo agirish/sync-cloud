@@ -6,16 +6,11 @@ import Testing
 /// The hand-off between the two halves of setup: a walk writes a profile, and the answers the form
 /// collected before there was one land in the roster it creates.
 ///
-/// **This is the seam that silently did nothing for two stages.** Stage A's `SetupDraft` holds the
-/// You and People answers because a fresh machine has no `profiles/<id>/` to write `people.json`
-/// into; stage B's walk mints exactly that. The join is `FilingArtifacts.attach(to:)` — and it
-/// triggers no SwiftUI invalidation, because `FileSyncManager`'s filing artifacts are plain `var`s
-/// rather than `@Published`. The form read its roster once at construction, so after a successful
-/// walk it was still nil: the draft had somewhere to go and could not see it.
-///
-/// Nothing failed. The tests passed, the walk reported success, and the household the user had just
-/// typed in stayed in a JSON file nobody read. So the mechanism is pinned here rather than left to
-/// the view, which cannot be driven from a test.
+/// `SetupDraft` holds the You and People answers because a fresh machine has no `profiles/<id>/`
+/// to write `people.json` into; the walk mints it. The join, `FilingArtifacts.attach(to:)`,
+/// triggers no SwiftUI invalidation (the filing artifacts are plain `var`s), so a form that read
+/// its roster once would never see it, and the household would sit unread with nothing failing.
+/// Pinned here because the view cannot be driven from a test.
 @MainActor
 @Suite struct WalkHandoffTests {
 
@@ -33,10 +28,8 @@ import Testing
         }
     }
 
-    /// A walk creates a roster where there was none, and it is reachable from the manager.
-    ///
-    /// The property the form depends on: after `attach`, `filingPeopleStore` is non-nil, so a view
-    /// reading through the manager finds somewhere to put the draft.
+    /// A walk creates a roster where there was none, reachable from the manager: after `attach`,
+    /// `filingPeopleStore` is non-nil, so a view reading through the manager can place the draft.
     @Test func aWalkGivesTheManagerARosterToWriteInto() async throws {
         let root = try Self.scratch(), profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
@@ -50,9 +43,8 @@ import Testing
         let report = try #require(try? result.get())
         #expect(report.becameActive)
 
-        // `attach` reads from the real Application Support directory, so the manager is pointed at
-        // the scratch one by hand here — the mechanism under test is that a fresh profile becomes
-        // readable, not where the app keeps its files.
+        // `attach` reads from the real Application Support directory, so the store is pointed at
+        // the scratch one by hand: what is under test is that a fresh profile becomes readable.
         let loaded = try #require(FilingProfileStore.active(in: profiles))
         manager.filingPeopleStore = PeopleStore(directory: profiles, profileId: loaded.id,
                                                 profile: loaded.profile)
@@ -82,18 +74,14 @@ import Testing
         #expect(store.people.first { $0.displayName == "Father" }?.relationship == "me")
         #expect(report.profileId == loaded.id, "the walk's profile is not the one the roster hangs off")
 
-        // And it is on disk under the profile the walk just wrote, which is what makes it survive
-        // the relaunch the form no longer needs.
+        // And it is on disk under the profile the walk just wrote, so it survives a relaunch.
         let onDisk = profiles.appendingPathComponent("\(loaded.id)/people.json")
         #expect(FileManager.default.fileExists(atPath: onDisk.path))
     }
 
-    /// The walk records the household the form collected, even with no roster on disk.
-    ///
-    /// **This is why People is asked before Folders**, and the walk was ignoring it: it passed the
-    /// roster's registry, which is nil on the machine the form exists for, so the profile came out
-    /// with no person axis and no `person-bucket` roles from a form that had just asked who the
-    /// household is.
+    /// The walk records the household the form collected, even with no roster on disk. This is why
+    /// People is asked before Folders: the roster's registry is nil on a fresh machine, and passing
+    /// it would leave the profile with no person axis and no `person-bucket` roles.
     @Test func theWalkRecordsAHouseholdThatOnlyExistsInTheDraft() async throws {
         let root = try Self.scratch(), profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
@@ -112,33 +100,26 @@ import Testing
                 "the walk built a profile with no person axis from a form that had just collected one")
     }
 
-    /// The form hands the walk the draft household, not the roster's.
-    ///
-    /// **A call-site scan, because the defect was at the call site.** The tests above prove the
-    /// engine records a household it is given; they say nothing about what the form gives it, and
-    /// the bug was `registry: roster?.registry` — nil on the machine this form exists for. A rule
-    /// extracted for testability is one revert from being unused.
+    /// The form hands the walk the draft household, not the roster's. A call-site scan: the tests
+    /// above prove the engine records a household it is given, not what the form gives it, and
+    /// `registry: roster?.registry` is nil on the machine this form exists for.
     @Test func theFormHandsTheWalkTheHouseholdItCollected() throws {
         let source = try Self.setupSheetSource()
         // Both call sites: the preview Structure reads, and the write Save performs. A household
-        // handed to one and not the other is a screen showing a profile the save would not produce.
+        // handed to only one would show a profile the save does not produce.
         #expect(source.components(separatedBy: "registry: walkRegistry").count - 1 >= 2,
                 "the walk is no longer handed the draft household at both the preview and the write")
         #expect(!source.contains("registry: roster?.registry"),
                 "the walk is back to passing a roster that is nil on a fresh machine")
     }
 
-    /// The form reads its roster through the engine, not from a capture.
-    ///
-    /// The other half of the same defect: `FileSyncManager`'s filing artifacts are plain `var`s, so
-    /// attaching a fresh profile invalidates nothing and a captured `peopleStore` stays nil for the
-    /// life of the view.
+    /// The form reads its roster through the engine, not from a capture: the filing artifacts are
+    /// plain `var`s, so attaching a fresh profile invalidates nothing and a captured `peopleStore`
+    /// stays nil for the life of the view.
     @Test func theFormReadsItsRosterLive() throws {
         let source = try Self.setupSheetSource()
         let body = try #require(source.range(of: "private let draftURL"))
-        // **Comments stripped first.** The first draft of this scan failed on the sentence
-        // explaining the defect — a comment naming `peopleStore` is documentation, not a read, and
-        // a scan that cannot tell them apart bans writing the explanation down.
+        // Comments stripped first: a comment naming `peopleStore` is documentation, not a read.
         let afterInit = String(source[body.lowerBound...])
             .split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
@@ -148,9 +129,8 @@ import Testing
         #expect(afterInit.contains("roster"))
     }
 
-    /// The positive control: the scan can see a read when there is one.
-    ///
-    /// Without it, a stripper that removed everything would pass the check above on any file.
+    /// The positive control: the scan can see a read when there is one. Without it, a stripper
+    /// that removed everything would pass the check above on any file.
     @Test func theRosterScanCanActuallyFail() {
         let sample = ["        // peopleStore in a comment is not a read",
                       "        let a = roster?.people",
@@ -162,14 +142,9 @@ import Testing
         #expect(!stripped.contains("not a read"), "the stripper is keeping comments")
     }
 
-    /// The file the two defects this suite is about would recur in.
-    ///
-    /// **Re-pointed from `SetupSheet.swift` to `SetupModel.swift`** when the sheet became a host
-    /// and the rules moved to a model: the captured-store bug and the registry hand-off both live
-    /// wherever the roster is read and the walk is called, which is now here. The size floor came
-    /// down with it — the model is the rules, not the rules plus ten screens — and it is still a
-    /// floor rather than nothing, so a scan of a file that has been emptied fails instead of
-    /// passing vacuously.
+    /// `SetupModel.swift`, where the roster is read and the walk is called, so where the two
+    /// failures this suite guards would recur. The size floor makes a scan of an emptied file fail
+    /// instead of passing vacuously.
     private static func setupSheetSource() throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -180,13 +155,10 @@ import Testing
         return source
     }
 
-    /// Seeding the root does not walk the tree.
-    ///
-    /// **A source scan, because the cost is invisible in a test and obvious on a real tree.** The
-    /// root is seeded from the primary source, and `reconcilePrimary` moves the primary on every
-    /// source toggle — so seeding that walked would fire two full walks of a three-thousand-folder
-    /// tree per click on the Sources step, for proposals nobody had asked for yet. Each step asks
-    /// when it is reached instead.
+    /// Seeding the root does not walk the tree. A source scan, because the cost is invisible in a
+    /// test: the root is seeded from the primary source, which `reconcilePrimary` moves on every
+    /// source toggle, so a walking seed would run two full walks per click on the Sources step.
+    /// Each step asks when it is reached instead.
     @Test func seedingTheRootDoesNotStartAWalk() throws {
         let source = try Self.setupSheetSource()
         let body = try #require(Self.bodyOf("func seedWalkRoot()", in: source))
@@ -195,17 +167,9 @@ import Testing
         #expect(body.contains("invalidateProposals()"), "seeding no longer drops the old tree's work")
     }
 
-    /// A function's body, brace-matched from its declaration.
-    ///
-    /// **It was `prefix(600)`, and that is a window rather than a body.** Adding six lines of
-    /// comment inside `seedWalkRoot` pushed `invalidateProposals()` past character 600 and failed
-    /// the positive assertion with nothing about the code changed — and the same drift in the other
-    /// direction is the one that matters: a `proposePlaces()` added at the END of a grown function
-    /// would fall outside the window and the negative assertions would pass over the walk they exist
-    /// to forbid. A body that ends where the function ends cannot do either.
-    ///
-    /// Nil when the braces do not balance, which is a failure rather than a quiet empty string: a
-    /// body this cannot find is one it cannot check.
+    /// A function's body, brace-matched from its declaration, not a fixed-length window, which
+    /// could miss a call added at the end of a grown function and let the negative checks pass.
+    /// Nil when the braces do not balance, so a body it cannot find fails rather than reads empty.
     static func bodyOf(_ declaration: String, in source: String) -> String? {
         guard let decl = source.range(of: declaration),
               let open = source[decl.upperBound...].firstIndex(of: "{") else { return nil }
@@ -222,10 +186,8 @@ import Testing
         return nil
     }
 
-    /// The control: with no household handed over, the axis really is absent.
-    ///
-    /// Without this, the test above would pass on a builder that recorded every folder name as a
-    /// person, and neither would be telling me anything about the hand-off.
+    /// The control: with no household handed over, the axis really is absent. Without it, the
+    /// household test would pass on a builder that recorded every folder name as a person.
     @Test func theWalkRecordsNoHouseholdWhenItIsGivenNone() async throws {
         let root = try Self.scratch(), profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }

@@ -7,9 +7,9 @@ import FileExplorer
 import Sync
 @testable import SyncCloud
 
-/// **Ask Claude's PDF cards, the app's half** (TE294 step 3): the runner's checks on Claude's call,
-/// the card it offers, the handles a report line gets as it is sent, what a card restored after a
-/// quit says, the lines Claude hears — and that the card fits the panel.
+/// Ask Claude's PDF cards, the app's half: the runner's checks on Claude's call, the card it
+/// offers, the handles a report line gets as it is sent, what a card restored after a quit says,
+/// the lines Claude hears, and that the card fits the panel.
 @MainActor
 @Suite(.serialized) final class AskClaudePDFAppTests {
     let folder = NSTemporaryDirectory() + "ask-claude-pdf-" + UUID().uuidString
@@ -53,7 +53,7 @@ import Sync
 
     // MARK: The runner
 
-    /// **Each field Claude gets wrong is refused by name**, and nothing is offered.
+    /// Each field Claude gets wrong is refused by name, and nothing is offered.
     @Test func refusesACallFieldByField() throws {
         let one = try file("A.pdf"), two = try file("B.pdf"), doc = try file("Report.pages")
         func refusal(_ input: [String: JSONFragment], _ paths: [String], hidden: [String] = []) -> String {
@@ -78,8 +78,9 @@ import Sync
         #expect(refusal(["action": .string("compress")], many).contains("at most \(AskClaudePDFCard.maxFiles)"))
     }
 
-    /// **The card it offers, and what Claude is told**: nothing has happened, never “done”, one
-    /// short line that doesn't repeat the card; with no strength or size, Balanced. Protect tells Claude never to touch the password.
+    /// The card it offers, and what Claude is told: nothing has happened, never “done”, one short
+    /// line that doesn't repeat the card; with no strength or size, Balanced. Protect tells Claude
+    /// never to touch the password.
     @Test func offersACardAndSaysNothingHasHappened() throws {
         let one = try file("Scan.pdf")
         let outcome = offer(["action": .string("compress")], paths: [one])
@@ -126,7 +127,7 @@ import Sync
         return await runner.run(AskClaudeToolCall(id: "t", name: "pdf", input: .object(input)), handles: &handles)
     }
 
-    /// **The `pdf` name reaches the runner**: a card action offers a card, `info` reads the file.
+    /// The `pdf` name reaches the runner: a card action offers a card, `info` reads the file.
     @Test func thePDFToolRunsThroughTheRunner() async throws {
         let statement = realPDF("Statement.pdf", pages: 8)
         let card = await run(["action": .string("extract"), "pages": .string("3-5")], paths: [statement])
@@ -137,7 +138,7 @@ import Sync
         #expect(info.result.hasSuffix("no form fields."), "\(info.result)")
     }
 
-    /// **fill opens the form and says so, in each way it can end** — moved to Edit when it opened.
+    /// `fill` opens the form and says so, in each way it can end, moved to Edit when it opened.
     @Test func fillSaysHowOpeningTheFormWent() async throws {
         let form = realPDF("W-9.pdf", pages: 1)
         let opened = await run(["action": .string("fill")], paths: [form], openForFill: { _ in .opened(fields: 11) })
@@ -154,8 +155,8 @@ import Sync
 
     // MARK: Handles, minted as the line is sent
 
-    /// **A file a line names gets its handle when the line is sent** — the same handle every time
-    /// for the same file, and none for one now hidden from Claude.
+    /// A file a line names gets its handle when the line is sent: the same handle every time for
+    /// the same file, and none for one now hidden from Claude.
     @Test func linesGetTheirHandlesAsTheyAreSent() {
         var handles = AskClaudeHandles()
         let earlier = handles.handle(for: "/d/Other.pdf")
@@ -172,8 +173,8 @@ import Sync
         #expect(!sent.joined().contains("⟦"), "a mark reached Claude")
     }
 
-    /// **A card restored after a quit**: one that was running says SyncCloud quit while it ran;
-    /// one still offered is read again before its button wakes.
+    /// A card restored after a quit: one that was running says SyncCloud quit while it ran; one
+    /// still offered is read again before its button wakes.
     @Test func aRestoredCardSaysWhatBecameOfIt() {
         let base = AskClaudePDFCard(action: .compress, rows: [.init(path: "/d/A.pdf", name: "A.pdf", folderLabel: "d")])
         var running = base; running.state = .running
@@ -195,7 +196,7 @@ import Sync
                        bytes: bytes, pageCount: pages)
     }
 
-    /// **The lines, word for word**: each new file by name with its mark, its pages and size, and
+    /// The lines, word for word: each new file by name with its mark, its pages and size, and
     /// where; Compress says its pages are pictures; a hidden destination names nothing.
     @Test func reportsWhatTheClickMadeWordForWord() {
         let card = AskClaudePDFCard(action: .compress,
@@ -245,7 +246,7 @@ import Sync
                 "\(ContentView.askClaudePDFReport(spread, part, isHidden: { _ in false }))")
     }
 
-    /// **Undo's line names nothing in a hidden folder** — the caller gives it the names Claude may hear.
+    /// Undo's line names nothing in a hidden folder: the caller gives it the names Claude may hear.
     @Test func undoSaysWhatWentToTheTrash() {
         #expect(ContentView.askClaudePDFUndoReport("Compress", trashed: ["“A (compressed).pdf”"], left: [])
                 == "They undid your card “Compress”: “A (compressed).pdf” is in the Trash.")
@@ -254,8 +255,8 @@ import Sync
                 == "They undid your card “Split”: “A (page 1).pdf”, a file in a folder hidden from you are in the Trash. Left where it was: “A (pages 2–3).pdf” (changed since).")
     }
 
-    /// **A file named twice, and two sizes at once, are refused** — a file twice put two rows of
-    /// one path on the card, and with Choose Folder… the run built a map of them and trapped.
+    /// A file named twice, and two sizes at once, are refused. A file twice would put two rows of
+    /// one path on the card, and with Choose Folder… the run would build a map of them and trap.
     @Test func refusesAFileNamedTwiceAndTwoSizes() throws {
         let one = try file("A.pdf")
         var handles = AskClaudeHandles()
@@ -271,9 +272,9 @@ import Sync
         #expect(blank.options.pages == nil, "blank pages turned only “\(blank.options.pages ?? "")”")
     }
 
-    /// **Extract and Delete with no pages named show the card, not a question**: its Pages field
-    /// opens empty, Claude is told so, and the button waits until the field holds pages that can
-    /// be. Reorder still asks: it needs every page, in order.
+    /// Extract and Delete with no pages named show the card, not a question: its Pages field opens
+    /// empty, Claude is told so, and the button waits until the field holds pages that can be.
+    /// Reorder still asks: it needs every page, in order.
     @Test func extractOrDeleteWithoutPagesOffersAnEmptyField() throws {
         let one = try file("Statement.pdf")
         for action in ["extract", "delete_pages"] {
@@ -304,8 +305,8 @@ import Sync
         #expect(AskClaudePDFCardView.planned(empty, empty.rows[0]) == nil)
     }
 
-    /// **Rotate's Pages field cleared means every page** — he cleared it, so it holds "", not nil —
-    /// and the click runs, where it said "Check the pages typed." every time.
+    /// Rotate's Pages field cleared means every page (it holds "", not nil), and the click runs
+    /// rather than saying "Check the pages typed."
     @Test func rotateWithItsPagesClearedTurnsEveryPage() throws {
         let one = try file("Scan.pdf")
         func card(_ pages: String?) -> AskClaudePDFCard {
@@ -323,8 +324,8 @@ import Sync
         #expect(ContentView.askClaudePDFPagesProblem(card("9"), pageCount: 3) != nil)
     }
 
-    /// **Combine is refused only for its first file's folder** — the one its new file goes into;
-    /// each other tool, for each file's own.
+    /// Combine is refused only for its first file's folder, the one its new file goes into; each
+    /// other tool, for each file's own.
     @Test func combineAsksOnlyTheFirstFilesFolder() {
         let rows: [AskClaudePDFCard.Row] = ["/a/A.pdf", "/locked/B.pdf"].map {
             .init(path: $0, name: ($0 as NSString).lastPathComponent, folderLabel: "d", pageCount: 1)
@@ -337,7 +338,7 @@ import Sync
         #expect(compress.map(\.refusal) == [nil, AskClaudePDFCardView.unwritableFolder])
     }
 
-    /// **After a quit, the card says where the new files are** — in the folder chosen, if one was.
+    /// After a quit, the card says where the new files are: in the folder chosen, if one was.
     @Test func aQuitCardNamesTheFolderChosen() {
         var card = AskClaudePDFCard(action: .compress, rows: [.init(path: "/d/A.pdf", name: "A.pdf", folderLabel: "d")],
                                     state: .quitWhileRunning)
@@ -353,8 +354,8 @@ import Sync
 
     // MARK: The extras
 
-    /// **Each row says the file it will make** — in the folder chosen, when there is one; Split names
-    /// its first part and how many more; Combine's name is its own field.
+    /// Each row says the file it will make, in the folder chosen when there is one; Split names its
+    /// first part and how many more; Combine's name is its own field.
     @Test func eachRowSaysTheFileItWillMake() {
         func card(_ action: AskClaudePDFCard.Action, _ options: AskClaudePDFCard.Options = .init(), folder: String? = nil)
         -> AskClaudePDFCard {
@@ -374,10 +375,9 @@ import Sync
         #expect(planned(word) == "Lease.pdf")
     }
 
-    /// **The row of pages each card draws** — Delete's taken-out pages struck through among their
-    /// neighbours, Reorder's first pages in the new order (not page order, as it once was), the
-    /// rest unmarked; seven places at most, so the row fits the card; nothing while the pages typed
-    /// can't be read.
+    /// The row of pages each card draws: Delete's taken-out pages struck through among their
+    /// neighbours, Reorder's first pages in the new order (not page order), the rest unmarked;
+    /// seven places at most, so the row fits the card; nothing while the pages typed can't be read.
     @Test func eachCardDrawsItsPagesAsTheNewFileHasThem() {
         func strip(_ action: AskClaudePDFCard.Action, _ options: AskClaudePDFCard.Options, pages: Int = 12,
                    problem: String? = nil) -> [AskClaudePDFCardView.PageCell] {
@@ -406,7 +406,7 @@ import Sync
         #expect(AskClaudePDFCardView.pageLabel(7, struck: false, position: 1) == "Page 8, placed 1")
     }
 
-    /// **A run still going tells Claude how far it has got**, and says only that it runs when the
+    /// A run still going tells Claude how far it has got, and says only that it runs when the
     /// window can't say.
     @Test func aRunStillGoingSaysHowFar() {
         #expect(AskClaudeChat.stillRunning("Compress · 20 files", progress: "File 7 of 20 · Mar.pdf")
@@ -415,8 +415,8 @@ import Sync
                 == "Your card “Split” is still running; what it makes is reported when it ends.")
     }
 
-    /// **With no Undo, the card says why and what to do** — gone after a quit or a new chat, or
-    /// left alone because the file changed.
+    /// With no Undo, the card says why and what to do: gone after a quit or a new chat, or left
+    /// alone because the file changed.
     @Test func withNoUndoTheCardSaysWhatToDo() {
         var card = AskClaudePDFCard(action: .compress, rows: [.init(path: "/d/A.pdf", name: "A.pdf", folderLabel: "d")], state: .done)
         card.written = [.init(path: "/d/A (compressed).pdf", stamp: AskClaudeFileStamp(modifiedAt: nil, size: 1, fileID: 1), bytes: 1)]
@@ -429,8 +429,8 @@ import Sync
 
     // MARK: The card fits
 
-    /// **Every action's card, offered and done, asks for no more than 240 pt** — the narrowest the
-    /// panel leaves it. It sees a row too wide to wrap, not one squeezed: a card whose width fits.
+    /// Every action's card, offered and done, asks for no more than 240 pt, the narrowest the panel
+    /// leaves it. It sees a row too wide to wrap, not one squeezed: a card whose width fits.
     @Test(arguments: AskClaudePDFCard.Action.allCases)
     func everyCardFits240(_ action: AskClaudePDFCard.Action) {
         let rows: [AskClaudePDFCard.Row] = (action == .combine ? ["A long receipt name from a hotel.pdf", "Another.pdf"]

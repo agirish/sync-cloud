@@ -6,14 +6,12 @@ import PDFKit
 import Sync
 import Testing
 
-/// **⌘+, ⌘− and ⌘0 while a PDF's pages have the keyboard** — `PDFZoomVerbs` and
-/// `TextSizeMenuRoute` (Phase 5a).
+/// ⌘+, ⌘− and ⌘0 while a PDF's pages have the keyboard: `PDFZoomVerbs` and `TextSizeMenuRoute`.
 ///
-/// The same three chords are View ▸ Text Size everywhere else, and must stay exactly that: the
-/// menu bar's own items are pinned unchanged by `TextMarkupMenuTests` and `AppChordTests`. What is
-/// held here is the fork — the reader focused, the keys zoom the PDF and the text size does not
-/// move; anything else focused, the reverse. Whether the pages HAVE the keyboard is the page view's
-/// to say, and `EditorPDFLayoutTests.theFocusIsThePagesOwnAndFollowsTheFirstResponder` holds that.
+/// Everywhere else the same chords are View ▸ Text Size, pinned by `TextMarkupMenuTests` and
+/// `AppChordTests`. This holds the fork: with the reader focused the keys zoom the PDF and the text
+/// size doesn't move; otherwise the reverse. Whether the pages have the keyboard is the page view's
+/// to say (`EditorPDFLayoutTests.theFocusIsThePagesOwnAndFollowsTheFirstResponder`).
 @MainActor
 @Suite(.serialized) final class PDFZoomMenuTests {
 
@@ -43,7 +41,7 @@ import Testing
 
     // MARK: The rule
 
-    /// **Edit, the PDF open, and its pages focused** — the find's rule and one more condition.
+    /// Edit, the PDF open, and its pages focused: the find's rule and one more condition.
     @Test func theZoomVerbsNeedThePagesToHaveTheKeyboard() {
         #expect(PDFZoomVerbs.isOffered(workspace: .editor, hasPDF: true, phase: .open, readerHasFocus: true))
         #expect(!PDFZoomVerbs.isOffered(workspace: .editor, hasPDF: true, phase: .open, readerHasFocus: false),
@@ -55,8 +53,8 @@ import Testing
 
     // MARK: Where the keys go
 
-    /// **With the verbs, each item zooms the PDF and leaves the text size alone** — nil, not a
-    /// size, comes back for the item to store.
+    /// With the verbs, each item zooms the PDF and leaves the text size alone: nil, not a size,
+    /// comes back for the item to store.
     @Test func withThePagesFocusedTheKeysZoomThePDF() {
         let calls = Calls()
         for size in [FontSize.medium, FontSize(percent: 90), FontSize(percent: 135)] {
@@ -73,8 +71,8 @@ import Testing
         }
     }
 
-    /// **Without them, exactly the text size as before** — the step, the default, and the greying
-    /// at each end.
+    /// Without them, the keys are the text size: the step, the default, and the greying at each
+    /// end.
     @Test func withoutThemTheKeysAreTheTextSize() {
         let size = FontSize.medium
         #expect(TextSizeMenuRoute.perform(.bigger, pdfZoom: nil, size: size) == size.bigger)
@@ -86,7 +84,7 @@ import Testing
         #expect(TextSizeMenuRoute.isEnabled(.smaller, pdfZoom: nil, size: top))
     }
 
-    /// **The titles follow the keys.**
+    /// The titles follow the keys.
     @Test func theTitlesFlipWithTheFocus() {
         let calls = Calls()
         #expect(TextSizeMenuRoute.Verb.allCases.map { TextSizeMenuRoute.title($0, pdfZoom: nil) }
@@ -108,8 +106,8 @@ import Testing
         return file
     }
 
-    /// **An open PDF: focused, ⌘+ steps its zoom ladder and not the text size; unfocused, the
-    /// text size steps and the PDF's scale stays.** The verbs are resolved the way the window
+    /// An open PDF: focused, ⌘+ steps its zoom ladder and not the text size; unfocused, the text
+    /// size steps and the PDF's scale stays. The verbs are resolved the way the window
     /// resolves them (`shortcutPDFZoom` is `PDFZoomVerbs.resolve`, pinned below).
     @Test func theFocusDecidesWhichOneMoves() async throws {
         let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
@@ -153,8 +151,8 @@ import Testing
         return String(rest[..<end])
     }
 
-    /// **The items ask the route, on the platform's chords, and the window publishes the verbs
-    /// from the reader's focus** — the half no rule test can see.
+    /// The items ask the route, on the platform's chords, and the window publishes the verbs from
+    /// the reader's focus: the half no rule test can see.
     @Test func theItemsAndTheWindowAreWiredToTheRules() throws {
         let commands = try source("ShortcutCommands.swift")
         let items = try block("TextSizeCommands", in: commands)

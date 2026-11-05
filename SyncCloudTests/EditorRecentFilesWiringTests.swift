@@ -3,19 +3,17 @@ import AppKit
 import FileExplorer
 @testable import SyncCloud
 
-/// **The app side of Edit's recent files (TE58)**: where opens are recorded, the moved file
-/// followed, and what the empty page and File ▸ Open Recent are handed.
-///
-/// `ContentView` cannot be built in a test, so its call sites are scanned with comments stripped
-/// (`EditorHeaderDoorsWiringTests`' helpers). The rules themselves run for real in
-/// `EditorOpenRouteTests` (what a load records) and FileExplorer's `EditorRecentFilesTests` (the
-/// store and the page); the menu is read off the running app.
+/// The app side of Edit's recent files: where opens are recorded, the moved file followed, and
+/// what the empty page and File ▸ Open Recent are handed. `ContentView` can't be built in a test,
+/// so its call sites are scanned with comments stripped (`EditorHeaderDoorsWiringTests`' helpers).
+/// The rules run for real in `EditorOpenRouteTests` and FileExplorer's `EditorRecentFilesTests`;
+/// the menu is read off the running app.
 @MainActor
 @Suite struct EditorRecentFilesWiringTests {
 
-    /// **Every way into Edit records through the one load** — after it, and only where the caller
-    /// asks. Mutations: drop the `if recordsRecent` guard, record before `EditorOpenRoute.load(`, or
-    /// hand `recordOpen` a store other than the shared one — each fails a line.
+    /// Every way into Edit records through the one load, after it, and only where the caller asks.
+    /// Dropping the `if recordsRecent` guard, recording before `EditorOpenRoute.load(`, or handing
+    /// `recordOpen` another store must each fail it.
     @Test func theOneLoadRecordsWhatItOpened() throws {
         let body = try EditorHeaderDoorsWiringTests.memberBody("func loadIntoEditor(path: String, recordsRecent: Bool = true)",
                                                               in: EditorHeaderDoorsWiringTests.editor())
@@ -29,9 +27,9 @@ import FileExplorer
         #expect(body.contains("in: EditorRecentFiles.shared)"), "the open is recorded in a store the page does not read")
     }
 
-    /// **A reload is no new open**: `reloadOverTheBuffer` says so, and so does Try Again under a
-    /// refusal (TE152), which reads the file already open once more — and no other caller.
-    /// Mutation: drop `recordsRecent: false`, or add it to `createTextFile`.
+    /// A reload is no new open: `reloadOverTheBuffer` says so, and so does Try Again under a
+    /// refusal, which re-reads the file already open; no other caller does. Dropping
+    /// `recordsRecent: false`, or adding it to `createTextFile`, must fail it.
     @Test func onlyTheReloadSkipsTheRecord() throws {
         let source = try EditorHeaderDoorsWiringTests.editor()
         let reload = try EditorHeaderDoorsWiringTests.memberBody("func reloadOverTheBuffer(path: String) -> Bool", in: source)
@@ -43,8 +41,8 @@ import FileExplorer
                 "a third route skips the recent files")
     }
 
-    /// **The moved file is followed, by this app or by Finder** — before the `byThisApp` return,
-    /// which would otherwise skip the app's own renames.
+    /// The moved file is followed, whether this app or Finder moved it: before the `byThisApp`
+    /// return, which would otherwise skip the app's own renames.
     @Test func aMovedOpenFileIsFollowed() throws {
         let body = try EditorHeaderDoorsWiringTests.memberBody(
             "func editorDocumentDidMove(from old: String, to new: String, byThisApp: Bool)",
@@ -55,8 +53,9 @@ import FileExplorer
         #expect(move.upperBound < early.lowerBound, "a rename by this app is not followed")
     }
 
-    /// **The page and the menu open through the hand-off**, so the pane follows the file — the
-    /// page handed the shared store, and New Text File ⌘N's closure (`theHeaderPlusIsHandedTheNewFileChordItself`).
+    /// The page and the menu open through the hand-off, so the pane follows the file. The page is
+    /// handed the shared store; the menu's closure is wired like New Text File ⌘N's
+    /// (`theHeaderPlusIsHandedTheNewFileChordItself`).
     @Test func thePageAndTheMenuOpenThroughTheHandOff() throws {
         let workspace = try EditorHeaderDoorsWiringTests.memberBody("func editorWorkspace(showsRail: Bool, railWidth: CGFloat",
                                                                    in: EditorHeaderDoorsWiringTests.editor())
@@ -70,8 +69,8 @@ import FileExplorer
                 "File ▸ Open Recent does not open through the hand-off")
     }
 
-    /// **File ▸ Open Recent, read off the running app**: a submenu under New Text File, ending in
-    /// Clear Menu, with no chord anywhere in it. Read only — the test host's store is his.
+    /// File ▸ Open Recent, read off the running app: a submenu under New Text File, ending in Clear
+    /// Menu, with no chord in it. Read only: the test host's store is his real one.
     @Test func openRecentIsASubmenuEndingInClearMenu() throws {
         let file = try #require(NSApp.mainMenu?.items.first { $0.title == "File" }?.submenu,
                                 "the app has no File menu — this check would be vacuous")

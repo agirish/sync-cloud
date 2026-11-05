@@ -60,19 +60,19 @@ enum ScanFixture {
     }
 }
 
-/// **Ask Claude reads a scanned PDF by OCR** (TE264, gap G13): a page that is only a picture has no
-/// text layer, and `read_text` gave the on-device model nothing for it. These read with Vision.
+/// Ask Claude reads a scanned PDF by OCR: a page that is only a picture has no text layer, so
+/// without OCR `read_text` gives the model nothing for it. These read with Vision.
 ///
-/// **Three minutes to read in, not `ocrTimeout`'s 30 seconds:** Vision's first request under a new
+/// Three minutes to read in, not `ocrTimeout`'s 30 seconds: Vision's first request under a new
 /// bundle id, or after macOS recompiles its models, waits 60–90 s, and these check what is read,
 /// not how fast.
 @Suite(.serialized, .machinePinned(.textRecognition)) struct AskClaudeScanReadingTests {
 
     private static let patience: Duration = .seconds(180)
 
-    /// **A picture page is read by OCR; a page with a text layer is left as it reads.** The
-    /// fixture's picture page has no text layer — `extract`, which reads no picture, gets nothing
-    /// from it — so only OCR can put its words in.
+    /// A picture page is read by OCR; a page with a text layer is left as it reads. The fixture's
+    /// picture page has no text layer (`extract` gets nothing from it), so only OCR can put its
+    /// words in.
     @Test func aPicturePageIsReadByOCR() async throws {
         let url = try ScanFixture.pdf([.picture("Parking space number 17 is assigned to apartment 4B"),
                                        .text("Monthly rent of 2400 dollars is due on the first of the month")])
@@ -87,8 +87,8 @@ enum ScanFixture {
         #expect(read.ocrNote == "Page 1 of 2 has little or no text layer, so it was read by OCR on this Mac: a word may be misread.")
     }
 
-    /// **OCR stops at its page limit, and says which pages it left.** Eleven picture pages around
-    /// one of text: the first ten pictures are read, the last is named as unread.
+    /// OCR stops at its page limit, and says which pages it left. Eleven picture pages around one
+    /// of text: the first ten pictures are read, the last is named as unread.
     @Test func ocrStopsAtItsPageLimit() async throws {
         var pages = (1...12).map { ScanFixture.Page.picture("This is scanned page number \($0) of the lease") }
         pages[1] = .text("This page has a real text layer with plenty of words in it")
@@ -102,9 +102,9 @@ enum ScanFixture {
         #expect(read.ocrNote == "Pages 1 and 3–11 of 12 have little or no text layer, so they were read by OCR on this Mac: a word may be misread. OCR reads at most 10 pages of a file, so page 12 wasn’t read.")
     }
 
-    /// **What a page's crop hides is not read.** The page is cropped to its top half, with a line in
+    /// What a page's crop hides is not read. The page is cropped to its top half, with a line in
     /// each half of the picture: a viewer, and the text layer, show only the first. Drawn by the
-    /// media box, OCR read the hidden one too.
+    /// media box, OCR would read the hidden one too.
     @Test func aCroppedAwayLineIsNotRead() async throws {
         let url = try ScanFixture.pdf([.picture("Statement for the month of October", below: "Account number 4417 9921 0006", cropTop: true)])
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -113,8 +113,8 @@ enum ScanFixture {
         #expect(!read.pages[0].contains("4417"), "OCR read the cropped-away line: \(read.pages[0])")
     }
 
-    /// **A page in another script is read.** Vision reads English only unless asked to detect the
-    /// language, and read this Chinese line as nothing.
+    /// A page in another script is read. Vision reads English only unless asked to detect the
+    /// language, and would read this Chinese line as nothing.
     @Test func aChinesePageIsRead() async throws {
         let url = try ScanFixture.pdf([.picture("租赁合同第十七号停车位", font: "PingFang SC")])
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -123,12 +123,12 @@ enum ScanFixture {
     }
 }
 
-/// **What `read` makes of what OCR gives**, with the reading injected: no Vision, so these run on
-/// any Mac. The PDFs and the PDFKit lane are real.
+/// What `read` makes of what OCR gives, with the reading injected: no Vision, so these run on any
+/// Mac. The PDFs and the PDFKit lane are real.
 @Suite struct AskClaudeScanResultTests {
 
-    /// **OCR stops when its time runs out, and keeps what it read.** The second page's reading is
-    /// held past the limit; the first page's words are kept, and the rest are named as unread. Ten
+    /// OCR stops when its time runs out, and keeps what it read. The second page's reading is held
+    /// past the limit; the first page's words are kept, and the rest are named as unread. Ten
     /// seconds, so a PDF lane busy with another suite can't make the first page late too.
     @Test func ocrStopsWhenItsTimeRunsOut() async throws {
         let url = try ScanFixture.pdf((1...3).map { .picture("Scanned page \($0) of the insurance policy") })
@@ -143,8 +143,8 @@ enum ScanFixture {
         #expect(read.ocrNote == "Page 1 of 3 has little or no text layer, so it was read by OCR on this Mac: a word may be misread. OCR stopped after 10 seconds, so pages 2–3 weren’t read. Text recognition can take a minute or two to get ready, so asking again shortly may read them.")
     }
 
-    /// **When nothing is read in time, Claude is told to ask again**, for the pages a second ask
-    /// would read: the first ten. Those past the limit are said apart, as never read at all.
+    /// When nothing is read in time, Claude is told to ask again, for the pages a second ask would
+    /// read: the first ten. Those past the limit are said apart, as never read at all.
     @Test func nothingReadInTimeSaysAskAgain() async throws {
         let url = try ScanFixture.pdf((1...12).map { .picture("Scanned page \($0)") })
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -156,8 +156,8 @@ enum ScanFixture {
         #expect(read.ocrNote == "Pages 1–10 of 12 have little or no text layer, and OCR stopped after 1 second, before reading them. Text recognition can take a minute or two to get ready, so asking again shortly may read them. OCR reads at most 10 pages of a file, so pages 11–12 weren’t read.")
     }
 
-    /// **Stopping the question stops the reading**: no page is read after it, and it answers at
-    /// once rather than at the time limit.
+    /// Stopping the question stops the reading: no page is read after it, and it answers at once
+    /// rather than at the time limit.
     @Test func stoppingTheQuestionStopsOCR() async throws {
         let url = try ScanFixture.pdf((1...5).map { .picture("Scanned page \($0)") })
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -181,8 +181,8 @@ enum ScanFixture {
         #expect(calls.count == 1)
     }
 
-    /// **What `read` draws for Vision is the crop box, capped**: the top half of a letter page is
-    /// 612 by 396 points, so 1920 by 1242 pixels. A media box would be 1484 by 1920.
+    /// What `read` draws for Vision is the crop box, capped: the top half of a letter page is 612
+    /// by 396 points, so 1920 by 1242 pixels. A media box would be 1484 by 1920.
     @Test func ocrIsGivenTheCropBoxAtTheReadSize() async throws {
         let url = try ScanFixture.pdf([.picture("Statement for the month of October", cropTop: true)])
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -194,8 +194,8 @@ enum ScanFixture {
         #expect(sizes.all.count == 1 && sizes.all.first?.0 == 1920 && sizes.all.first?.1 == 1242)
     }
 
-    /// **A short real text layer stands when OCR reads no more**, and the page isn't said to be
-    /// read by OCR: a cover page's “Lease 2025” is under the near-empty count but is its words.
+    /// A short real text layer stands when OCR reads no more, and the page isn't said to be read by
+    /// OCR: a cover page's “Lease 2025” is under the near-empty count but is its words.
     @Test func aShortTextLayerStandsWhenOCRReadsNoMore() async throws {
         let url = try ScanFixture.pdf([.text("Lease 2025")])
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -204,7 +204,7 @@ enum ScanFixture {
         #expect(read.recognized.isEmpty && read.blank.isEmpty && read.failed.isEmpty && read.ocrNote == nil)
     }
 
-    /// **A blank page and a failed reading are said as such**, not as pages read by OCR.
+    /// A blank page and a failed reading are said as such, not as pages read by OCR.
     @Test func blankAndFailedPagesAreSaid() async throws {
         let url = try ScanFixture.pdf((1...3).map { .picture("Scanned page \($0)") })
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -220,8 +220,8 @@ enum ScanFixture {
         #expect(read.ocrNote == "Page 3 of 3 has little or no text layer, so it was read by OCR on this Mac: a word may be misread. OCR found no words on page 1. Text recognition failed on page 2.")
     }
 
-    /// **A scan whose first ten pages hold no words still says why**, and that pages were left:
-    /// it once came back as a file with no text to read at all.
+    /// A scan whose first ten pages hold no words still says why, and that pages were left, rather
+    /// than coming back as a file with no text to read at all.
     @Test func aScanOCRFindsNothingInStillSaysWhy() async throws {
         let url = try ScanFixture.pdf((1...12).map { .picture("Scanned page \($0)") })
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -230,7 +230,7 @@ enum ScanFixture {
         #expect(read.ocrNote == "OCR found no words on pages 1–10. OCR reads at most 10 pages of a file, so pages 11–12 weren’t read.")
     }
 
-    /// **A PDF locked with a password says so**, and nothing is read from it.
+    /// A PDF locked with a password says so, and nothing is read from it.
     @Test func aLockedPDFIsSaidToBeLocked() async throws {
         let url = try ScanFixture.pdf([.picture("Scanned page")], password: "secret")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

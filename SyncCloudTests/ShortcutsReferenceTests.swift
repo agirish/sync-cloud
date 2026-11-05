@@ -3,9 +3,9 @@ import Foundation
 import Design
 @testable import SyncCloud
 
-/// Pins the shortcuts reference's shape: the three expected groups exist, every row has
-/// both keys and an action, and no action is listed twice within a group. The CONTENT is a
-/// hand-maintained mirror of the real bindings — update it alongside any shortcut change.
+/// Pins the shortcuts reference's shape: the expected groups exist, every row has both keys and an
+/// action, and no action is listed twice within a group. The content is a hand-maintained mirror
+/// of the real bindings, checked against the registry below: update it with any shortcut change.
 @Suite struct ShortcutsReferenceTests {
 
     @Test func testGroupsCoverTheExpectedAreas() {
@@ -30,31 +30,12 @@ import Design
         }
     }
 
-    /// **Every chord in `AppChord.registry` has a row here.**
+    /// No chord is described by two rows in one group. `testActionsAreUniqueWithinEachGroup`
+    /// compares the prose, so the same pair listed twice in different words and order would pass
+    /// it, and `testEveryRegisteredChordHasAReferenceRow` asks only whether a chord has a row.
     ///
-    /// Not a hand-typed list of chords, which is what this was: `AppChord` exists so a chord is
-    /// declared once, and a test that re-types them all to check them is the same hand-copy the
-    /// type was introduced to remove — it can only ever pin what someone remembered to add to it.
-    /// The registry is the list; this compares against it.
-    ///
-    /// Whitespace-insensitive, because the reference spaces its keys for reading (`⇧⌘ N`) while a
-    /// chord renders tight (`⇧⌘N`): one chord, formatted for two places.
-    ///
-    /// **Matched by equality against each key a row lists, not by substring.** A row can name two
-    /// chords (`⌘ [ / ⌘ ]`), which is why the keys are split on `/` first — but asking `contains`
-    /// on the whole string made the check strictly weaker than the hand-typed list it replaced:
-    /// `⌘F` is a substring of the Differences row's `⇧⌘ F`, and `⌘R` of `⇧⌘ R`, so **deleting the
-    /// ⌘F or ⌘R row passed**. That is the one failure this test exists to catch.
-    /// **No chord is described by two rows in one group.**
-    ///
-    /// `testActionsAreUniqueWithinEachGroup` compares the *prose*, and that is not the same
-    /// property: the four transfer chords were once listed twice in Differences — once as
-    /// "⌘ → / ⌘ ←" and once as "⌘ ← / ⌘ →", with different wording and in the opposite order — and
-    /// every existing check passed. `testEveryRegisteredChordHasAReferenceRow` cannot see it either,
-    /// because it asks whether a chord has *a* row, not how many.
-    ///
-    /// Split on "/" so a row listing a pair is read as the pair it is; a range written with "–"
-    /// (the workspace digits) stays one token, which is what it means.
+    /// Split on "/" so a row listing a pair is read as the pair; a range written with "–" (the
+    /// workspace digits) stays one token.
     @Test func testNoChordIsListedTwiceWithinAGroup() {
         for group in ShortcutsReference.groups {
             let chords = group.items
@@ -67,6 +48,13 @@ import Design
         }
     }
 
+    /// Every chord in `AppChord.registry` has a row here. The registry is the list, so nothing
+    /// re-types the chords by hand.
+    ///
+    /// Whitespace-insensitive, because the reference spaces its keys for reading (`⇧⌘ N`) while a
+    /// chord renders tight (`⇧⌘N`). Matched by equality against each key a row lists, not by
+    /// substring: `⌘F` is a substring of `⇧⌘ F`, so a substring match would let the ⌘F row go
+    /// missing unnoticed.
     @Test func testEveryRegisteredChordHasAReferenceRow() {
         let listed = Self.listedChordKeys()
         #expect(listed.count > 10, "the reference is implausibly short — this scan would be near-vacuous")
@@ -76,11 +64,9 @@ import Design
         }
     }
 
-    /// **The other direction: every ⌘ chord a row names is one the app registers.** The check above
-    /// cannot see a row left behind when its command goes — ⇧⌘P stayed listed as "Show or hide the
-    /// file preview" after View ▸ File Preview was retired, a key that now does nothing. Rows for
-    /// keys that are not menu commands (clicks, a family, the editor's own text bindings) are named
-    /// here, so a new one is a decision rather than a pass.
+    /// The other direction: every ⌘ chord a row names is one the app registers, so no row outlives
+    /// its command. Rows for keys that aren't menu commands (clicks, a family, the system's own
+    /// items) are named here, so a new one is a decision rather than a pass.
     @Test func testEveryListedCommandChordIsRegistered() {
         let registered = Set(AppChord.registry.map { Self.normalized($0.display) })
         let notCommands: Set<String> = Self.listedKeysThatAreNotRegisteredCommands
@@ -91,8 +77,7 @@ import Design
         #expect(!Self.listedChordKeys().contains("⇧⌘P"), "⇧⌘P is listed again, with nothing bound to it")
     }
 
-    /// Listed ⌘ keys the app does not register through `AppChord`, each for a reason the row states:
-    /// mouse gestures, the ⌘1 – ⌘N family, and text-system bindings the editor handles itself.
+    /// Listed ⌘ keys the app does not register through `AppChord`, each with its reason.
     static let listedKeysThatAreNotRegisteredCommands: Set<String> = [
         "⌘-click",   // a mouse gesture, not a key
         "⌘1–⌘4",     // the workspace family, registered as `AppChord.workspace(_:)`, one per tab
@@ -100,13 +85,9 @@ import Design
         "⌘?",        // Help, the system Help menu's own item
     ]
 
-    /// Every chord a reference row names, one per element: keys split on the pair **separator**
-    /// and whitespace removed, so they compare against `AppChord.display` as equals.
-    ///
-    /// Split on `" / "` and not on `"/"`, because a slash is also a KEY: the row for the reference
-    /// itself is `⌘ /`. Splitting on the bare character turned that into `⌘` plus an empty string
-    /// and lost the chord entirely — caught by the strictness this helper exists for, on the first
-    /// run after it was tightened.
+    /// Every chord a reference row names: keys split on the pair separator and whitespace removed,
+    /// so they compare against `AppChord.display` as equals. Split on `" / "`, not `"/"`, because a
+    /// slash is also a key: the reference's own row is `⌘ /`.
     static func listedChordKeys() -> Set<String> {
         Set(ShortcutsReference.groups.flatMap(\.items).flatMap { item in
             item.keys.components(separatedBy: " / ").map(Self.normalized)
@@ -117,15 +98,13 @@ import Design
         keys.replacingOccurrences(of: " ", with: "")
     }
 
-    /// The guard on the guard: the matcher must actually be able to say no.
-    ///
-    /// Every other test here asserts a presence, so a matcher that answered "yes" to everything
-    /// would leave the suite green — which is exactly what substring matching did for two rows.
+    /// The guard on the guard: the matcher must be able to say no. Every other test here asserts a
+    /// presence, which a matcher that always said yes would pass.
     @Test func testTheChordMatcherRejectsAChordThatIsNotListed() {
         let listed = Self.listedChordKeys()
         #expect(!listed.contains(Self.normalized("⌘ ⌥ Q")), "the matcher accepts a chord nothing lists")
-        // And the near-miss that the old substring form accepted: a bare ⌘F must be matched by the
-        // ⌘F row and NOT by the ⇧⌘F one.
+        // And the near-miss a substring match accepts: a bare ⌘F must be matched by the ⌘F row,
+        // not the ⇧⌘F one.
         #expect(listed.contains("⌘F"))
         #expect(listed.contains("⇧⌘F"))
         #expect(!listed.contains("⌘⇧F"), "the reference spells a modifier order the app never renders")
@@ -134,12 +113,9 @@ import Design
         #expect(!listed.contains(""), "an empty key survived the split")
     }
 
-    /// **And every chord registered OUTSIDE `AppChord` has a row too.**
-    ///
-    /// The registry cannot see a `.keyboardShortcut("?", modifiers: .command)` written directly on
-    /// a menu item, and ⌘? — "SyncCloud Help" — was exactly that: registered, unlisted, in the
-    /// panel a person opens to find out what the app can do. Read out of the source, so the answer
-    /// comes from what is registered rather than from what someone remembered.
+    /// And every chord registered outside `AppChord` has a row too. The registry can't see a
+    /// `.keyboardShortcut("?", modifiers: .command)` written directly on a menu item, so these are
+    /// read out of the source.
     @Test func testEveryLiterallyRegisteredCommandChordHasAReferenceRow() throws {
         let macApp = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -163,8 +139,7 @@ import Design
         // Non-vacuity: the reader found the literal registration that certainly exists.
         #expect(registered.contains("?"), "the scan found no ⌘? — it is not reading the menus")
 
-        // Equality on split keys, for the reason the registry check above gives — substring
-        // matching would let `⇧⌘ F` stand in for a missing `⌘ F` row.
+        // Equality on split keys, as in the registry check above.
         let listed = Self.listedChordKeys()
         for key in registered.sorted() {
             #expect(listed.contains("⌘\(key.uppercased())"),
@@ -172,32 +147,23 @@ import Design
         }
     }
 
-    /// Numbering the workspaces by bar position assumes every one fits behind a single digit.
-    /// Another still fits; a tenth does not — this fails first, before someone ships a chord with
-    /// two digits in it, which cannot exist.
+    /// Numbering the workspaces by bar position assumes each fits behind a single digit; a tenth
+    /// fails here before anyone ships a two-digit chord, which can't exist.
     @Test func testEveryWorkspaceIsReachableByASingleDigitChord() {
         #expect(Workspace.allCases.count <= 9)
     }
 
-    /// ...and the reference's workspace row must count the same list: a sixth workspace would
-    /// otherwise ship with a row still reading "⌘ 1 – ⌘ 3" and every shape test green.
-    ///
-    /// This is also where the range is checked on `AppChord.registry`'s behalf: `workspace(_:)` is
-    /// a family rather than a member, so the registry sweep cannot see it.
+    /// ...and the reference's workspace row counts the same list. This is also where the range is
+    /// checked for `AppChord.registry`: `workspace(_:)` is a family, not a member, so the registry
+    /// sweep can't see it.
     @Test func testTheWorkspaceRowCountsEveryWorkspace() {
         let expected = "⌘ 1 – ⌘ \(Workspace.allCases.count)"
         let keys = ShortcutsReference.groups.flatMap(\.items).map(\.keys)
         #expect(keys.contains(expected), "no row lists “\(expected)”")
     }
 
-    /// No row may advertise dragging or dropping.
-    ///
-    /// Cross-pane drag & drop was removed in `4d55246`, but this reference kept listing
-    /// "⇧ or ⌘ while dropping — Move instead of copy when dragging between panes" until
-    /// `94f1776`'s follow-up, because every test above pins only the SHAPE: groups exist, rows
-    /// are non-empty, actions are unique. A row can therefore describe a feature that no longer
-    /// exists and stay green — which is exactly what happened, in a panel the user opens with ⌘/
-    /// to find out what the app can do.
+    /// No row may advertise dragging or dropping: the app has no cross-pane drag and drop, and the
+    /// shape tests above would stay green over a row describing it.
     ///
     /// If a future feature legitimately involves dragging (resizing a divider, say), narrow this
     /// to the cross-pane transfer wording rather than deleting it.
@@ -211,16 +177,11 @@ import Design
         }
     }
 
-    /// No row may advertise a ⌘-double-click — the same failure as the drag row above, a second
-    /// time.
+    /// No row may advertise a ⌘-double-click. The column row has no gesture to support one
+    /// (`PaneColumnRowHasNoGestureTests` refuses it), and ⌘-click is multi-select.
     ///
-    /// "⌘-double-click a folder — Open it in a new tab, in Columns" stayed in Tabs for a whole
-    /// release after `2e26a50f` removed the gesture with the column row's `TapGesture`, which was
-    /// eating nine ⌘/⇧ clicks in ten. The row cannot be true again without a gesture on that row,
-    /// and `PaneColumnRowHasNoGestureTests` refuses one; ⌘-click is multi-select everywhere else.
-    ///
-    /// Narrowed to ⌘ on purpose: a plain double-click on the tab strip's empty stretch still opens
-    /// a tab, and a row describing that one would be true.
+    /// Narrowed to ⌘ on purpose: a plain double-click on the tab strip's empty stretch opens a tab,
+    /// and a row describing that would be true.
     @Test func testNoRowAdvertisesACommandDoubleClick() {
         let rows = ShortcutsReference.groups.flatMap(\.items)
         #expect(rows.count > 10, "the reference is implausibly short — this scan would be near-vacuous")

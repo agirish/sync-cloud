@@ -1,10 +1,8 @@
 import Testing
 @testable import SyncCloud
 
-/// The decision table for `CompareReviewReducer` — the tests that make the Compare-pane review state
-/// regression-resistant. Two of these (`abandoningAnInactiveReviewAlsoRestores`,
-/// `endingAReviewAlsoEndsTheGuidedReview`) pin exactly the two bugs that previously shipped from this
-/// logic when it lived inline in `ContentView` and was unreachable by tests.
+/// The decision table for `CompareReviewReducer`: which effects each Compare-pane event asks for
+/// in each review state, so the teardown rules can't drift.
 @Suite struct CompareReviewReducerTests {
 
     private func state(review: Bool = false, active: Bool = false, guided: Bool = false) -> CompareReviewState {
@@ -17,8 +15,8 @@ import Testing
     // MARK: A user-chosen comparison change drops the review WITHOUT restoring
 
     @Test func providerSwitchDuringAnActiveReviewDropsItWithoutRestoring() {
-        // ACTIVE: both panes still show the two copies, so the comparison the user is redefining
-        // is the one in front of them — their choice stands, nothing is put back.
+        // Active: both panes still show the two copies, so the comparison the user is redefining
+        // is the one in front of them. Their choice stands; nothing is put back.
         let active = { self.state(review: true, active: true, guided: $0) }
         #expect(effects(.providerSwitched(isLeft: true), active(true)) == [.endGuidedReview, .clearDuplicateReview])
         #expect(effects(.providerSwitched(isLeft: true), active(false)) == [.clearDuplicateReview])
@@ -29,11 +27,10 @@ import Testing
     }
 
     @Test func providerSwitchAfterTheReviewWentInactiveReleasesItsPin() {
-        // INACTIVE: the user has already moved on — entering an Organize lens re-focuses the shared
-        // left pane, which is exactly how this state is reached — so the OTHER pane is still
-        // pinned to the duplicate's provider by `compareCopies`. That pin is bookkeeping the user
-        // never chose, and dropping the snapshot without releasing it stranded their other pane on
-        // the duplicate's provider permanently.
+        // Inactive: the user has moved on (entering an Organize lens refocuses the shared left
+        // pane), but `compareCopies` still pins the other pane to the duplicate's provider. The
+        // user never chose that pin, and dropping the snapshot without releasing it would strand
+        // that pane on the duplicate's provider for good.
         #expect(effects(.providerSwitched(isLeft: true), state(review: true, active: false))
                 == [.clearDuplicateReview, .undoProviderPin(keepingUserChoiceOnLeft: true)])
         #expect(effects(.providerSwitched(isLeft: false), state(review: true, active: false))
@@ -42,18 +39,16 @@ import Testing
                 == [.endGuidedReview, .clearDuplicateReview, .undoProviderPin(keepingUserChoiceOnLeft: true)])
     }
 
-    /// **A tab-driven source change never asks for `.undoProviderPin`, in ANY state.**
+    /// A tab-driven source change never asks for `.undoProviderPin`, in any state.
     ///
-    /// That effect repoints the SIBLING pane's provider and re-homes it onto the pre-review folder.
-    /// `adoptProviderForTab` is the one caller that must never have a pane re-homed under it — the
-    /// tab it is applying carries the navigation — so pairing the two moved the untouched pane off
-    /// the folder its own tab names, and `saveBrowseTabs` then wrote that displacement over the tab
-    /// for good. The same "a tab silently retargeted to another cloud" defect the tab fixes removed
-    /// on the near pane, reintroduced on the far one by the review dispatch that was supposed to be
-    /// the safe part.
+    /// That effect repoints the sibling pane's provider and re-homes it onto the pre-review folder.
+    /// `adoptProviderForTab` must never have a pane re-homed under it, since the tab it applies
+    /// carries the navigation: the untouched pane would leave the folder its own tab names, and
+    /// `saveBrowseTabs` would write that over the tab for good, silently retargeting it to another
+    /// cloud.
     ///
-    /// Every state, because the pin undo is reached only from ONE of them (review set, gone
-    /// inactive) and a test that missed that state would pass on a reducer that still asked for it.
+    /// Every state, because the pin undo is reached from only one (review set, gone inactive) and
+    /// a test that missed it would pass on a reducer that still asked for it.
     @Test func aTabDrivenSourceChangeNeverRepointsTheSiblingPane() {
         for guided in [false, true] {
             for review in [false, true] {
@@ -68,16 +63,16 @@ import Testing
                 }
             }
         }
-        // …and the control: it is not inert. The stale review still goes and a guided review
-        // framed on the old pair still ends, which is why the dispatch is there at all.
+        // The control: it is not inert. The stale review still goes and a guided review framed on
+        // the old pair still ends, which is why the dispatch exists.
         #expect(effects(.tabChangedSource, state(review: true, active: false))
                 == [.clearDuplicateReview])
         #expect(effects(.tabChangedSource, state(review: true, active: true, guided: true))
                 == [.endGuidedReview, .clearDuplicateReview])
         #expect(effects(.tabChangedSource, state(review: false, guided: true)) == [.endGuidedReview])
         #expect(effects(.tabChangedSource, state()) == [])
-        // The difference from `.providerSwitched` in the one state that separates them, stated as a
-        // comparison so the two cannot be quietly merged back together.
+        // The difference from `.providerSwitched` in the one state that separates them, stated as
+        // a comparison so the two can't be quietly merged.
         #expect(effects(.tabChangedSource, state(review: true, active: false))
                 != effects(.providerSwitched(isLeft: true), state(review: true, active: false)))
     }
@@ -88,11 +83,9 @@ import Testing
     }
 
     @Test func rootEditBehavesLikeAProviderSwitch() {
-        // Round-4 regression guard: the settings.enabledProviders onChange used to tear down
-        // inline (endReviewForComparisonChange only) and forgot to clear the duplicate review —
-        // whose keeper/copy paths live under the edited root. The event must drop BOTH reviews,
-        // and must NOT restore (the user chose the edit; the saved relative paths belong to
-        // roots that no longer exist).
+        // A root edit drops both reviews, since the duplicate review's keeper and copy paths live
+        // under the edited root. It must not restore: the user chose the edit, and the saved
+        // relative paths belong to roots that no longer exist.
         #expect(effects(.comparisonRootEdited, state(review: true, guided: true)) == [.endGuidedReview, .clearDuplicateReview])
         #expect(effects(.comparisonRootEdited, state(review: true, guided: false)) == [.clearDuplicateReview])
         #expect(effects(.comparisonRootEdited, state(review: false, guided: true)) == [.endGuidedReview])
@@ -111,8 +104,8 @@ import Testing
     // MARK: Explicit end (Done / Trash) — end the guided review AND restore
 
     @Test func endingAReviewAlsoEndsTheGuidedReview() {
-        // Round-3 regression guard: restore must be accompanied by ending the guided review, or a
-        // frozen queue keeps running against stale paths under a relabeled card.
+        // A restore must come with ending the guided review, or a frozen queue keeps running
+        // against stale paths under a relabeled card.
         for event: CompareReviewEvent in [.reviewDone, .rightCopyTrashed] {
             #expect(effects(event, state(review: true, guided: true)) == [.endGuidedReview, .clearDuplicateReview, .restoreCompareState])
             #expect(effects(event, state(review: true, guided: false)) == [.clearDuplicateReview, .restoreCompareState])
@@ -123,8 +116,7 @@ import Testing
     // MARK: Leaving Compare
 
     @Test func abandoningAnInactiveReviewAlsoRestores() {
-        // Round-1 regression guard: dropping an abandoned review MUST also restore, or the
-        // auto-pinned provider leaks.
+        // Dropping an abandoned review must also restore, or the auto-pinned provider leaks.
         let left = CompareReviewEvent.tabSwitched(toCompare: false, fromCompare: true)
         #expect(effects(left, state(review: true, active: false, guided: true)) == [.endGuidedReview, .clearDuplicateReview, .restoreCompareState])
         #expect(effects(left, state(review: true, active: false, guided: false)) == [.clearDuplicateReview, .restoreCompareState])
@@ -147,10 +139,10 @@ import Testing
 
     // MARK: Every event, by construction
 
-    /// One value per case (every payload combination for the branching `tabSwitched`). The enum
-    /// cannot be `CaseIterable` — three cases carry payloads — so the completeness scan below is
-    /// what keeps this list total: a ninth case fails that scan until it is added here, and adding
-    /// it here is what puts it under the invariant loop.
+    /// One value per case, and every payload combination of the branching `tabSwitched`. The enum
+    /// can't be `CaseIterable` (three cases carry payloads), so the completeness scan below keeps
+    /// this list total: a new case fails it until it is added here, which puts it under the
+    /// invariant loop.
     private static let everyEvent: [CompareReviewEvent] = [
         .tabSwitched(toCompare: false, fromCompare: false),
         .tabSwitched(toCompare: false, fromCompare: true),
@@ -165,9 +157,8 @@ import Testing
         .rightCopyTrashed,
     ]
 
-    /// The event type's own doc claims its teardown invariant "is now checked for every event" —
-    /// which was aspirational while nine hand-written tests enforced it: a tenth case added
-    /// tomorrow got zero coverage and the comment stayed wrong. This makes the claim structural.
+    /// `everyEvent` names every declared case, so the event type's claim that its teardown
+    /// invariant is checked for every event stays true when a case is added.
     @Test func theEventListNamesEveryDeclaredCase() throws {
         let source = try macAppFile("CompareReviewReducer.swift")
         let header = try #require(source.range(of: "enum CompareReviewEvent: Equatable {"),
@@ -192,9 +183,8 @@ import Testing
         #expect(listed == declared,
                 "everyEvent and the enum disagree — an event outside the invariant loop can quietly diverge: declared \(declared.sorted()), listed \(listed.sorted())")
 
-        // The scan above holds one exemplar PER CASE, so it cannot see three of tabSwitched's
-        // four payload combinations quietly disappearing from the list. The count pins what the
-        // set cannot: the branching case keeps its full truth table in the loop.
+        // The set holds one exemplar per case, so it can't see `tabSwitched` losing payload
+        // combinations. The count keeps the branching case's full truth table in the loop.
         let tabSwitchedCombos = Self.everyEvent.filter {
             Mirror(reflecting: $0).children.first?.label == "tabSwitched"
         }
@@ -202,15 +192,12 @@ import Testing
                 "tabSwitched has two Bools — all four combinations belong in everyEvent, found \(tabSwitchedCombos.count)")
     }
 
-    /// The teardown invariants, for EVERY event in every state — the properties no handler may
-    /// break whatever new event arrives:
+    /// The teardown invariants, for every event in every state, which no handler may break:
     /// - a review is only ever cleared while one is set;
-    /// - restoring the pre-review comparison always accompanies clearing (never a restore of a
-    ///   review that stays);
-    /// - the pin undo is likewise only an accessory to a clear;
-    /// - clearing while a guided review runs must also end the guided review (the review it was
-    ///   framed on is going away);
-    /// - and `endGuidedReview` is exact — never emitted when no guided review is running.
+    /// - restoring the pre-review comparison always accompanies clearing;
+    /// - the pin undo, likewise, only accompanies a clear;
+    /// - clearing while a guided review runs also ends it, since its framing review is going away;
+    /// - `endGuidedReview` is never emitted when no guided review is running.
     @Test func everyEventKeepsTheTeardownInvariantsInEveryState() {
         for event in Self.everyEvent {
             for review in [false, true] {

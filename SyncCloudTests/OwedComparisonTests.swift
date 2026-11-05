@@ -3,22 +3,16 @@ import Foundation
 import Sync
 @testable import SyncCloud
 
-/// **Compare is owed one comparison, recorded in one place and paid in one place** (2026-09-26).
-///
-/// Compare's list of differences is the last scan's answer, and nothing in this app watches the
-/// disk. Two review fixes each added a way to make it good, and they overlapped: one recorded every
-/// file the editor wrote and ran a forced rescan (the whole cache dropped, both panes re-read) on
-/// arriving in Compare; the other, for ⌘N and Export as PDF, re-read only the pane holding the file
-/// and owed the comparison through the lens entry's flag, paid by a bare scan with no line. Now
-/// there is one record (`ContentView.OwedComparison`), fed by every save and every create, and one
-/// payment (`payOwedComparisonIfNeeded`) with one line saying why.
+/// Compare is owed one comparison, recorded in one place and paid in one place. Compare's list of
+/// differences is the last scan's answer, and nothing in the app watches the disk, so every save
+/// and create feeds one record (`ContentView.OwedComparison`) and one payment
+/// (`payOwedComparisonIfNeeded`) settles it, with one line saying why.
 ///
 /// The rule is pure and tested as such; the wiring is read off the source, since `ContentView`
-/// cannot be built in a test (see `BrowseWorkspaceCallSiteTests`). Every wiring check was proved
-/// by removing the line it names and watching it go red. The members are sliced by
-/// `EditorNewFilePaneWiringTests.body` — brace-matched, comment-stripped, and asked
-/// whitespace-insensitively, so a check spanning two lines (a guard's `else`, an `if`'s arms) is
-/// about the code and not its indentation.
+/// can't be built in a test (see `BrowseWorkspaceCallSiteTests`). Each wiring check fails when the
+/// line it names is removed. Members are sliced by `EditorNewFilePaneWiringTests.body`:
+/// brace-matched, comment-stripped and whitespace-insensitive, so a check spanning two lines is
+/// about the code, not its indentation.
 @Suite struct OwedComparisonTests {
 
     typealias Owed = ContentView.OwedComparison
@@ -41,8 +35,8 @@ import Sync
                 "writes on both sides re-read only one pane")
     }
 
-    /// Elsewhere — a sibling folder, a prefix that is not a folder boundary, nothing written, an
-    /// unset pane — the comparison is not about it, and nothing is paid on arrival.
+    /// Elsewhere (a sibling folder, a prefix that isn't a folder boundary, nothing written, an
+    /// unset pane) the comparison isn't about it, and nothing is paid on arrival.
     @Test func aWriteElsewhereOwesNothingThere() {
         let left = "/c/Documents", right = "/d/Backup"
         #expect(Self.written(["/c/Other/notes.md"]).payment(leftFolder: left, rightFolder: right, links: [:]) == nil)
@@ -53,16 +47,16 @@ import Sync
     }
 
     /// iCloud Drive's `Documents` is `~/Documents` on disk: a file the editor wrote there is under
-    /// a comparison rooted at the container — the root test the re-read after ⌘N uses.
+    /// a comparison rooted at the container, by the same root test the re-read after ⌘N uses.
     @Test func aWriteInAFolderTheRootLinksInIsFound() {
         let links: PathBoundary.LinkedFolders = ["/c": ["Documents": "/home/Documents"]]
         #expect(Self.written(["/home/Documents/Tax/notes.md"]).payment(leftFolder: "/c", rightFolder: "/d", links: links)
                 == .reread(.leftOnly, because: "the editor wrote /home/Documents/Tax/notes.md since the last comparison"))
     }
 
-    /// **And a folder symlink a pane's walk followed**: a document opened from a row below the link
-    /// is saved where it leads, under no prefix of the pane's folder. The walk's record finds it;
-    /// without the record, the same write is owed nothing.
+    /// And a folder symlink a pane's walk followed: a document opened below the link is saved where
+    /// it leads, under no prefix of the pane's folder. The walk's record finds it; without the
+    /// record, the same write is owed nothing.
     @Test func aWriteWhereAPanesWalkFollowedAFolderLinkIsFound() {
         let write = Self.written(["/t/sub/notes.md"])
         #expect(write.payment(leftFolder: "/c", rightFolder: "/d", rightLinkTargets: ["/t"], links: [:])
@@ -78,9 +72,9 @@ import Sync
                 == .reread(.leftOnly, because: "the editor wrote /c/a.md since the last comparison"))
     }
 
-    /// **A skipped comparison alone is only compared** — the lens entry's re-home, or ⌘N / Export
-    /// as PDF outside Compare, whose pane was re-read at once: the trees are current, and a second
-    /// walk would be the cost the targeted re-read exists to avoid. Its reason is the line.
+    /// A skipped comparison alone is only compared (the lens entry's re-home, or ⌘N / Export as PDF
+    /// outside Compare, whose pane was re-read at once): the trees are current, and a second walk
+    /// is the cost the targeted re-read avoids. Its reason is the line.
     @Test func aSkippedComparisonAloneIsOnlyCompared() {
         let lens = Self.written([], skipped: Owed.skippedByARefresh)
         #expect(lens.payment(leftFolder: "/c", rightFolder: "/d", links: [:])
@@ -94,11 +88,10 @@ import Sync
         #expect(Owed().payment(leftFolder: "/c", rightFolder: "/d", links: [:]) == nil, "nothing owed paid something")
     }
 
-    /// **A refresh that compares walks every pane holding an unread write**, whatever it was asked
-    /// to walk: settling drops that pane's cached walk, so a pane left out kept showing the file
-    /// as it was and its folder was compared cold. A source or tab switch asks for the moved pane
-    /// alone, and the write is usually under the other one. Asked to walk a pane that holds every
-    /// write, or both, it has nothing to add; a write the panes have moved off holds no pane.
+    /// A refresh that compares walks every pane holding an unread write, whatever it was asked to
+    /// walk: settling drops that pane's cached walk, so a pane left out would show the file as it
+    /// was. A source or tab switch asks for the moved pane alone, and the write is usually under
+    /// the other. A write the panes have moved off holds no pane.
     @Test func aComparingRefreshWalksEveryPaneHoldingAnUnreadWrite() {
         let left = "/c/Documents", right = "/d/Backup"
         func reason(_ owed: Owed, _ requested: FileSyncManager.PaneReloadScope) -> String? {
@@ -120,17 +113,17 @@ import Sync
     }
 
     /// An unread write under a compared folder wins over a skipped comparison: its refresh
-    /// compares, so it pays both — one refresh, one line.
+    /// compares, so it pays both, in one refresh and one line.
     @Test func anUnreadWriteIsPaidWithTheSkippedComparison() {
         let both = Self.written(["/c/notes.md"], skipped: Owed.skippedByARefresh)
         #expect(both.payment(leftFolder: "/c", rightFolder: "/d", links: [:])
                 == .reread(.leftOnly, because: "the editor wrote /c/notes.md since the last comparison"))
     }
 
-    /// **A write under neither compared folder is not recorded** — it cannot change the
-    /// comparison, and recorded it made the next comparing refresh drop cached walks nothing in
-    /// Compare shows. Under either folder (links included) it is recorded, as before; an unset
-    /// pane holds nothing. Mutation: record every write and the elsewhere cases go red.
+    /// A write under neither compared folder is not recorded: it can't change the comparison, and
+    /// recording it would make the next comparing refresh drop cached walks Compare doesn't show.
+    /// Under either folder (links included) it is recorded; an unset pane holds nothing. Recording
+    /// every write must fail the elsewhere cases.
     @Test func onlyAWriteUnderAComparedFolderIsRecorded() {
         let left = "/c/Documents", right = "/d/Backup"
         var owed = Owed()
@@ -162,10 +155,10 @@ import Sync
     // MARK: What feeds it
 
     /// Every rewrite the editor makes is recorded as an unread write: ⌘S and Save Anyway
-    /// (`writeEditorDocument`), the background autosave (`writeEditorDocumentDidWrite`), and the
-    /// flush on the way to another document (`settleEditorDocument`, only when it wrote) — each
-    /// through `noteEditorWrote`, which records it only under a compared folder (dropping the
-    /// cached walks of one elsewhere at once) and pays at once while Compare is on screen.
+    /// (`writeEditorDocument`), autosave (`writeEditorDocumentDidWrite`), and the flush on the way
+    /// to another document (`settleEditorDocument`, only when it wrote). Each goes through
+    /// `noteEditorWrote`, which records only under a compared folder (dropping cached walks of one
+    /// elsewhere at once) and pays at once while Compare is on screen.
     @Test func everySaveIsRecordedAsAnUnreadWrite() throws {
         let save = try EditorNewFilePaneWiringTests.body(of: "private func writeEditorDocument(explicit: Bool, consentedTo: EditorFileStore.Stamp? = nil) -> Bool {",
                                                          in: "ContentView+Editor.swift")
@@ -199,10 +192,10 @@ import Sync
         #expect(!noted.contains("unreadWrites.insert"), "a write is recorded without asking whether it is compared")
     }
 
-    /// ⌘N and Export as PDF feed the same record (`rereadPanesAfterEditorWrite`, which both call —
-    /// `EditorNewFilePaneWiringTests`): in Compare as a write, paid at once; elsewhere, after the
-    /// re-read of the pane holding the file, as the skipped comparison — naming the file — so the
-    /// payment compares without walking that pane a second time.
+    /// ⌘N and Export as PDF feed the same record through `rereadPanesAfterEditorWrite`
+    /// (`EditorNewFilePaneWiringTests`): in Compare as a write, paid at once; elsewhere, after
+    /// re-reading the pane holding the file, as a skipped comparison naming the file, so the
+    /// payment compares without walking that pane again.
     @Test func createAndExportFeedTheSameRecord() throws {
         let body = try EditorNewFilePaneWiringTests.body(of: "func rereadPanesAfterEditorWrite(_ path: String, writer: String = \"Edit wrote\", comparesInCompare: Bool = true) {",
                                                          in: "ContentView+Editor.swift")
@@ -219,14 +212,14 @@ import Sync
         #expect(!body.contains("unreadWrites"), "a re-read file is owed a second walk")
     }
 
-    /// A refresh that compares settles everything — reading the written files first, so its scan
-    /// is not served the walk taken before the write — and one that does not takes the comparison
-    /// on, keeping a more specific reason already there.
+    /// A refresh that compares settles everything, reading the written files first so its scan
+    /// isn't served the pre-write walk. One that doesn't compare takes the debt on, keeping a more
+    /// specific reason already there.
     @Test func aComparingRefreshReadsTheWritesAndSettlesTheRecord() throws {
         let refresh = try EditorNewFilePaneWiringTests.body(of: "func refreshAction(reloading: FileSyncManager.PaneReloadScope = .both,",
                                                             in: "ContentView.swift")
         let comparing = try #require(refresh.range(of: "if comparing {"))
-        // The widening asks the record, so it has to come before the record is cleared — and its
+        // The widening asks the record, so it must come before the record is cleared, and its
         // answer must be what the refresh walks.
         let widen = try #require(
             refresh.range(of: "if let because = owedComparison.reasonToWalkBoth(insteadOf: reloading,"),
@@ -247,15 +240,11 @@ import Sync
                 "a refresh that skips its comparison does not record the debt")
     }
 
-    /// **The tab-switch refresh compares too, so it goes through the comparing refresh above** —
-    /// with more reason than most to settle the record: it walks only the moved pane, so its scan
-    /// reads the other pane's cached walk, which a switch keeps. Unread, a file the editor wrote
-    /// under that pane's folder is compared as it was before the write. ⌘K's and the sidebar's
-    /// cross-source opens reload through it as well.
-    ///
-    /// Asked as delegation rather than as a second copy of the settle: the copy that stood here
-    /// was a second spelling of the comparing refresh, and the first one shipped without the
-    /// settle at all.
+    /// The tab-switch refresh compares too, so it goes through the comparing refresh above. It walks
+    /// only the moved pane, so its scan reads the other pane's kept walk; unsettled, a file the
+    /// editor wrote there would be compared as it was before the write. ⌘K's and the sidebar's
+    /// cross-source opens reload through it too. Checked as delegation, since a second copy of the
+    /// refresh would be free to skip the settle.
     @Test func theTabSwitchRefreshIsTheComparingRefresh() throws {
         let body = try EditorNewFilePaneWiringTests.body(of: "func refreshForTabSwitch(movedPane isLeft: Bool) {",
                                                          in: "ContentView+PaneTabs.swift")
@@ -268,8 +257,8 @@ import Sync
 
     // MARK: Where it is paid
 
-    /// **Arriving in Compare pays it, once, and nothing else there does** — the one call on the
-    /// way in, and the only other caller the write that lands while Compare is on screen.
+    /// Arriving in Compare pays it, once: the one call on the way in, plus the write that lands
+    /// while Compare is on screen, and no other caller.
     @Test func arrivingInCompareIsTheOnePlaceItIsPaid() throws {
         let content = try EditorDivergenceWiringTests.source("ContentView.swift")
         let editor = try EditorDivergenceWiringTests.source("ContentView+Editor.swift")

@@ -4,10 +4,10 @@ import UserNotifications
 @testable import SyncCloud
 import Sync
 
-/// **One-way sync's notifications** (RD67, DC): their own opt-in, off until setup turns it on;
-/// posted whichever app is in front, which General's background-completion ones are not; one
-/// identifier per row, so a reminder replaces the row's earlier notification; and the row named,
-/// so a click opens Now on it.
+/// One-way sync's notifications: their own opt-in, off until setup turns it on; posted whichever
+/// app is in front, which General's background-completion ones are not; one identifier per row, so
+/// a reminder replaces the row's earlier notification; and the row named, so a click opens Now on
+/// it.
 @MainActor
 @Suite struct OneWaySyncNotifierTests {
 
@@ -43,7 +43,7 @@ import Sync
         #expect(OneWaySyncNotifier.request(for: other).identifier != first.identifier)
     }
 
-    /// With SyncCloud in front, one-way sync's show and General's stay as they were: not shown.
+    /// With SyncCloud in front, one-way sync's notifications show and General's do not.
     @Test func onlyOneWaySyncShowsWithTheAppInFront() {
         let request = OneWaySyncNotifier.request(for: Self.delivery)
         #expect(OperationNotificationClicks.presentation(for: request.content.userInfo) == [.banner, .list, .sound])

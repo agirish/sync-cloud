@@ -46,8 +46,8 @@ import Sync
         #expect(fromRight?.node.id == b.id && fromRight?.isLeft == false)
     }
 
-    /// A Get Info target no tree holds — a differences row outside the pane's folder, a file the
-    /// filter hides — is previewed from its own node, filed with the pane whose root it is under.
+    /// A Get Info target no tree holds (a differences row outside the pane's folder, a file the
+    /// filter hides) is previewed from its own node, filed with the pane whose root it is under.
     @Test func aGetInfoTargetNoTreeHoldsUsesItsOwnNode() {
         let outside = Self.file("/R/far/away.pdf")
         let hit = target(infoPath: outside.id, infoNode: outside)

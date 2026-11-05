@@ -5,8 +5,8 @@ import Sync
 import Testing
 @testable import SyncCloud
 
-/// A question typed while Claude answers (TE297): it waits, one at a time, and goes when the
-/// answer ends — not after a Stop or a problem — carrying its own text and chips.
+/// A question typed while Claude answers waits, one at a time, and goes when the answer ends (not
+/// after a Stop or a problem), carrying its own text and chips.
 @MainActor
 @Suite struct AskClaudeQueueTests {
 

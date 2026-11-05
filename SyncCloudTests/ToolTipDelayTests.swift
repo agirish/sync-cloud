@@ -25,10 +25,10 @@ import Testing
         #expect(defaults.integer(forKey: ToolTipDelay.key) == 800)
     }
 
-    /// **The outcome, not the registration.** The test host is SyncCloud.app, so `App.init` has run
-    /// and AppKit's tooltip manager in this process is the one the app's views use. Its delay is
-    /// read when it is created, so a registration that landed too late would leave 1.5 here while
-    /// the two tests above stay green.
+    /// The outcome, not the registration. The test host is SyncCloud.app, so `App.init` has run
+    /// and this process's tooltip manager is the one the app's views use. It reads its delay when
+    /// created, so a registration that landed too late would leave 1.5 here while the two tests
+    /// above stay green.
     @Test @MainActor func appKitsTooltipManagerUsesIt() throws {
         let manager: AnyClass = try #require(NSClassFromString("NSToolTipManager"), "AppKit renamed its tooltip manager")
         let shared = try #require((manager as AnyObject)

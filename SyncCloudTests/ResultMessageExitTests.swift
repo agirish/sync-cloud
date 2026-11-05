@@ -119,8 +119,8 @@ import Sync
         #expect(center.showsDot, "a flight called off during its fold left its problem with no dot")
     }
 
-    /// **The flight's two ends**: both in one window that is on screen. A window closed or
-    /// minimized under a message gives none — the panel would order it back in.
+    /// The flight's two ends must both be in one window that is on screen. A window closed or
+    /// minimized under a message gives none, or the panel would order it back in.
     @MainActor
     @Test func anchorsNeedBothEndsInOneWindowOnScreen() {
         func window(at origin: CGPoint) -> NSWindow {

@@ -2,13 +2,11 @@ import Testing
 import Foundation
 @testable import SyncCloud
 
-/// **The app's own selection does not retire a Get Info target** (TE47's payment, 2026-09-25).
-///
-/// A selection change in the left pane clears `infoPath`, so the inspector follows the new
-/// selection. The owed selection (TE47) is paid when the pane's tree publishes — possibly after the
-/// user has used a rail row's Get Info on another file — and that payment is a selection change the
-/// user did not make: it jumped the inspector to the document. The payment is marked
-/// (`editorPaneSelectionPaid`) before it is written; the clear reads the mark.
+/// The app's own selection doesn't retire a Get Info target. A left-pane selection change clears
+/// `infoPath` so the inspector follows the selection. The owed pane selection is paid when the
+/// pane's tree publishes, possibly after the user used a rail row's Get Info on another file, and
+/// unmarked it would jump the inspector to the document. The payment is marked
+/// (`editorPaneSelectionPaid`) before it is written, and the clear reads the mark.
 @Suite struct InfoTargetSurvivesTheAppsSelectionTests {
 
     @Test func theAppsOwnWriteKeepsTheTarget() {
@@ -22,12 +20,12 @@ import Foundation
         #expect(ContentView.leftSelectionClearsInfoTarget([], paidSelection: "/c/notes.md"))
     }
 
-    /// The clear is read in the selection handler BEFORE the one-click open consumes the mark, and
-    /// the unconditional left-pane clear is gone; the right pane's stays.
+    /// The selection handler reads the mark before the one-click open consumes it, and there is no
+    /// unconditional left-pane clear; the right pane's goes through its own rule.
     @Test func theClearReadsTheMarkBeforeItIsConsumed() throws {
         let source = try EditorDivergenceWiringTests.source("ContentView.swift")
         let content = CodeText(source)
-        // The handler's own closure, where it was the next 400 characters.
+        // The handler's own closure, brace-bounded.
         let handler = CodeText(try declarationBody(of: ".onChange(of: syncManager.selectedLeftPaths) { _, paths in",
                                                    in: source))
         let clear = try #require(handler.range(of: "clearInfoTargetAfterLeftSelection(paths)"),
@@ -44,11 +42,9 @@ import Foundation
                     .passes("paidSelection", "editorPaneSelectionPaid"))
     }
 
-    /// **The right pane's half** (2026-09-26). Paying the debt now clears the right pane whatever
-    /// it holds, as a left-pane click would — and a Get Info target used on a rail row while the
-    /// debt waited was retired by that clear, the same jump the left pane's marker exists to stop.
-    /// The clear is marked; the user's own changes there, and the marker left unconsumed by
-    /// anything but an emptying change, still clear it.
+    /// The right pane's half. Paying the debt clears the right pane, as a left-pane click would, and
+    /// unmarked that clear would retire a Get Info target used on a rail row while the debt waited.
+    /// The clear is marked; the user's own changes there still clear the target.
     @Test func theAppsClearOfTheRightPaneKeepsTheTarget() {
         #expect(!ContentView.rightSelectionClearsInfoTarget([], clearWasPaid: true))
         #expect(ContentView.rightSelectionClearsInfoTarget([], clearWasPaid: false))
@@ -57,7 +53,7 @@ import Foundation
                 "a selection the user made in the right pane was taken for the app's clear")
     }
 
-    /// The marker is one-shot — read, then lowered, before the rule is asked — so it cannot outlive
+    /// The marker is one-shot (read, then lowered, before the rule is asked), so it can't outlive
     /// the change it announced and swallow the user's own later clear.
     @Test func theRightMarkerIsConsumedByTheChangeItAnnounced() throws {
         let body = try EditorNewFilePaneWiringTests.body(of: "func clearInfoTargetAfterRightSelection(_ paths: Set<String>) {",

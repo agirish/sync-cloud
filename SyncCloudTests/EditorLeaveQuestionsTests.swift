@@ -4,11 +4,11 @@ import Foundation
 import FileExplorer
 @testable import SyncCloud
 
-/// **Leaving a document, asked the same way from every door** — TE146 (a file that is gone with
-/// nothing typed), TE148 (one title and one cause line) and TE176 (Don't Save is destructive).
+/// Leaving a document, asked the same way from every door: one title and one cause line, a gone
+/// file asked about even with nothing typed, and Don't Save styled destructive.
 ///
-/// `ContentView` cannot be built in a test, so the words and the alerts are built and read, and the
-/// call sites that connect them to the window and to ⌘Q are read (testing law 5).
+/// `ContentView` can't be built in a test, so the words and the alerts are built and read, and the
+/// call sites that connect them to the window and to ⌘Q are read.
 @MainActor
 @Suite struct EditorLeaveQuestionsTests {
 
@@ -42,7 +42,7 @@ import FileExplorer
         #expect(A.causeLine(.autosaveOff) == "Autosave is off for this file.")
     }
 
-    /// **TE176: Don't Save is destructive, keeps ⌘D, and Return stays on Save.**
+    /// Don't Save is destructive and keeps ⌘D, and Return stays on Save.
     @Test func dontSaveIsDestructiveAndKeepsItsKey() {
         let alert = EditorAlerts.saveButtonsAlert(message: "m", informative: "i")
         #expect(alert.buttons.map(\.title) == ["Save", "Cancel", "Don’t Save"])
@@ -59,8 +59,8 @@ import FileExplorer
         #expect(EditorAlerts.onlyCopyLine == "It’s no longer on disk — this text may be the only copy.")
     }
 
-    /// **Read-only, it can only be left** — Cancel · Don't Save, and by decision BS Esc cancels and
-    /// Return does nothing.
+    /// Read-only, it can only be left: Cancel or Don't Save. By decision, Esc cancels and Return
+    /// does nothing.
     @Test func aGoneReadOnlyFileIsAskedOnlyWhetherToLeaveIt() {
         let alert = EditorAlerts.readOnlyGoneAlert(name: "Plan.md")
         #expect(alert.messageText == "“Plan.md” is no longer on disk")
@@ -88,7 +88,7 @@ import FileExplorer
 
     // MARK: Wiring
 
-    /// Every door out of a document asks — the settle — before the flush; a window close doesn't.
+    /// Every door out of a document asks (the settle) before the flush; a window close doesn't.
     @Test func leavingAsksAboutTheOnlyCopyBeforeTheFlush() throws {
         let settle = try EditorDiskWatchWiringTests.body("func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool")
         let gone = try #require(settle.range(of: "if asksAboutTheOnlyCopy, !editorDocument.isDirty, editorDiskWatch.isGone {"))
@@ -105,8 +105,8 @@ import FileExplorer
         #expect(unwritten.contains("EditorAlerts.askAboutUnsavedChanges(name: editorDocument.name, cause: cause)"))
     }
 
-    /// **TE147: a save that couldn't be checked is checked again** before leaving and before
-    /// quitting, and the watch's finding clears the window's "couldn't check the save" stop.
+    /// A save that couldn't be checked is checked again before leaving and before quitting, and
+    /// the watch's finding clears the window's "couldn't check the save" stop.
     @Test func anUncheckedSaveIsCheckedBeforeLeavingAndQuitting() throws {
         let settle = try EditorDiskWatchWiringTests.body("func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool")
         let check = try #require(settle.range(of: "if editorDocument.uncheckedWrite != nil { editorDiskWatch.reconcile() }"))
@@ -121,10 +121,10 @@ import FileExplorer
         #expect(settled.lowerBound < flush.lowerBound, "the quit flush runs before the check, and is blocked by Edit's own write")
     }
 
-    /// **F2: a version kept beside the file by the quit's final save is said before quitting** —
-    /// the flush counts it as saved, so nothing else would. Its own alert where ⌘Q would ask
-    /// nothing; a sentence in the file operations alert where that one is shown, so ⌘Q never asks
-    /// twice. The words are built; the call sites in `applicationShouldTerminate` are read.
+    /// A version kept beside the file by the quit's final save is said before quitting, since the
+    /// flush counts it as saved and nothing else would. Its own alert where ⌘Q would ask nothing; a
+    /// sentence in the file operations alert where that one is shown, so ⌘Q never asks twice. The
+    /// words are built; the call sites in `applicationShouldTerminate` are read.
     @Test func quittingSaysWhereAVersionKeptAsideWent() throws {
         let clause = "a different version arrived while it was saving. That version was kept beside it as “Plan (other).md”."
         #expect(SyncCloudAppDelegate.keptAsideSentence(name: "Plan.md", clause: clause)
@@ -152,7 +152,7 @@ import FileExplorer
                 "the file operations alert does not carry the sentence")
     }
 
-    /// ⌘Q asks too, with its own words — and the watch and the stop reach the delegate.
+    /// ⌘Q asks too, with its own words, and the watch and the stop reach the delegate.
     @Test func quittingAsksAboutTheOnlyCopy() throws {
         let app = try EditorHeaderDoorsWiringTests.source("SyncCloudApp.swift")
         let terminate = CodeText(try declarationBody(of: "func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply", in: app))

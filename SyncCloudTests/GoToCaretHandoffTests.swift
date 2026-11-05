@@ -2,39 +2,26 @@ import Testing
 import AppKit
 @testable import SyncCloud
 
-/// **⌘K borrows the caret; closing has to give it back.**
-///
-/// The Go-to field lives in the host window's own toolbar, so opening it takes first responder away
-/// from whatever the user was using. Measured in the running app on 2026-08-19: with nothing
-/// restoring it, closing the field left `<SwiftUI.AppKitWindow>` — the window itself — as first
-/// responder, and the file pane stopped answering arrow keys and type-select until it was clicked.
-/// It could not happen before §7, when the field was inside the palette's own panel and never
-/// touched this window's responder.
-///
-/// The first attempt at the fix restored from the field's own teardown and was **inert**: by the
-/// time SwiftUI removes the field from the window AppKit has already dropped the field editor, so
-/// the rule correctly declined to act on a caret the field no longer held (`viewWillMove(nil)
-/// fr=AppKitWindow restore=nil`, same probe). That is why this lives on the host, which knows the
-/// moment the palette closes — while the caret is still in the field.
+/// ⌘K borrows the caret; closing has to give it back. The Go-to field lives in the host window's
+/// toolbar, so opening it takes first responder from whatever the user was using. Unrestored, the
+/// window itself is left first responder and the file pane ignores arrow keys and type-select
+/// until clicked. The restore lives on the host, which sees the palette close while the caret is
+/// still in the field; by the field's own teardown AppKit has already dropped the field editor.
 @Suite @MainActor struct GoToCaretHandoffTests {
 
     private func window() -> NSWindow {
-        // Parked far off every display: this suite makes real windows and none of them may appear
-        // over whatever the user is doing.
+        // Parked far off every display: this suite makes real windows, and none may appear over
+        // whatever the user is doing.
         let w = NSWindow(contentRect: CGRect(x: -20_000, y: -20_000, width: 400, height: 300),
                          styleMask: [.titled], backing: .buffered, defer: false)
         w.isReleasedWhenClosed = false
         return w
     }
 
-    /// A view that can actually hold the caret, standing in for the pane's table.
-    /// **A view that is its OWN first responder**, and it has to be.
-    ///
-    /// The first version of this suite used editable `NSTextField`s and every assertion in it was
-    /// vacuous — a window has **one** field editor shared by all its text fields, so
-    /// `window.firstResponder` is the same `NSTextView` whichever field is being edited, and an
-    /// identity check on it is true before and after any restore. Caught by mutation: dropping the
-    /// `caretIsInField` guard entirely left the whole suite green.
+    /// A view that can hold the caret as its own first responder, standing in for the pane's table.
+    /// Editable `NSTextField`s won't do: a window has one field editor shared by all its text fields,
+    /// so `window.firstResponder` is the same `NSTextView` whichever field is edited, and an identity
+    /// check on it would pass before and after any restore.
     private final class FocusTarget: NSView {
         override var acceptsFirstResponder: Bool { true }
     }
@@ -62,9 +49,8 @@ import AppKit
                 "the caret was not handed back — the pane will not answer arrow keys until it is clicked")
     }
 
-    /// **The refusal matters as much as the restore.** Every close path runs this, including the
-    /// one where the user clicked into a pane to close the palette — and there they have already
-    /// said where focus goes.
+    /// The refusal matters as much as the restore. Every close path runs this, including the one
+    /// where the user clicked into a pane to close the palette, which already says where focus goes.
     @Test func aCaretTheUserHasAlreadyMovedIsLeftWhereTheyPutIt() throws {
         let host = window()
         let previous = focusable(host)
@@ -88,7 +74,7 @@ import AppKit
         let holding = try #require(host.firstResponder)
         #expect(holding === goTo, "the fixture never focused the stand-in field")
 
-        // Torn down while the field was open — a pane the user closed.
+        // Torn down while the field was open: a pane the user closed.
         let gone = focusable(host)
         gone.removeFromSuperview()
         #expect(gone.window == nil, "the stand-in never left the window — the guard under test is not exercised")
@@ -112,13 +98,11 @@ import AppKit
 
     // MARK: Who was holding it
 
-    /// **A window has ONE field editor, so remembering the first responder remembers nothing.**
-    ///
-    /// While the user types in a pane's Find field the window's first responder is the shared
-    /// `NSTextView`, not the field. ⌘K then re-binds that very same object to the Go-to field — so
-    /// a close that restores the remembered responder hands the caret to the object that already
-    /// has it, and the pane's field never gets it back. The same identity trap made the first
-    /// version of this whole suite vacuous; here it was in the shipped rule.
+    /// A window has one field editor, so remembering the first responder remembers nothing. While
+    /// the user types in a pane's Find field the first responder is the shared `NSTextView`, which
+    /// ⌘K then re-binds to the Go-to field; restoring it would hand the caret to the object that
+    /// already has it, and the pane's field would never get it back. So the field being edited is
+    /// what is remembered.
     @Test func whatIsRememberedIsTheFieldBeingEditedAndNotTheSharedEditor() throws {
         let host = window()
         let paneField = NSTextField(string: "invoice")
@@ -144,7 +128,7 @@ import AppKit
     }
 
     /// A responder that is not a field editor is already the thing to restore, and is returned
-    /// untouched. This is the case the fix was written for — a file pane's table.
+    /// untouched: the common case, a file pane's table.
     @Test func aPlainResponderIsRememberedAsItself() throws {
         let host = window()
         let pane = focusable(host)
@@ -153,8 +137,8 @@ import AppKit
                 "a pane holding the caret was resolved to something else")
     }
 
-    /// The two-argument form is what the close path calls, and it must route through the rule
-    /// above rather than carrying a second copy of it — see `CommandPaletteHost.swift`.
+    /// The two-argument form is what the close path calls, and it must route through the rule above
+    /// rather than carry a second copy (`CommandPaletteHost.swift`).
     @Test func theClosePathCallsTheRuleRatherThanRepeatingIt() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()

@@ -5,10 +5,10 @@ import Settings
 import FileExplorer
 @testable import SyncCloud
 
-/// **Only Edit's own pane dims anything**, and the field that says so takes part in the pane's
-/// equality — the two claims TE41's dimming rests on.
+/// Only Edit's own pane dims anything, and the field that says so takes part in the pane's
+/// equality: the two claims Edit's dimming of unopenable rows rests on.
 ///
-/// **Local-only** — app target, invisible to CI; run by hand and named in the commit body.
+/// Local-only: an app-target suite CI doesn't run, so run it by hand.
 @MainActor
 @Suite struct PaneEditorRefusalDelegateTests {
 
@@ -24,8 +24,8 @@ import FileExplorer
             onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
     }
 
-    /// The same rows against both delegates: only (Edit, a file, a kind Edit does not open)
-    /// answers. A PDF is a kind Edit opens (Phase 1a, read-only), so it stays bright.
+    /// The same rows against both delegates: only (Edit, a file, a kind Edit doesn't open)
+    /// answers. Edit opens PDFs, so they stay bright.
     @Test func onlyTheEditorsDelegateRefusesAnything() {
         let manager = FileSyncManager()
         let settings = SettingsManager()
@@ -43,9 +43,9 @@ import FileExplorer
         #expect(edit.editorRefusal(forPath: "/a/x.pdf", isDirectory: true, size: 0) == nil)
     }
 
-    /// The size refusal is the rail's sentence, from the rail's one static — so the two surfaces
-    /// cannot drift. Checked against the static rather than a literal, because the number in it is
-    /// `BoundedTextRead.maxBytes`, which this target cannot see.
+    /// The size refusal is the rail's sentence, from the rail's one static, so the two can't
+    /// drift. Checked against the static, not a literal, because its number is
+    /// `BoundedTextRead.maxBytes`, which this target can't see.
     @Test func aTooLargeTextFileIsRefusedInTheRailsWords() {
         let edit = delegate(servesEditor: true, syncManager: FileSyncManager(), settings: SettingsManager())
         let huge = 64 * 1024 * 1024
@@ -55,13 +55,13 @@ import FileExplorer
         #expect(edit.editorRefusal(forPath: "/a/x.md", isDirectory: false, size: 10) == nil)
         // The kind comes first: a huge archive is refused for its kind, not its size.
         #expect(edit.editorRefusal(forPath: "/a/x.zip", isDirectory: false, size: huge) == "Not a kind Edit opens.")
-        // And a huge PDF is not refused at all: PDFKit draws it, the text read's limit is not its own.
+        // A huge PDF isn't refused at all: PDFKit draws it, and the text read's limit isn't its own.
         #expect(edit.editorRefusal(forPath: "/a/x.pdf", isDirectory: false, size: huge) == nil)
     }
 
-    /// **The one that guards the re-render.** `FileTreeView` is `Equatable` through
-    /// `isEquivalent`; a field left out of it means switching into Edit does not re-render the
-    /// pane and the rows stay bright until something unrelated moves.
+    /// Guards the re-render. `FileTreeView` is `Equatable` through `isEquivalent`; a field left out
+    /// of it means switching into Edit doesn't re-render the pane, and rows stay bright until
+    /// something unrelated moves.
     @Test func servesEditorTakesPartInEquivalence() {
         let manager = FileSyncManager()
         let settings = SettingsManager()
@@ -70,8 +70,8 @@ import FileExplorer
         let browseAgain = delegate(servesEditor: false, syncManager: manager, settings: settings)
 
         #expect(browse.isEquivalent(to: edit) == false, "two delegates differing only in servesEditor read as equivalent")
-        // The control: with the field equal, the comparison still opts in — so the line above is
-        // failing on the field and not on something else in the comparison.
+        // The control: with the field equal the pair is equivalent, so the line above fails on the
+        // field and not on something else.
         #expect(browse.isEquivalent(to: browseAgain), "the fixture pair is not equivalent even with servesEditor equal")
     }
 }

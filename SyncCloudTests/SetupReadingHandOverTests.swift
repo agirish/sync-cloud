@@ -6,11 +6,11 @@ import Testing
 
 /// Setup's Save and the document reading it starts, driven together through a real engine.
 ///
-/// **The reading is the app's, not the model's** — `ContentView` runs it through
-/// ``DocumentSurveyStarter`` — so these hand the model an `onStartSurvey` that runs the same
-/// starter, over a scratch profiles folder and a fixture whose "documents" are text the injected
-/// extractor reads back. The machine's heat is the lever that holds a reading open: hot, it pauses
-/// before the next document; cooled, it reads on. Every wait is a bounded deadline on a condition.
+/// The reading is the app's, not the model's (`ContentView` runs it through
+/// ``DocumentSurveyStarter``), so these hand the model an `onStartSurvey` running the same starter
+/// over a scratch profiles folder, with text "documents" the injected extractor reads back. Heat
+/// holds a reading open: hot, it pauses before the next document; cooled, it reads on. Every wait
+/// is bounded.
 @MainActor
 @Suite struct SetupReadingHandOverTests {
 
@@ -113,10 +113,9 @@ import Testing
 
     // MARK: - A second Save while the documents are read (review M4)
 
-    /// **A second Save stops the reading, and it carries on into the new profile** (his call,
-    /// 2026-10-27). It used to be left to run: hours later it wrote what it learned into the
-    /// profile the Save had replaced, and the profile in use never had it. **And from where it
-    /// stood**: two documents in at the Save, the carried reading opens only the other two.
+    /// A second Save stops the reading, which carries on into the new profile from where it stood:
+    /// two documents in at the Save, it opens only the other two. Left to run, it would write what
+    /// it learned into the replaced profile.
     @Test(.timeLimit(.minutes(2)))
     func aSecondSaveCarriesTheReadingIntoTheNewProfile() async throws {
         let fixture = try Fixture()
@@ -170,10 +169,9 @@ import Testing
                 "the carried reading opened again what was read before the Save: \(opened.map { ($0 as NSString).lastPathComponent })")
     }
 
-    /// **A Save of another folder does not carry that folder's reading on**, and with Read
-    /// Documents off it starts none of its own. The reading under way is stopped — the profile it
-    /// read is no longer the one in use — but starting it again on a different folder would begin
-    /// hours of reading nobody asked for.
+    /// A Save of another folder stops the reading under way, since its profile is no longer in use,
+    /// but doesn't carry it on; with Read Documents off it starts none of its own. Restarting on a
+    /// different folder would begin hours of reading nobody asked for.
     @Test(.timeLimit(.minutes(2)))
     func aSaveOfAnotherFolderStartsNoReadingItWasNotAskedFor() async throws {
         let fixture = try Fixture()
@@ -216,9 +214,8 @@ import Testing
 
     // MARK: - Look Again (review L2)
 
-    /// **Look Again only counts** (his call, 2026-10-27): it promised a count and ran the whole
-    /// reading straight after it. The card's own state picks the mode, so a count of nothing
-    /// readable is the only one that gets it.
+    /// Look Again only counts; it promises a count, not a reading. The card's state picks the mode,
+    /// and only an offer of no readable documents gets the count-only mode.
     @Test func lookAgainCountsAndReadsNothing() async throws {
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -245,9 +242,9 @@ import Testing
         #expect(!fixture.corpusExists(in: "t"))
     }
 
-    /// **A plan made for a profile since replaced is made again, once**, and the reading goes into
-    /// the profile in use. A Save landing while the plan walks is the race; the large-walk question,
-    /// which the walk asks part-way, is where this stages it.
+    /// A plan made for a profile since replaced is made again, once, and the reading goes into the
+    /// profile in use. The race is a Save landing while the plan walks; the large-walk question,
+    /// asked part-way, is where this stages it.
     @Test func aPlanOvertakenByASaveIsMadeAgain() async throws {
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -289,9 +286,8 @@ import Testing
         #expect(!fixture.corpusExists(in: "walk-old"), "the overtaken plan read into the old profile")
     }
 
-    /// **A plan overtaken by a Save of another folder is not made again** (review, 2026-10-27).
-    /// A plan walks the profile's own folder, so planning again read the folder the Save switched
-    /// to — with Read Documents off, hours on documents nobody asked to have read.
+    /// A plan overtaken by a Save of another folder is not made again: it walks the profile's own
+    /// folder, so planning again would read the new folder, hours nobody asked for.
     @Test func aPlanOvertakenByASaveOfAnotherFolderReadsNothing() async throws {
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -334,9 +330,9 @@ import Testing
         #expect(!fixture.corpusExists(in: "walk-old"))
     }
 
-    /// **A Save whose reading does not stop in time writes nothing, and the reading reads on**
-    /// (review, 2026-10-27). A stop lands between documents, and the Save — with Back greyed
-    /// while it ran — waited for a document whose text never came.
+    /// A Save whose reading doesn't stop in time writes nothing, and the reading reads on. A stop
+    /// lands between documents, so without a bound the Save, with Back greyed, would wait on a
+    /// document whose text never comes.
     @Test(.timeLimit(.minutes(2)))
     func aSaveWhoseReadingDoesNotStopInTimeWritesNothing() async throws {
         let fixture = try Fixture()

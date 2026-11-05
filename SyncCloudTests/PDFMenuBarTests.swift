@@ -6,10 +6,10 @@ import Sync
 import SwiftUI
 import Testing
 
-/// **The menu bar over a PDF open in Edit** — File ▸ PDF Tools, Text's page controls on the modes'
+/// The menu bar over a PDF open in Edit: File ▸ PDF Tools, Text's page controls on the modes'
 /// slots, and the rules that offer them.
 ///
-/// The test host IS the app, so `NSApp.mainMenu` is what AppKit built from the `.commands`; nothing
+/// The test host is the app, so `NSApp.mainMenu` is what AppKit built from the `.commands`; nothing
 /// is published into it here (no `ContentView`), which is the no-PDF state. The items' bodies are
 /// views only a running menu bar builds, so their wiring to the rules is read off the source.
 @MainActor
@@ -25,8 +25,8 @@ import Testing
 
     // MARK: File ▸ PDF Tools, as AppKit built it
 
-    /// **Below Print…, after a divider**, and with exactly the header's lines — drawn from the same
-    /// entries, here for tools attached to nothing.
+    /// Below Print…, after a divider, with exactly the header's lines, drawn from the same entries
+    /// (here for tools attached to nothing).
     @Test func pdfToolsFollowPrintAndListTheHeadersLines() throws {
         let file = try Self.file()
         let titles = Self.titles(file)
@@ -46,8 +46,8 @@ import Testing
         #expect(Self.titles(submenu).contains("Compress…"), "the idle entries are empty — this check is vacuous")
     }
 
-    /// **Greyed line by line with no PDF open, and no chords anywhere in it** — a disabled `Menu`
-    /// in the menu bar leaves its items live, so each line has to grey on its own.
+    /// Greyed line by line with no PDF open, and no chords anywhere in it. A disabled `Menu` in the
+    /// menu bar leaves its items live, so each line has to grey on its own.
     @Test func pdfToolsAreGreyedWithNoPDFAndCarryNoChords() throws {
         let file = try Self.file()
         let item = try #require(file.items.first { $0.title == "PDF Tools" })
@@ -62,8 +62,8 @@ import Testing
         }
     }
 
-    /// **Fill & Sign and Save Filled Copy straight under PDF Tools, greyed with no PDF open, and
-    /// no chords** — the header's button and its save pill's Save.
+    /// Fill & Sign and Save Filled Copy straight under PDF Tools, greyed with no PDF open and with
+    /// no chords: the header's button and its save pill's Save.
     @Test func fillAndSignFollowsPDFToolsGreyedWithNoPDF() throws {
         let file = try Self.file()
         let titles = Self.titles(file)
@@ -89,10 +89,10 @@ import Testing
         }
     }
 
-    /// **File ▸ Fill & Sign Tool's lines, chosen through AppKit, do what the palette's tools do**
-    /// (decision AZ) — the keyboard's way to a tool, which Return then places. Over a real open
-    /// PDF, drawn by `NSHostingMenu` as the menu bar draws it; the test host is the app, so its items
-    /// fire. Its lines and ticks are `EditorPDFFillKeyboardTests`'.
+    /// File ▸ Fill & Sign Tool's lines, chosen through AppKit, do what the palette's tools do: the
+    /// keyboard's way to a tool, which Return then places. Over a real open PDF, drawn by
+    /// `NSHostingMenu` as the menu bar draws it; the test host is the app, so its items fire. Its
+    /// lines and ticks are `EditorPDFFillKeyboardTests`'.
     @Test func theToolMenuChoosesWhatThePaletteDoes() async throws {
         let folder = NSTemporaryDirectory() + "pdf-fill-tools-" + UUID().uuidString
         let suite = "PDFMenuBarTests-" + UUID().uuidString
@@ -159,8 +159,8 @@ import Testing
         #expect(fill.store.saved == [saved])
     }
 
-    /// **Each line, chosen through AppKit, does what its control does** — the toggle puts the
-    /// header button's toolbar up and down, and Save Filled Copy writes the copy the toolbar's save
+    /// Each line, chosen through AppKit, does what its control does: the toggle puts the header
+    /// button's toolbar up and down, and Save Filled Copy writes the copy the toolbar's save
     /// writes. Over a real open PDF, drawn by `NSHostingMenu` as the menu bar draws it; the test host
     /// is the app, so its items fire. The lines' greying is `EditorPDFFillSignTests`'.
     @Test func fillAndSignsLinesDoWhatTheButtonAndTheSaveDo() async throws {
@@ -217,7 +217,7 @@ import Testing
 
     // MARK: The rules
 
-    /// **Where the header draws its Tools menu**: Edit, a PDF, open or locked.
+    /// Where the header draws its Tools menu: Edit, a PDF, open or locked.
     @Test func pdfToolsAreOfferedWhereTheHeaderDrawsThem() {
         #expect(PDFToolsMenu.isOffered(workspace: .editor, hasPDF: true, phase: .open))
         #expect(PDFToolsMenu.isOffered(workspace: .editor, hasPDF: true, phase: .locked),
@@ -231,7 +231,7 @@ import Testing
         }
     }
 
-    /// **The PDF on screen first, then the pane's selection** — and nothing greys the menu.
+    /// The PDF on screen first, then the pane's selection; with neither, the menu greys.
     @Test func pdfToolsTakeTheOpenPDFFirstThenTheSelection() {
         let batch = PanePDFToolOffer.several(paths: ["/a/One.pdf", "/a/Two.pdf"])
         #expect(PDFToolsMenu.source(openPDF: true, selection: batch) == .openPDF,
@@ -243,7 +243,7 @@ import Testing
 
     // MARK: File ▸ PDF Tools, drawn for what the window publishes
 
-    /// One line of a menu AppKit built — a submenu with its lines after `▸`, a line nothing can
+    /// The lines of a menu AppKit built: a submenu with its lines after `▸`, a line nothing can
     /// choose in brackets.
     private static func lines(_ menu: NSMenu) -> [String] {
         menu.update()
@@ -258,8 +258,8 @@ import Testing
         NSHostingMenu(rootView: PDFToolsMenuContent(tools: tools, selection: selection))
     }
 
-    /// **Outside a PDF open in Edit, File ▸ PDF Tools is the row's submenu for the selection** — its
-    /// title, its lines, live — as `NSHostingMenu` builds it, which is how the menu bar turns a
+    /// Outside a PDF open in Edit, File ▸ PDF Tools is the row's submenu for the selection (its
+    /// title, its lines, live), as `NSHostingMenu` builds it, which is how the menu bar turns a
     /// SwiftUI menu into an `NSMenu`. The test host's own menu bar is never handed a selection.
     @Test func pdfToolsDrawTheSelectionsSubmenu() throws {
         let paths = ["/a/One.pdf", "/a/Two.pdf"]
@@ -275,7 +275,7 @@ import Testing
                 "a file locked to open is not offered the one tool it takes: \(Self.lines(single))")
     }
 
-    /// **Each line runs the row's request over the selection's paths** — chosen through AppKit, as a
+    /// Each line runs the row's request over the selection's paths, chosen through AppKit as a
     /// click in the menu bar chooses it; the test host is the app, so its items fire.
     @Test func pdfToolsRunTheRowsRequestsOverTheSelection() throws {
         final class Box { var ran: [String] = [] }
@@ -283,7 +283,7 @@ import Testing
             let box = Box()
             let menu = Self.drawn(tools: nil, selection: .init(offer: offer, run: { box.ran.append("\($0) \($1)") }))
             for title in titles {
-                // The one submenu, then down through any submenu a line sits in — Rotate's three.
+                // The one submenu, then down through any submenu a line sits in (Rotate's three).
                 var level = try #require(menu.items.first?.submenu, "File ▸ PDF Tools has no submenu")
                 for step in title.split(separator: "▸").map({ $0.trimmingCharacters(in: .whitespaces) }) {
                     level.update()
@@ -306,7 +306,7 @@ import Testing
                 == ["removePassword \(one)"])
     }
 
-    /// **The open PDF wins, and nothing to act on greys every line** — the header's lines both times.
+    /// The open PDF wins, and nothing to act on greys every line; the header's lines both times.
     @Test func pdfToolsDrawTheOpenPDFsLinesOverASelection() throws {
         let header = { (tools: EditorPDFTools) in
             Self.lines(NSHostingMenu(rootView: EditorPDFToolsMenuItems(tools: tools))).joined(separator: ", ")
@@ -322,7 +322,7 @@ import Testing
                 "with nothing to act on, a line is live: \(idle)")
     }
 
-    /// **The page controls: Edit and the PDF open** — not locked, where the header draws none.
+    /// The page controls: Edit and the PDF open, not locked, where the header draws none.
     @Test func thePageControlsAreOfferedForAnOpenPDFInEdit() {
         #expect(PDFPageVerbs.isOffered(workspace: .editor, hasPDF: true, phase: .open))
         #expect(!PDFPageVerbs.isOffered(workspace: .editor, hasPDF: true, phase: .locked))
@@ -331,8 +331,8 @@ import Testing
         #expect(!PDFPageVerbs.isOffered(workspace: .browse, hasPDF: true, phase: .open))
     }
 
-    /// **Fill & Sign: Edit and the PDF open** — where the header draws its button. A locked PDF
-    /// has none: its pages are not there to place on.
+    /// Fill & Sign: Edit and the PDF open, where the header draws its button. A locked PDF has
+    /// none: its pages aren't there to place on.
     @Test func fillAndSignIsOfferedForAnOpenPDFInEdit() {
         #expect(PDFFillSignVerbs.isOffered(workspace: .editor, hasPDF: true, phase: .open))
         #expect(!PDFFillSignVerbs.isOffered(workspace: .editor, hasPDF: true, phase: .locked))
@@ -345,13 +345,13 @@ import Testing
         }
     }
 
-    /// **Each mode's slot is the capsule's same place** — Source's ⌃⌘1 is Fit Page, the capsule's
-    /// first — and every fit has a slot.
+    /// Each mode's slot is the same place in the capsule (Source's ⌃⌘1 is Fit Page, the capsule's
+    /// first), and every fit has a slot.
     @Test func theFitsTakeTheModesSlotsInTheCapsulesOrder() {
         #expect(EditorMode.allCases.map(PDFPageVerbs.fit(for:)) == EditorPDFFit.allCases)
         #expect(EditorMode.allCases.map { PDFPageVerbs.fit(for: $0).title }
                 == ["Fit Page", "Fit Width", "Actual Size"])
-        // The zoom menu labels its fits with these chords from the other direction (TE123).
+        // The zoom menu labels its fits with these chords, from the other direction.
         for mode in EditorMode.allCases {
             #expect(PDFPageVerbs.fit(for: mode).textMenuMode == mode, "\(mode)")
         }
@@ -359,8 +359,8 @@ import Testing
         #expect(PDFPageVerbs.goToTitle(PDFPageVerbs(view: EditorPDFViewState(), goToPage: nil)) == "Go to Page…")
     }
 
-    /// **⌘A outside a text field: the Pages grid's pages while it has focus, else the pane's rows** —
-    /// and never both.
+    /// ⌘A outside a text field: the Pages grid's pages while it has focus, else the pane's rows,
+    /// never both.
     @Test func selectAllTakesThePagesGridFirst() {
         var ran: [String] = []
         SelectAllScope.selectAll(pages: { ran.append("pages") }, pane: { ran.append("pane") })
@@ -400,8 +400,8 @@ import Testing
         #expect(app.contains("PrintDocumentCommand() PDFToolsCommand()"), "PDF Tools is not in File's print group")
     }
 
-    /// **The selection's tools are the row menu's: its gate, its question, its act.** The row
-    /// shows the submenu where `canRunPDFTools` and `forSelection` say so and runs it through
+    /// The selection's tools are the row menu's: its gate, its question, its act. The row shows the
+    /// submenu where `canRunPDFTools` and `forSelection` say so and runs it through
     /// `handlePDFTool`; File ▸ is built from the same three on the same pane's delegate.
     @Test func theSelectionsToolsAreTheRowMenus() throws {
         let resolver = try declarationBody(of: "var shortcutPaneRowVerbs", in: try Self.commands())
@@ -430,8 +430,8 @@ import Testing
         #expect(CodeText(try Self.commands()).contains("pdfPage: shortcutPDFPage,"))
     }
 
-    /// **File ▸ Fill & Sign is the open PDF's own**, through the rule, drawn by the module's items
-    /// over it — and in File's print group, after PDF Tools.
+    /// File ▸ Fill & Sign is the open PDF's own, through the rule, drawn by the module's items over
+    /// it, and sits in File's print group after PDF Tools.
     @Test func theFillAndSignIsResolvedThroughTheRule() throws {
         let editor = try macAppFile("ContentView+Editor.swift")
         let body = CodeText(try declarationBody(of: "var shortcutPDFFill: PDFFillSignVerbs?", in: editor))
@@ -449,8 +449,8 @@ import Testing
         #expect(app.contains("PDFToolsCommand() PDFFillSignCommand()"), "Fill & Sign does not follow PDF Tools")
     }
 
-    /// **The modes' items become the fits, on the modes' own chords** — and Go to Line becomes Go
-    /// to Page, calling the PDF's request rather than the text's.
+    /// The modes' items become the fits, on the modes' own chords, and Go to Line becomes Go to
+    /// Page, calling the PDF's request rather than the text's.
     @Test func theTextMenuItemsHandAPDFItsOwnControls() throws {
         let commands = try Self.commands()
         let modes = CodeText(try declarationBody(of: "struct EditorModeCommands: View", in: commands))
@@ -473,8 +473,8 @@ import Testing
         #expect(goTo.contains(".disabled(pdfPage.map { $0.goToPage == nil } ?? (verbs?.goToLine == nil))"))
     }
 
-    /// **⌘C and ⌘A hand a PDF reader its own copy and select-all**, and ⌘A in the Pages grid its
-    /// pages. Cut and Paste do not — nothing on a read-only page can be cut or pasted, so over a
+    /// ⌘C and ⌘A hand a PDF reader its own copy and select-all, and ⌘A in the Pages grid its
+    /// pages. Cut and Paste don't: nothing on a read-only page can be cut or pasted, so over a
     /// reader they are refused by `TextEditingChord.route` rather than reaching the file clipboard.
     @Test func copyAndSelectAllReachTheReader() throws {
         let commands = try Self.commands()

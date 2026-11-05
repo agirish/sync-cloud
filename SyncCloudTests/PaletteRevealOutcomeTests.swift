@@ -3,18 +3,13 @@ import Foundation
 import FileExplorer
 @testable import SyncCloud
 
-/// **The last thing between an accepted ⌘K route and nothing at all happening.**
+/// The last thing between an accepted ⌘K route and nothing happening. `revealInSourcePane`'s two
+/// refusals should be unreachable, but the palette's index is a snapshot taken when it opened while
+/// the root read at ↩ is live, so a provider that changes under an open palette lands here. Each
+/// refusal must log, never return silently.
 ///
-/// `revealInSourcePane` had two silent `return`s until 2026-08-20. Neither is supposed to be
-/// reachable — a folder row is built from the survey under this very root, and Go to Folder refuses
-/// a typed path outside `PaletteIndex.providerRoot` before offering it — but "not supposed to be
-/// reachable" is exactly the claim a log line exists for. The palette's index is a **snapshot**
-/// taken when it opened while the root read at ↩ time is live, so a provider that changes underneath
-/// an open palette arrives here holding a row the user watched do nothing.
-///
-/// The rule is extracted because the caller is a method on a SwiftUI `View` with `@State`, which no
-/// test can construct. `theRevealGoesThroughTheRuleAndSaysSoOnBothRefusals` is the call-site half —
-/// without it this is a rule one revert from being unused.
+/// The rule is extracted because the caller is a method on a SwiftUI `View` with `@State`.
+/// `theRevealGoesThroughTheRuleAndSaysSoOnBothRefusals` is the call-site half.
 @Suite struct PaletteRevealOutcomeTests {
 
     private static let root = "/Users/x/Documents"
@@ -29,30 +24,29 @@ import FileExplorer
         #expect(ContentView.revealOutcome(for: Self.root, under: Self.root) == .focus(relativePath: ""))
     }
 
-    /// **An empty root must never claim a path.** `PathBoundary.relativize` guards this by name —
-    /// an empty base prefixes every absolute path, so without it a pane with no source would answer
-    /// "yes, and it is at Users/x/Documents/…" for anything at all.
+    /// An empty root must never claim a path: an empty base prefixes every absolute path, so a pane
+    /// with no source would claim anything. `PathBoundary.relativize` guards this.
     @Test func noSourceIsRefusedRatherThanMatchingEverything() {
         #expect(ContentView.revealOutcome(for: "/anywhere", under: "") == .noSource)
     }
 
     /// The reachable one: the pane moved to another source while the palette was up, so a row built
-    /// against the old root arrives naming a path the new one does not contain.
+    /// against the old root names a path the new one doesn't contain.
     @Test func aPathOutsideTheRootNamesTheRootItIsNotIn() {
         #expect(ContentView.revealOutcome(for: "/Users/x/Dropbox/Legal", under: Self.root)
                 == .outsideSource(root: Self.root))
     }
 
-    /// A sibling whose name merely *starts* with the root is not inside it — the prefix trap
-    /// `PathBoundary` exists to close, asserted here because this is the caller that would hand the
-    /// pane a garbage relative path if it reopened.
+    /// A sibling whose name merely starts with the root isn't inside it: the prefix trap
+    /// `PathBoundary` closes, asserted here because this caller would hand the pane a garbage
+    /// relative path.
     @Test func aSiblingSharingThePrefixIsNotInside() {
         #expect(ContentView.revealOutcome(for: "/Users/x/DocumentsOld/Legal", under: Self.root)
                 == .outsideSource(root: Self.root))
     }
 
-    /// **The call site really goes through it, and really says something on both refusals.**
-    /// `MacApp/` is in no SPM package, so this half can only be read as text.
+    /// The call site goes through the rule and logs on both refusals. `MacApp/` is in no SPM
+    /// package, so this half is read as text.
     @Test func theRevealGoesThroughTheRuleAndSaysSoOnBothRefusals() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -67,7 +61,7 @@ import FileExplorer
             #expect(body.contains("Logger.shared.warning"),
                     "\(branch) returns without a word — an accepted route delivering nothing, with no trace")
         }
-        // The person route's own silent exit, which is the same defect one case up.
+        // The person route's exit must log too.
         let person = try #require(text.range(of: "is no longer in the registry"),
                                   "↩ on a person the registry has dropped goes back to doing nothing silently")
         #expect(text[..<person.lowerBound].contains("Logger.shared.warning"))

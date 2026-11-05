@@ -3,31 +3,23 @@ import Foundation
 import FileExplorer
 @testable import SyncCloud
 
-/// `CommandPaletteHost.swift`'s own behaviour, as opposed to its wiring.
+/// `CommandPaletteHost.swift`'s own behaviour, as opposed to its wiring, which
+/// `CommandPaletteRouteCallSiteTests` pins as exact strings. This covers what those scans can't:
 ///
-/// `CommandPaletteRouteCallSiteTests` reads the same file, and the split between the two is worth
-/// stating because it is not "old suite / new suite". That one pins the *decisions already known to
-/// have been wrong* as exact strings. This one covers what those scans cannot reach:
-///
-/// - **`isMountedFolder` is really run**, against a real disk, because it is the one member of this
-///   file a test can call. It is a `static func` with no `self` in it, which is precisely why it is
-///   reachable while `runPaletteRoute` is not — `ContentView` declares 27 private stored properties,
-///   so its synthesized memberwise initializer is `private` and `@testable` cannot raise it.
-/// - **The two halves of the aimed-pane rule are compared to each other.** The existing scan asserts
-///   `func aimProvider(_ id: String)` *exists*; nothing looks inside it. Inverting its two branches —
-///   `if aimedAtRight { leftProviderId = id }` — leaves every assertion in that suite green while
-///   reintroducing the exact defect `paletteProviderId` was extracted to kill: a source chosen from
-///   ⌘K while the RIGHT pane is focused pointing the LEFT one at it.
-/// - **The action switch is checked against `PaletteAction.allCases` at runtime**, rather than
-///   against a list typed out here. A hard-coded list is satisfied forever by the cases that existed
-///   when it was written, and `PaletteAction` is a public enum in another module — the one place a
-///   case can be added without touching this repository's app target at all.
+/// - `isMountedFolder` is run against a real disk. It is a `static func`, so a test can call it,
+///   unlike `runPaletteRoute`: `ContentView`'s private stored properties make its memberwise
+///   initializer `private`, which `@testable` cannot raise.
+/// - The two halves of the aimed-pane rule are compared to each other, so inverting
+///   `aimProvider`'s branches fails: a source chosen from ⌘K while the right pane is focused
+///   would point the left one at it.
+/// - The action switch is checked against `PaletteAction.allCases` at runtime, not a list typed
+///   here: `PaletteAction` is a public enum in another module, so a case can be added without
+///   touching the app target.
 @Suite struct CommandPaletteHostTests {
 
     // MARK: - isMountedFolder, against a real disk
 
-    /// A scratch directory that cleans itself up. Real files, because the whole point of
-    /// `isMountedFolder` is the question it asks the filesystem.
+    /// A scratch directory. Real files, because `isMountedFolder` is a question for the filesystem.
     private static func scratch() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("CommandPaletteHostTests-\(UUID().uuidString)")
@@ -35,17 +27,10 @@ import FileExplorer
         return url
     }
 
-    /// **A source's folder counts as mounted only when it is there AND is a directory.**
-    ///
-    /// Both halves in one test, and in that order: an assertion that some path is *not* mounted is
-    /// satisfied by a function that says no to everything, so the directory has to be shown
-    /// answering yes first for the two refusals below to mean anything.
-    ///
-    /// The file case is the one with teeth. `SettingsManager` requires a directory, and this member
-    /// exists to ask the same question the same way; drop `&& isDirectory.boolValue` and a Location
-    /// pointing at a *file* reads as mounted here while Settings calls it invalid — the two
-    /// surfaces disagreeing about one folder, which is the defect the doc comment records in the
-    /// tilde direction.
+    /// A source's folder counts as mounted only when it is there and is a directory. The directory
+    /// answers yes first, so the two refusals can't be met by a function that says no to everything.
+    /// `SettingsManager` requires a directory too; dropping `&& isDirectory.boolValue` would make a
+    /// Location pointing at a file read as mounted here while Settings calls it invalid.
     @Test func onlyAnExistingDirectoryCountsAsMounted() throws {
         let dir = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -60,17 +45,10 @@ import FileExplorer
                 "a path that does not exist reads as mounted")
     }
 
-    /// **The path is tilde-expanded before the disk is asked.**
-    ///
-    /// The recorded defect, stated as a measurement: the Settings field accepts a hand-typed `~/…`
-    /// verbatim and validates it expanded, so without the expansion here a Location showed green in
-    /// Settings and dimmed "Not mounted" in the palette — about the same folder.
-    ///
-    /// The proof does not rest on the assertion at the end. `FileManager` resolves a bare `~`
-    /// against the working directory, not the home directory, so the middle expectation establishes
-    /// that the unexpanded string is not a path that exists at all. Given that, `isMountedFolder`
-    /// answering true for it can only mean it expanded — the fixture's expected value and its
-    /// fallback answer differently, which a plain "`~/Library` is mounted" check would not.
+    /// The path is tilde-expanded before the disk is asked. Settings accepts a hand-typed `~/…` and
+    /// validates it expanded, so without this a Location would be green in Settings and "Not
+    /// mounted" in the palette. `FileManager` resolves a bare `~` against the working directory, and
+    /// the middle check shows it doesn't exist there, so a true answer can only mean it expanded.
     @Test func aTildePathIsExpandedBeforeTheDiskIsAsked() {
         #expect(ContentView.isMountedFolder(NSHomeDirectory()),
                 "the home directory itself reads as unmounted — the harness is broken, not the rule")
@@ -86,18 +64,11 @@ import FileExplorer
         try CommandPaletteRouteCallSiteTests.source("CommandPaletteHost.swift")
     }
 
-    /// The provider id named in a member's `aimedAtRight == true` branch.
-    ///
-    /// **Positional, and deliberately strict.** Both members are written aimed-at-right first — the
-    /// ternary's then-branch, the `if`'s then-block — so whichever id appears first is the pane that
-    /// answers when the right pane has focus. An equivalent rewrite that inverts the condition
-    /// (`!aimedAtRight ? leftProviderId : rightProviderId`) would be scored as a disagreement and
-    /// fail loudly; that is the safe direction to be wrong in, and the alternative — a scan that
-    /// tolerates any phrasing — is a scan that cannot tell the two panes apart at all.
-    ///
-    /// Returns nil rather than guessing when the body does not consult the aim or does not mention
-    /// both panes, so a member that stopped asking the question fails the `#require` at the call
-    /// site instead of quietly scoring.
+    /// The provider id named in a member's `aimedAtRight == true` branch. Positional and strict:
+    /// both members are written aimed-at-right first, so the first id is the pane that answers when
+    /// the right pane has focus. An equivalent rewrite with the condition inverted would fail
+    /// loudly, the safe direction to be wrong in. Nil when the body doesn't consult the aim or name
+    /// both panes, so the `#require` at the call site fails instead.
     static func paneNamedWhenAimedRight(_ body: String) -> String? {
         guard body.contains("aimedAtRight"),
               let left = body.range(of: "leftProviderId"),
@@ -105,15 +76,10 @@ import FileExplorer
         return right.lowerBound < left.lowerBound ? "rightProviderId" : "leftProviderId"
     }
 
-    /// **`aimProvider` writes the pane `paletteProviderId` reads.**
-    ///
-    /// The gap this closes, exactly: `thePaletteRevealsIntoThePaneItIndexed` asserts that
-    /// `aimProvider` is declared and that both provider routes call it, and stops at the signature.
-    /// Swap the two branches in its body and the palette indexes the right pane's tree, marks the
-    /// right pane's source "current", reveals into the right pane — and points the LEFT pane at
-    /// whatever source you pick, firing that pane's provider-switch teardown on the side you were
-    /// not working in. Every existing assertion stays green through that, because none of them
-    /// looks inside the one member the rule is written down in twice.
+    /// `aimProvider` writes the pane `paletteProviderId` reads.
+    /// `thePaletteRevealsIntoThePaneItIndexed` stops at the signature; with the branches swapped,
+    /// the palette would describe the right pane but point the left one at the source picked,
+    /// firing its provider-switch teardown on the side not being worked in.
     @Test func theWriteHalfOfTheAimedPaneRuleAgreesWithTheReadHalf() throws {
         let host = try Self.host()
         let read = try #require(Self.declaration("var paletteProviderId: String", in: host),
@@ -132,9 +98,9 @@ import FileExplorer
                 "both halves now name the left pane when the right one is aimed at")
     }
 
-    /// One member's body, bounded by its closing brace — the same instrument, and the same
-    /// reasoning, as `BrowseWorkspaceCallSiteTests.body(of:in:)`: a fixed character window is
-    /// silently wrong the moment the member it reads grows.
+    /// One member's body, bounded by its closing brace, as in
+    /// `BrowseWorkspaceCallSiteTests.body(of:in:)`: a fixed character window goes wrong as the
+    /// member grows.
     static func body(of declaration: String, in source: String) -> String? {
         guard let start = source.range(of: declaration) else { return nil }
         let rest = source[start.upperBound...]
@@ -153,16 +119,10 @@ import FileExplorer
 
     // MARK: - The pane-swap prompt's words
 
-    /// **The dialog names the folder and both sources**, which is the entire reason it exists.
-    ///
-    /// The defect it replaces was a request losing its object — "organize Legal" arriving as
-    /// "organize". A prompt that said "this folder is in the other source" would be the same loss
-    /// spelled politely: the user is being asked to rearrange their window, and cannot answer that
-    /// without knowing which folder, which source it is in, and which one Organize is about to show.
-    ///
-    /// Reachable at all because the wording is a `static func` of three arguments —
-    /// `NativeAlerts.confirmChange` ends in `runModal()`, and nothing in this harness can dismiss a
-    /// modal it is itself blocked behind.
+    /// The dialog names the folder and both sources. It asks the user to rearrange their window,
+    /// which they can't answer without knowing which folder, which source it is in, and which one
+    /// Organize is about to show. The wording is a `static func` so it can be tested:
+    /// `NativeAlerts.confirmChange` ends in `runModal()`, which a test can't dismiss.
     @Test func theSwapPromptNamesTheFolderAndBothSources() {
         let folder = "/Users/abhishek/Library/CloudStorage/Dropbox/Legal/Immigration"
         let prompt = ContentView.organizePaneSwapPrompt(folder: folder,
@@ -174,33 +134,29 @@ import FileExplorer
                 "the prompt does not name the source the folder is in")
         #expect(prompt.informativeText.contains("iCloud Drive"),
                 "the prompt does not name the source Organize would otherwise open on")
-        // The leaf, not the path: a dialog is not the place to publish `/Users/<you>/…`, and the
-        // chip beside it shows the same folder by name.
+        // The leaf, not the path: a dialog is no place to publish `/Users/<you>/…`, and the chip
+        // beside it shows the same folder by name.
         #expect(!prompt.informativeText.contains(folder),
                 "the prompt dumps the absolute path at the user")
-        // Both halves carry weight — the message line states the constraint, the informative text
-        // explains the trade. A prompt whose first line was the whole explanation would be
-        // truncated by the alert itself.
+        // The message line states the constraint, the informative text explains the trade; an
+        // alert would truncate a first line carrying the whole explanation.
         #expect(prompt.messageText.contains("one source at a time"),
                 "the message line no longer states why the swap is needed")
         #expect(prompt.informativeText.contains("swap") || prompt.informativeText.contains("Swapping"),
                 "the prompt never says what confirming does")
-        // The reassurance, and it is a fact about `swapPanesAction`: nothing is removed, the two
-        // sides trade places. Without it "swap" reads as though a source is about to be dropped.
+        // The reassurance, a fact about `swapPanesAction`: nothing is removed, the two sides trade
+        // places. Without it "swap" reads as though a source is about to be dropped.
         #expect(prompt.informativeText.contains("Compare keeps both sources"),
                 "the prompt does not say Compare keeps both sources — “swap” reads as losing one")
     }
 
-    /// The wording is a function of its arguments, not of a fixed pair of names.
-    ///
-    /// The failure mode is mundane and would be invisible above: the two provider names transposed,
-    /// so the dialog offers to move the source that is already showing. Asked by swapping the
-    /// arguments and requiring the two sentences to differ in the way the transposition would not.
+    /// The two provider names are not transposed, or the dialog would offer to move the source
+    /// already showing. The test above can't see that.
     @Test func theSwapPromptDoesNotConfuseTheTwoSources() throws {
         let prompt = ContentView.organizePaneSwapPrompt(
             folder: "/Users/abhishek/Library/CloudStorage/Dropbox/Legal",
             aimedProvider: "Dropbox", shownProvider: "iCloud Drive")
-        // "…puts <aimed> on the left" is the clause that has to name the source being MOVED there.
+        // "…puts <aimed> on the left" is the clause that has to name the source being moved there.
         let promise = try #require(prompt.informativeText.range(of: "on the left"),
                                    "the prompt no longer says which source ends up on the left")
         #expect(prompt.informativeText[..<promise.lowerBound].hasSuffix("Dropbox "),
@@ -209,12 +165,9 @@ import FileExplorer
 
     // MARK: - Routes
 
-    /// **Every `PaletteAction` is applied, and the switch has no `default:` to swallow a new one.**
-    ///
-    /// Driven off `allCases` rather than a list typed here, which is the whole value of it:
-    /// `PaletteAction` is public and lives in `FileExplorer`, so a case can be added there, appear
-    /// in the palette's own rows, and reach a `runPaletteAction` that does nothing with it — while a
-    /// hard-coded list in this file goes on passing because it was written before the case existed.
+    /// Every `PaletteAction` is applied, and the switch has no `default:` to swallow a new one.
+    /// Driven off `allCases`: a case added in `FileExplorer` appears in the palette's rows, and a
+    /// list typed here would go on passing while `runPaletteAction` ignored it.
     @Test func everyPaletteActionIsApplied() throws {
         let host = try Self.host()
         let body = try #require(
@@ -230,24 +183,15 @@ import FileExplorer
                 "a default arm would swallow a PaletteAction case added in FileExplorer")
     }
 
-    /// **A lens-only route still moves the rail**, because the scope guard sits *after* the lens
-    /// write.
+    /// A lens-only route still moves the rail, because the scope guard sits after the lens write.
+    /// "Organize ▸ Duplicates" supplies no scope; with `guard let scope` hoisted above
+    /// `paletteRailLens = …`, ⌘K would land on Organize showing whichever lens was already selected.
     ///
-    /// `aimOrganize` takes both halves as optionals and "Organize ▸ Duplicates" supplies only the
-    /// first. Hoist `guard let scope` above `paletteRailLens = …` — the tidier-looking order, since
-    /// it puts both guards together — and every scope-less route returns before touching the rail:
-    /// ⌘K lands on Organize showing whichever lens was already selected, silently, which is the
-    /// same class of failure as the root-read ordering the neighbouring suite pins.
-    ///
-    /// It **no longer resolves the lens before storing it**, and that is the point of the
-    /// retirement rather than a regression: every `OrganizeLens` is a rail item now, so there is
-    /// nothing left to fold. While the folded Names case existed this write had to say
-    /// `lens?.resolvedForPresentation`, or a palette route could leave the rail with nothing
-    /// highlighted; `Workspace.migrateOrganizeLens` does that job once, at launch, instead.
+    /// The lens is stored as given: every `OrganizeLens` is a rail item, and
+    /// `Workspace.migrateOrganizeLens` resolves old stored lenses once, at launch.
     @Test func aLensWithoutAScopeStillMovesTheRail() throws {
         let host = try Self.host()
-        // The shared comment-stripping reader, like every other body scan in this target — the
-        // suite next door used to keep a private slicer for this one declaration, over RAW source.
+        // The shared comment-stripping reader, like every other body scan in this target.
         let body = try declarationBody(of: "func aimOrganize(lens: OrganizeLens?, scope: String?) {",
                                        in: host)
         let lensWrite = try #require(body.range(of: "paletteRailLens = lens"),

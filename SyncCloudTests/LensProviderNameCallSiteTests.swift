@@ -1,17 +1,11 @@
 import Testing
 import Foundation
 
-/// **Which of a pane's two names the lens workspaces use, at the call site.**
-///
-/// `PaneProviderNamesTests` proves the rule — `plain(isLeft:)` drops the "(left)"/"(right)" a
-/// two-pane surface needs. It cannot prove that Organize asks for it: reverting `lensProviderName`
-/// to `paneNames.left` is a one-line change that leaves every test in every package green, and
-/// puts "iCloud (left) › Documents › …" back in every breadcrumb on a tab showing one source.
-/// That is the state this fix started from.
-///
-/// Source-level, therefore, with the blind spot that implies — and with the two habits the other
-/// call-site scans here use: the read fails loudly rather than scanning an empty haystack, and the
-/// check pins the whole expression rather than asserting its ingredients appear somewhere.
+/// Which of a pane's two names the lens workspaces use, at the call site. `PaneProviderNamesTests`
+/// proves `plain(isLeft:)` drops the "(left)"/"(right)" a two-pane surface needs, but not that
+/// Organize asks for it: `paneNames.left` there would put "iCloud (left) › Documents › …" in every
+/// breadcrumb with every other test green. A source scan that fails loudly on an empty read and
+/// pins the whole expression, not its ingredients.
 @Suite struct LensProviderNameCallSiteTests {
 
     private static func contentView() throws -> String {
@@ -26,8 +20,8 @@ import Foundation
         return text
     }
 
-    /// One declaration's body, bounded by its closing brace rather than a character count — a fixed
-    /// window runs past a short body into the next member and answers about the wrong text.
+    /// One declaration's body, bounded by its closing brace rather than a character count, which
+    /// would run past a short body into the next member.
     private static func body(of declaration: String, in source: String) throws -> String {
         let start = try #require(source.range(of: declaration),
                                  "`\(declaration)` is gone — this scan would read nothing")
@@ -36,7 +30,7 @@ import Foundation
         return String(rest[..<end.lowerBound])
     }
 
-    /// The lens workspaces show ONE source, so their name carries no pane suffix.
+    /// The lens workspaces show one source, so their name carries no pane suffix.
     @Test func theLensNameIsThePlainOne() throws {
         let body = try Self.body(of: "var lensProviderName: String {", in: try Self.contentView())
         #expect(body.contains("paneNames.plain(isLeft: !lensTargetIsRight)"), """
@@ -51,9 +45,8 @@ import Foundation
                 "the disambiguated name is back in a single-pane surface: \(body)")
     }
 
-    /// **The other direction, and the reason this is a scan of TWO things.** The Differences table
-    /// really does show both panes, so it must keep the suffixed pair — a fix that swapped every
-    /// `paneNames` for a plain one would leave two identically-named columns there.
+    /// The other direction: the Differences table shows both panes, so it keeps the suffixed pair;
+    /// swapping every `paneNames` for the plain one would give it two identically named columns.
     @Test func theDifferencesTableKeepsTheDisambiguatedPair() throws {
         let source = try Self.contentView()
         #expect(source.contains("DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames"),

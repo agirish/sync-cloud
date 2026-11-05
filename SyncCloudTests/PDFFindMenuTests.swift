@@ -4,11 +4,9 @@ import Design
 import FileExplorer
 import Testing
 
-/// **⌘F, ⌘G, ⇧⌘G and ⌘E with a PDF open in Edit** — `FindMenuRoute` and `PDFFindVerbs`.
-///
-/// The items are views only a running menu bar builds, so the rules live outside them and the
-/// items' bodies are pinned to the rules by a scan, the way `theEditorVerbsAreResolvedThroughTheRule`
-/// pins the text menus.
+/// ⌘F, ⌘G, ⇧⌘G and ⌘E with a PDF open in Edit: `FindMenuRoute` and `PDFFindVerbs`. The items
+/// are views only a running menu bar builds, so the rules live outside them and a scan pins the
+/// items' bodies to the rules, as `theEditorVerbsAreResolvedThroughTheRule` does for the text menus.
 @MainActor
 @Suite struct PDFFindMenuTests {
 
@@ -27,7 +25,7 @@ import Testing
 
     // MARK: ⌘F
 
-    /// **With a PDF open, ⌘F opens its find bar** — and neither the document's nor the pane's.
+    /// With a PDF open, ⌘F opens its find bar, and neither the document's nor the pane's.
     @Test func findOpensThePDFBarWhenAPDFIsOpen() {
         let calls = Calls()
         var asked = (document: 0, pane: 0)
@@ -40,8 +38,8 @@ import Testing
         #expect(FindMenuRoute.findIsEnabled(pdf: verbs(calls), beginPaneSearch: nil))
     }
 
-    /// **With no document open, ⌘F still opens the pane search** — and the text document's bar
-    /// when the caret is in one, exactly as before.
+    /// With no PDF open, ⌘F opens the pane search, or the text document's bar when the caret is
+    /// in one.
     @Test func findStillOpensThePaneSearchWithNoDocument() {
         var pane = 0
         #expect(FindMenuRoute.find(pdf: nil, showDocumentFind: { false }, beginPaneSearch: { pane += 1 }) == .pane)
@@ -55,7 +53,7 @@ import Testing
 
     // MARK: When the PDF verbs exist
 
-    /// **Edit, and the PDF open.** A locked PDF offers no find, and ⌘F there goes to the pane.
+    /// Only in Edit with the PDF open. A locked PDF offers no find, and ⌘F there goes to the pane.
     @Test func thePDFVerbsAreOfferedOnlyForAnOpenPDFInEdit() {
         #expect(PDFFindVerbs.isOffered(workspace: .editor, hasPDF: true, phase: .open))
         #expect(!PDFFindVerbs.isOffered(workspace: .browse, hasPDF: true, phase: .open), "offered outside Edit")
@@ -67,8 +65,8 @@ import Testing
 
     // MARK: ⌘G, ⇧⌘G, ⌘E
 
-    /// **Enabled over a text view, or over a PDF with text** — not over an image-only PDF, and not
-    /// with nothing open.
+    /// Enabled over a text view or a PDF with text; not over an image-only PDF, nor with nothing
+    /// open.
     @Test func theStepsAreEnabledWhereThereIsTextToFind() {
         let calls = Calls()
         let text = EditorVerbs(mode: .edit, canPreview: false, setMode: { _ in }, autosave: nil,
@@ -83,8 +81,8 @@ import Testing
         #expect(!FindMenuRoute.stepsAreEnabled(verbs: nil, pdf: nil))
     }
 
-    /// **A PDF takes ⌘G / ⇧⌘G / ⌘E**; without one they go to the text find bar as before, ⇧⌘G
-    /// as its previous match.
+    /// A PDF takes ⌘G / ⇧⌘G / ⌘E; without one they go to the text find bar, ⇧⌘G as its previous
+    /// match.
     @Test func theStepsGoToThePDFFirst() {
         let calls = Calls()
         var document: [NSTextFinder.Action] = []
@@ -100,7 +98,7 @@ import Testing
         #expect(document == [.nextMatch, .previousMatch, .setSearchString])
     }
 
-    /// **⌘E with nothing selected in the PDF beeps** (TE204) — and only then.
+    /// ⌘E with nothing selected in the PDF beeps, and only then.
     @Test func useSelectionBeepsWithNothingSelected() {
         let calls = Calls()
         var beeps = 0

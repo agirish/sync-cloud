@@ -4,20 +4,20 @@ import Testing
 
 /// The AutoFill guard that keeps ⌘K from hanging the app — see ``AutoFillHeuristics``.
 ///
-/// What can be tested in-process is the spelling and the registration: AppKit caches its own read
-/// of each key on first use, so the effect on `NSAutoFillHeuristicController` itself was measured
-/// in the running app, not here.
+/// Only the spelling and the registration can be tested in-process: AppKit caches its read of each
+/// key on first use, so the effect on `NSAutoFillHeuristicController` can only be seen in the
+/// running app.
 @Suite struct AutoFillHeuristicsTests {
 
-    /// AppKit's own spelling, as read out of the block `-[NSAutoFillHeuristicController
-    /// _showPasswordAutoFillIfNecessaryForView:withCompletionHandler:]` schedules. A constant is only
-    /// worth having if it is the right string — a typo here registers a key nothing reads.
+    /// AppKit's own spelling, as read by the block `-[NSAutoFillHeuristicController
+    /// _showPasswordAutoFillIfNecessaryForView:withCompletionHandler:]` schedules. A typo here
+    /// would register a key nothing reads.
     @Test func theKeyIsAppKitsOwnSpelling() {
         #expect(AutoFillHeuristics.key == "NSAutoFillHeuristicsEnabled")
     }
 
-    /// Registering turns it off, in the order AppKit reads it (`objectForKey:` first, so the key
-    /// must be PRESENT — an absent key reads as on).
+    /// Registering turns it off. AppKit reads `objectForKey:` first, so the key must be present: an
+    /// absent key reads as on.
     @Test func registeringTurnsItOff() {
         let defaults = ScratchDefaults("AutoFillOff")
         AutoFillHeuristics.registerOff(in: defaults)

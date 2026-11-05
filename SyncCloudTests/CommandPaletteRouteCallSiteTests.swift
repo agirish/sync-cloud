@@ -4,28 +4,20 @@ import FileExplorer
 import Sync
 @testable import SyncCloud
 
-/// How the host **applies** a `PaletteRoute`.
+/// How the host applies a `PaletteRoute`.
 ///
-/// `CommandPaletteTests` proves the routing table: a query in, a route out. Nothing there — and
-/// nothing in the render or panel suites — can see what the app then *does* with that route, and
-/// `runPaletteRoute` is not reachable from a test: it is a method on a SwiftUI `View` struct whose
-/// body owns a sync manager, a settings object and an `@AppStorage` pair.
-///
-/// So this is a source-level scan of the two decisions in it that have already been wrong once, or
-/// would be silent if they were. It names the file it reads and fails if that file cannot be found,
-/// and each check asserts the exact string whose absence is the regression.
+/// `CommandPaletteTests` proves the routing table (a query in, a route out), but no suite can see
+/// what the app then does with the route: `runPaletteRoute` is a method on a SwiftUI `View` whose
+/// body owns a sync manager, a settings object and an `@AppStorage` pair. So this scans its source
+/// for the decisions that would go wrong silently. It fails if the file can't be read, and each
+/// check asserts the exact string whose absence is the regression.
 @Suite struct CommandPaletteRouteCallSiteTests {
 
-    /// The same text with whole-line `//` comments removed.
+    /// The text with whole-line `//` comments removed, through the shared ``sourceCodeOnly(_:)``.
     ///
-    /// **Only for the NEGATIVE checks**, and learned the hard way twice in one session: a scan
-    /// asserting something is *absent* is exactly the one a comment explaining the absence will
-    /// falsify. The first run of `theRouteWritesOrganizesStateThroughAppStorage` failed on the line
-    /// reading "never `UserDefaults.standard.set`". Positive checks keep the raw text — matching a
-    /// call that is genuinely there is not confused by prose.
-    /// The shared stripper — see ``sourceCodeOnly(_:)``. Four suites in this target carried a
-    /// byte-identical copy of it; consolidating `body(of:in:)` and leaving the thing it depends on
-    /// duplicated would have been half a fix.
+    /// For the negative checks only: a scan asserting something is absent is the one a comment
+    /// explaining the absence will falsify. Positive checks keep the raw text, since prose can't
+    /// fake a call that is really there.
     static func codeOnly(_ source: String) -> String { sourceCodeOnly(source) }
 
     static func source(_ name: String) throws -> String {
@@ -35,20 +27,18 @@ import Sync
             .appendingPathComponent("MacApp/\(name)")
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read \(name) — every check below would be vacuous")
-        // `#require`, not `#expect`: a file that exists but is truncated hands a short string on,
-        // after which every `contains` here answers false and every `!contains` answers true. One
-        // quiet issue standing in front of a page of green is the wrong signal — stop instead.
+        // `#require`, not `#expect`: a truncated file makes every `contains` false and every
+        // `!contains` true, one quiet issue in front of a page of green. Stop instead.
         try #require(text.count > 500, "\(name) is implausibly short — the scans below would be near-vacuous")
         return text
     }
 
-    /// **The rail and the scope are written through `@AppStorage`, never `UserDefaults.standard`.**
+    /// The rail and the scope are written through `@AppStorage`, never `UserDefaults.standard`.
     ///
-    /// This app has already measured `@AppStorage` *losing* a standard-domain write outright rather
-    /// than delivering it late — it is why the defaults-backed suites mount their own
-    /// `ScratchDefaults` — and `LensWorkspaceView` holds both of these keys in `@AppStorage`. Written raw, a
-    /// ⌘K route to "Organize ▸ Duplicates" could land on Organize and leave the rail wherever it
-    /// already was, intermittently, with nothing to see and nothing logged.
+    /// `@AppStorage` can lose a standard-domain write outright, not just deliver it late, and
+    /// `LensWorkspaceView` holds both keys in `@AppStorage`. Written raw, a ⌘K route to "Organize ▸
+    /// Duplicates" could land on Organize and leave the rail where it was, intermittently and with
+    /// nothing logged.
     @Test func theRouteWritesOrganizesStateThroughAppStorage() throws {
         let host = try Self.source("CommandPaletteHost.swift")
         #expect(host.contains("paletteRailLens = lens"),
@@ -64,11 +54,10 @@ import Sync
         }
     }
 
-    /// The scope is normalized by `setOrganizeScope(_:)` — ContentView's "one write of Organize's
-    /// scope", whose resolver collapses the provider root to the cleared state. Two encodings of
-    /// the global view is the state `OrganizeScope`'s failable `init?` exists to make
-    /// unrepresentable, and the palette once carried its own inline copy of that rule — under a
-    /// comment asserting there is exactly one.
+    /// The scope is normalized by `setOrganizeScope(_:)`, ContentView's one writer of Organize's
+    /// scope, whose resolver collapses the provider root to the cleared state. Two encodings of the
+    /// global view is what `OrganizeScope`'s failable `init?` exists to rule out, so the host must
+    /// not carry its own copy of that rule.
     @Test func theRouteCannotMintASecondEncodingOfTheGlobalView() throws {
         let host = try Self.source("CommandPaletteHost.swift")
         #expect(host.contains("setOrganizeScope(scope, providerRoot: lensProviderRootExpanded)"),
@@ -84,14 +73,13 @@ import Sync
 
     // MARK: One pane, asked once
 
-    /// **The palette describes one pane, and must act on that same pane.**
+    /// The palette describes one pane, and must act on that same pane.
     ///
-    /// `lensProviderRootExpanded` follows the *focused* pane in Compare, so with the right pane
+    /// `lensProviderRootExpanded` follows the focused pane in Compare, so with the right pane
     /// focused every folder and recent row in the index is relative to the right provider's tree.
-    /// Three places then assumed the left one: the reveal focused `isLeft: true` (handing a path
-    /// from one provider's tree to the other's, so the pane jumped to a folder that most likely
-    /// does not exist there), "The current source" was marked by comparing to `leftProviderId`, and
-    /// choosing a source switched the left pane. `paletteProviderId` names the rule once.
+    /// The reveal, the "The current source" mark and choosing a source must all follow that aim, or
+    /// a path from one provider's tree is opened in the other's. `paletteProviderId` names the rule
+    /// once.
     @Test func thePaletteRevealsIntoThePaneItIndexed() throws {
         let host = try Self.source("CommandPaletteHost.swift")
         #expect(host.contains("var aimedAtRight: Bool { lensTargetIsRight }"),
@@ -116,24 +104,17 @@ import Sync
                 "the aimed-pane rule is stated in more than one place again")
     }
 
-    /// **The aim is read before the workspace moves.**
+    /// The aim is read before the workspace moves.
     ///
-    /// `lensProviderRootExpanded` and `lensTargetIsRight` both follow the focused pane, and only
-    /// Compare has two panes — so switching to Organize makes them the LEFT pane's answers. A
-    /// scope string taken from a right-pane index and resolved afterwards fails `OrganizeScope`,
-    /// which writes `""` and silently clears the scope instead of setting it: "organize legal"
-    /// loses its folder. Ordering is the whole fix, so ordering is what this asserts.
-    ///
-    /// **Three values, one hazard**, and the third was the one that stayed broken: this suite used
-    /// to pin the reveal as `isLeft: !aimedAtRight` — an expression *evaluated after* the move —
-    /// under a comment claiming it was a captured aim. The prose described the fix and the
-    /// assertion pinned the bug, so the bug could not be fixed without turning this red. Every
-    /// value that follows the focused pane is now required to be BOUND above the move and PASSED
-    /// below it, which is a shape rather than a spelling.
+    /// `lensProviderRootExpanded` and `lensTargetIsRight` follow the focused pane, and only Compare
+    /// has two, so after switching to Organize they give the left pane's answers. A scope from a
+    /// right-pane index resolved afterwards fails `OrganizeScope`, which writes `""` and silently
+    /// clears it: "organize legal" loses its folder. So the root, the scope and the reveal's pane
+    /// must each be bound above the move and passed below it, a shape rather than a spelling.
     @Test func theOrganizeRouteResolvesItsScopeAgainstThePaneItCameFrom() throws {
         let host = try Self.source("CommandPaletteHost.swift")
-        // Comment-stripped, and via the shared reader: the needles below are ordinary prose about
-        // this very function, and its comments already quote `setOrganizeScope(_:)` by name.
+        // Comment-stripped, via the shared reader, because this function's own comments quote
+        // the needles below.
         let body = try declarationBody(of: "func aimOrganize(lens: OrganizeLens?, scope: String?) {",
                                        in: host)
         let read = try #require(body.range(of: "let root = lensProviderRootExpanded"),
@@ -142,28 +123,23 @@ import Sync
                                 "aimOrganize no longer enters Organize")
         #expect(read.lowerBound < move.lowerBound,
                 "the root is read after the workspace changes, so it names the wrong pane")
-        // The scope write shares the hazard: `setOrganizeScope` resolves against the LIVE
-        // `lensProviderRootExpanded`, so calling it after the move measures the scope against the
-        // left pane's root unconditionally — the same silent clear, one line later.
+        // The scope write shares the hazard: `setOrganizeScope` resolves against the live
+        // `lensProviderRootExpanded`, so after the move it measures against the left pane's root.
         let write = try #require(body.range(of: "if let scope { setOrganizeScope(scope, providerRoot: lensProviderRootExpanded) }"),
                                  "aimOrganize no longer routes the scope through the one owner")
         #expect(write.lowerBound < move.lowerBound,
                 "the scope is set after the workspace changes, so the owner resolves it against the wrong pane")
-        // **Which pane, on the same terms as which root.** `aimedAtRight` is a computed property
-        // over `layoutMode`, so an `isLeft: !aimedAtRight` written at the reveal is not a captured
-        // aim at all — it is evaluated after the line above has left Compare, and answers `false`
-        // for a right-pane route. Asserted as the pair the root is: BOUND before the move…
-        // The binding, not its `let`/`var`-ness: the aim is `var` now because a confirmed pane swap
-        // moves the named provider to the left and the reveal has to follow it. Pinning the keyword
-        // would have made that fix look like a regression, which is the mistake this suite already
-        // made once in this very function.
+        // Which pane, on the same terms as which root. `aimedAtRight` is computed over
+        // `layoutMode`, so `isLeft: !aimedAtRight` at the reveal is read after leaving Compare and
+        // answers `false` for a right-pane route. So the aim is bound before the move… The check
+        // pins the binding, not `let` or `var`: it is `var` because a confirmed pane swap moves
+        // the named provider to the left and the reveal has to follow it.
         let aim = try #require(body.range(of: "revealIntoLeft = !aimedAtRight"),
                                "aimOrganize no longer captures which pane the palette was aimed at")
         #expect(aim.lowerBound < move.lowerBound,
                 "the aim is captured after the workspace changes, so it names the wrong pane")
-        // …and PASSED at the reveal, rather than the expression being re-read there. The absence
-        // check is the half that matters: handing the binding over while leaving a second live
-        // read behind is the state that reads as fixed and is not.
+        // …and passed at the reveal, not re-read there. The absence check matters most: passing
+        // the binding while a second live read remains looks fixed and isn't.
         #expect(body.contains("revealInSourcePane(scope, root: root, isLeft: revealIntoLeft)"),
                 "the reveal is not given the captured aim")
         #expect(!body.contains("isLeft: !aimedAtRight"),
@@ -172,26 +148,22 @@ import Sync
 
     // MARK: The pane swap Organize needs, and what happens if it is declined
 
-    /// **The three writes happen in one order, and Cancel happens before all of them.**
+    /// The three writes happen in one order, and Cancel happens before all of them.
     ///
-    /// Organize is single-source and shows the LEFT pane, so a scope taken from the right pane's
-    /// tree resolves to nil the moment Organize is on screen — the chip and the filter vanish and
-    /// the folder is silently dropped. The route now offers to swap the panes instead, and the
-    /// ordering is the whole of the fix:
+    /// Organize is single-source and shows the left pane, so a scope from the right pane's tree
+    /// resolves to nil there: the chip and filter vanish and the folder is silently dropped. The
+    /// route offers to swap the panes instead, and the order is what makes that work:
     ///
-    /// - **scope, then swap.** `setOrganizeScope` resolves against the LIVE
-    ///   `lensProviderRootExpanded`. Written after the swap it would be measured against the tree
-    ///   the folder is *not* in and stored as `""` — the same silent clear the dialog exists to
-    ///   prevent, reintroduced by the fix itself.
-    /// - **swap, then move.** `swapPanesAction` can refuse (bootstrap, file operations in flight).
-    ///   Refusing after the workspace had moved leaves the user in Organize on the wrong provider
-    ///   with the panes unswapped, which is worse than either honest outcome.
-    /// - **Cancel touches nothing.** The confirm is asked above every write and its refusal leaves
-    ///   the function, so declining means no scope write, no pane change and no workspace move.
+    /// - Scope, then swap. `setOrganizeScope` resolves against the live
+    ///   `lensProviderRootExpanded`; after the swap it would measure against the tree the folder is
+    ///   not in and store `""`, the very clear the dialog exists to prevent.
+    /// - Swap, then move. `swapPanesAction` can refuse (bootstrap, file operations in flight), and
+    ///   a refusal after the move leaves the user in Organize on the wrong provider.
+    /// - Cancel touches nothing. The confirm comes before every write and its refusal returns, so
+    ///   declining writes no scope, swaps no pane and moves no workspace.
     ///
-    /// Positions and the presence of a `return`, deliberately — not the current spelling of the
-    /// three statements. An assertion that pins today's exact lines cements whatever is there, as
-    /// this suite learned in this very function.
+    /// Asserts positions and a `return`, not the statements' current spelling, which a test would
+    /// otherwise cement.
     @Test func theOrganizePaneSwapIsOrderedAndCancellingItWritesNothing() throws {
         let host = try Self.source("CommandPaletteHost.swift")
         let body = try declarationBody(of: "func aimOrganize(lens: OrganizeLens?, scope: String?) {",
@@ -215,7 +187,7 @@ import Sync
                 "the workspace moves before the swap, so a refused swap strands the user in Organize on the other provider")
         #expect(confirm.lowerBound < scopeWrite.lowerBound,
                 "the scope is written before the user has agreed to anything — Cancel would leave half the route applied")
-        // The refusal must LEAVE, not fall through. Between the question and the first write there
+        // The refusal must leave, not fall through: between the question and the first write there
         // has to be a way out, or "Cancel" swaps nothing and applies everything anyway.
         let betweenAskAndWrite = textBetween(body, from: confirm.upperBound, to: scopeWrite.lowerBound)
         #expect(betweenAskAndWrite?.contains("return") == true,
@@ -231,10 +203,10 @@ import Sync
         }
     }
 
-    /// **The dialog is not styled as a destruction.** Swapping the panes deletes nothing and doing
-    /// it again puts them back; `confirmDestructive` paints the caution icon and marks its default
-    /// button `hasDestructiveAction`, which is macOS's "this cannot be undone" signal. Spending it
-    /// here is how it stops meaning anything on the alert that really does move files to the Trash.
+    /// The dialog is not styled as a destruction. Swapping the panes deletes nothing and swapping
+    /// again puts them back; `confirmDestructive` paints the caution icon and marks its default
+    /// button `hasDestructiveAction`, macOS's "this cannot be undone" signal. Spent here, it stops
+    /// meaning anything on the alert that really moves files to the Trash.
     @Test func thePaneSwapPromptIsNotDressedAsADestructiveAction() throws {
         let host = try Self.source("CommandPaletteHost.swift")
         let code = Self.codeOnly(host)
@@ -250,15 +222,14 @@ import Sync
     /// public enum in another module — compile here and silently do nothing.
     @Test func everyRouteCaseIsHandledWithoutADefaultArm() throws {
         let host = try Self.source("CommandPaletteHost.swift")
-        // `case .storage:` is deliberately absent: `PaletteRoute.storage` was deleted when Storage
-        // folded into Organize, and the place is derived from `OrganizeLens.railItems` now — so it
-        // arrives through `case .organize(let lens, let scope):` below, WITH a scope the
-        // hand-written route could never carry.
+        // No `case .storage:`: Storage is part of Organize, its place derived from
+        // `OrganizeLens.railItems`, so it arrives through `case .organize(let lens, let scope):`
+        // below, with a scope.
         for arm in ["case .compare:", "case .editor:",
                     "case .organize(let lens, let scope):",
                     "case .person(let id):", "case .provider(let id):", "case .folder(let path):",
-                    // RD7. Listed separately from `.folder` because it is a separate destination:
-                    // the same reveal, preceded by a source switch the pane has to survive.
+                    // Listed apart from `.folder` because it is a separate destination: the same
+                    // reveal, after a source switch the pane has to survive.
                     "case .folderInSource(let providerId, let path):",
                     "case .action(let action):", "case .settings(let raw):"] {
             #expect(host.contains(arm), "runPaletteRoute no longer handles `\(arm)`")
@@ -272,16 +243,12 @@ import Sync
 
     // MARK: Settings
 
-    /// **The host offers every Settings tab, by passing the whole derived list through.**
+    /// The host offers every Settings tab by passing the whole derived list through.
     ///
-    /// The derivation lives in `Settings`, where `SettingsTabDigestTests` compiles it. What cannot
-    /// be tested there is this line: a hand-picked subset written here — `[.general, .appearance]`,
-    /// or a literal array of `PaletteSettingsTab` built by hand — compiles forever and simply makes
-    /// the other eight tabs unreachable from ⌘K. Nothing fails, nothing logs, and the only symptom
-    /// is a word that used to find a page and now finds nothing.
-    ///
-    /// So the scan is for the *source* of the list, not for its contents: it must be
-    /// `SettingsTab.digests`, mapped whole.
+    /// `SettingsTabDigestTests` covers the derivation in `Settings`; it can't see this line. A
+    /// hand-picked subset here (`[.general, .appearance]`, or a literal `PaletteSettingsTab` array)
+    /// compiles and makes the other tabs unreachable from ⌘K, with nothing failing or logged. So
+    /// the scan checks the list's source: `SettingsTab.digests`, mapped whole.
     @Test func theHostOffersEverySettingsTab() throws {
         let host = try Self.source("CommandPaletteHost.swift")
         let code = Self.codeOnly(host)
@@ -291,13 +258,13 @@ import Sync
                 "the tab list is being filtered at the call site; a tab dropped here fails nothing")
     }
 
-    /// **A tab route goes through `openSettings(on:)`, never `showSettings = true` plus a write.**
+    /// A tab route goes through `openSettings(on:)`, never `showSettings = true` plus a write.
     ///
-    /// That function is documented as the one door for every Settings deep link, and the ordering
-    /// it encodes is load-bearing: the tab is preset *before* the latch, because the overlay renders
-    /// `settingsTab` as it finds it and presetting afterwards shows the previous page for a frame.
-    /// It also stashes the displaced tab so a refused open puts it back. A route that flipped the
-    /// latch itself would reproduce neither, and would look right nearly every time.
+    /// That function is the one door for Settings deep links, and its order matters: it presets
+    /// the tab before the latch, because the overlay renders `settingsTab` as it finds it and a
+    /// later preset shows the previous page for a frame. It also stashes the displaced tab so a
+    /// refused open puts it back. A route flipping the latch itself would do neither and look
+    /// right nearly every time.
     @Test func aTabRouteGoesThroughTheOneDeepLinkDoor() throws {
         let host = try Self.source("CommandPaletteHost.swift")
         let code = Self.codeOnly(host)
@@ -310,21 +277,20 @@ import Sync
                 "a second bare `showSettings = true` appeared — a deep link that skips the door")
     }
 
-    /// **The open log counts the tabs, like the other three things the index carries.**
+    /// The open log counts the tabs, like the other three things the index carries.
     ///
-    /// That line's own comment says the counts are what say the index was *built*, not merely that
-    /// something appeared over an empty one. The tabs are the newest thing on it and the one that
-    /// crosses a package wall, so the way they go missing is the `map` above handing over fewer —
-    /// and with no count, an empty list and a full one write exactly the same line.
+    /// The counts say the index was built, not merely that something appeared over an empty one.
+    /// The tabs cross a package wall, so they go missing by the `map` handing over fewer, and with
+    /// no count an empty list and a full one log the same line.
     @Test func theOpenLogReportsHowManySettingsTabsWereIndexed() throws {
         let host = try Self.source("CommandPaletteHost.swift")
         #expect(Self.codeOnly(host).contains("index.settingsTabs.count) settings tabs"),
                 "the palette-open log no longer counts the settings tabs — an empty list would log identically")
     }
 
-    /// A raw value that names no tab is **reported and refused**, not silently opened on whatever
-    /// was last selected. The string crosses a package wall, so this is reachable in principle, and
-    /// ↩ on a row that said Appearance and delivered Advanced is worse than ↩ that did nothing.
+    /// A raw value that names no tab is reported and refused, not opened on whatever was last
+    /// selected. The string crosses a package wall, so this can happen, and ↩ on a row that said
+    /// Appearance delivering Advanced is worse than ↩ doing nothing.
     @Test func anUnknownTabRawValueIsRefusedOutLoud() throws {
         let host = try Self.source("CommandPaletteHost.swift")
         let code = Self.codeOnly(host)

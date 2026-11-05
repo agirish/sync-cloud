@@ -1,13 +1,12 @@
 import Foundation
 import Testing
 
-/// **No test builds a `SetupModel` on the real setup draft.**
+/// No test builds a `SetupModel` on the real setup draft.
 ///
-/// `SetupModel`'s `draftURL` defaults to `SetupDraftStore.defaultURL()` — the owner's own
-/// `setup-draft.json`. A model built on it reads his draft at init, and a commit on You or People
-/// writes it; since closing the sheet commits too (ST4), a hosted test tearing a sheet down on one of
-/// those screens would overwrite his answers. The test host IS SyncCloud.app, so nothing sandboxes
-/// the path. Every construction here therefore says where its draft goes: `nil`, or a temp folder.
+/// `draftURL` defaults to the owner's own `setup-draft.json`, and closing the sheet on You or People
+/// commits to it, so a hosted test tearing a sheet down would overwrite his answers. The test host
+/// is SyncCloud.app, so nothing sandboxes the path: every construction names its draft, `nil` or a
+/// temp folder.
 @Suite struct SetupTestDraftScanTests {
 
     @Test func everyTestModelNamesItsDraft() throws {

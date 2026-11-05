@@ -5,33 +5,18 @@ import Design
 import FileExplorer
 @testable import SyncCloud
 
-/// **The list has to fit above the window's floor, because when it does not the failure is silent
-/// and it eats the TOP of the list.**
-///
-/// `CommandPalettePanelController.place()` clamps the panel to the host's bottom edge. A panel
-/// shorter than its content does not crop the bottom: measured 2026-08-19 with a colour ladder,
-/// `NSHostingView` **centres** a root view whose ideal height exceeds its bounds, so the
-/// highest-ranked rows go along with the footer — and none of `.frame(maxHeight: .infinity,
-/// alignment: .top)`, a trailing `Spacer`, a top-aligned `ZStack` or `.clipped()` moves it, because
-/// the placement is AppKit's rather than SwiftUI's.
-///
-/// Today it cannot happen, by about 100pt, and this is the arithmetic that says so:
-///
-/// - the room under the field is `field.minY - gapBelowField - host.frame.minY`;
-/// - the field is a **toolbar** item, so its bottom edge is never below the content's top edge —
-///   which makes the room at least `contentFloor - gapBelowField`, with no need to know how tall
-///   the toolbar band is;
-/// - `contentFloor` is `ContentView`'s own `minHeight`, read out of the source below rather than
-///   copied, so changing it re-runs this sum instead of silently invalidating it.
-///
-/// So this is the guard on a hazard that is currently unreachable, and it is worth having for
-/// exactly that reason: raise `listMaxHeight`, or grow the footer, and nothing else in the app
-/// reports that ⌘K has started losing its first rows on a short window.
+/// The ⌘K list must fit above the window's floor, because when it doesn't, the failure is silent
+/// and eats the top of the list. `CommandPalettePanelController.place()` clamps the panel to the
+/// host's bottom edge, and `NSHostingView` centres a root view taller than its bounds, so the
+/// highest-ranked rows are lost with the footer; no SwiftUI alignment, `Spacer` or `.clipped()`
+/// changes that, because the placement is AppKit's. The room under the field is at least
+/// `contentFloor - gapBelowField`, since a toolbar item never sits below the content's top edge.
+/// Nothing else would notice a raised `listMaxHeight` or a taller footer.
 @MainActor
 @Suite(.machinePinned(.layoutMetrics)) struct GoToResultsPanelFitTests {
 
-    /// The chrome under the list — divider plus the ↑↓ ↩ esc footer — **measured, not assumed**, by
-    /// rendering more rows than the list can show so its own height is exactly `listMaxHeight`.
+    /// The surface's height, measured. Given more rows than the list can show, the list is exactly
+    /// `listMaxHeight` and the rest is chrome (divider plus the ↑↓ ↩ esc footer).
     static func measuredSurfaceHeight(rows: Int, width: CGFloat = 420) -> CGFloat {
         let list = (0..<rows).map { index in
             PaletteRow(id: "folder.\(index)", group: .folders, title: "Folder \(index)",
@@ -46,17 +31,16 @@ import FileExplorer
         return host.fittingSize.height
     }
 
-    /// `ContentView`'s window floor, **read from the source rather than copied**, so changing it
-    /// re-runs the sum below instead of quietly invalidating it.
+    /// `ContentView`'s window floor, read from the source rather than copied, so changing it re-runs
+    /// the sum below instead of quietly invalidating it.
     static func contentFloor() throws -> CGFloat {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("MacApp/ContentView.swift")
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read ContentView.swift — this sum would be vacuous")
-        // **Exactly one, or this is reading somebody else's number.** `range(of:)` takes the first
-        // match, so a `minHeight:` added anywhere above the window's own frame would silently
-        // become the floor this sum is checked against.
+        // Exactly one, or this reads somebody else's number: `range(of:)` takes the first match, so
+        // a `minHeight:` added above the window's own frame would silently become the floor.
         let count = text.components(separatedBy: "minHeight: ").count - 1
         try #require(count == 1,
                      "ContentView declares \(count) minHeights — this reads the first, which is no longer certainly the window's")
@@ -80,9 +64,9 @@ import FileExplorer
                 "a full list is \(full)pt plus a \(GoToResultsPanel.gapBelowField)pt gap, against \(floor)pt of window under the toolbar field — on a window at its floor the panel is clamped, and a clamped panel loses its FIRST rows as well as its last")
     }
 
-    /// The measurement is only worth something if a taller list really does report taller — a
-    /// `fittingSize` that answers the same number whatever it is given would make the sum above
-    /// vacuous, which is this repo's own recorded failure mode for `ScrollView` measurement.
+    /// The measurement is worth something only if a taller list reports taller: a `fittingSize` that
+    /// answers the same number whatever it is given, as `ScrollView` measurement can, would make the
+    /// sum above vacuous.
     @Test func theSurfaceReallyGrowsWithItsList() {
         let short = Self.measuredSurfaceHeight(rows: 2)
         let full = Self.measuredSurfaceHeight(rows: 60)

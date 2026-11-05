@@ -2,17 +2,11 @@
 import Testing
 import Foundation
 
-/// **That the graft chain is actually connected**, end to end, in the app.
-///
-/// `onNeedChildren` is defaulted to a no-op at both hops — `PaneColumnsView` and `FileTreeView` —
-/// so that the many test call sites predating it keep compiling. That default is also the exact
-/// shape of a silent break: drop the app's wiring and every test still passes, every build still
-/// succeeds, and the only symptom is a column that stays blank on a large tree, which is the state
-/// the node budget was introduced to avoid. Nothing else in the suite can see the difference,
-/// because the budget only engages on trees too big to put in a fixture.
-///
-/// Scanned against the app's own source for `FolderSidebarWiringTests`' reason: `ContentView` is a
-/// `View` with `@State` and cannot be instantiated here.
+/// The graft chain is connected end to end in the app. `onNeedChildren` defaults to a no-op at
+/// both hops (`PaneColumnsView` and `FileTreeView`) so test call sites compile without it, which
+/// means dropping the app's wiring breaks nothing visible except a column that stays blank on a
+/// large tree. The node budget only engages on trees too big for a fixture, so only this scan sees
+/// it. A source scan, as in `FolderSidebarWiringTests`: `ContentView` can't be instantiated here.
 @Suite struct PaneColumnsGraftWiringTests {
 
     static func source(_ relative: String) throws -> String {
@@ -37,9 +31,8 @@ import Foundation
                 "the scan cannot see the pane's own call site, so nothing below means anything")
     }
 
-    /// The app's `FileTreeView` must hand the request to the manager. Both halves are asserted:
-    /// that the parameter is passed at all, and that what it is passed reaches
-    /// `loadColumnChildren` — a closure wired to something else would satisfy the first alone.
+    /// The app's `FileTreeView` must hand the request to the manager: the parameter is passed, and
+    /// reaches `loadColumnChildren`, since a closure wired elsewhere would satisfy the first alone.
     @Test func thePaneWiresTheRequestToTheManager() throws {
         let code = try Self.appSource()
         #expect(code.contains("onNeedChildren:"),
@@ -48,23 +41,19 @@ import Foundation
                 "onNeedChildren is wired to something other than loadColumnChildren")
     }
 
-    /// **The "being read" set is wired too, and to the same pane.**
-    ///
-    /// `graftsInFlight` is what separates a directory *being* read from one that *could not* be —
-    /// both are an empty child list plus an unexplored mark, and the column called both of them
-    /// "Can't be read". It defaults to `[]`, so dropping it puts that false caption back over every
-    /// graft for as long as the listing runs, with nothing failing. Wired to the wrong side it is
-    /// worse than absent: the other pane's spinner appears over this pane's folder.
+    /// The "being read" set is wired too, to the same pane. `graftsInFlight` tells a directory
+    /// being read from one that couldn't be (both are an empty child list and an unexplored mark).
+    /// It defaults to `[]`, so dropping it would caption every graft "Can't be read" while it lists;
+    /// wired to the wrong side, the other pane's spinner shows over this pane's folder.
     @Test func theBeingReadSetIsWiredToThisPaneToo() throws {
         let code = try Self.appSource()
         #expect(code.contains("graftsInFlight: syncManager.columnGraftsInFlightPaths(isLeft: pane.isLeft)"),
                 "the pane cannot tell a directory being read from one that could not be, and says “Can’t be read” for both")
     }
 
-    /// **The side must be the pane's own.** Wired to the wrong side, the request grafts into the
-    /// other pane's tree — where the path is very likely absent, so `grafting` returns nil, nothing
-    /// happens, and the column stays blank with no error anywhere. A hardcoded `true` would look
-    /// correct in Browse, which has one pane, and fail only in Compare's right-hand pane.
+    /// The side must be the pane's own. Wired to the wrong side, the request grafts into the other
+    /// pane's tree, where the path is likely absent, so the column stays blank with no error. A
+    /// hardcoded `true` would look right in Browse and fail only in Compare's right pane.
     @Test func theRequestCarriesTheRequestingPanesSide() throws {
         let code = try Self.appSource()
         #expect(code.contains("loadColumnChildren(atPath: $0, isLeft: pane.isLeft, passive: $1)"),

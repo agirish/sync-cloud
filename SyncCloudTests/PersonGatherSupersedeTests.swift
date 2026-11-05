@@ -3,25 +3,16 @@ import Foundation
 import Sync
 @testable import SyncCloud
 
-/// Accepting a person offer twice used to race two sweeps with last-write-wins.
+/// Accepting a person offer twice must not race two sweeps with last-write-wins. The gather walks
+/// every surveyed document behind a large corpus read, so a second ⌘↩ can arrive mid-sweep: accept
+/// Daughter, then Elder, and the screen could show Daughter's files under Elder's name.
 ///
-/// The gather walks every surveyed document — 10,171 on the real tree — behind a 4.9 MB corpus
-/// read, so a second ⌘↩ arrives while the first is still going. Nothing held the first task, so
-/// nothing cancelled it, and whichever finished last wrote the slot: accept Daughter, change your
-/// mind, accept Elder, and the answer on screen could be Daughter's under Elder's name.
+/// Two decisions guard the slot: ``shouldStart`` when the second accept arrives, ``awaits`` when a
+/// sweep finishes and wants to write. The sweep's own cancellation is tested in `PersonFilesTests`.
 ///
-/// Two decisions guard that, and they are opposite ends of the same window. ``shouldStart`` is
-/// asked when the second accept arrives; ``awaits`` is asked when a sweep finishes and wants to
-/// write. The sweep's own cancellation is tested in `PersonFilesTests` — this is the slot half,
-/// which is where the wrong answer actually reached the screen.
-///
-/// **Two claims here are deliberately uncovered, and saying so beats pretending.**
-///
-/// `acceptPersonScope` itself cannot be driven: it needs a whole `ContentView` with a live
-/// `FileSyncManager`, and SwiftUI state is not reachable from a unit test. So the *composition* —
-/// that the `.failed` slot is written when the profile is missing rather than the accept returning
-/// silently, and that `Task.isCancelled` is consulted alongside `awaits` — rests on the pieces
-/// below plus review, not on a test. What is covered is every decision the composition makes.
+/// Not covered: `acceptPersonScope` needs a whole `ContentView` with a live `FileSyncManager`, so
+/// its composition (writing `.failed` when the profile is missing, checking `Task.isCancelled`
+/// beside `awaits`) rests on review. Every decision it makes is tested below.
 @Suite struct PersonGatherSupersedeTests {
 
     private static let daughter = Person(id: "daughter", displayName: "Daughter",
@@ -35,16 +26,15 @@ import Sync
     // MARK: Starting
 
     @Test func repeatingTheSameAcceptMidSweepDoesNotRestartIt() {
-        // The one case that must NOT start: it is the same question, and restarting throws away
-        // a sweep already partway through the corpus.
+        // The one case that must not start: same question, and restarting throws away a sweep
+        // already partway through.
         let running = Scope(person: Self.daughter, phase: .gathering)
         #expect(!Scope.shouldStart(Self.daughter, given: running))
     }
 
     @Test func everyOtherAcceptStarts() {
-        // Each of these is a different question from what the slot holds, so each must start —
-        // and they are listed separately because a `shouldStart` that answered `false` more
-        // broadly would leave ⌘↩ doing nothing at all, which is the bug this feature is fixing.
+        // Each asks a different question from the slot's, so each must start. Listed separately
+        // because a `shouldStart` that said `false` too broadly would leave ⌘↩ doing nothing.
         #expect(Scope.shouldStart(Self.daughter, given: nil),
                 "an accept with an empty slot did not start a gather")
         #expect(Scope.shouldStart(Self.elder, given: Scope(person: Self.daughter, phase: .gathering)),
@@ -60,56 +50,45 @@ import Sync
     // MARK: Writing the answer
 
     @Test func aSupersededSweepMayNotWriteItsAnswer() {
-        // **The race, stated.** Daughter's sweep finishes after Elder's accept has taken the slot.
-        // Cancellation usually stops it first, but a sweep that had already left the loop when
-        // the cancel landed still reaches this check — and without it, Daughter's files appear
-        // under Elder's name.
+        // The race: Daughter's sweep finishes after Elder's accept took the slot. A sweep that left
+        // its loop before the cancel landed still reaches this check, and without it Daughter's
+        // files appear under Elder's name.
         let slot = Scope(person: Self.elder, phase: .gathering)
         #expect(!Scope.awaits(Self.daughter, in: slot))
     }
 
     @Test func aClearedSlotTakesNoAnswer() {
-        // Esc or the ✕ during the sweep: the answer arriving afterwards must not re-open the
-        // view the user just dismissed.
+        // Esc or ✕ during the sweep: a late answer must not re-open the view the user dismissed.
         #expect(!Scope.awaits(Self.daughter, in: nil))
     }
 
     @Test func aSlotThatAlreadyHasAnAnswerTakesNoOther() {
-        // Belt to the cancellation's braces: two sweeps for the SAME person (possible only if
-        // a cancel is dropped) must not overwrite each other. `.gathering` is the only phase
-        // that is waiting for anything.
+        // Backs up cancellation: two sweeps for the same person (only if a cancel is dropped) must
+        // not overwrite each other. Only `.gathering` waits for an answer.
         let done = Scope(person: Self.daughter, phase: .ready(Self.answer))
         #expect(!Scope.awaits(Self.daughter, in: done))
     }
 
     @Test func theSweepThatOwnsTheSlotDoesWrite() {
-        // Non-vacuity: without this, a broken `awaits` returning false always would pass every
-        // assertion above and no gather would ever paint an answer.
+        // Non-vacuity: an `awaits` that always said false would pass every test above.
         let mine = Scope(person: Self.daughter, phase: .gathering)
         #expect(Scope.awaits(Self.daughter, in: mine))
     }
 
     // MARK: The off-actor half — corpus read + sweep
     //
-    // The two decisions above are pure and were the only thing covered. What actually runs between
-    // them had NO test: whether a missing corpus is distinguishable from an answer, and whether a
-    // cancel during the read is honoured. Both are what the slot's `.failed` and the supersede
-    // path are built on, so a silent change in either would go straight past the suite above.
+    // What runs between the two decisions: a missing corpus must be told apart from an answer, and
+    // a cancel during the read must be honoured. The slot's `.failed` and the supersede path rest
+    // on both.
 
-    /// A corpus of `documents` files, deliberately **below `PersonFiles.gather`'s 256-document
-    /// cancellation stride**. That is what makes the cancellation test below test what it claims:
-    /// with a larger corpus the sweep's own periodic check would throw, and removing the checks
-    /// that bracket the corpus read — the ones this file is here to cover — would fail nothing.
+    /// The fixture's document count, kept below `PersonFiles.gather`'s 256-document cancellation
+    /// stride. Above it, the sweep's own check would throw and the cancellation test below could
+    /// not see the checks around the corpus read.
     private static let corpusDocuments = 100
 
-    /// Runs `body` against a throwaway profile directory, and **removes it however that ends**.
-    ///
-    /// A scoped helper rather than one that hands the URL back, because the `defer` has to be
-    /// registered where the directory is created. The version this replaces created the tree and
-    /// then encoded a corpus into it: a throw from that write — a full disk, a sandbox denial —
-    /// left the caller without the URL it was going to clean up, so the tree stayed under
-    /// `NSTemporaryDirectory()` for good. Small, and this machine has already had to sweep 26,047
-    /// of another leak's leftovers; the fix is to make the cleanup impossible to be handed past.
+    /// Runs `body` against a throwaway profile directory, and removes it however that ends.
+    /// Scoped so the `defer` is registered where the directory is created: a throw while writing
+    /// the corpus would otherwise leave the tree in the temporary directory for good.
     private static func withProfileDirectory<T>(
         withCorpus: Bool, _ body: (URL) async throws -> T
     ) async throws -> T {
@@ -145,23 +124,8 @@ import Sync
 
     // MARK: The scope is cleared by every workspace switch, not only the bar's
 
-    /// **`workspaceSelection` is the bar; `selectedWorkspace` is the workspace.**
-    ///
-    /// The clear lived in the binding's setter, which only the bar, the ⌘1–⌘N chords and ⌘K route
-    /// through. Every programmatic switch wrote `selectedWorkspace` directly and went around it —
-    /// `show(_:)` (behind "Find duplicates of this" and the automation preview),
-    /// `findFilingSuggestionsAction`, `buildStorageLensAction`, and both duplicate coordinators. So
-    /// right-clicking a file for its duplicates while a gather was open landed on Organize with the
-    /// gather still holding the lens slot: the list of someone's files sat where the duplicates
-    /// list belongs and the click looked dead. `onChange` fires for every writer.
-    ///
-    /// Source-level because `ContentView`'s state has no seam — the same reason this suite already
-    /// gives for `acceptPersonScope`.
-    /// Whole-line `//` comments removed, so a scan for what the code does is not answered by the
-    /// prose describing it.
-    /// The shared stripper — see ``sourceCodeOnly(_:)``. Four suites in this target carried a
-    /// byte-identical copy of it; consolidating `body(of:in:)` and leaving the thing it depends on
-    /// duplicated would have been half a fix.
+    /// `source` with whole-line `//` comments removed, so a scan for what the code does isn't
+    /// answered by prose describing it. The target's shared stripper, ``sourceCodeOnly(_:)``.
     static func codeOnly(_ source: String) -> String { sourceCodeOnly(source) }
 
     /// `MacApp/ContentView.swift`, failing loudly rather than handing on an empty haystack.
@@ -175,9 +139,9 @@ import Sync
         return content
     }
 
-    /// Every `.onChange(of: <property>) { … }` body in `source`, comment-stripped and in source
-    /// order. Plural because a property can have more than one handler — which is the whole point
-    /// of the check below: *which* of them clears the gather decides whether a swap can outrun it.
+    /// Every `.onChange(of: <property>) { … }` body in `source`, comment-stripped, in order. A
+    /// property can have several handlers, and which one clears the gather decides whether a swap
+    /// can skip it.
     static func onChangeBodies(of property: String, in source: String) throws -> [String] {
         let anchor = ".onChange(of: \(property)) {"
         var bodies: [String] = []
@@ -185,8 +149,8 @@ import Sync
         while let start = source.range(of: anchor, range: searchStart..<source.endIndex) {
             let rest = source[start.upperBound...]
             // These handlers are two levels in, so their closing brace is the first at eight spaces.
-            // Required, not defaulted to the end of the file: a body that ran to EOF would contain
-            // every other handler's code and answer yes to anything.
+            // Required, not defaulted to EOF: a body that ran to the end would contain every other
+            // handler and answer yes to anything.
             let end = try #require(rest.range(of: "\n        }"),
                                    "an .onChange(of: \(property)) handler never closes at its own level")
             bodies.append(codeOnly(String(rest[..<end.lowerBound])))
@@ -195,49 +159,43 @@ import Sync
         return bodies
     }
 
+    /// The gather clears on every workspace change, not only the bar's. `workspaceSelection` is the
+    /// bar's binding, which only the bar, ⌘1–⌘N and ⌘K go through; programmatic switches such as
+    /// `show(_:)`, `findFilingSuggestionsAction`, `buildStorageLensAction` and the duplicate
+    /// coordinators write `selectedWorkspace` directly. A clear in the setter would leave the gather
+    /// holding the lens slot after those, and the click would look dead. `onChange` sees every
+    /// writer. Source-level because `ContentView`'s state has no seam.
     @Test func everyWorkspaceSwitchClearsTheGatherNotJustTheBars() throws {
         let content = try Self.contentView()
 
-        // Anchored on the handler, not on its parameter list: the closure binds its new value when
-        // something in the body needs it (the workspace breadcrumb does), and a scan that fixes the
-        // names `_, _` fails on that rename while the invariant it guards is untouched. What makes
-        // the window non-vacuous is this `#require` plus the body assertions below, neither of
-        // which cares what the parameters are called.
+        // Anchored on the handler, not its parameter list, which changes whenever the body needs
+        // the new value. This `#require` and the body checks keep the window non-vacuous.
         let onChange = try #require(content.range(of: ".onChange(of: selectedWorkspace) {"),
                                     "the workspace onChange handler is gone — this scan is vacuous")
         let end = try #require(content[onChange.upperBound...].range(of: "\n        }"))
-        // Comments stripped: the window is dominated by the note explaining why the clear moved
-        // here, and one reword mentioning `clearPersonScope()` would satisfy this with the call
-        // deleted.
+        // Comments stripped, so a note mentioning `clearPersonScope()` can't satisfy this with the
+        // call deleted.
         let body = Self.codeOnly(String(content[onChange.upperBound..<end.lowerBound]))
         #expect(body.contains("clearPersonScope()"),
                 "the gather is not cleared on every workspace change, so a programmatic switch leaves it holding the slot")
 
-        // And it is not ALSO left in the bar's binding — two clears is two owners, and the binding
-        // is the one that cannot see a programmatic write.
+        // And not also in the bar's binding: two clears is two owners, and the binding can't see a
+        // programmatic write.
         let setter = try #require(content.range(of: "if newWorkspace != previous {"))
         let setterEnd = try #require(content[setter.upperBound...].range(of: "}"))
         #expect(!Self.codeOnly(String(content[setter.upperBound..<setterEnd.lowerBound])).contains("clearPersonScope()"),
                 "the bar's setter still clears the scope too")
     }
 
-    /// **A provider switch clears it too — from the handler no early return can skip.**
+    /// A provider switch clears the gather too, from the handler no early return can skip. The
+    /// gather is about the whole source, so a new provider leaves it listing a tree the window no
+    /// longer shows, and its "Open" can't match the new root and falls back to a Finder reveal.
+    /// `clearLensResultsForProviderSwitch()` can't reach it: the gather lives in `ContentView`'s
+    /// own `@State`.
     ///
-    /// The gather is an answer about the whole SOURCE, so it goes stale the moment the pane's
-    /// provider changes: the card lists files from a tree the window no longer shows, and its
-    /// "Open" joins the old profile root to a relative path and relativizes it against the NEW
-    /// provider root, where it cannot match — the button quietly degrades to a Finder reveal.
-    ///
-    /// `clearLensResultsForProviderSwitch()` is the list that owns "no stale Tidy result outlives
-    /// its provider" and it cannot reach this one: that list is the manager's, and the gather takes
-    /// the lens slot from `ContentView`'s own `@State`.
-    ///
-    /// **Which of the two handlers does the clearing is the substance of this test.** Each id has
-    /// one handler that returns early — while providers are still being discovered, and again on a
-    /// pane swap, whose `pendingSwapProviderChanges` suppression exists so the swap's own
-    /// navigation is not reset — and one that runs unconditionally. A swap moves the single lens
-    /// source onto the other provider exactly as a manual pick does, so a clear behind those
-    /// returns would leave the gather standing in the case that looks most like it did not change.
+    /// Each id has one handler that returns early (during provider discovery, and on a pane swap
+    /// via `pendingSwapProviderChanges`) and one that always runs. A swap moves the lens source to
+    /// the other provider like a manual pick, so the clear must sit in the one that always runs.
     @Test func everyProviderSwitchClearsTheGatherWhicheverPaneMoved() throws {
         let content = try Self.contentView()
         for id in ["leftProviderId", "rightProviderId"] {
@@ -254,14 +212,10 @@ import Sync
         }
     }
 
-    /// **Open opens the rail — and only where opening it means anything.**
-    ///
-    /// Rewiring the gather's "Open" from a Finder reveal to a pane focus made it a dead click when
-    /// the source rail is collapsed: `focusOn` only pushes history, and the Finder fallback does
-    /// not fire for a folder that IS under the provider root. The fix asks `contentLayout`, not
-    /// `panesHiddenForCurrentTab` — that flag is honoured only by the single-source layout, so
-    /// keying on it would write a persisted layout preference in Compare and Browse, where the
-    /// layout is resolved before the flag is consulted and nothing visible would change.
+    /// The gather's "Open" expands a collapsed source rail, and only there. `focusOn` only pushes
+    /// history, so with the rail collapsed the click would be dead. It asks `contentLayout`, not
+    /// `panesHiddenForCurrentTab`: only the single-source layout honours that flag, so keying on it
+    /// would write a persisted layout preference in Compare and Browse and change nothing visible.
     @Test func theGathersOpenExpandsACollapsedRailOnly() throws {
         let content = try Self.contentView()
 
@@ -275,17 +229,16 @@ import Sync
                 "Open no longer opens a collapsed rail, or keys on a flag two layouts ignore")
         #expect(body.contains("syncManager.focusOn(relativePath: inPane"),
                 "Open no longer focuses the pane")
-        // And it still falls back to Finder for a folder outside this pane's provider, which is
-        // the case no pane can show.
+        // It still falls back to Finder for a folder outside this pane's provider, which no pane
+        // can show.
         #expect(body.contains("activateFileViewerSelecting"),
                 "a folder outside the provider has no fallback and would be a silent no-op")
     }
 
     @Test func aMissingCorpusIsNilRatherThanAnEmptyAnswer() async throws {
-        // **nil and "nobody has anything" must not look alike.** The slot renders the first as
+        // nil and "nobody has anything" must not look alike: the slot shows the first as
         // `.failed` ("nothing has been surveyed") and the second as the empty state ("nothing is
-        // theirs"), which are different claims — and collapsing them is how the missing-corpus
-        // path would silently become a confident "0 hers".
+        // theirs"). Collapsed, a missing corpus would read as a confident "0 hers".
         try await Self.withProfileDirectory(withCorpus: false) { root in
             let missing = try await ContentView.gatherOffMainActor(
                 personId: "daughter", profileId: "t", directory: root,
@@ -293,8 +246,8 @@ import Sync
             #expect(missing == nil, "a missing corpus produced an answer instead of nil")
         }
 
-        // …and with a corpus present the same call returns one, or the assertion above passes for
-        // the wrong reason (any broken read would also return nil).
+        // With a corpus the same call returns an answer, or the check above passes for the wrong
+        // reason (any broken read returns nil).
         try await Self.withProfileDirectory(withCorpus: true) { present in
             let found = try await ContentView.gatherOffMainActor(
                 personId: "daughter", profileId: "t", directory: present,
@@ -305,18 +258,15 @@ import Sync
     }
 
     @Test func aCancelledGatherThrowsRatherThanReturningAPartialAnswer() async throws {
-        // A superseded gather must not come back with half a sweep and let `awaits` decide — the
-        // slot's guard is the second line of defence, not the first.
-        //
-        // The fixture is 100 documents, under the sweep's 256 stride, so `PersonFiles.gather`
-        // never reaches a check of its own: the only thing that can throw here is the pair of
-        // checks bracketing the corpus read.
+        // A superseded gather must throw, not return half a sweep for `awaits` to judge; the slot's
+        // guard is the second line of defence. The fixture is under the sweep's 256 stride, so only
+        // the checks around the corpus read can throw here.
         try await Self.withProfileDirectory(withCorpus: true) { root in
             let profile = Self.folderProfile()
             let registry = Self.registry
             let task = Task {
-                // Bounded, and the cancel below is unconditional, so this terminates either way: the
-                // pass cap turns a broken cancellation into a named failure instead of a hang.
+                // Bounded, and the cancel below is unconditional: a broken cancellation fails by
+                // name instead of hanging.
                 var passes = 0
                 while !Task.isCancelled, passes < 5_000 {
                     passes += 1
@@ -327,8 +277,8 @@ import Sync
                     profile: profile, registry: registry)
             }
             task.cancel()
-            // Awaited INSIDE the scope, so the directory outlives the read it is there for — the
-            // helper's `defer` fires only once this closure returns.
+            // Awaited inside the scope, so the directory outlives the read; the helper's `defer`
+            // fires when this closure returns.
             await #expect(throws: CancellationError.self,
                           "a cancelled gather returned an answer instead of stopping") {
                 try await task.value

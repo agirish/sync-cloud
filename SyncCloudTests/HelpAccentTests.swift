@@ -4,14 +4,10 @@ import SwiftUI
 import Testing
 @testable import SyncCloud
 
-/// **Help wears the hue the user picked.**
-///
-/// It kept the SYSTEM accent (C7, `3e6264e79`) — the open topic's fill was `Color.accentColor`
-/// deepened, its article's words and tip wash `Color.accentColor` — so on a Coral card the sidebar
-/// lit up in the Mac's blue. The hue comes from a scratch suite through `defaultAppStorage` (the
-/// test host IS the app, so the real preference must not be read), and the pixels are read back
-/// as `colorAt` returns them: Coral's deepened fill must be there under Coral and absent under
-/// Green.
+/// Help wears the hue the user picked, not the system accent, which on a Coral card would light the
+/// sidebar in the Mac's blue. The hue comes from a scratch suite through `defaultAppStorage` (the
+/// test host is the app, so the real preference must not be read), and pixels are read back as
+/// `colorAt` returns them: Coral's deepened fill must be there under Coral and absent under Green.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct HelpAccentTests {
 

@@ -1,17 +1,16 @@
 import Testing
 import Foundation
 
-/// Two app-target call sites from the v6.1 Browse review, which no package test can reach: the
-/// rules behind them are tested in their packages, and these check the app still hands them the
-/// right thing. Read with comments stripped, so a comment quoting the call cannot satisfy a scan.
+/// Two app-target call sites no package test can reach: the rules behind them are tested in their
+/// packages, and these check the app still hands them the right thing. Read with comments
+/// stripped, so a comment quoting the call cannot satisfy a scan.
 @Suite struct BrowseReviewWiringTests {
 
     /// The Sync History window's Undo Last Run hands back the manager's refusal for that window to
     /// show (`SyncHistoryView`'s alert), from the asking entry point that never sets the main
     /// window's banner. `SyncRunUndoGuardTests` covers the manager; this covers the hand-off.
-    ///
-    /// The closure is read whole (brace-matched), and must BE the call: a fixed-length window
-    /// stopped short of an added `return nil` — measured, it passed with the refusal dropped.
+    /// The closure is read whole (brace-matched) and must be the call itself: a fixed-length window
+    /// would stop short of an added `return nil` and pass with the refusal dropped.
     @Test func syncHistoryGetsTheRefusalBack() throws {
         let app = try LinkedMoveTranslationTests.repoFile("MacApp/SyncCloudApp.swift")
         #expect(app.components(separatedBy: "onUndoLastSyncRun:").count == 2,

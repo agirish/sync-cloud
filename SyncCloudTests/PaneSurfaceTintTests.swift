@@ -2,24 +2,17 @@ import Foundation
 import Testing
 @testable import SyncCloud
 
-/// Every surface a pane owns takes the same accent wash.
-///
-/// A pane is three views stacked in one `VStack` — the tab strip, the header, the file list — and
-/// they read as one surface only because all three paint the same `contentSurface(hue:tint:)`.
-/// The strip did not: it was the one pane-owned surface without the wash, so at a high Tint it was
-/// a pale stripe cut through the top of the pane. Nothing failed when it was added without one,
-/// because a missing wash is a surface that looks like the window behind it.
-///
-/// **Pinned as the SET of three, not as the one that was wrong.** The strip is the third view to
-/// join this stack; a fourth is what this is really guarding against, and a test naming only the
-/// strip would have nothing to say about it.
+/// Every surface a pane owns takes the same accent wash. A pane is three views in one `VStack`
+/// (tab strip, header, file list) that read as one surface only because all three paint
+/// `contentSurface(hue:tint:)`. One without it shows as a pale stripe at a high Tint, and nothing
+/// else fails, since a missing wash just looks like the window behind it. Pinned for all three.
 @MainActor
 @Suite struct PaneSurfaceTintTests {
 
     private static let wash = ".contentSurface(hue: glassHue, tint: surfaceTint)"
 
-    /// A file from the repo, with the truncation guard every scan in this target carries: a
-    /// partially-read file answers `contains` with false and makes an absence-scan vacuous.
+    /// A file from the repo, comment-stripped, with the truncation guard every scan here carries:
+    /// a partly read file answers `contains` with false and makes an absence scan vacuous.
     private static func repoFile(_ relativePath: String) throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()      // SyncCloudTests
@@ -30,13 +23,9 @@ import Testing
         return SyncCloudTests.strippingComments(text)
     }
 
-    /// The modifier chain hung on the `PaneTabStrip(...)` call: from its balanced closing
-    /// parenthesis to the next view in the stack.
-    ///
-    /// **Bounded by `PaneHeader(` — the real structural boundary — and not by a character budget.**
-    /// A budget is what `QuickLookOriginTests` used, and one extra argument on an unrelated call
-    /// pushed the line it looked for out of range, failing a test about something else entirely.
-    /// The strip's chain ends where the next sibling begins, whatever grows in between.
+    /// The modifier chain on the `PaneTabStrip(...)` call, from its balanced closing parenthesis
+    /// to the next view in the stack. Bounded by `PaneHeader(`, the structural boundary, not a
+    /// character budget, which an unrelated edit can push past.
     private static func stripModifiers(in source: String) throws -> String {
         let spans = PaneTabWiringTests.callSpans(of: "PaneTabStrip(", in: source)
         try #require(spans.count == 1,
@@ -52,20 +41,19 @@ import Testing
     @Test func theSliceIsTheStripsOwnModifierChain() throws {
         let source = try Self.repoFile("MacApp/ContentView.swift")
         let chain = try Self.stripModifiers(in: source)
-        // A modifier the strip has carried since it shipped, so a slice that came back empty or
-        // pointed at the wrong region cannot report every assertion below as satisfied.
+        // A modifier the strip always carries, so a slice that is empty or in the wrong region
+        // can't satisfy every assertion below.
         #expect(chain.contains(".paneCardIfNeeded("),
                 "the slice does not contain the strip's own card modifier — it is not the right region")
-        // And it stops before the sibling: a slice that ran on into the header would find the
-        // header's wash and credit it to the strip, which is precisely the bug being pinned.
+        // And it stops before the sibling: a slice running into the header would credit the
+        // header's wash to the strip.
         #expect(!chain.contains("PaneHeader("))
         #expect(chain.count < source.count)
     }
 
     @Test func theScanWouldNoticeTheWashGoing() throws {
-        // The negative control. `wash` is matched verbatim, so this asserts the spelling the three
-        // checks below look for is one this file actually contains somewhere — a renamed modifier
-        // or a re-spelled argument label would otherwise make all three pass by never matching.
+        // The negative control. `wash` is matched verbatim, so this asserts the file contains that
+        // spelling at all; a renamed modifier or label would otherwise fail silently.
         let source = try Self.repoFile("MacApp/ContentView.swift")
         #expect(source.contains(Self.wash), "the wash is spelled differently now — every scan here is vacuous")
         #expect(!source.contains(".contentSurface(hue: glassHue, tint: surfaceTintt)"))
@@ -80,9 +68,9 @@ import Testing
     }
 
     @Test func theWashIsAppliedBeforeTheCardClips() throws {
-        // `surfaceCard` clip-shapes first, so a wash applied AFTER it squares off the rounded
-        // corners — the same ordering `bottomSectionCard` documents. Order in a modifier chain is
-        // invisible to a `contains` check, which is why this asks where each one sits.
+        // The wash must come before the card: applied after `surfaceCard` clips, it squares off
+        // the rounded corners (as `bottomSectionCard` documents). `contains` can't see order, so
+        // this compares positions.
         let chain = try Self.stripModifiers(in: try Self.repoFile("MacApp/ContentView.swift"))
         let wash = try #require(chain.range(of: Self.wash))
         let card = try #require(chain.range(of: ".paneCardIfNeeded("))
@@ -90,17 +78,15 @@ import Testing
                 "the wash is applied after the card clips — it will poke past the rounded corners")
     }
 
-    /// The `PaneHeader` type's own slice: from its declaration to the file's next top-level
-    /// declaration. Structural, like `stripModifiers` above, and for the same reason — a
-    /// character budget truncates under unrelated edits, and a file-level `contains` is worse:
-    /// a wash anywhere else in DashboardViews.swift would keep it green while the header lost
-    /// its own, which is precisely the drift the strip's slice exists to rule out.
+    /// The `PaneHeader` type's own slice, from its declaration to the next top-level declaration.
+    /// Structural, like `stripModifiers`: a file-level `contains` would stay green on any other
+    /// wash in DashboardViews.swift while the header lost its own.
     private static func paneHeaderSlice(in source: String) throws -> String {
         let start = try #require(source.range(of: "struct PaneHeader"),
                                  "PaneHeader is gone — the wash has no home to be asserted in")
         let rest = String(source[start.upperBound...])
-        // The next declaration at column zero ends the type. Anchored to the line start so a
-        // nested type inside PaneHeader's body cannot end the slice early.
+        // The next declaration at column zero ends the type; anchored to the line start so a
+        // nested type can't end the slice early.
         let end = rest.range(of: #"\n(public |private |internal |final )*(struct|enum|class|extension)\s"#,
                              options: .regularExpression)
         return end.map { String(rest[..<$0.lowerBound]) } ?? rest
@@ -109,8 +95,8 @@ import Testing
     @Test func theHeaderTakesTheWash() throws {
         let source = try Self.repoFile("Modules/Dashboard/Sources/Dashboard/DashboardViews.swift")
         let header = try Self.paneHeaderSlice(in: source)
-        // The slice is the header's own body, not the whole file: a modifier the header has
-        // carried since the height rule landed anchors it, and the boundary really cut something.
+        // The slice is the header's own body, not the whole file: the header's height pin anchors
+        // it, and the boundary really cut something.
         try #require(header.contains(".frame(height: LiquidGlass.headerHeight)"),
                      "the slice does not contain the header's own height pin — it is not the right region")
         try #require(header.count < source.count,
@@ -120,8 +106,8 @@ import Testing
     }
 
     @Test func theFileListTakesTheWash() throws {
-        // Both presentations: Tree and Columns are separate branches, and only one of them being
-        // washed is a pane that changes colour when the view mode switches.
+        // Both presentations: Tree and Columns are separate branches, and washing only one would
+        // change the pane's colour when the view mode switches.
         let source = try Self.repoFile("Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift")
         let count = source.components(separatedBy: Self.wash).count - 1
         #expect(count >= 2, "expected the Tree and Columns branches to be washed, found \(count)")

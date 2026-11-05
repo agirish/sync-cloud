@@ -3,11 +3,10 @@ import Foundation
 @testable import SyncCloud
 import Sync
 
-/// Executes every branch of the launch restore's decision — the branches that were previously
-/// pinned only as source text (`PaneTabWiringTests` scanned the function body for its literals and
-/// their relative order, because a `View` extension cannot be instantiated). The store half is
-/// covered in `Modules/Sync` (`PaneTabsTests`); this suite owns the account the host gives of it:
-/// which lines are said, in what order, what is installed, and when the pane adopts a provider.
+/// Runs every branch of the launch restore's decision as a value, since the `View` extension that
+/// carries it out cannot be instantiated. The store half is covered in `Modules/Sync`
+/// (`PaneTabsTests`); this suite owns the account the host gives of it: which lines are said, in
+/// what order, what is installed, and when the pane adopts a provider.
 @MainActor
 @Suite struct BrowseTabRestorePlanTests {
 
@@ -44,9 +43,8 @@ import Sync
         #expect(p.adoptProviderId == nil, "the pane is already on the active tab's source")
     }
 
-    /// The singular/plural and side vocabulary, which a Compare launch needs to tell its panes
-    /// apart — dropping the side from these lines once left a two-pane launch unable to say which
-    /// pane lost what.
+    /// The singular/plural and side vocabulary. Without the side, a Compare launch could not say
+    /// which pane lost what.
     @Test func theLinesNameTheSideAndCountHonestly() throws {
         let right = plan(entries: [entry(path: "Docs"), entry(path: "")], isLeft: false)
         #expect(right.lines == [.init(level: .info, message: "Restored 2 right browse tabs")])
@@ -77,16 +75,16 @@ import Sync
 
     // MARK: The seed-state abandon
 
-    /// A fresh install's own state — one tab at the root — must not be re-installed under new ids.
+    /// A fresh install's own state, one tab at the root, must not be re-installed under new ids.
     @Test func theSeedStateIsLeftAloneInSilence() {
         let p = plan(entries: [entry(path: "")])
         #expect(p.install == nil)
         #expect(p.lines.isEmpty)
     }
 
-    /// The one launch where the "at its source root" sentence would be both the most alarming and
-    /// the most wrong: a one-entry strip whose only folder is gone re-roots to exactly the seed
-    /// state, so nothing is installed — and the truthful line replaces the claim of a restore.
+    /// A one-entry strip whose only folder is gone re-roots to exactly the seed state, so nothing is
+    /// installed, and the truthful line replaces the claim of a restore. "At its source root" would
+    /// be both alarming and wrong here.
     @Test func anAbandonedRestoreNamesTheLostFolderWithoutClaimingARestore() {
         let p = plan(entries: [entry(path: "Docs/Tax")], folderExists: { _, _ in false })
         #expect(p.install == nil)
@@ -98,10 +96,9 @@ import Sync
                 "the abandoned launch must not claim a tab came back")
     }
 
-    /// Both misfortunes at once: one entry's SOURCE is gone (dropped) and the survivor's FOLDER is
-    /// gone (re-rooted to seed state → abandoned). The dropped warning still leads, the abandoned
-    /// line still replaces the restore claims, nothing installs — the combination neither
-    /// single-misfortune test above can see.
+    /// Both at once: one entry's source is gone (dropped) and the survivor's folder is gone
+    /// (re-rooted to seed state, so abandoned). The dropped warning still leads, the abandoned line
+    /// still replaces the restore claims, and nothing installs.
     @Test func aDroppedSourceAndALostFolderTogetherWarnTwiceAndInstallNothing() {
         let p = plan(entries: [entry("Gone", path: "Old/Stuff"), entry(path: "Docs/Tax")],
                      selected: 1,
@@ -114,10 +111,9 @@ import Sync
         #expect(!p.lines.contains { $0.message.contains("Restored") })
     }
 
-    /// The pairing invariant the executor leans on: `adoptProviderId` and `adoptLog` are one
-    /// decision — the host logs `plan.adoptLog ?? ""` beside the adopt, so an id without its
-    /// audit line would write an EMPTY line into the log he audits, and a line without its id
-    /// would be an audit of nothing.
+    /// `adoptProviderId` and `adoptLog` are one decision. The host logs `plan.adoptLog ?? ""` beside
+    /// the adopt, so an id without its line would write an empty line into the log, and a line
+    /// without its id would audit nothing.
     @Test func adoptionAndItsAuditLineAlwaysTravelTogether() {
         let adopting = plan(entries: [entry("Dropbox", path: "Work")], currentProviderId: "iCloud")
         #expect((adopting.adoptProviderId == nil) == (adopting.adoptLog == nil))
@@ -129,9 +125,9 @@ import Sync
 
     // MARK: Re-rooted folders
 
-    /// A tab whose folder is gone comes back at its source root — deliberately — and the stored
-    /// path is the last place that folder is named, so the plan names it, before the restored
-    /// count that would otherwise read as "nothing was lost".
+    /// A tab whose folder is gone comes back at its source root, and the stored path is the last
+    /// place that folder is named, so the plan names it, before the restored count that would
+    /// otherwise read as "nothing was lost".
     @Test func aReRootedTabsFolderIsNamedBeforeTheRestoredCount() throws {
         let p = plan(entries: [entry(path: "Docs/Gone"), entry(path: "Docs")],
                      folderExists: { _, path in path != "Docs/Gone" })
@@ -151,7 +147,7 @@ import Sync
         #expect(p.adoptLog == "Restored left browse tab moved the pane to Dropbox")
     }
 
-    /// `canShowSource` is consulted even though `restore` already filtered — the pane's list can
+    /// `canShowSource` is consulted even though `restore` already filtered: the pane's list can
     /// narrow between the two calls, and adopting a source the pane cannot show would strand it.
     @Test func adoptionIsWithheldWhenThePaneCannotShowTheSource() throws {
         let outcome = PaneTabsStore.restore(entries: [entry("Dropbox", path: "Work")], selected: 0,
@@ -166,10 +162,9 @@ import Sync
 
     // MARK: A hand-authored stored payload, end to end
 
-    /// The pipeline from bytes: a strip as a v4.2 build wrote it (JSON string under the pane's
-    /// key, `stackDepth`/`pinned` present), through `load` → `restore` → `plan`. No other MacApp
-    /// test starts from persisted bytes — every prior tab test either scanned source or exercised
-    /// values it had just built.
+    /// The pipeline from stored bytes: a strip in the stored format (JSON string under the pane's
+    /// key, `stackDepth`/`pinned` present), through `load` → `restore` → `plan`. The one MacApp tab
+    /// test that starts from persisted bytes rather than values it just built.
     @Test func aStoredV42StripRestoresFromItsRawBytes() throws {
         let test = TestDefaults()
         let raw = """

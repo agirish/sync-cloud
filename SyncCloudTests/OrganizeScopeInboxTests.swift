@@ -1,18 +1,13 @@
 import Testing
 import Foundation
 
-/// The `TODO` inbox stopped being a hidden root swap.
+/// The `TODO` inbox is never a hidden root swap. Where the pane happens to stand must not decide
+/// the filing scan's subject, so no rule retargets it to the inbox, even narrowly: that would fire
+/// on a condition the user can't see. The inbox path resolution stays, as a visible one-click
+/// scope shortcut on Organize's overview.
 ///
-/// `ContentView.filingScanTargetFolder` used to retarget the filing scan to the loose-files inbox
-/// whenever the pane happened to be sitting at the provider root — a *browsing accident deciding a
-/// subject*. The branch is **deleted, not narrowed**: narrowing it would leave a rule that fires on
-/// a condition the user cannot see, which is the whole complaint. What survives is the inbox
-/// *path* resolution, promoted to a visible one-click scope shortcut on Organize's overview.
-///
-/// `ContentView` is a SwiftUI view in the app target with no seam to instantiate here, so this
-/// reads the source. That is a blunt instrument with a known blind spot, so it fails loudly if the
-/// file cannot be read rather than scanning an empty haystack — a source scan that silently finds
-/// nothing passes just as green as one that proves something.
+/// `ContentView` has no seam to instantiate here, so this reads the source, and fails loudly if the
+/// file can't be read: a scan of an empty haystack passes as green as one that proves something.
 @Suite struct OrganizeScopeInboxTests {
 
     static func contentView() throws -> String {
@@ -22,61 +17,44 @@ import Foundation
             .appendingPathComponent("MacApp/ContentView.swift")
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read MacApp/ContentView.swift — this scan would be vacuous")
-        // `#require`, not `#expect`: a file that exists but is truncated hands a short string on,
-        // after which every `contains` here answers false and every `!contains` answers true. One
-        // quiet issue standing in front of a page of green is the wrong signal — stop instead.
+        // `#require`, not `#expect`: on a truncated file every `!contains` below would pass, so
+        // stop instead of reporting one issue in front of a page of green.
         try #require(text.count > 10_000, "ContentView.swift is implausibly short — the scans below would be near-vacuous")
         return text
     }
 
     @Test func theInboxRootSwapIsGone() throws {
         let source = try Self.contentView()
-        // The exact expression that made the pane's position choose the subject.
+        // The expression that would let the pane's position choose the subject.
         #expect(!source.contains("(atRoot && inboxExists) ? inboxPath : focused"),
                 "the inbox root-swap is back in filingScanTargetFolder")
         #expect(!source.contains("let atRoot ="),
                 "filingScanTargetFolder is testing whether the pane is at the root again")
     }
 
-    /// The rail's own inbox rule — the second half of the hidden behaviour, and the one that
-    /// outlived the first.
-    ///
-    /// `filingScanTargetFolder`'s root-swap went early: the pane's position was choosing the
-    /// subject. `tidyRailRelativePath(for:)` survived that cleanup and did the same thing wearing
-    /// the other hat — it moved the pane *to* the inbox when Organize was opened, so on a fresh
-    /// install (where `filingInboxRelativePathKey` is unset and defaults to `TODO`) switching to
-    /// Organize jumped the source rail into a folder nobody had asked for.
+    /// Opening Organize must not move the pane to the inbox. On a fresh install
+    /// `filingInboxRelativePathKey` defaults to `TODO`, so a rail rule that opened on the inbox
+    /// would jump the source rail into a folder nobody asked for.
     @Test func theRailNoLongerOpensOnTheInbox() throws {
         let source = try Self.contentView()
-        // The resolver is gone outright. Matched on the **declaration**, not the bare name: the
-        // comment that explains the removal names it, and a scan that cannot tell code from the
-        // prose describing it is this suite's standing hazard — stated at the top of the file, and
-        // the reason `body(of:in:)` exists.
-        // Matched on the SHAPE, over comment-stripped code, and both halves are load-bearing.
-        // The resolver was `tidyRailRelativePath` when it was deleted; the tidy* member family
-        // has since been renamed lens*, so pinning the old spelling guarded a name this
-        // codebase can no longer produce. Stripping comments is what lets the pattern be this
-        // broad: ContentView still explains the removal in prose that names the old symbol.
+        // No rail-path resolver, matched by shape (`tidy…` or `lens…`) over comment-stripped code,
+        // since ContentView's prose may still name one.
         #expect(!sourceCodeOnly(source).contains("RailRelativePath"),
                 "the rail's inbox resolver is back — Organize opens on TODO again on a fresh install")
 
         let body = try Self.body(of: "func presentLensRail(for workspace: Workspace) {", in: source)
-        // It is not positioned at all now: the pane keeps the folder it was in, in Browse or
-        // anywhere else (`LensEntryContinuityTests`). What this suite holds is that no rule of
-        // Organize's own — the inbox above all — moves it.
+        // The pane keeps the folder it was in (`LensEntryContinuityTests`); this suite holds that
+        // no rule of Organize's own, the inbox above all, moves it.
         #expect(!body.contains("focusOn("),
                 "entering Organize positions the left pane again — the folder it was in is lost")
-        // The key, not the word "inbox": the body's own comment explains what was removed and says
-        // "inbox" four times, so a scan for the word would fail a correct implementation.
+        // The key, not the word "inbox": the body's own comment may say "inbox", and a scan for the
+        // word would fail a correct implementation.
         #expect(!body.contains("filingInboxRelativePathKey"),
                 "presentLensRail reads the inbox setting again, so opening Organize moves the pane")
     }
 
-    /// The setting can express "off", which it could not.
-    ///
-    /// The field's placeholder was the key's own default, so a field the user had deliberately
-    /// emptied rendered identically to one never touched — greyed-out "TODO" either way — and
-    /// nothing on the row said what blank did. That is what "there is no way to clear it" was.
+    /// The setting can express "off". A placeholder of the key's default ("TODO") would make a
+    /// cleared field look exactly like an untouched one.
     @Test func theInboxSettingCanBeCleared() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -90,8 +68,8 @@ import Foundation
 
     @Test func theInboxPATHResolutionSurvives() throws {
         let source = try Self.contentView()
-        // Deleted the rule, kept the resolution — the shortcut needs it, and it keeps the existence
-        // check that stops the rail and the scan disagreeing about a missing inbox.
+        // No rule, but the resolution stays: the shortcut needs it, and its existence check stops
+        // the rail and the scan disagreeing about a missing inbox.
         #expect(source.contains("var filingInboxFolder: String?"))
         #expect(source.contains("GeneralSettings.filingInboxRelativePathKey"))
         #expect(source.contains("isDirectory: &isDir"),
@@ -100,15 +78,10 @@ import Foundation
                 "the inbox is resolved but never handed to the lens, so no shortcut can appear")
     }
 
-    /// The declaration's body, bounded by its **closing brace** rather than by a character count.
-    ///
-    /// A fixed-width window is a known way for a source scan to answer about the wrong text: the
-    /// first version of the test below took 400 characters after the declaration, which ran clean
-    /// past this four-line body and into the *next* member's doc comment — where the word "inbox"
-    /// legitimately appears — and failed a correct implementation.
-    ///
-    /// The shared reader — see ``declarationBody(of:in:)``, which also strips comments and refuses
-    /// a duplicated declaration. This copy did neither.
+    /// The declaration's body, bounded by its closing brace, not a character count: a fixed window
+    /// can run past a short body into the next member's text and answer about the wrong code. The
+    /// shared reader, ``declarationBody(of:in:)``, also strips comments and refuses a duplicated
+    /// declaration.
     static func body(of declaration: String, in source: String) throws -> String {
         try declarationBody(of: declaration, in: source)
     }
@@ -125,29 +98,27 @@ import Foundation
 
     @Test func pointingAtAFolderSetsTheScopeAndTheRootClearsIt() throws {
         let source = try Self.contentView()
-        // "Organize This Folder…" must SET the scope, not just scan — the scope is the lasting half.
+        // "Organize This Folder…" must set the scope, not just scan: the scope is the lasting half.
         let body = try Self.body(
             of: "func organizeFolderAction(_ node: FileNode, providerRoot: String, providerAnchor: String) {",
             in: source)
         #expect(body.contains("setOrganizeScope(folder, providerRoot: providerRoot)"),
                 "Organize This Folder no longer sets the scope, so five lenses would ignore it")
-        // **The two roots must not be swapped here.** This one call does both jobs: it sets a scope,
-        // which is measured against the account ROOT so any folder the pane can reach can be one,
-        // and it starts a filing scan, whose taxonomy is the source's ANCHOR. Passing the anchor to
-        // the scope makes every folder above the documents tree un-scopable; passing the root to
-        // the scan hands filing the whole account.
-        // Since TE287 the scan files into the row's File Into folder, resolved FROM the anchor —
-        // `filingDestinationRoot(forAnchor:)`, pinned in `OrganizeScopeAutoRescanTests`.
+        // The two roots must not be swapped here. The scope is measured against the account root,
+        // so any reachable folder can be one; the filing scan's taxonomy is the source's anchor.
+        // The anchor as scope makes folders above the documents tree un-scopable; the root as
+        // taxonomy hands filing the whole account. The scan files into the row's File Into folder,
+        // resolved from the anchor by `filingDestinationRoot(forAnchor:)`
+        // (`OrganizeScopeAutoRescanTests`).
         #expect(body.contains("let into = filingDestinationRoot(forAnchor: providerAnchor)"),
                 "the filing scan is anchored at the account root again, so its taxonomy is the whole account")
         #expect(body.contains("providerRoot: URL(fileURLWithPath: into)"))
-        // And the one write is where the root is normalized away, so no caller can mint a second
-        // encoding of the global view.
-        // The root is a REQUIRED argument, so no caller can silently inherit the focused pane's —
-        // see `OrganizeScopeRootOwnershipTests`, which is where that rule is stated.
+        // The one write normalizes the root away, so no caller can mint a second encoding of the
+        // global view. The root is a required argument, so no caller can inherit the focused
+        // pane's (`OrganizeScopeRootOwnershipTests`).
         #expect(source.contains("func setOrganizeScope(_ path: String?, providerRoot: String)"))
-        // The normalization lives in ONE resolver behind both the read and the write, so the two
-        // cannot drift about what a stored provider root means.
+        // One resolver behind both read and write, so they can't drift about what a stored
+        // provider root means.
         #expect(source.contains("organizeScopePath = OrganizeScope.normalizedPath(path, providerRoot: providerRoot)"),
                 "the scope write no longer routes through OrganizeScope.normalizedPath — a second copy of the normalization is back")
         #expect(source.contains("private func resolvedOrganizeScope(_ path: String?) -> OrganizeScope?"))

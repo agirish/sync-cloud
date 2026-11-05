@@ -17,10 +17,9 @@ import Sync
 
     // MARK: Letting the selection go
 
-    /// The common case, and the reason this clears both sides. The one-pane-selected invariant means
-    /// a selection lives in at most one pane, so a click in the *other* pane's empty space is the
-    /// usual way this gesture is reached — clearing only the clicked side would leave it dead
-    /// exactly when the user most expects it to work.
+    /// The common case, and why this clears both sides: a selection lives in at most one pane, so
+    /// the click usually lands in the other pane's empty space. Clearing only the clicked side
+    /// would leave the gesture dead exactly when the user expects it to work.
     @Test func testClickingOnePanesEmptySpaceReleasesTheOtherPanesSelection() {
         let state = State()
         state.selectedLeftPaths = ["/left/a", "/left/b"]
@@ -69,9 +68,9 @@ import Sync
         #expect(result?.components == ["Documents"])
     }
 
-    /// The deepest column has nothing beyond it, so this is a deselect and nothing more. Reported as
-    /// no change so the caller skips `applyColumnNavigation` entirely rather than asking the pane to
-    /// re-apply the stack it already has — and, with the seam link on, re-mirroring it.
+    /// The deepest column has nothing beyond it, so this only deselects. Reported as no change so
+    /// the caller skips `applyColumnNavigation` rather than re-applying (and, with the seam link
+    /// on, re-mirroring) the stack it already has.
     @Test func testClickingTheDeepestColumnChangesNoColumns() {
         let path = PaneBrowsePath(components: ["Documents", "Invoices"])
         #expect(PaneLogic.backgroundDeselectPath(from: path, depth: 2) == nil)
@@ -82,25 +81,25 @@ import Sync
         #expect(PaneLogic.backgroundDeselectPath(from: PaneBrowsePath(), depth: 0) == nil)
     }
 
-    /// No depth is the dead space past the last column, Tree mode, and the single-source rail. All three
-    /// deselect without navigating: closing the stack from a click *past* it would be a move the
-    /// user did not ask for, and the other two have no stack at all.
+    /// No depth means the dead space past the last column, Tree mode, or the single-source rail.
+    /// All deselect without navigating: closing the stack from a click past it would be a move the
+    /// user didn't ask for, and the other two have no stack.
     @Test func testNoDepthNeverTouchesTheColumns() {
         let path = PaneBrowsePath(components: ["Documents", "Invoices"])
         #expect(PaneLogic.backgroundDeselectPath(from: path, depth: nil) == nil)
         #expect(PaneLogic.backgroundDeselectPath(from: PaneBrowsePath(), depth: nil) == nil)
     }
 
-    /// A depth past the end of the stack cannot lengthen it. `truncate` clamps, and this pins that
-    /// the clamping is relied upon rather than incidental — a stale depth arriving after the stack
-    /// shrank must not resurrect a column.
+    /// A depth past the end of the stack can't lengthen it. `truncate` clamps, and this pins that
+    /// the clamp is relied on: a stale depth arriving after the stack shrank must not resurrect a
+    /// column.
     @Test func testADepthBeyondTheStackCannotOpenColumns() {
         let path = PaneBrowsePath(components: ["Documents"])
         #expect(PaneLogic.backgroundDeselectPath(from: path, depth: 5) == nil)
     }
 
-    /// Truncating discards the forward stack, so `›` cannot walk back into a column the user just
-    /// closed — the same rule every other branching move follows.
+    /// Truncating discards the forward stack, so `›` can't walk back into a column the user just
+    /// closed, as with every other branching move.
     @Test func testClosingColumnsDiscardsTheForwardStack() {
         var path = PaneBrowsePath(components: ["Documents", "Invoices"])
         path.popLast()

@@ -1,20 +1,16 @@
 import Testing
 import Foundation
 
-/// **The Compare review's trash confirmation promised an undo it cannot always deliver.**
+/// The Compare review's trash confirmation must not promise an undo it can't always deliver.
 ///
-/// It read "Reversible with ⌘Z", unconditionally. On a volume with no Trash — exFAT, most SMB
-/// shares — `deleteItems` cannot trash the copy and escalates to the permanent-delete
-/// confirmation, which destroys it outright; nothing reaches the undo manager, because there is no
-/// backup to restore from. `DuplicateReviewCoordinator` already draws that distinction thirty
-/// lines below the alert, where its log line branches "Trashed" against "Permanently deleted"
-/// precisely so a reader is not sent to a Trash that never received the file.
+/// On a volume with no Trash (exFAT, most SMB shares) `deleteItems` can't trash the copy and
+/// escalates to the permanent-delete confirmation, which destroys it outright; nothing reaches
+/// the undo manager. `DuplicateReviewCoordinator`'s log line already branches "Trashed" against
+/// "Permanently deleted" for the same reason.
 ///
-/// A scan, because the text lives in a default closure around a blocking `NSAlert` and reading it
-/// is the only way to check it without standing up the alert. Both directions are asserted: the
-/// unconditional claim is gone, and what replaced it names the second confirmation — which is real
-/// (`SyncOperationAlerts.confirmPermanentDelete`, critical style) and is what makes the softened
-/// promise honest rather than merely vaguer.
+/// A scan, because the text lives in a default closure around a blocking `NSAlert`. Both
+/// directions are asserted: no unconditional ⌘Z claim, and the text names the second
+/// confirmation, which is real (`SyncOperationAlerts.confirmPermanentDelete`, critical style).
 @Suite struct DuplicateReviewTrashPromiseTests {
 
     @Test func theTrashConfirmationDoesNotPromiseAnUnconditionalUndo() throws {
@@ -36,9 +32,8 @@ import Foundation
                 "the confirmation does not say the permanent case is unrecoverable")
     }
 
-    /// The promise it now makes has to be true: a second, critical confirmation really does stand
-    /// in front of every permanent delete. Without this the reworded text would be its own kind of
-    /// false reassurance.
+    /// The promise it makes has to be true: a second, critical confirmation stands in front of
+    /// every permanent delete. Without it the text would be false reassurance of its own.
     @Test func thePermanentDeleteConfirmationItPromisesReallyExists() throws {
         let source = try macAppSources()
         #expect(source.contains("func confirmPermanentDelete(itemPaths: [String]) -> Bool"),

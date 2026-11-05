@@ -3,18 +3,13 @@ import Foundation
 import Sync
 @testable import SyncCloud
 
-/// `PaneLogic.organizeAimNeedsPaneSwap` — the one decision behind ⌘K's "Organize shows one source
-/// at a time" dialog.
+/// `PaneLogic.organizeAimNeedsPaneSwap`, the decision behind ⌘K's "Organize shows one source at a
+/// time" dialog. The rule is extracted because the dialog's `NSAlert.runModal()` would block the
+/// test's main thread; `CommandPaletteRouteCallSiteTests` pins the call site's ordering.
 ///
-/// The rule is extracted precisely because the dialog is not: an `NSAlert` is `runModal()`, which
-/// blocks the test's own main thread on a session nothing in the harness can dismiss. So the
-/// question the alert asks is answered here, on real paths, and the call site's ordering is pinned
-/// separately by `CommandPaletteRouteCallSiteTests`.
-///
-/// **Every fixture uses paths that could exist**, and the roots are distinct trees rather than
-/// suggestive strings — the rule is decided with `OrganizeScope`, which expands tildes and respects
-/// path-component boundaries, and a fixture built out of `"left"` / `"right"` could not tell that
-/// implementation from a `hasPrefix`.
+/// Fixtures use real-looking paths in distinct trees, not `"left"` / `"right"`: the rule goes
+/// through `OrganizeScope`, which expands tildes and respects component boundaries, and toy strings
+/// couldn't tell it from a `hasPrefix`.
 @Suite struct OrganizeAimPaneSwapTests {
 
     private static let leftRoot = "/Users/abhishek/Library/CloudStorage/iCloud"
@@ -28,60 +23,50 @@ import Sync
                                            leftRoot: leftRoot, rightRoot: rightRoot)
     }
 
-    /// **The case the dialog exists for**, and it comes first so every refusal below means
-    /// something: a rule that answered false to everything would satisfy all of them at once.
-    ///
-    /// The folder is in the aimed (right) pane's tree and in no part of the left one, so Organize —
-    /// which shows the left pane — would resolve the scope to nil, drop the chip and go back to the
-    /// global view with the named folder silently discarded.
+    /// The case the dialog exists for, first so the refusals below mean something: a rule that
+    /// always said false would pass them all. The folder is only in the aimed (right) pane's tree,
+    /// so Organize, which shows the left pane, would silently drop it and show the global view.
     @Test func aRightPaneFolderTheLeftPaneCannotSeeNeedsTheSwap() {
         #expect(Self.needsSwap(scope: Self.rightRoot + "/Legal/Immigration"))
     }
 
-    /// Aimed at the LEFT pane — which is the pane Organize shows — so there is nothing to move.
-    /// This is the common case: every ⌘K route outside Compare, and every Compare route with the
-    /// left pane focused.
+    /// Aimed at the left pane, the one Organize shows, so there is nothing to move. The common
+    /// case: every ⌘K route outside Compare, and every Compare route with the left pane focused.
     @Test func aLeftPaneAimNeverSwaps() {
         // Same folder as above, so the only difference between this and the swap case is the aim.
         #expect(!Self.needsSwap(scope: Self.leftRoot + "/Legal/Immigration", aimedAtRight: false))
         #expect(!Self.needsSwap(scope: Self.rightRoot + "/Legal/Immigration", aimedAtRight: false))
     }
 
-    /// "Organize" with no folder keeps no object, so both panes answer it identically and moving
-    /// them would be a change the user did not ask for and could not see the point of.
+    /// "Organize" with no folder reads the same from either pane, so moving them would be a change
+    /// the user didn't ask for.
     @Test func aScopelessRouteNeverSwaps() {
         #expect(!Self.needsSwap(scope: nil))
     }
 
-    /// **Both panes on one provider.** The roots are the same tree, so the folder already resolves
-    /// under the left one — Organize will show it with the chip intact. Swapping would move the
-    /// panes for no gain, which is exactly the "don't move anything silently" failure in reverse.
+    /// Both panes on one provider: the folder already resolves under the left root, so Organize
+    /// shows it with the chip intact and a swap would move the panes for nothing.
     @Test func oneProviderInBothPanesNeedsNoSwap() {
         #expect(!Self.needsSwap(scope: Self.rightRoot + "/Legal", leftRoot: Self.rightRoot))
     }
 
-    /// **A folder in neither tree is not a pane problem.** A stale scope, or one typed against a
-    /// provider that has since been dropped, degrades to the global view exactly as `OrganizeScope`
-    /// documents — and no arrangement of the two panes would rescue it, so there is nothing to ask.
+    /// A folder in neither tree isn't a pane problem. A stale scope degrades to the global view as
+    /// `OrganizeScope` documents, and no arrangement of the panes would rescue it.
     @Test func aFolderOutsideBothRootsNeedsNoSwap() {
         #expect(!Self.needsSwap(scope: "/Volumes/Archive 2019/Legal"))
     }
 
-    /// The provider root itself is the global view — `OrganizeScope.init?` normalizes it to nil, so
-    /// the scope write clears rather than sets and Organize shows everything under whichever
-    /// provider it lands on. Nothing is lost by not swapping, so nothing is asked.
+    /// The provider root itself is the global view: `OrganizeScope.init?` normalizes it to nil, so
+    /// nothing is lost by not swapping.
     @Test func theProviderRootItselfNeedsNoSwap() {
         #expect(!Self.needsSwap(scope: Self.rightRoot))
         #expect(!Self.needsSwap(scope: Self.rightRoot + "/"))
     }
 
-    /// **The boundary is a path component, not a string prefix**, and it is asked of BOTH roots.
-    ///
-    /// Each half is a fixture a `hasPrefix` implementation answers wrongly, in opposite directions:
-    /// `/…/Dropbox` string-prefixes `/…/DropboxArchive/Legal`, so a naive rule would place a folder
-    /// that is in neither tree inside the aimed pane and offer a pointless swap; and `/…/Drop`
-    /// string-prefixes `/…/Dropbox/Legal`, so a naive rule would decide the left pane can already
-    /// see it and offer nothing — leaving the silent drop this whole dialog exists to stop.
+    /// The boundary is a path component, not a string prefix, on both roots. A `hasPrefix` rule
+    /// fails each half the opposite way: it would place `/…/DropboxArchive/Legal` inside
+    /// `/…/Dropbox` and offer a pointless swap, and decide a left root `/…/Drop` can see
+    /// `/…/Dropbox/Legal` and offer nothing.
     @Test func theRootBoundaryIsAskedAtAComponent() {
         #expect(!Self.needsSwap(scope: Self.rightRoot + "Archive/Legal"),
                 "a sibling folder sharing the right root's name is treated as inside it")
@@ -90,13 +75,9 @@ import Sync
                 "a left root that merely string-prefixes the folder is treated as containing it, so no swap is offered")
     }
 
-    /// **Tilde paths are expanded before either root is asked**, because that is what `OrganizeScope`
-    /// does and this rule has to answer the same way the resolver will. A source's stored path can
-    /// be a hand-typed `~/…` — the Settings field accepts one verbatim — so a rule comparing the raw
-    /// strings would find the folder outside both roots and quietly offer nothing.
-    ///
-    /// The fixture is built so an unexpanded comparison answers differently: the scope is absolute
-    /// under the home directory while the right root is written with the tilde.
+    /// Tilde paths are expanded before either root is asked, as `OrganizeScope` does. Settings
+    /// accepts a hand-typed `~/…` source path, and comparing raw strings would place the folder
+    /// outside both roots. Here the scope is absolute and the right root uses the tilde.
     @Test func aTildeRootIsExpandedBeforeTheFolderIsPlaced() {
         let home = NSHomeDirectory()
         #expect(!home.hasPrefix("~"), "the home directory is itself a tilde path — this fixture proves nothing")
@@ -104,13 +85,12 @@ import Sync
                 "a `~/…` source root is compared unexpanded, so a real folder inside it reads as outside")
     }
 
-    /// An empty root — a provider dropped from Settings while its pane is still on screen — places
-    /// nothing. `PathBoundary` refuses an empty root outright rather than letting it claim every
-    /// path, and the answer here follows: no folder is "in" the aimed pane, so no swap is offered.
+    /// An empty root (a provider dropped from Settings while its pane is on screen) places nothing:
+    /// `PathBoundary` refuses it rather than letting it claim every path, so no swap is offered.
     @Test func anAbsentProviderRootPlacesNothing() {
         #expect(!Self.needsSwap(scope: Self.rightRoot + "/Legal", rightRoot: ""))
-        // With the LEFT root absent the folder really is only in the aimed pane, and the swap is
-        // the honest answer — Organize on an empty root shows nothing either way.
+        // With the left root absent the folder really is only in the aimed pane, so the swap is
+        // right: Organize on an empty root shows nothing anyway.
         #expect(Self.needsSwap(scope: Self.rightRoot + "/Legal", leftRoot: ""))
     }
 }

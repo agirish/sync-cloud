@@ -4,7 +4,7 @@ import Sync
 import Dashboard
 @testable import SyncCloud
 
-/// **"Add to Favorites" on a folder in a pane** — the third route to the list the sidebar draws.
+/// "Add to Favorites" on a folder in a pane, one of the routes to the list the sidebar draws.
 @Suite struct PaneFolderFavoriteTests {
 
     private func place(_ path: String, isDirectory: Bool = true,
@@ -29,9 +29,9 @@ import Dashboard
         #expect(place("/Users/x/Dropbox") == nil)
     }
 
-    /// **A bare string prefix must not claim a sibling.** `/Users/x/Dropbox` does not contain
+    /// A bare string prefix must not claim a sibling: `/Users/x/Dropbox` doesn't contain
     /// `/Users/x/DropboxOld`, and a favorite filed under the wrong root points somewhere real and
-    /// wrong — which is worse than pointing nowhere.
+    /// wrong, which is worse than nowhere.
     @Test func aSiblingWithASharedPrefixIsNotInside() {
         #expect(place("/Users/x/DropboxOld/Health") == nil)
     }

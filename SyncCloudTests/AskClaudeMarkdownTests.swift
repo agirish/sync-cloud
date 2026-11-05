@@ -6,8 +6,8 @@ import Sync
 import Testing
 @testable import SyncCloud
 
-/// TE298: Ask Claude's answers drawn as blocks — lists, tables, code and headings, not only
-/// inline markdown — and a growing answer that never shows a half-written one.
+/// Ask Claude's answers drawn as blocks (lists, tables, code and headings, not only inline
+/// markdown), and a growing answer that never shows a half-written one.
 @MainActor
 @Suite struct AskClaudeMarkdownTests {
 
@@ -214,7 +214,7 @@ import Testing
         }
     }
 
-    /// The whole sample, written where a person can look at it (testing law 1).
+    /// The whole sample, written where a person can look at it.
     @Test func theSampleAnswerIsWrittenOutToLookAt() throws {
         let sample = """
             Four, all from January:
@@ -335,9 +335,8 @@ import Testing
         return count
     }
 
-    /// The thread's own answer bubble: a heading there draws as the bold line `**Title**` draws,
-    /// where inline markdown alone drew "# Title". "Title" in plain weight shows the comparison
-    /// can see the difference a heading would make.
+    /// The thread's own answer bubble draws a heading as the bold line `**Title**` draws, not as
+    /// "# Title". "Title" in plain weight shows the comparison can see the difference.
     @Test func theThreadDrawsAHeadingAsABoldLine() async throws {
         let heading = try await panel(answering: "# Title")
         let bold = try await panel(answering: "**Title**")

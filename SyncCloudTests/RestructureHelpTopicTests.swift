@@ -4,20 +4,20 @@ import Testing
 import FileExplorer
 @testable import SyncCloud
 
-/// The lens names a Help topic; this is the half that checks the book actually has it
-/// (proposal O14). The two live in different modules, so nothing but a test joins them.
+/// The lens names a Help topic; this checks the book has it. The two live in different modules,
+/// so only a test joins them.
 @MainActor
 @Suite struct RestructureHelpTopicTests {
 
-    /// **The pointer must resolve.** An id that does not exist opens the book at its front,
-    /// which is a silent failure — the reader asked for a page and got the cover.
+    /// The pointer must resolve. An unknown id opens the book at its front, a silent failure: the
+    /// reader asked for a page and got the cover.
     @Test func theLensPointsAtATopicTheBookHas() {
         let ids = HelpBook.sections.flatMap { $0.topics.map(\.id) }
         #expect(ids.contains(OrganizeHelpTopics.restructure),
                 "the lens points at \(OrganizeHelpTopics.restructure), which the book does not have")
     }
 
-    /// And it points at the RIGHT one: the page about what Restructure finds, not a neighbour.
+    /// And at the right one: the page about what Restructure finds, not a neighbour.
     @Test func theTopicIsTheOneAboutRestructure() throws {
         let topic = try #require(HelpBook.sections.flatMap(\.topics)
             .first { $0.id == OrganizeHelpTopics.restructure })
@@ -69,10 +69,8 @@ import FileExplorer
         return count
     }
 
-    /// **The pointer opens the book somewhere else.** Everything above this checks the id exists;
-    /// none of it checked that passing it changes what the reader sees — deleting the `openAt`
-    /// resolution from `HelpView.init` left the whole suite green, with every reader landing on
-    /// the front page exactly as before the feature.
+    /// The pointer changes what the reader sees. The tests above only check the id exists;
+    /// deleting the `openAt` resolution from `HelpView.init` must fail this one.
     @Test func openingAtTheTopicShowsADifferentPageFromTheFront() throws {
         let front = try #require(Self.raster(openAt: nil))
         let restructure = try #require(Self.raster(openAt: OrganizeHelpTopics.restructure))

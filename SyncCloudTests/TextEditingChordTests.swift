@@ -5,12 +5,10 @@ import SwiftUI
 import Design
 @testable import SyncCloud
 
-/// The one rule shared by every menu chord that is also a text-editing key.
-///
-/// **Why this suite is worth its length.** The rule decides, for five chords and soon two more,
-/// whether a keystroke reaches your files or your caret — and it is invisible in every other test,
-/// because a menu key equivalent cannot be driven from a unit test at all. `TextEditingChord.route`
-/// is the seam that makes it checkable without a window: the responder is injected.
+/// The one rule shared by every menu chord that is also a text-editing key: whether a keystroke
+/// reaches your files or your caret. A menu key equivalent cannot be driven from a unit test, so
+/// `TextEditingChord.route` takes the responder injected, which makes the rule checkable without a
+/// window.
 @MainActor
 @Suite struct TextEditingChordTests {
 
@@ -25,8 +23,8 @@ import Design
         #expect(!TextEditingChord.belongsToTextEditor(NSTableView(frame: .zero)))
     }
 
-    /// **Nothing focused must route to the FILE action, not the editor one.** A cold window has no
-    /// first responder, and that is the state a pane is in when you click a row and press ⌘C.
+    /// Nothing focused routes to the file action, not the editor one. A cold window has no first
+    /// responder, which is the state a pane is in when you click a row and press ⌘C.
     @Test func noResponderRoutesToTheFileAction() {
         var ran = ""
         TextEditingChord.route(responder: nil,
@@ -43,9 +41,8 @@ import Design
         #expect(ran == "editor")
     }
 
-    /// **The editor branch must hand the real editor over, not merely fire.** Routing to a closure
-    /// that ignores its argument would pass the test above while doing nothing on screen — the
-    /// failure mode where ⌘C in a text field silently copies nothing.
+    /// The editor branch hands the real editor over, not merely fires. A route that ignored its
+    /// argument would pass the test above while ⌘C in a text field silently copied nothing.
     @Test func theEditorBranchReceivesTheResponderItMatched() {
         let editor = fieldEditor()
         var received: NSTextView?
@@ -55,8 +52,8 @@ import Design
         #expect(received === editor, "the editor branch fired without the editor to act on")
     }
 
-    /// Exactly one branch runs. Written because a router that ran both would satisfy every
-    /// assertion above and would, in the live app, copy your files *and* your text.
+    /// Exactly one branch runs. A router that ran both would satisfy every assertion above and
+    /// would, in the live app, copy your files *and* your text.
     @Test(arguments: [true, false])
     func exactlyOneBranchRuns(caretHasFocus: Bool) {
         var editorRuns = 0, fileRuns = 0
@@ -69,8 +66,8 @@ import Design
 
     // MARK: The PDF reader
 
-    /// **A PDF reader takes ⌘C and ⌘A when the item offers it its half** — and hands over the
-    /// reader it matched, so the copy is the page's selection rather than the pane's files.
+    /// A PDF reader takes ⌘C and ⌘A when the item offers it its half, and the reader it matched is
+    /// handed over, so the copy is the page's selection rather than the pane's files.
     @Test func aReaderTakesTheChordsThatOfferIt() {
         let reader = PDFView(frame: .zero)
         var ran = "", received: PDFView?
@@ -82,9 +79,9 @@ import Design
         #expect(received === reader, "the reader branch fired without the reader to act on")
     }
 
-    /// **A view inside the reader is the reader's** — Fill & Sign's overlay, which holds the
-    /// keyboard while its toolbar is up — so ⌘C there copies the page's selection, not the pane's
-    /// file. A view outside any reader is not one.
+    /// A view inside the reader, such as Fill & Sign's overlay while its toolbar is up, is the
+    /// reader's, so ⌘C there copies the page's selection, not the pane's file. A view outside any
+    /// reader is not one.
     @Test func aViewInsideAReaderTakesTheReadersHalf() {
         let reader = PDFView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
         let inside = NSView(frame: reader.bounds)
@@ -103,10 +100,10 @@ import Design
         #expect(ran == "file")
     }
 
-    /// **Without a reader half — Cut, Paste, ⌘⌫ and the rest — a reader refuses the chord; it never
-    /// falls through to the file action.** That fall-through cut the open PDF onto the file clipboard
-    /// on ⌘X and offered to delete it on ⌘⌫, from a page showing none of the pane's rows. Checked for
-    /// the reader itself and for a view inside it, which is where Fill & Sign's overlay sits.
+    /// Without a reader half (Cut, Paste, ⌘⌫ and the rest) a reader refuses the chord and never
+    /// falls through to the file action, which would cut the open PDF onto the file clipboard on ⌘X
+    /// or offer to delete it on ⌘⌫. Checked for the reader and for a view inside it, where Fill &
+    /// Sign's overlay sits.
     @Test func aReaderRefusesWhereTheItemOffersNoReaderHalf() {
         let reader = PDFView(frame: .zero)
         let inside = NSView(frame: .zero)
@@ -121,8 +118,8 @@ import Design
         }
     }
 
-    /// **The caret still wins, and nothing else becomes a reader** — a field editor with a reader
-    /// half offered goes to the editor; a file table goes to the files.
+    /// The caret still wins, and nothing else becomes a reader: a field editor with a reader half
+    /// offered goes to the editor, a file table to the files.
     @Test func theReaderHalfChangesNothingElse() {
         var ran: [String] = []
         for responder: NSResponder? in [NSTextView(frame: .zero), NSTableView(frame: .zero), nil] {
@@ -136,9 +133,9 @@ import Design
 
     // MARK: Preview's selected words (TE153)
 
-    /// **SwiftUI's own selectable text, the view Preview draws** — not a stand-in, because the rule
-    /// leans on how that private view answers `validateMenuItem(_:)`: no while nothing is
-    /// selected, yes once something is.
+    /// SwiftUI's own selectable text, the view Preview draws, not a stand-in: the rule leans on how
+    /// that private view answers `validateMenuItem(_:)`, no while nothing is selected and yes once
+    /// something is.
     @Test func previewsSelectedWordsCopyThemselves() throws {
         let host = NSHostingView(rootView: Text("Weeknight pasta").textSelection(.enabled))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 60),
@@ -170,20 +167,15 @@ import Design
         }
     }
 
-    // The tautological alias test that stood here (`belongsToTextEditor(x) ==
-    // belongsToTextEditor(x)`, literally self-comparison) was removed 2026-08-22 — the alias it
-    // once pinned is long gone. What it wanted to guarantee is now guaranteed structurally:
-    // `route` itself decides through `belongsToTextEditor`, so the predicate tests above pin the
-    // shipped rule, and the scans below pin that every colliding chord actually calls `route`.
+    // `route` decides through `belongsToTextEditor`, so the predicate tests above pin the shipped
+    // rule, and the scans below pin that every colliding chord calls `route`.
 
     // MARK: Call-site coverage — the routing has to be WIRED, not merely correct
 
     /// The exact chords NSText also claims: select-all, cut/copy/paste, delete-to-line-start, the
-    /// line moves (⌘←/⌘→, ±⇧ for selection) and the document moves (⌘↑/⌘↓, ±⇧). Chords, not bare
-    /// keys — the first cut of this matched any ⌘-chord on these keys and flagged ⇧⌘V, which the
-    /// field editor does NOT bind, so a registered ⇧⌘V would have been forced through routing it
-    /// does not need. The collision is a property of AppKit's field editor, so this set is stable
-    /// while the app's registry grows toward it.
+    /// line moves (⌘←/⌘→, ±⇧) and the document moves (⌘↑/⌘↓, ±⇧). Chords, not bare keys: the field
+    /// editor does not bind ⇧⌘V, so it needs no routing. The set is a property of AppKit's field
+    /// editor, so it stays stable while the app's registry grows.
     private static let textEditorClaimedChords: [AppChord] = [
         AppChord("a", .command), AppChord("x", .command),
         AppChord("c", .command), AppChord("v", .command),
@@ -195,16 +187,12 @@ import Design
     ]
 
     /// How each colliding chord is spelled at its registration in `ShortcutCommands.swift`.
-    /// Hand-written, so it is guarded against registry drift by the set-equality test below: a NEW
-    /// chord landing on a text-editing key fails that test until it is named here, and naming it
-    /// here is what puts its registration under the routing scan.
+    /// Hand-written, so the set-equality test below guards it: a new chord on a text-editing key
+    /// fails that test until it is named here, which puts its registration under the routing scan.
     ///
-    /// The scheme's boundary, stated rather than implied: it derives from `AppChord.registry`, so
-    /// a chord registered as a bare `.keyboardShortcut("c", modifiers: .command)` literal never
-    /// enters it and is invisible here. `ShortcutsReferenceTests`' literal scan polices that
-    /// boundary for the quoted-key spelling (it forces such a chord into the reference table,
-    /// where a text-editing key would be conspicuous) — a chord built from a variable would evade
-    /// both, and nothing in the repo registers one that way today.
+    /// Derived from `AppChord.registry`, so a bare `.keyboardShortcut("c", modifiers: .command)`
+    /// literal is invisible here; `ShortcutsReferenceTests`' literal scan forces such a chord into
+    /// the reference table instead. A chord built from a variable would evade both.
     private static let collidingRegistrations: [(spelling: String, chords: [AppChord])] = [
         ("AppChord.selectAll.key", [.selectAll]),
         ("AppChord.cut.key", [.cut]),
@@ -227,22 +215,16 @@ import Design
                 so the routing scan covers its registration. Registry: \(colliding.map(\.display)); \
                 table: \(tabled.map(\.display))
                 """)
-        // Non-vacuity: the six known chord families are actually in the derived set.
+        // Non-vacuity: the known colliding chords are actually in the derived set.
         #expect(colliding.count >= 9, "the derived colliding set shrank — the filter is broken, not the app")
     }
 
-    /// Every registration of a colliding chord hands the keystroke through `TextEditingChord.route`.
-    ///
-    /// This is the test whose absence was the finding: `route` was unit-tested to perfection while
-    /// nothing pinned that any chord CALLED it — deleting the route from ⌘C would have shipped
-    /// "⌘C over a caret copies files" with every suite green.
-    /// The file cut into per-command blocks, comments stripped first — comment text can
-    /// legitimately name a chord's spelling (and does); only code decides.
+    /// The file cut into per-command blocks, comments stripped first, since comment text may name
+    /// a chord's spelling; only code decides.
     ///
     /// Top-level struct declarations delimit the blocks; nested types are indented and don't
-    /// split. The modifier normalization matters: a `private struct` (the file already has
-    /// twenty-odd) would otherwise merge silently into the preceding block, and a route call
-    /// there would vouch for a command that lost its own.
+    /// split. Modifiers are normalized so a `private struct` does not merge into the preceding
+    /// block, where that block's route call would vouch for a command that lost its own.
     private static func registrationBlocks(of source: String) -> [String] {
         let code = source.split(separator: "\n", omittingEmptySubsequences: false)
             .map { line -> Substring in
@@ -256,6 +238,9 @@ import Design
         return normalized.components(separatedBy: "\nstruct ")
     }
 
+    /// Every registration of a colliding chord hands the keystroke through `TextEditingChord.route`.
+    /// Without this, removing the route from ⌘C would ship "⌘C over a caret copies files" with
+    /// every other suite green.
     @Test func everyCollidingChordRegistrationRoutesThroughTextEditingChord() throws {
         let source = try shortcutCommandsSource()
         let blocks = Self.registrationBlocks(of: source)
@@ -281,16 +266,16 @@ import Design
     /// spelling that exists nowhere must be reported as stale, proving `#require(!registering
     /// .isEmpty)` really is reachable.
     @Test func theRoutingScanRefusesAStaleSpelling() throws {
-        // The same pipeline the real scan uses — a decoy probed against a differently prepared
-        // source would prove reachability for a matcher nothing runs.
+        // The same pipeline the real scan uses, or the decoy would prove reachability for a
+        // matcher nothing runs.
         let blocks = Self.registrationBlocks(of: try shortcutCommandsSource())
         let registering = blocks.filter { $0.contains(".keyboardShortcut(") && $0.contains("AppChord.decoyNeverRegistered.key") }
         #expect(registering.isEmpty, "the decoy is supposed to match nothing")
     }
 }
 
-/// `MacApp/ShortcutCommands.swift` alone, with a truncation guard sized to the file — a partially
-/// read file would make every `contains` above answer false and every negative vacuously true.
+/// `MacApp/ShortcutCommands.swift` alone, with a truncation guard sized to the file: a partial read
+/// would make every `contains` above answer false and every negative vacuously true.
 private func shortcutCommandsSource() throws -> String {
     let text = try macAppFile("ShortcutCommands.swift")
     try #require(text.count > 5_000, "ShortcutCommands.swift read as \(text.count) characters — truncated?")

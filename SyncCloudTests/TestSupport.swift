@@ -2,21 +2,16 @@ import Testing
 import Foundation
 
 /// Polls a main-actor condition until it holds or the timeout expires, recording a labeled failure
-/// on timeout. The app target's counterpart to `Modules/Sync/Tests/Sync/TestSupport.swift`'s helper,
-/// and for the same reason: a fixed `Task.sleep` long enough to be reliable is also long enough to
-/// be slow, and one short enough to be quick flakes the moment a parallel suite congests the main
-/// actor. 13cfb93 removed the last of those from the Sync suites after proving they lose the race
-/// on a loaded CI runner; always wait for the observable effect, never a guessed duration.
+/// on timeout. The app target's copy of `Modules/Sync/Tests/Sync/TestSupport.swift`'s helper: a
+/// fixed `Task.sleep` is either slow or flaky under a loaded run, so wait for the observable
+/// effect, never a guessed duration.
 ///
-/// Reports its timeout at the CALL SITE; keep the forwarded `sourceLocation` in step with the Sync
-/// copy. Without it every caller's failure anchors here instead of naming a test file.
+/// Reports its timeout at the call site through the forwarded `sourceLocation`; without it every
+/// failure anchors here instead of naming a test file.
 ///
-/// **Bounded by POLLS as well as by seconds**, and the seconds are the weaker of the two: what this
-/// waits for arrives on main-actor turns, and a congested run has fewer of them per second, not
-/// more. The Sync copy carries the measurements; the short version is that a poll's nominal cost is
-/// its 10 ms sleep and the worst rate measured under load was 223 ms, so the deadline shrinks — in
-/// the only unit that matters — exactly when the wait needs it most. Keep the floor in step with
-/// the other two copies (Sync's, and Dashboard's `WaitSupport.swift`) along with everything else here.
+/// Bounded by polls as well as seconds: what this waits for arrives on main-actor turns, and a
+/// congested run has fewer of them per second, so a seconds-only deadline shrinks exactly when the
+/// wait needs it most. Keep the floor in step with Sync's copy and Dashboard's `WaitSupport.swift`.
 @MainActor
 func waitUntil(
     _ what: Comment,
@@ -43,27 +38,14 @@ let waitPollFloor = 50
 
 // MARK: - Reading the app target's own source
 
-/// Every Swift file in `MacApp/`, concatenated — **the haystack for a source scan whose subject is
-/// a call site rather than a file.**
+/// Every Swift file in `MacApp/`, concatenated: the haystack for a source scan whose subject is a
+/// call site rather than a file. `MacApp/` is in no SPM package, so tests reach it as text. Reading
+/// the whole directory means moving code between files fails nothing, and a count catches a second
+/// copy of a rule wherever it is written.
 ///
-/// `MacApp/` is in no SPM package, so a good deal of it is only reachable from a test as text; the
-/// suites that do that have each named one file. Naming a file pins two things at once and only one
-/// of them is the check's business: that the call reads what it should, and that it happens to live
-/// in `ContentView.swift`. Nobody chose the second — moving `func paneColumn(isLeft:)` into a file
-/// of its own would fail seven assertions across four tests with nothing whatsoever wrong — and a
-/// test that fails for a reason it is not about teaches the next reader to edit tests to make moves
-/// possible.
-///
-/// Reading the directory keeps every assertion's substance and drops only the locality. It is also
-/// strictly stronger for a COUNT: a second copy of a rule now fails wherever in `MacApp/` it is
-/// written, which is exactly the case (a copy in a second file) that has been missed before.
-///
-/// **Two kinds of check must keep naming their file**: a positive control, which needs a text known
-/// to contain something in order to prove the reader works at all; and any `!contains` whose string
-/// another file legitimately says — over the whole directory that assertion could only ever fail.
-///
-/// No per-file length guard, deliberately: adding a twenty-line enum to `MacApp/` should not fail a
-/// suite with "implausibly short". The non-vacuity this needs is on the result, which is asserted.
+/// Two kinds of check must still name their file: a positive control, which needs a text known to
+/// hold something; and a `!contains` whose string another file legitimately says. No per-file
+/// length guard, so a small new file passes; the result's size is asserted instead.
 func macAppSources() throws -> String {
     let directory = macAppDirectory()
     let urls = try #require(try? FileManager.default.contentsOfDirectory(
@@ -84,8 +66,7 @@ func macAppSources() throws -> String {
     return joined
 }
 
-/// `MacApp/`, located from this file rather than from a working directory — the test bundle does
-/// not promise one.
+/// `MacApp/`, located from this file, since the test bundle promises no working directory.
 func macAppDirectory() -> URL {
     URL(fileURLWithPath: #filePath)          // …/SyncCloudTests/TestSupport.swift
         .deletingLastPathComponent()         // …/SyncCloudTests
@@ -93,40 +74,21 @@ func macAppDirectory() -> URL {
         .appendingPathComponent("MacApp")
 }
 
-/// The text between two positions found by **separate** `range(of:)` searches — `nil` when they
-/// come back out of order, rather than a trap.
+/// The text between two positions found by separate `range(of:)` searches, or `nil` when they come
+/// back out of order.
 ///
-/// `body[first.upperBound..<second.lowerBound]` is how a scan asks "what sits between these two
-/// lines", and it is only valid while the two searches happen to land in the expected order —
-/// which is exactly what the surrounding assertions are there to doubt. When the order does not
-/// hold, `Range` traps: `Fatal error: Range requires lowerBound <= upperBound`. That is
-/// `_assertionFailure`, inside `#expect`'s own expression, so it takes down the **whole test
-/// host** — and with it every remaining test in the run. Two crash reports on 2026-08-16
-/// (`SyncCloud-2026-08-16-185034{,.000}.ips`) are that trap, from
-/// `theLostFolderLineDoesNotClaimARestoreThatWasAbandoned` while the regression it guards was
-/// still live: the assertion did its job and the run died reporting infrastructure instead.
-///
-/// **`#expect` records and continues**, which is the half that makes this a hazard rather than a
-/// typo. An ordering `#expect` on the line above does not stop the slice on the line below from
-/// running with the order it just disproved; only `#require` would, and these tests deliberately
-/// keep going so their other assertions still report.
-///
-/// So the ordering becomes part of the answer. Compare against `== true` at the call site and a
-/// `nil` **fails** the expectation — no crash, and no vacuous pass either:
+/// **Never slice `source[from..<to]` directly** in a scan: when the order is wrong, `Range` traps
+/// inside `#expect`'s expression and takes down the whole test host, and every remaining test with
+/// it. An ordering `#expect` on the line above does not prevent that, since `#expect` records and
+/// continues. Compare against `== true` at the call site, so a `nil` fails without crashing:
 ///
 /// ```swift
 /// #expect(textBetween(body, from: gate.upperBound, to: log.lowerBound)?.contains("return") == true, "…")
 /// ```
 ///
-/// Prefer searching from after the first match — `content[x.upperBound...].range(of:)`, or
-/// `range(of:_:range:)` — wherever the second thing genuinely *is* "the next one after the first",
-/// since that makes the order structural and needs no helper. This exists for the other case: two
-/// independent searches whose relative order is itself under test.
-///
-/// The guard below is pinned by `TextBetweenTests`, and needs to be: every call site passes its
-/// positions in the right order while the code it scans is correct, so deleting the guard leaves
-/// the whole target green. That suite is the only thing standing between a "simplification" back
-/// to `String(source[from..<to])` and five crashing scans.
+/// Where the second match really is "the next one after the first", search from after it instead
+/// (`content[x.upperBound...].range(of:)`); this is for two independent searches whose order is
+/// under test. `TextBetweenTests` pins the guard, which no correct call site exercises.
 func textBetween(_ source: String, from: String.Index, to: String.Index) -> String? {
     guard from <= to else { return nil }
     return String(source[from..<to])
@@ -134,20 +96,18 @@ func textBetween(_ source: String, from: String.Index, to: String.Index) -> Stri
 
 // MARK: - Reading Swift source as code
 
-/// What one byte of Swift source belongs to — **the lexer every source scan in this target
-/// shares**, so that "skip strings and comments" means the same thing to the comment stripper,
-/// the brace matcher, the argument reader and the whitespace normaliser below.
+/// What one byte of Swift source belongs to: the lexer every source scan in this target shares,
+/// so "skip strings and comments" means the same to the comment stripper, brace matcher, argument
+/// reader and whitespace normaliser below.
 ///
-/// It knows `//` and nested `/* */` comments, and string literals plain, multi-line (`"""`) and
-/// raw (`#"…"#`, any number of `#`), with escapes and `\(…)` interpolations — which may hold
-/// strings, parentheses and braces of their own. That last case is the one a "first `)`" or a
-/// "first `\n    }`" reader gets wrong: `Logger.shared.info("\(a ? "}" : ")")")` closes nothing.
-/// A whole literal, interpolations included, is `.string`.
+/// It knows `//` and nested `/* */` comments, and plain, multi-line and raw string literals with
+/// escapes and `\(…)` interpolations, which may hold strings, parentheses and braces of their own:
+/// `Logger.shared.info("\(a ? "}" : ")")")` closes nothing. A whole literal, interpolations
+/// included, is `.string`.
 ///
-/// **Byte-level on purpose.** Every delimiter it looks for is ASCII, and UTF-8 never puts an
-/// ASCII byte inside a multi-byte character, so an `é` or a `＋` in a string cannot be taken for a
-/// quote — and a byte array is several times faster than `[Character]` over the whole of `MacApp/`.
-/// An unterminated single-line string ends at its line, so a stray quote cannot swallow a file.
+/// Byte-level because every delimiter is ASCII and UTF-8 never puts an ASCII byte inside a
+/// multi-byte character, and bytes are much faster than `[Character]`. An unterminated single-line
+/// string ends at its line, so a stray quote cannot swallow a file.
 enum SwiftLexeme: UInt8 { case code, string, comment }
 
 /// `bytes`' lexemes, one per byte. Uncached — the scans go through ``lexed(_:)``, which runs this
@@ -164,10 +124,9 @@ func swiftLexemes(_ bytes: [UInt8]) -> [SwiftLexeme] {
     return roles
 }
 
-/// **Raw pointers on purpose.** The test target builds at `-Onone`, where an `Array` subscript —
-/// and above all a write into an array held by a class — costs a bounds check, a uniqueness check
-/// and an exclusivity check per byte. At 1.7 MB (all of `MacApp/`) that was ~0.3 s a lex, many
-/// times over, and the scans that paid it held the cooperative pool the rest of the run needed.
+/// Raw pointers because the test target builds at `-Onone`, where each `Array` access pays bounds,
+/// uniqueness and exclusivity checks per byte. Over all of `MacApp/` that makes a lex slow enough
+/// to hold the cooperative pool the rest of the run needs.
 private struct SwiftLexer {
     let b: UnsafePointer<UInt8>
     let count: Int
@@ -276,18 +235,13 @@ final class LexedSource: Sendable {
     }
 }
 
-/// `text` lexed — **once per distinct text per process**, however many scans ask.
+/// `text` lexed, once per distinct text per process, however many scans ask. Many suites read the
+/// same `MacApp/` files, and Swift Testing runs scans on the cooperative pool, so lexing each read
+/// from scratch starves main-actor work other tests are waiting on.
 ///
-/// Why it is memoised (2026-09-26): ~30 app-target suites read the same few files of `MacApp/` —
-/// and `macAppSources()` reads all of it — through these readers, and each read lexed from
-/// scratch: ~2,000 lexes and ~25 s of CPU a run, 38 of them of `ContentView.swift` alone. Swift
-/// Testing runs those scans on the cooperative pool, and seconds-long synchronous scans on every
-/// pool thread starved everything else that needed one — so a main-actor `.task` a harness waited
-/// on for 10 s did not run, and 475 tests reported more than 10 s.
-///
-/// Keyed by the text's exact bytes, not by path or by `String` equality: a caller may pass any
-/// slice it likes, and `String` compares canonically, so two spellings of an `é` would share an
-/// answer that differs by byte. A text is immutable, so an answer can never go stale.
+/// Keyed by the exact bytes, not by path or `String` equality: `String` compares canonically, so
+/// two spellings of an `é` would share an answer that differs by byte. Texts are immutable, so an
+/// answer never goes stale.
 func lexed(_ text: String) -> LexedSource { lexedMemo.value(for: text) { LexedSource(text) } }
 
 private let lexedMemo = ScanMemo<LexedSource>()
@@ -295,8 +249,8 @@ private let codeOnlyMemo = ScanMemo<String>()
 private let normalizedMemo = ScanMemo<String>()
 
 /// A thread-safe memo keyed by a text's exact UTF-8 bytes. Concurrent askers of one text wait for
-/// ONE computation rather than each doing it — which is the common case, since parallel suites
-/// start at once and many of them open with the same file.
+/// one computation rather than each doing it, the common case when parallel suites open the same
+/// file at once.
 final class ScanMemo<Value>: @unchecked Sendable {
     private final class Slot {
         let lock = NSLock()
@@ -340,18 +294,13 @@ private func isWordByte(_ c: UInt8) -> Bool {
         || c == UInt8(ascii: "$") || c == UInt8(ascii: "@") || c == UInt8(ascii: "#") || c >= 0x80
 }
 
-/// Source with its comments removed — what a source scan should be asking its questions of,
-/// since prose is not code and has answered several of them wrongly.
+/// Source with its comments removed, which is what a source scan should ask its questions of:
+/// prose is not code.
 ///
-/// **Lexical, not line-based.** Until 2026-09-26 this dropped only lines that START with `//`,
-/// so a trailing `// …` after code survived and could satisfy a `contains` or break a `!contains`
-/// (`ShortcutCommandsTests` had to work around exactly that), `/* */` survived whole, and a
-/// `//`-led line inside a multi-line string literal was deleted. Now a comment is whatever
-/// ``swiftLexemes(_:)`` says is one, and `"https://…"` in a string is not.
-///
-/// Layout is otherwise kept, so scans that match across lines see what they saw before: a line
-/// that was only comment (and indentation) is dropped whole, as it always was; a line that loses
-/// a trailing comment loses the whitespace before it; every other line is untouched.
+/// Lexical, not line-based: a comment is whatever ``swiftLexemes(_:)`` says is one, so a trailing
+/// `// …` and `/* */` go, and a `//` line inside a multi-line string or `"https://…"` stays.
+/// Layout is otherwise kept: a line that was only comment is dropped whole, a line that loses a
+/// trailing comment loses the whitespace before it, and every other line is untouched.
 func sourceCodeOnly(_ source: String) -> String {
     codeOnlyMemo.value(for: source) { stripComments(lexed(source)) }
 }
@@ -398,13 +347,12 @@ private func stripComments(_ source: LexedSource) -> String {
     return String(decoding: out, as: UTF8.self)
 }
 
-/// Code with its comments removed and its **layout** normalised: every run of whitespace outside a
-/// string literal is dropped, except between two word characters (`let x`, `in foo`), where it
-/// becomes one space. String literals are kept byte for byte — a log line's words are behaviour.
+/// Code with its comments removed and its layout normalised: every run of whitespace outside a
+/// string literal is dropped, except between two word characters (`let x`), where it becomes one
+/// space. String literals are kept byte for byte, since a log line's words are behaviour.
 ///
-/// So `onQuickLook: { toggleQuickLook($0) },` and the same argument broken over three lines at a
-/// different indentation normalise to the same text, and a scan built on this cannot be turned
-/// red by a reformat. Use it through ``CodeText`` or ``CallArguments`` rather than directly.
+/// So a scan built on this cannot be turned red by a reformat. Use it through ``CodeText`` or
+/// ``CallArguments`` rather than directly.
 func normalizedCode(_ text: String) -> String {
     normalizedMemo.value(for: text) { normalize(lexed(text)) }
 }
@@ -439,13 +387,12 @@ private func normalize(_ source: LexedSource) -> String {
     return String(decoding: out, as: UTF8.self)
 }
 
-/// A slice of code, asked its questions **whitespace-insensitively**: the haystack and every
-/// needle go through ``normalizedCode(_:)``, so a check means the same thing whether the call it
-/// names is on one line or spread over six. Mirrors the `String` API the scans already used, so
-/// converting a scan is wrapping its slice, not rewriting its assertions.
+/// A slice of code, asked its questions whitespace-insensitively: the haystack and every needle go
+/// through ``normalizedCode(_:)``, so a check means the same whether the call is on one line or
+/// six. Mirrors the `String` API, so converting a scan is wrapping its slice.
 ///
-/// Ranges are into ``normalized``, so compare them only with each other — which is what an
-/// ordering check (`load.lowerBound < pane.lowerBound`) does.
+/// Ranges are into ``normalized``, so compare them only with each other, as an ordering check
+/// (`load.lowerBound < pane.lowerBound`) does.
 struct CodeText: CustomStringConvertible {
     let normalized: String
 
@@ -453,9 +400,8 @@ struct CodeText: CustomStringConvertible {
 
     private static func needle(_ snippet: String) -> String {
         let n = normalizedCode(snippet)
-        // An all-whitespace needle is found everywhere, so a scan built on one would be vacuous.
-        // Recorded rather than trapped — a trap takes the whole test host down (see `textBetween`)
-        // — and answered with a needle nothing contains, so `contains` fails instead of passing.
+        // An all-whitespace needle matches everywhere. Recorded rather than trapped (a trap takes
+        // the test host down, see `textBetween`), and answered with a needle nothing contains.
         guard !n.isEmpty else {
             Issue.record("an empty needle matches everything — the scan would be vacuous")
             return "\u{0}an empty needle\u{0}"
@@ -524,52 +470,29 @@ private func matchingBracket(_ open: Int, in b: [UInt8], roles: [SwiftLexeme]) -
     return nil
 }
 
-/// One declaration's body, bounded by **its own closing brace** — found by matching braces in
-/// code, not by the first `"\n    }"` — **and read out of comment-stripped source.**
+/// One declaration's body, bounded by its own closing brace (matched in code, so any indentation,
+/// a one-line body or a `}` in a string reads right), from comment-stripped source.
 ///
-/// Three suites in this target had a copy of this, in three different states: two with no
-/// uniqueness guard at all, and one whose guard counted occurrences over `codeOnly` while
-/// `range(of:)` still searched the RAW text. That last combination is worth naming, because it
-/// looks exactly like the guard it isn't: a decoy inside a doc comment above the real declaration
-/// is invisible to the count (so `occurrences == 1` passes) and is still the first thing
-/// `range(of:)` finds (so the slice is the decoy's). The guard was added to stop a first-match
-/// read; against a commented decoy it stopped nothing.
+/// Stripping first means the uniqueness count, the search and the slice all see the same text: a
+/// decoy in a doc comment cannot pass the count yet be the match, and a `!contains` cannot be
+/// answered by the member's own prose. Returns everything after `declaration` up to the closing
+/// brace, less that brace's own line.
 ///
-/// Stripping first settles both at once — the search, the count and the slice now see the same
-/// text, so the guard means what it says. It also makes every `!contains` below stronger for free:
-/// a body cannot answer "absent" because the phrase it was asked about only appeared in that
-/// member's own prose, which is precisely how `paneSelectionNodes`' two negatives came to be
-/// answered by `paneActionBar`'s doc comment.
-///
-/// **Why brace matching** (2026-09-26). The first `"\n    }"` is the body's end only for a member
-/// declared at four spaces whose own closing brace is the first thing at that indentation. A
-/// top-level type's slice stopped at its FIRST member's end; a member nested one level deeper ran
-/// on to the enclosing type's end; a one-line `var x: Int { 1 }` ran into the next member; and a
-/// `"\n    }"` inside a multi-line string ended the slice mid-body. Matching braces over
-/// ``swiftLexemes(_:)`` has none of those failure modes, and returns the same text as the old
-/// reader wherever the old reader was right: everything after `declaration` up to the closing
-/// brace, less the closing brace's own line.
-///
-/// **One member, deliberately.** The three copies had already drifted apart; teaching one of them
-/// this and leaving the others reading raw text is how the next reader inherits the old answer.
-/// `OrganizeScopeCallSiteTests` keeps its own — it is in the FileExplorer module and cannot see
-/// this one — and carries the same fix.
+/// Keep one reader here rather than per-suite copies, which drift. `OrganizeScopeCallSiteTests`
+/// keeps its own because the FileExplorer module cannot see this one.
 func declarationBody(of declaration: String, in source: String,
                      sourceLocation: SourceLocation = #_sourceLocation) throws -> String {
     let code = sourceCodeOnly(source)
     let occurrences = code.components(separatedBy: declaration).count - 1
-    // **Two failures, two messages.** A single `occurrences == 1` check reports the far commoner
-    // one — the member was renamed, so it occurs 0× — as "range(of:) would silently read the
-    // first", which describes the opposite problem and sends the reader looking for a duplicate
-    // that isn't there. Absence first, then ambiguity.
+    // Absence first, then ambiguity, each with its own message: a renamed member (0×) would
+    // otherwise be reported as a duplicate.
     try #require(occurrences > 0,
                  "\(declaration) is gone — the scan below would be vacuous", sourceLocation: sourceLocation)
     try #require(occurrences == 1,
                  "\(declaration) occurs \(occurrences)× in code — range(of:) would silently read the first, so every check below would be about the wrong member",
                  sourceLocation: sourceLocation)
-    // Cannot fail after the count above: both read `code`, and one match was just counted. The
-    // message says so, because a `#require` whose message names an impossible cause is how a
-    // harness bug gets read as a code bug.
+    // Cannot fail after the count above, and the message says so, so a harness bug is not read
+    // as a code bug.
     let start = try #require(code.range(of: declaration),
                              "counted \(declaration) once but could not find it — the reader is broken, not the app",
                              sourceLocation: sourceLocation)
@@ -581,17 +504,16 @@ func declarationBody(of declaration: String, in source: String,
                             "\(declaration) has no body — nothing to scan", sourceLocation: sourceLocation)
     let close = try #require(matchingBracket(open, in: b, roles: roles),
                              "no closing brace for \(declaration)", sourceLocation: sourceLocation)
-    // Less the closing brace's own line — its indentation and the newline before it — which is
-    // exactly where the old `"\n    }"` reader stopped.
+    // Less the closing brace's own line: its indentation and the newline before it.
     var end = close
     while end > afterDeclaration, isHorizontalSpace(b[end - 1]) { end -= 1 }
     if end > afterDeclaration, b[end - 1] == newlineByte { end -= 1 }
     return String(decoding: b[min(afterDeclaration, end)..<end], as: UTF8.self)
 }
 
-/// The text between the parentheses of the first CALL of `callee` in `source` — **balanced**, so a
-/// scan of one call cannot read the next, and a `)` inside a string or an interpolation does not
-/// end it early. `callee` may be given with or without its `(`.
+/// The text between the parentheses of the first call of `callee` in `source`, balanced, so a scan
+/// cannot read into the next call and a `)` in a string or interpolation does not end it early.
+/// `callee` may be given with or without its `(`.
 ///
 /// A call, not a mention: the name must stand alone (`FileTreeView(` does not match
 /// `SidebarFileTreeView(`), must be in code rather than a string or comment, and must not be the
@@ -630,10 +552,9 @@ func argumentLists(of callee: String, in source: String) -> [String] {
     return lists
 }
 
-/// One call's arguments, **read by label** — so a scan can ask "does this call pass `label:` with
-/// value X" whatever the line breaks, the spacing, the trailing `,` or `)`, or where in the list
-/// the argument sits. Values are ``normalizedCode(_:)``; commas split only at the top level, so a
-/// closure or a nested call is one value.
+/// One call's arguments, read by label, so a scan can ask "does this call pass `label:` with value
+/// X" whatever the layout or argument order. Values are ``normalizedCode(_:)``; commas split only
+/// at the top level, so a closure or a nested call is one value.
 struct CallArguments {
     struct Argument: Equatable {
         let label: String?
@@ -663,7 +584,7 @@ struct CallArguments {
         arguments = pieces.compactMap { piece in
             let value = normalizedCode(piece)
             guard !value.isEmpty else { return nil }        // `f()`, or a trailing comma
-            // `label:` — an identifier then a colon that is not the first of `::`. A ternary's
+            // `label:` is an identifier then a colon that is not the first of `::`. A ternary's
             // `a ? b : c` cannot match: the identifier would have to be all that precedes it.
             if let colon = value.firstIndex(of: ":"),
                value.index(after: colon) == value.endIndex || value[value.index(after: colon)] != ":" {
@@ -677,7 +598,7 @@ struct CallArguments {
         }
     }
 
-    /// The call of `callee` in `source` — the first — read by label.
+    /// The first call of `callee` in `source`, read by label.
     init(of callee: String, in source: String, sourceLocation: SourceLocation = #_sourceLocation) throws {
         self.init(try argumentList(of: callee, in: source, sourceLocation: sourceLocation))
     }
@@ -685,22 +606,21 @@ struct CallArguments {
     /// The normalised value passed as `label:`, or `nil` when the call does not pass it.
     func value(_ label: String) -> String? { arguments.first { $0.label == label }?.value }
 
-    /// Whether the call passes `label:` exactly `expected` — compared normalised, so layout
-    /// cannot decide it.
+    /// Whether the call passes `label:` exactly `expected`, compared normalised so layout cannot
+    /// decide it.
     func passes(_ label: String, _ expected: String) -> Bool { value(label) == normalizedCode(expected) }
 
-    /// The unlabeled arguments, in order — `path` in `run(path, pane: pane)`.
+    /// The unlabeled arguments, in order: `path` in `run(path, pane: pane)`.
     var unlabeled: [String] { arguments.filter { $0.label == nil }.map(\.value) }
 
-    /// How many times `label:` is passed — a guard that ``value(_:)`` read THE argument.
+    /// How many times `label:` is passed: a guard that ``value(_:)`` read the only one.
     func count(_ label: String) -> Int { arguments.filter { $0.label == label }.count }
 }
 
 /// A throwaway `UserDefaults` suite, so a test can pin a defaults-driven decision without writing
-/// into the app's real domain — which, when the test host IS the app, is the user's live settings.
-/// Mirrors `Modules/Settings/Tests/Settings`' helper of the same name, including having no
-/// `wipe()`: the suite goes when the last thing holding it does, so a `SettingsManager`'s
-/// discovery pass landing after the test returns still writes before the wipe, not after it.
+/// into the app's real domain, which, with the app as test host, is the user's live settings.
+/// Like `Modules/Settings/Tests/Settings`' helper of the same name it has no `wipe()`: the suite
+/// goes with its last holder, so a `SettingsManager` pass that lands late writes before the wipe.
 struct TestDefaults {
     let defaults: ScratchDefaults
     var suiteName: String { defaults.scratchSuiteName }
@@ -714,31 +634,21 @@ struct TestDefaults {
 
 /// Removes a throwaway defaults suite *and* its backing plist.
 ///
-/// `removePersistentDomain(forName:)` only empties the domain: cfprefsd still leaves an empty
-/// `~/Library/Preferences/<suite>.plist` behind, and neither `removeSuite(named:)` nor
-/// `CFPreferencesAppSynchronize` reclaims it either — all four combinations were measured on
-/// 2026-07-26 and every one left the file on disk. Because each scratch suite is named with a
-/// fresh UUID, that is one stray file per suite per run: 26,047 had accumulated across the six
-/// test targets before this was caught, at which point `defaults domains` — which enumerates the
-/// whole directory — took minutes. Unlinking the file is the only thing that actually reclaims it.
+/// `removePersistentDomain(forName:)`, `removeSuite(named:)` and `CFPreferencesAppSynchronize`
+/// all leave an empty `~/Library/Preferences/<suite>.plist` behind, one per UUID-named suite per
+/// run, until `defaults domains` takes minutes. Only unlinking the file reclaims it.
 ///
-/// **And the unlink only holds once cfprefsd has let go of the domain** (measured 2026-09-26).
-/// cfprefsd keeps its own copy of every domain a process writes and puts it back on disk on its
-/// own schedule — about every 10 s here — so an unlinked plist came back within one tick, as `{}`
-/// or with its old keys, whether the test process was still running or not: all 46 suites a run of
-/// four app-target suites wrote, and 68 across the full app target. Flushing cfprefsd's cache for
-/// the suite before the unlink is what keeps the file gone. That call is SPI — the `defaults` tool
-/// makes the same one, with the same two arguments — so it is looked up rather than linked, and an
-/// OS without it falls back to the ledger below.
+/// The unlink holds only once cfprefsd lets go of the domain: it keeps its own copy and writes it
+/// back on its own schedule (about every 10 s), even after the process exits. So its cache for the
+/// suite is flushed first, through the SPI the `defaults` tool calls, looked up rather than linked;
+/// an OS without it falls back to the ledger below.
 ///
-/// Mirrored verbatim in every test target, since they are separate SPM packages with no shared
+/// Mirrored in every test target, since they are separate SPM packages with no shared
 /// test-support module; keep the copies in step.
 func wipeDefaultsSuite(_ name: String) {
-    // Recorded here rather than at the call sites because this is the one funnel every cleanup
-    // path — `defer` and `ScratchDefaults.deinit` — already goes through.
-    // Recording only in `ScratchDefaults` missed the 46 `defer` sites, which build their suite
-    // with a plain `UserDefaults(suiteName:)`, and Sync's leftovers grew 58 -> 89 -> 135 over
-    // three runs because nothing was there to re-delete what cfprefsd had resurrected.
+    // Recorded here, not at the call sites, because every cleanup path (`defer` and
+    // `ScratchDefaults.deinit`) goes through this one funnel, including suites built with a plain
+    // `UserDefaults(suiteName:)`.
     scratchDefaultsLedger.record(name)
     UserDefaults.standard.removePersistentDomain(forName: name)
     UserDefaults.standard.removeSuite(named: name)
@@ -756,14 +666,11 @@ private let flushPreferencesCache =
 
 /// Finishes the cleanup that the previous test run could not.
 ///
-/// `wipeDefaultsSuite` reclaims the file for the great majority of suites, but cfprefsd is a
-/// separate daemon and may write a suite's plist back out *after* the test process has exited.
-/// That race is not winnable from inside the process: an `atexit` sweep that unlinked all 34 of a
-/// Dashboard run's suites still lost it for the two whose defaults object was held past the test
-/// by an undo registration. So every suite handed to `wipeDefaultsSuite` is recorded, and the next
-/// run deletes whatever the last one left behind, which keeps the directory bounded at about one
-/// run's stragglers instead of growing without limit. The gap this cannot close is a run that dies
-/// before its cleanup runs at all: those suites are never recorded, so they are never swept.
+/// cfprefsd may write a suite's plist back after the test process has exited, a race no sweep
+/// inside the process can win (even `atexit`). So every suite handed to `wipeDefaultsSuite` is
+/// recorded, and the next run deletes what the last one left, keeping the directory at about one
+/// run's stragglers. A run killed before its cleanup records nothing; see
+/// `sweepStaleScratchPlists`.
 let scratchDefaultsLedger = ScratchDefaultsLedger()
 
 final class ScratchDefaultsLedger: @unchecked Sendable {
@@ -786,10 +693,9 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
         guard let line = "\(name)\n".data(using: .utf8) else { return }
         if let handle = FileHandle(forWritingAtPath: ledgerPath) {
             defer { try? handle.close() }
-            // **The throwing forms**: `seekToEndOfFile()` and `write(_:)` raise an Objective-C
-            // exception when the write fails, which no Swift `catch` stops — on 2026-10-25 one
-            // took a whole FileExplorer run down. A ledger line that can't be written only costs
-            // the next run's sweep that one name.
+            // **The throwing forms only**: `seekToEndOfFile()` and `write(_:)` raise an
+            // Objective-C exception on failure, which no Swift `catch` stops, and would take the
+            // whole test process down. A lost ledger line costs the next sweep only that name.
             _ = try? handle.seekToEnd()
             try? handle.write(contentsOf: line)
         } else {
@@ -806,24 +712,14 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
         try? FileManager.default.removeItem(atPath: ledgerPath)
     }
 
-    /// Deletes scratch plists the ledger can never account for, matching by SHAPE rather than name.
+    /// Deletes scratch plists the ledger can't account for, matching by shape rather than name.
+    /// A name reaches the ledger only when its test gets to cleanup, so a killed run (a cancelled
+    /// CI job, an interrupted `swift test`) leaves suites no later run can name.
     ///
-    /// A name only reaches the ledger when the test owning it gets to its cleanup. Most creation
-    /// sites are a bare `UserDefaults(suiteName:)` paired with a `defer`, so a run that is KILLED
-    /// — a cancelled CI job, an interrupted `swift test`, a mutation experiment stopped by hand —
-    /// leaves suites that were never recorded and that no later run can name. That is not a
-    /// theoretical gap: 3,551 had accumulated by 2026-08-03, and a cold `defaults domains`, which
-    /// enumerates this directory, had gone from ~0.1s to 2.38s. Matching by shape closes it for
-    /// every creation site at once, recorded or not.
-    ///
-    /// The age floor is what makes this safe to run while other sessions are testing — this Mac
-    /// routinely has several worktrees running suites at once, and their live suites are minutes
-    /// old at most. An hour is far past any test's lifetime, and still bounds the directory at
-    /// about one hour of stragglers rather than letting it grow without limit.
-    /// Internal, not private, so its two dangerous edges can be tested directly: a stale scratch
-    /// plist really is deleted, and a real domain with a lowercase UUID really is not. Going
-    /// through `record`'s once-per-process trigger instead would make those tests depend on
-    /// which one ran first, and pass vacuously in whichever order lost.
+    /// The one-hour age floor makes this safe while other worktrees are testing: their live suites
+    /// are minutes old at most. Internal so tests can pin both dangerous edges directly (a stale
+    /// scratch plist is deleted, a real lowercase-UUID domain is not); going through `record`'s
+    /// once-per-process trigger would make them depend on test order.
     func sweepStaleScratchPlists() {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: preferencesDirectory) else { return }
@@ -836,22 +732,16 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
         }
     }
 
-    /// `<prefix><separator><UUID>.plist`, with the UUID in the UPPERCASE form `UUID().uuidString`
-    /// emits — which is what every scratch suite name here ends in. Both separators are in use:
-    /// `ScratchDefaults` joins with `-`, a few call sites with `.`.
-    ///
-    /// The uppercase requirement is the safety margin, not a detail: real preference domains that
-    /// carry a UUID write it lowercase (`com.openai.chat.RemoteFeatureFlags.164320f2-…`), so they
-    /// cannot match. Loosen this to case-insensitive and the sweep starts eating real domains.
-    /// Scratch suites belonging to OTHER projects that share this machine's preferences
-    /// directory. `pdfutils` is a separate project of the owner's; its test suites leak into the
-    /// same place and are tracked separately THERE. A SyncCloud test run quietly deleting them
-    /// would be destructive to someone else's investigation of their own leak, and invisible from
-    /// this repo. Ownership is not inferable from the shape — only from the prefix — so this list
-    /// is the only thing keeping the sweep inside its own house, and it must grow whenever another
-    /// project starts sharing the directory.
+    /// Scratch suites of other projects sharing this preferences directory, such as the owner's
+    /// `pdfutils`, which tracks its own leaks. Only the prefix tells them apart, so this list keeps
+    /// the sweep to SyncCloud's own suites; add to it when another project shares the directory.
     private static let foreignSuitePrefixes = ["pdfutils.", "PDFExportCoordinatorTests"]
 
+    /// `<prefix><separator><UUID>.plist`, the UUID in the uppercase form `UUID().uuidString`
+    /// emits. `ScratchDefaults` joins with `-`, a few call sites with `.`.
+    ///
+    /// **Never loosen this to case-insensitive**: real domains that carry a UUID write it lowercase
+    /// (`com.openai.chat.RemoteFeatureFlags.164320f2-…`), and the sweep would start deleting them.
     static func isScratchSuitePlist(_ name: String) -> Bool {
         guard name.hasSuffix(".plist") else { return false }
         guard !foreignSuitePrefixes.contains(where: name.hasPrefix) else { return false }
@@ -870,10 +760,9 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
 /// reference goes away. Prefer it to a bare `UserDefaults(suiteName:)`: teardown rides on the
 /// object's lifetime rather than on a `defer` that a test added later can forget.
 ///
-/// The lifetime is also what lets it outlast work the test started. A manager whose task is still
-/// running holds the suite, so that task's last write lands before the wipe instead of recreating
-/// the plist after it, which is the race a `defer` loses: 35 of the 42 plists a Settings run left
-/// on 2026-09-26 were suites a `SettingsManager` discovery pass wrote to after their test wiped.
+/// The lifetime also outlasts work the test started: a manager whose task is still running holds
+/// the suite, so its last write lands before the wipe instead of recreating the plist after it, a
+/// race a `defer` loses.
 final class ScratchDefaults: UserDefaults {
     let scratchSuiteName: String
 

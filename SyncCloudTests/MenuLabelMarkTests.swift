@@ -7,25 +7,13 @@ import Sync
 import Dashboard
 @testable import SyncCloud
 
-/// **What a brand mark measures when an AppKit-backed control draws it.**
-///
-/// `PaneHeader`'s retired provider capsule carried the warning in prose from the day it was written
-/// — "the logo stays a plain image OUTSIDE the menu label (a resizable image inside one balloons to
-/// its native size)" — and prose is exactly what a later change walks past. Retiring the capsule put
-/// `ProviderLogo` inside a `ProviderMenu` label and shipped a pane header with the source's mark
-/// drawn across the whole pane and the nav bar pushed clean off the row.
-///
-/// Nothing caught it, and the reason is worth pinning as hard as the behaviour: **the brand assets
-/// live in `MacApp/Assets.xcassets`, which no SPM test target can see.** From `Modules/Dashboard`'s
-/// tests `NSImage(named: "googledrive")` is nil, `ProviderLogo` takes its SF-Symbol branch, and a
-/// symbol is sized by font rather than by the asset — so every snapshot measured a stand-in for the
-/// one thing that broke, and ten reference images were re-recorded against it.
-///
-/// So these live in the app target, and they measure `fittingSize` rather than pixels: the failure
-/// was a *layout* failure — the label's ideal width is what shoved the row apart — so the width the
-/// row would be offered is the honest measurement, and it needs no window, no display and no
-/// screen-recording permission. Two earlier attempts at a guard measured neither: one asserted the
-/// width inside a wrapper that pinned the width, and one compared ink against a host that clips it.
+/// What a brand mark measures when an AppKit-backed control draws it. A resizable image inside a
+/// menu label balloons to its native size, drawing the source's mark across the pane and pushing
+/// the nav bar off the row. **The brand assets live in `MacApp/Assets.xcassets`, which no SPM test
+/// target can see**: there `NSImage(named:)` is nil and `ProviderLogo` falls back to an SF Symbol,
+/// sized by font, so package snapshots measure a stand-in. So these live in the app target and
+/// measure `fittingSize`: the failure is a layout one, the label's ideal width, and needs no window
+/// or display.
 @MainActor
 struct MenuLabelMarkTests {
 
@@ -44,8 +32,8 @@ struct MenuLabelMarkTests {
                       rootPath: "/tmp/ic", type: .iCloud)
     ]
 
-    /// The width SwiftUI would ask for, with **nothing constraining it**. A wrapper that pins a
-    /// frame reports the frame back and measures nothing.
+    /// The width SwiftUI would ask for, with nothing constraining it. A wrapper that pins a frame
+    /// reports the frame back and measures nothing.
     private func idealWidth<V: View>(_ view: V) -> CGFloat {
         NSHostingView(rootView: view).fittingSize.width
     }
@@ -55,13 +43,10 @@ struct MenuLabelMarkTests {
                      onSelect: { _ in }, onManage: {}, onChooseFolder: nil, label: label)
     }
 
-    /// **The mechanism, kept alive so the fix cannot quietly stop mattering.** These assets are 512pt
-    /// on the long edge; a resizable image in an AppKit-drawn label draws at exactly that, whatever
-    /// frame surrounds it.
-    ///
-    /// Asserted as "at least ten times what it asked for" rather than against 531 precisely: the
-    /// number is the artwork's, and re-exporting the artwork should not fail this test — the claim
-    /// is that the frame is ignored, not that it is ignored by a particular amount.
+    /// The mechanism, kept alive so the fix can't quietly stop mattering. These assets are 512pt on
+    /// the long edge, and a resizable image in an AppKit-drawn label draws at that whatever its
+    /// frame. Asserted as "at least ten times what it asked for", not an exact number, so
+    /// re-exporting the artwork doesn't fail it.
     @Test func aResizableMarkInsideAMenuLabelIgnoresItsFrame() {
         let asked: CGFloat = 15
         let width = idealWidth(menu { ProviderLogo("googledrive", size: asked) })
@@ -69,9 +54,8 @@ struct MenuLabelMarkTests {
                 "a resizable mark in a menu label measured \(width) for a \(asked)pt request — if this is now small, `inAppKitLabel` is no longer buying anything and the tests below have stopped discriminating")
     }
 
-    /// And the fix: the same mark, same size, built at a fixed intrinsic size instead.
-    ///
-    /// The bound is the mark plus the menu's own chrome, which is why it is not `asked` exactly.
+    /// The fix: the same mark at the same size, built at a fixed intrinsic size. The bound is the
+    /// mark plus the menu's own chrome, so it isn't the size asked for exactly.
     @Test func aPresizedMarkInsideAMenuLabelIsTheSizeItWasAsked() {
         for name in ["googledrive", "icloud", "dropbox", "onedrive"] {
             let width = idealWidth(menu { ProviderLogo(name, size: 15, inAppKitLabel: true) })
@@ -79,9 +63,9 @@ struct MenuLabelMarkTests {
         }
     }
 
-    /// **The catalog's own image is not resized.** `NSImage(named:)` hands back a shared instance;
-    /// setting `size` on that one would shrink the mark everywhere else in the app — Settings, the
-    /// single-source rail, the Browse sidebar.
+    /// The catalog's own image is not resized. `NSImage(named:)` hands back a shared instance, and
+    /// setting `size` on it would shrink the mark everywhere else (Settings, the single-source rail,
+    /// the Browse sidebar).
     @Test func presizingAMarkLeavesTheCatalogsCopyAlone() throws {
         let before = try #require(NSImage(named: "googledrive")).size
         _ = idealWidth(menu { ProviderLogo("googledrive", size: 15, inAppKitLabel: true) })
@@ -89,30 +73,13 @@ struct MenuLabelMarkTests {
         #expect(before == after, "the catalog's shared image went from \(before) to \(after)")
     }
 
-    /// The whole point, end to end: **the header the app actually builds does not blow up.**
-    ///
-    /// Built through `PaneHeader` rather than `PaneBreadcrumb` directly, because `PaneBreadcrumb` is
-    /// internal to `Dashboard` and — more to the point — the header is what assembles the picker
-    /// from a `CloudProvider`. A test that hand-built the crumb would go green against a header that
-    /// had stopped passing one.
-    ///
-    /// **The bound is not "fits a 250pt pane", and that is deliberate.** `fittingSize` is the
-    /// *ideal* width, and a breadcrumb whose crumbs middle-truncate legitimately wants more than the
-    /// pane it will compress into: this header measures 260 for a two-deep trail on a source called
-    /// "Google Drive (EMP)". What the mark's regression does is not a few points over — it puts the
-    /// asset's own 512 into the row, so the broken header measures north of 700. 400 separates the
-    /// two with room, and **the separation is verified by mutation, not assumed**: flipping
-    /// `inAppKitLabel` off in `PaneBreadcrumb.rootCrumb` fails this test at 757.
-    ///
-    /// Whether the bar still *fits* its pane is a different question with its own suite —
-    /// `PaneBarLadderTests` bounds the drawn bar against the pane's trailing edge at every rung.
-    ///
-    /// **A narrow-pane version of this was written and deleted, because it passed with the bug.**
-    /// It rendered the header at the split's 250pt floor and asserted that no control's focus ring
-    /// ended past the content edge. With the mark drawing at 512 that assertion still held: the
-    /// crumbs truncate and the row compresses, so the overflow shows up as content squeezed to
-    /// nothing rather than as geometry past the edge. An ideal-width bound is what sees this, which
-    /// is why it is the one kept.
+    /// End to end: the header the app builds doesn't blow up. Built through `PaneHeader`, which
+    /// assembles the picker from a `CloudProvider`, so a header that stopped passing one can't stay
+    /// green. The bound is ideal width, not "fits a 250pt pane": a middle-truncating breadcrumb
+    /// wants about 260 here, while the mark at its native 512 pushes past 700. Turning
+    /// `inAppKitLabel` off in `PaneBreadcrumb.rootCrumb` must fail it. A narrow-pane render can't see
+    /// this (the row compresses instead of overflowing); whether the bar fits its pane is
+    /// `PaneBarLadderTests`.
     @Test func theHeaderCarryingASourcePickerDoesNotBlowUpTheRow() {
         let width = idealWidth(Self.header(relativePath: "Taxes/2026"))
         #expect(width < 400,

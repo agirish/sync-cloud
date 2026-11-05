@@ -1,15 +1,14 @@
 import Testing
 import Foundation
 
-/// **The source-scan helpers in `TestSupport.swift`, pinned on fixtures** — the lexer, the brace
-/// matcher, the argument reader and the whitespace normaliser that every wiring scan in this
-/// target now reads `MacApp/` through.
+/// The source-scan helpers in `TestSupport.swift`, pinned on fixtures: the lexer, brace matcher,
+/// argument reader and whitespace normaliser every wiring scan in this target reads `MacApp/`
+/// through.
 ///
-/// Each case is one of the ways the readers they replaced went wrong: a first `"\n    }"` that was
-/// not the body's end, a first `)` inside a string, a trailing `//` comment that answered a
-/// `contains`, and an argument checked by its trailing `,` or `)` — so a reformat turned a scan red
-/// with nothing wrong. A helper that silently stopped doing one of these would leave every scan
-/// built on it green and wrong; these are what go red instead.
+/// Each case is a way a naive reader goes wrong: a `"\n    }"` that isn't the body's end, a `)`
+/// inside a string, a trailing `//` comment answering a `contains`, an argument found by its
+/// trailing `,` or `)`. A helper that stopped handling one would leave every scan built on it green
+/// and wrong; these go red instead.
 @Suite struct SourceScanTests {
 
     static let fixture = #"""
@@ -41,8 +40,8 @@ import Foundation
         #expect(!tricky.contains("trailing"), "a trailing comment survived the strip")
     }
 
-    /// The three shapes the first-`"\n    }"` reader got wrong: a one-line member ran into the
-    /// next member, a nested one ran to the enclosing type's end, a type stopped at its first member.
+    /// Three shapes a first-`"\n    }"` reader gets wrong: a one-line member runs into the next, a
+    /// nested one runs to the enclosing type's end, a type stops at its first member.
     @Test func oneLineNestedAndTypeBodiesAreTheirOwn() throws {
         #expect(try declarationBody(of: "var one: Int {", in: Self.fixture) == " 1")
         let nested = try declarationBody(of: "func nested() {", in: Self.fixture)
@@ -53,8 +52,8 @@ import Foundation
         #expect(outer.contains("neighbour()"), "a type's body stopped at its first member")
     }
 
-    /// Everything after the declaration up to — not including — the closing brace's line: the
-    /// slice the old reader returned wherever it was right, so no caller's text moved.
+    /// Everything after the declaration up to, not including, the closing brace's line: the slice
+    /// every caller expects.
     @Test func theSliceStopsBeforeTheClosingBracesLine() throws {
         #expect(try declarationBody(of: "func nested() {", in: Self.fixture) == "\n            inner()")
     }

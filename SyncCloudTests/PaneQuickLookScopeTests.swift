@@ -2,34 +2,15 @@ import Testing
 import Foundation
 @testable import SyncCloud
 
-/// Where Space → Quick Look is allowed to listen.
+/// Where Space → Quick Look may listen: on the file list only. The pane column holds the pane
+/// search `TextField`, so a handler on the column would eat every space typed into the search and
+/// open Quick Look over whatever the pane had selected, and the panel would then take key focus.
 ///
-/// **The defect this exists for.** The handler used to hang off the whole pane column — on
-/// `panesSplit` in Compare, on `paneColumn(isLeft: true)` in the rail and in Browse. Its own comment
-/// explained why that was safe: `onKeyPress` "only fires while key focus is inside this subtree (the
-/// pane Lists) … so text fields elsewhere get Space normally." That was true when a pane column was
-/// a header of buttons over a list.
-///
-/// Pane search then put a `TextField` inside that subtree and "elsewhere" quietly stopped covering
-/// it. Every Space typed into a pane's search field was intercepted: the space never reached the
-/// query, and the Quick Look panel opened over the app on whatever the pane had selected — the hit
-/// the walk had just revealed ("a random match"), or a row from before the search ("not even a
-/// match"). The panel takes key focus, so typing then stopped altogether.
-///
-/// None of that is reachable from a unit test: `ContentView` needs a live `FileSyncManager` and a
-/// render pass, `.onKeyPress` cannot be fired, and the failure is *which subtree a modifier is
-/// attached to*, which leaves nothing in the AppKit tree to find. So it is checked at the source
-/// level, the same way `BrowseWorkspaceCallSiteTests` and `ToolbarPaletteBarCallSiteTests` check
-/// theirs — with the guards that scan needs: every reader fails loudly rather than handing on a
-/// haystack that is missing or implausibly short, `testTheScanCanActuallyFail` proves the reader is
-/// looking at real text, and the premise the whole scan rests on (that the search field really is
-/// inside the pane column) is asserted rather than assumed.
-///
-/// The two checks about the pane COLUMN read `MacApp/` as a whole (`macAppSources`), because what
-/// they are about is what the column contains, not which file it is declared in. The one about the
-/// split layout names its file, because there the file IS the subject: that layout draws nothing
-/// smaller than a whole column, so any key handler written in it necessarily reaches the search
-/// field — an assertion that only means anything within those four corners.
+/// Checked in source, as `BrowseWorkspaceCallSiteTests` does: `.onKeyPress` can't be fired, and the
+/// failure is which subtree a modifier is attached to. Readers fail loudly on a missing or short
+/// file, `testTheScanCanActuallyFail` proves they read real text, and the premise (the search field
+/// is inside the pane column) is asserted. Column checks read all of `MacApp/` (`macAppSources`);
+/// the split-layout check names its file, since that layout draws nothing smaller than a column.
 @Suite struct PaneQuickLookScopeTests {
 
     static func source(_ name: String) throws -> String {
@@ -39,15 +20,14 @@ import Foundation
             .appendingPathComponent("MacApp/\(name)")
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read \(name) — every check below would be vacuous")
-        // `#require`, not `#expect`: a file that exists but is truncated hands a short string on,
-        // after which every `contains` here answers false and every `!contains` answers true. One
-        // quiet issue standing in front of a page of green is the wrong signal — stop instead.
+        // `#require`, not `#expect`: on a truncated file every `!contains` below would pass, so
+        // stop instead of reporting one issue in front of a page of green.
         try #require(text.count > 500, "\(name) is implausibly short — the scans below would be near-vacuous")
         return text
     }
 
-    /// The positive control. Everything below asserts a presence or an absence in one of three
-    /// files; a reader that silently returned the wrong text would make every ABSENCE check pass.
+    /// The positive control: a reader that silently returned the wrong text would make every
+    /// absence check below pass.
     @Test func testTheScanCanActuallyFail() throws {
         #expect(try Self.source("ContentView.swift").contains("func paneColumn(isLeft: Bool)"),
                 "this is not ContentView")
@@ -60,13 +40,9 @@ import Foundation
 
     // MARK: The premise
 
-    /// **The reason the scan below is the right scan.** If the search field ever moves out of the
-    /// pane column, none of this matters any more — and someone reading these tests should find that
-    /// out from a failure here rather than by reasoning about a rule that has quietly gone stale.
-    ///
-    /// Read over the whole of `MacApp/` rather than over `ContentView.swift`: what this is about is
-    /// the column's own contents, and which file that member is declared in is a fact no test here
-    /// was ever meant to pin. See `macAppSources`.
+    /// Why the scan below is the right one. If the search field moves out of the pane column, this
+    /// fails, so the rule can't quietly go stale. Read over all of `MacApp/` (`macAppSources`):
+    /// it is about the column's contents, not which file declares it.
     @Test func testTheSearchFieldReallyIsInsideThePaneColumn() throws {
         let content = try macAppSources()
         let column = try #require(content.range(of: "func paneColumn(isLeft: Bool)"),
@@ -82,39 +58,31 @@ import Foundation
 
     // MARK: The scope
 
-    /// The three old sites are gone. This is the assertion that actually fails if someone puts one
-    /// back: `ContentView+SplitLayout.swift` lays out whole pane COLUMNS and nothing smaller, so any
-    /// Space handler in it necessarily swallows the search field's spaces.
+    /// No key handler in the split layout: `ContentView+SplitLayout.swift` lays out whole pane
+    /// columns and nothing smaller, so any Space handler in it swallows the search field's spaces.
     @Test func testTheSplitLayoutListensForNoKeysAtAll() throws {
         let split = try Self.source("ContentView+SplitLayout.swift")
         #expect(!split.contains(".onKeyPress(.space)"),
                 "a Space handler on a pane column eats spaces typed into that pane's search field")
-        // Not just Space: this file's every subject is a whole column, so any key handler here has
-        // the same reach over the field.
+        // Not just Space: every subject here is a whole column, so any key handler reaches the
+        // field.
         #expect(!split.contains(".onKeyPress("),
                 "a key handler on a pane column reaches that pane's search field")
         #expect(!split.contains("toggleQuickLook"),
                 "the split layout is presenting Quick Look again — the handler belongs on the list")
     }
 
-    /// …and the one replacement is on the file list, not on the column that contains the header.
-    ///
-    /// Checked by indentation as well as by order, because "after `treeView(pane)`" is also true of
-    /// a modifier on the enclosing `VStack` — which is the exact mistake being guarded against, and
-    /// the one that reads correctly at a glance.
-    ///
-    /// Over `MacApp/` as a whole, for the reason the test above gives — and the count at the end
-    /// gets stronger for it: a second Space handler now fails wherever in the app it is written,
-    /// where before it only did so inside `ContentView.swift`.
+    /// The one handler is on the file list, not the column holding the header. Checked by
+    /// indentation as well as order, because "after `treeView(pane)`" is also true of a modifier
+    /// on the enclosing `VStack`, the mistake that reads right at a glance. Over all of `MacApp/`,
+    /// so a second Space handler fails wherever it is written.
     @Test func testTheHandlerIsAttachedToTheFileList() throws {
         let content = try macAppSources()
         let column = try #require(content.range(of: "func paneColumn(isLeft: Bool)"),
                                   "the pane column is gone — this scan would be vacuous")
-        // Generous, because `paneColumn` opens with a long `PaneHeader(…)` call: a window that
-        // stops short of the list turns every check below into a `#require` failure that reads like
-        // the regression rather than like a mis-sized window. It is a floor on how much to read and
-        // not a claim about where the member ends — the checks below anchor on the list line itself
-        // and on the distance from it, so reading past `paneColumn` costs nothing.
+        // Generous, because `paneColumn` opens with a long `PaneHeader(…)` call and a window that
+        // stops short of the list would fail like the regression. A floor on how much to read, not
+        // where the member ends: the checks anchor on the list line, so reading past costs nothing.
         let body = String(content[column.upperBound...].prefix(20_000))
         let list = try #require(body.range(of: "            treeView(pane)\n"),
                                 "paneColumn no longer builds the list at the expected nesting")
@@ -122,14 +90,9 @@ import Foundation
         // The list's own modifiers are indented one level deeper than the `treeView(pane)` line.
         #expect(after.contains("                .onKeyPress(.space) { paneQuickLook() }"),
                 "Space → Quick Look is not a modifier on the file list")
-        // And it is the FIRST thing after the card, so it cannot have drifted past the overlay onto
-        // something wider without this failing.
-        //
-        // Measured over CODE lines, not raw characters. This was a `distance(...) < 300` over the
-        // raw text and it failed at 554 the moment the ↩ handler below grew the comment explaining
-        // why it left the single-key overload — prose between two lines is not drift, and a budget
-        // that cannot tell them apart makes documenting the neighbouring code a test failure.
-        // Stripped of comments the gap is one line, which is the claim this sentence is making.
+        // And it is the first thing after the card, so it can't drift past the overlay onto
+        // something wider. Measured in code lines, not characters, so comments between the lines
+        // don't count as drift.
         let codeLines = after
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
@@ -137,12 +100,9 @@ import Foundation
         let spaceLine = try #require(codeLines.firstIndex { $0.contains(".onKeyPress(.space)") },
                                      "the Space handler is gone from the list's modifiers")
         let between = codeLines[..<spaceLine].filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        // The card line is matched by its head, not in full. It used to be pinned verbatim, and
-        // adding the active-pane border — an ARGUMENT to the same modifier, inserting nothing and
-        // moving nothing — failed this with a diff of the argument list, reported as the Quick Look
-        // handler having drifted. What the test protects is that exactly one modifier stands
-        // between the list and the handler and that it is the card; what the card is passed is the
-        // card's business.
+        // The card line is matched by its head, not in full: what matters is that exactly one
+        // modifier, the card, stands between list and handler. What the card is passed is its own
+        // business.
         #expect(between.count == 1
                     && between[0].hasPrefix("                .paneCardIfNeeded("),
                 """
@@ -157,16 +117,14 @@ import Foundation
 
     // MARK: What it previews
 
-    /// The rail and Browse show one pane, and a selection left in the hidden right pane from an
-    /// earlier Compare session must not hijack the preview. That used to be a hand-passed
-    /// `singleSource: true` at two call sites; with one handler it has to be read from the layout,
-    /// and reading it wrong is silent — the preview simply shows the wrong file.
+    /// The rail and Browse show one pane, so a selection left in the hidden right pane from Compare
+    /// must not hijack the preview. The one handler reads this from the layout; read wrong, the
+    /// preview silently shows the wrong file.
     @Test func testTheTargetIsResolvedFromTheLayout() throws {
         let search = try Self.source("ContentView+PaneSearch.swift")
         let start = try #require(search.range(of: "func paneQuickLook()"))
-        // Widened when `paneQuickLook` gained its suspension guard: a source scan whose window is
-        // tighter than the body it reads fails for the wrong reason, and a comment added above the
-        // asserted line is not a regression.
+        // Wide enough for the whole body, including its suspension guard: a window tighter than
+        // the body fails for the wrong reason.
         let body = String(search[start.upperBound...].prefix(1_100))
         #expect(body.contains("CurrentSelection.primaryPanePath"),
                 "the target is no longer resolved by the shared resolver")

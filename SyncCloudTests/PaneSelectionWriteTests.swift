@@ -3,16 +3,13 @@ import Foundation
 import Sync
 @testable import SyncCloud
 
-/// The ORDER of a pane click's two halves.
+/// The order of a pane click's two halves. A click commits its own pane synchronously and clears
+/// the other pane a runloop turn later: clearing it synchronously reloads that pane's `List`
+/// mid-commit and drops the click. The deferred clear must not wipe a second click that lands in
+/// the other pane before it drains, or that click reads as ignored.
 ///
-/// A click commits its own pane synchronously and clears the other pane a runloop turn later —
-/// clearing it synchronously reloads that pane's `List` mid-commit and drops the click (`aa9d407`).
-/// The deferred clear writes a blind `[]` and carries no memory of which pane the user is on when
-/// it finally runs, so a second click landing in the other pane before it drains gets wiped: the
-/// row un-highlights, the action bar never appears, and the click reads as ignored.
-///
-/// These drive `applySelectionWrite` with an explicit scheduler, so the interleaving is exact
-/// rather than a race the test hopes to hit.
+/// These drive `applySelectionWrite` with an explicit scheduler, so the interleaving is exact, not
+/// a race the test hopes to hit.
 @MainActor
 @Suite struct PaneSelectionWriteTests {
 
@@ -23,7 +20,7 @@ import Sync
         var lastSelectionSurface: SelectionSurface? = nil
     }
 
-    /// Collects the deferred blocks instead of running them, so a test decides when — and whether —
+    /// Collects the deferred blocks instead of running them, so a test decides when, and whether,
     /// each drains.
     private final class Queue {
         private(set) var blocks: [() -> Void] = []
@@ -52,18 +49,18 @@ import Sync
         #expect(state.selectedLeftPaths == ["/left/a"])
         #expect(queue.blocks.count == 1)
 
-        // Click the right pane BEFORE that block drains — the main thread being busy rebuilding a
-        // Columns stack (and mirroring it onto the linked pane) is exactly what keeps it queued.
+        // Click the right pane before that block drains, as when the main thread is busy rebuilding
+        // a Columns stack (and mirroring it onto the linked pane).
         write(["/right/b"], isLeft: false, state, sequencer, queue)
         #expect(state.selectedRightPaths == ["/right/b"])
 
         queue.drain()
 
-        // The right click must survive. Before the token guard, the left click's queued clear wrote
-        // `[]` over it here and the click vanished.
+        // The right click must survive: without the token guard, the left click's queued clear
+        // would write `[]` over it here.
         #expect(state.selectedRightPaths == ["/right/b"],
                 "the earlier left-pane click's deferred clear wiped the right-pane click")
-        // …and the invariant still holds: the newer click's own deferral cleared the left pane.
+        // The invariant still holds: the newer click's own deferral cleared the left pane.
         #expect(state.selectedLeftPaths.isEmpty)
     }
 
@@ -80,8 +77,7 @@ import Sync
         #expect(state.selectedRightPaths.isEmpty)
     }
 
-    /// Three clicks bouncing across the seam — the "changing panes, clicking on each side" gesture.
-    /// Only the last one may survive, and it must.
+    /// Three clicks bouncing across the seam: only the last may survive, and it must.
     @Test func testOnlyTheNewestOfAFlurryOfCrossPaneClicksSurvives() {
         let state = State(), sequencer = PaneSelectionSequencer(), queue = Queue()
 
@@ -101,7 +97,7 @@ import Sync
         state.selectedRightPaths = ["/right/stale"]
 
         write(["/left/a"], isLeft: true, state, sequencer, queue)
-        // Before the drain both panes hold a selection — the deliberate one-frame window
+        // Before the drain both panes hold a selection: the deliberate one-frame window
         // `PaneLogic.activePane`'s left-wins tiebreak covers.
         #expect(state.selectedRightPaths == ["/right/stale"])
 
@@ -112,8 +108,8 @@ import Sync
 
     @Test func testTheClickedPaneCommitsBeforeAnythingIsDeferred() {
         let state = State(), sequencer = PaneSelectionSequencer(), queue = Queue()
-        // Synchronous commit is the whole reason the click lands on the first try — assert it
-        // holds with NOTHING drained.
+        // Synchronous commit is why the click lands on the first try; assert it with nothing
+        // drained.
         write(["/left/a"], isLeft: true, state, sequencer, queue)
         #expect(state.selectedLeftPaths == ["/left/a"])
     }
@@ -124,8 +120,8 @@ import Sync
 
         write([], isLeft: true, state, sequencer, queue)
 
-        // An empty write is a deselect: it enforces nothing, which is what keeps the right-click
-        // "Copy N items from other pane" menu working.
+        // An empty write is a deselect and enforces nothing, which keeps the right-click "Copy N
+        // items from other pane" menu working.
         #expect(state.selectedRightPaths == ["/right/b"])
         #expect(queue.blocks.isEmpty, "a deselect queued a clear it has no business queueing")
     }
@@ -137,7 +133,7 @@ import Sync
         state.selectedRightPaths = ["/right/stale"]
 
         write(["/left/a"], isLeft: true, state, sequencer, queue)
-        // SwiftUI re-writing an unchanged empty set into the OTHER pane, which it does freely.
+        // SwiftUI re-writing an unchanged empty set into the other pane, which it does freely.
         write([], isLeft: false, state, sequencer, queue)
         queue.drain()
 
@@ -157,10 +153,9 @@ import Sync
     }
 }
 
-/// The pane half of the Space → Quick Look tie-break: a pane click has to CLAIM the surface token,
-/// or the Differences table keeps priority and Space goes on previewing its row while the user is
-/// working in a pane. Driven through `applySelectionWrite` because that is the one choke point
-/// every pane selection write passes through.
+/// The pane half of the Space → Quick Look tie-break: a pane click must claim the surface token,
+/// or the Differences table keeps priority and Space previews its row while the user works in a
+/// pane. Driven through `applySelectionWrite`, which every pane selection write passes through.
 @MainActor
 @Suite struct PaneSelectionSurfaceTokenTests {
 
@@ -195,8 +190,8 @@ import Sync
         #expect(state.lastSelectionSurface == .pane)
     }
 
-    /// A clear says "not this any more", not "the panes are what I mean now". Handing the token to
-    /// a surface holding nothing would point Space at an empty pane and make it dead.
+    /// A clear means "not this any more", not "the panes now". Handing the token to a surface
+    /// holding nothing would point Space at an empty pane and make it dead.
     @Test func anEmptyWriteDoesNotClaimTheToken() {
         let state = State()
         state.lastSelectionSurface = .differences

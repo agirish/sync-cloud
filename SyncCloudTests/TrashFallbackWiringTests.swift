@@ -1,23 +1,14 @@
 import Testing
 import Foundation
 
-/// **The out-of-process Trash fallback exists only if the app wires it.**
-///
-/// This scan lives in its own file for a reason the squash made visible: it spent one commit
-/// inside `LensProviderNameCallSiteTests`, a suite whose name and doc are about which of a pane's
-/// two names Organize uses. Nothing failed — the test ran and passed there — but a reader looking
-/// for the Trash seam's confirmer had no reason to open that file, and a reader of that file had
-/// no reason to expect a Trash test in it. A scan nobody can find is one nobody maintains.
+/// The out-of-process Trash fallback exists only if the app wires it. Kept in its own file so a
+/// reader looking for the Trash seam's check can find it.
 @Suite struct TrashFallbackWiringTests {
 
-    /// **An unwired seam is a no-op, and this one's default is "do nothing".**
-    ///
-    /// `FileSyncManager.trashViaWorkspace` defaults to returning nothing, because the engine may
-    /// not import AppKit (`LayeringPinTests` enforces that, and caught the first version of this
-    /// fix). So the entire out-of-process Trash fallback exists only if the app wires it — and if
-    /// that line is ever dropped, every test in `Modules/Sync` stays green while a refused delete
-    /// silently stops getting its second attempt. The two confirmers beside it are wired the same
-    /// way for the same reason.
+    /// `FileSyncManager.trashViaWorkspace` defaults to doing nothing, because the engine may not
+    /// import AppKit (`LayeringPinTests`). Drop the app's wiring and every test in `Modules/Sync`
+    /// stays green while a refused delete silently loses its second attempt. The two confirmers
+    /// beside it are wired the same way for the same reason.
     @Test func theAppWiresTheOutOfProcessTrash() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()

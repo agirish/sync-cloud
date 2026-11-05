@@ -4,21 +4,12 @@ import Sync
 import Testing
 import Foundation
 
-/// **The sidebar refresh's cost: how often it runs, where its `stat`s run, and how often the
-/// volumes are walked.**
-///
-/// One Edit↔Organize switch fires `refreshFolderSidebarRows` two to four times — the lens entry
-/// re-homes the rail (`onChange(of: leftRelativePath)`), the workspace changes, the pane-hiding
-/// changes because Editor defaults to hidden and Organize does not, and `FolderJumpStore` publishes
-/// through a `DispatchQueue.main.async`. Each of those was a `fileExists` per provider root plus one
-/// per surviving pin and recent, a `mountedVolumeURLs` with a `resourceValues` read per volume, an
-/// `isMountedFolder` per place and per source root, and a `resolvingSymlinksInPath` — an `lstat` per
-/// path component — for every place against every root. Synchronously, on the main actor. With
-/// eleven sources that is upwards of a hundred `stat` chains, up to four times, and on a sleeping
-/// external disk or a wedged network mount any single one of them blocks the window.
-///
-/// The walk itself is testable now that it is a `nonisolated static` taking its inputs, so most of
-/// what is below is a measurement rather than a source scan.
+/// The sidebar refresh's cost: how often it runs, where its `stat`s run, and how often the volumes
+/// are walked. One Edit↔Organize switch fires `refreshFolderSidebarRows` two to four times, and each
+/// walk `stat`s every provider root, pin, recent, volume and place, a hundred or more `stat` chains
+/// with many sources. On the main actor, a sleeping external disk or a wedged network mount in any
+/// one of them would block the window. The walk is a `nonisolated static` taking its inputs, so most
+/// of this suite measures it rather than scanning source.
 @Suite struct FolderSidebarRefreshCostTests {
 
     /// A provider root holding one folder that exists and none named `Gone`.
@@ -39,11 +30,9 @@ import Foundation
             recents: [], favoriteOrder: [], favoritePlaces: [])
     }
 
-    /// **The walk runs off the main actor, and it really is the walk.**
-    ///
-    /// The `Task.detached` is the assertion: `resolveFolderSidebarRows` is called from a
-    /// non-isolated context, which only compiles while it is `nonisolated` — the whole point of the
-    /// change, since every blocking `stat` in a refresh is inside it. The row assertions are what
+    /// The walk runs off the main actor, and it really is the walk. The `Task.detached` is the
+    /// assertion: calling `resolveFolderSidebarRows` from a non-isolated context compiles only while
+    /// it is `nonisolated`, and every blocking `stat` of a refresh is inside it. The row assertions
     /// stop that being a compile-time claim about an empty function.
     @Test func theWholeWalkResolvesOffTheMainActorAndStillChecksTheDisk() async throws {
         let root = try Self.makeRoot()
@@ -63,8 +52,8 @@ import Foundation
         #expect(resolved.volumes.isEmpty, "the walk invented volumes it was not given")
     }
 
-    /// A root that is not there answers "everything remembered, unchecked" rather than dropping the
-    /// rows — the sleeping-drive rule, asserted through the off-main walk so the two cannot drift.
+    /// A missing root answers "everything remembered, unchecked" rather than dropping the rows: the
+    /// sleeping-drive rule, asserted through the off-main walk so the two can't drift.
     @Test func anAbsentRootKeepsItsRowsAndMarksThemUnavailable() async throws {
         let root = try Self.makeRoot()
         try FileManager.default.removeItem(at: root)
@@ -78,15 +67,11 @@ import Foundation
         #expect(favorites.allSatisfy { !$0.isAvailable })
     }
 
-    /// **The mounted-volume walk happens once per mount event, not once per refresh.**
-    ///
-    /// `mountedVolumeURLs` plus a `resourceValues` read per volume is not free, and under an
-    /// unreachable network mount each of those reads can block. What is mounted changes only when
-    /// macOS says so, and the app subscribes to all four notifications that say it.
-    ///
-    /// Proved by poisoning the cache with a volume the real filesystem cannot produce: an answer
-    /// that names it can only have come from the cache. The last two lines are the control — with
-    /// the cache dropped, the same call goes back to the disk and the sentinel is gone.
+    /// The mounted-volume walk happens once per mount event, not once per refresh: a
+    /// `resourceValues` read per volume can block under an unreachable network mount, and mounts
+    /// change only when macOS says so (the app subscribes to all four notifications). The cache is
+    /// poisoned with a volume the filesystem can't produce, so an answer naming it came from the
+    /// cache; the last two lines are the control.
     @MainActor
     @Test func theVolumeWalkIsServedFromTheCacheUntilSomethingDropsIt() {
         defer { ContentView.forgetMountedVolumes() }
@@ -109,10 +94,9 @@ import Foundation
 
     // MARK: The parts of the refresh no test can reach
 
-    /// `ContentView` is a `View` with `@State` and cannot be instantiated, so the coalescing —
-    /// which lives inside `refreshFolderSidebarRows` — is read off its own source, the way this
-    /// codebase reads the rest of that file's wiring. Comments are stripped so the prose explaining
-    /// the mechanism cannot stand in for it.
+    /// `ContentView` can't be instantiated, so the coalescing inside `refreshFolderSidebarRows` is
+    /// read off its source. Comments are stripped so prose explaining the mechanism can't stand in
+    /// for it.
     private static func refreshBody() throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -134,13 +118,10 @@ import Foundation
         return end.map { String(rest[..<$0.lowerBound]) } ?? rest
     }
 
-    /// **One refresh per turn, and the ticket is checked TWICE.**
-    ///
-    /// Once after the hop, which is what collapses the two-to-four calls a single workspace switch
-    /// fires into one walk. Once after the walk returns, which is what stops an answer that was
-    /// overtaken while it was out being drawn over a newer one — the stale list this column's whole
-    /// trigger set exists to prevent. Dropping either leaves a refresh that still works and is
-    /// either as expensive as it was or occasionally wrong, and nothing else would notice.
+    /// One refresh per turn, and the ticket is checked twice: after the hop, which collapses the
+    /// calls one workspace switch fires into one walk; and after the walk returns, so an overtaken
+    /// answer isn't drawn over a newer one. Dropping either leaves a refresh that still works, but
+    /// costs more or is occasionally stale, and nothing else would notice.
     @Test func theRefreshTakesATicketAndChecksItOnBothSidesOfTheWalk() throws {
         let body = try Self.refreshBody()
         #expect(body.contains("sidebarRefresh.ticket &+= 1"),
@@ -150,10 +131,9 @@ import Foundation
                 "the ticket is checked \(checks) time(s): it must be checked after the hop (which coalesces) AND after the walk returns (which drops an overtaken answer)")
     }
 
-    /// **The guard comes first**, before the ticket and before anything is read. The refresh
-    /// `stat`s a provider root and its triggers fire on every workspace, so a coalescing scheme
-    /// that scheduled work before asking whether the column is on screen would pay for a walk in
-    /// Compare with the sidebar switched off — the exact cost the guard was added for.
+    /// The on-screen guard comes first, before the ticket and before anything is read. The triggers
+    /// fire in every workspace, so scheduling work before asking whether the column is on screen
+    /// would pay for a walk in Compare with the sidebar switched off.
     @Test func theOnScreenGuardStillPrecedesEverything() throws {
         let body = try Self.refreshBody()
         let guardIndex = try #require(body.range(of: "guard folderSidebarIsShowing else { return }"),
@@ -163,9 +143,9 @@ import Foundation
                 "work is scheduled before the column is known to be on screen")
     }
 
-    /// **The disk work is handed to a detached task, not awaited on the main actor.** An `async`
-    /// member of a main-actor type hops straight back, so the detach is the thing under test —
-    /// the same rule `EjectWiringTests.ejectingDoesNotRunOnTheMainActor` pins for the eject.
+    /// The disk work is handed to a detached task, not awaited on the main actor. An `async` member
+    /// of a main-actor type hops straight back, so the detach is what's under test, as
+    /// `EjectWiringTests.ejectingDoesNotRunOnTheMainActor` pins for the eject.
     @Test func theWalkIsDetachedRatherThanMerelyAwaited() throws {
         let body = try Self.refreshBody()
         #expect(body.contains("Task.detached(priority: .userInitiated)"),

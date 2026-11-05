@@ -7,7 +7,7 @@ import Testing
 /// Up and Down in Ask Claude's box: the questions typed before, then back to the unsent draft.
 ///
 /// Serialized: two panels hosted at once, in windows that can't be key, take the keyboard focus
-/// from each other at every await (measured: either test alone passes, the pair side by side fails).
+/// from each other at every await.
 @MainActor
 @Suite(.serialized) struct AskClaudePromptHistoryTests {
 

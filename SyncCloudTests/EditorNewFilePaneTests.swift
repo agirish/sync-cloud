@@ -3,39 +3,31 @@ import Foundation
 import Sync
 @testable import SyncCloud
 
-/// **A file made with ⌘N appears in the pane, selected** — TE44's wiring.
+/// A file made with ⌘N appears in the pane, selected.
 ///
-/// Since TE36 the open source pane IS Edit's file list and the rail is withheld beside it, so a
-/// ⌘N that refreshed only the rail created the file on disk, opened it, and left the column it was
-/// created in listing the folder as it had been. The fix has two halves: the pane is re-read (the
-/// path every file operation takes), and the new file is selected once the re-read lists it. The
-/// selection's rule was ⌘N's own and is now the one every door shares (TE47) — its cases, ⌘N's
-/// among them, are `EditorPaneFollowsDocumentTests`.
+/// The open source pane is Edit's file list and the rail is withheld beside it, so refreshing only
+/// the rail would leave the pane listing the folder without the new file. So the pane is re-read
+/// (the path every file operation takes) and the new file selected once the re-read lists it, by
+/// the rule every door shares; its cases, ⌘N's among them, are `EditorPaneFollowsDocumentTests`.
 ///
-/// **Local-only**, like every suite in this target: CI runs package tests alone.
+/// Local-only, like every suite in this target: CI runs package tests alone.
 ///
-/// The real call sites: `ContentView` cannot be constructed in a
-/// test (its memberwise initializer is private — see `BrowseWorkspaceCallSiteTests`), so the
-/// wiring is pinned at the source level, the house technique for exactly this. Every check below
-/// was proved by deleting the line it names and watching it go red.
+/// `ContentView` can't be constructed in a test (its memberwise initializer is private; see
+/// `BrowseWorkspaceCallSiteTests`), so the wiring is pinned at the source level. Each check goes
+/// red if the line it names is deleted.
 @Suite struct EditorNewFilePaneWiringTests {
 
-    /// One member's body in a `MacApp/` file — the shared ``declarationBody(of:in:sourceLocation:)``
+    /// One member's body in a `MacApp/` file: the shared ``declarationBody(of:in:sourceLocation:)``
     /// (brace-matched, comment-stripped, unique or it fails) read as ``CodeText``, so every check
     /// on it is whitespace-insensitive. The Edit suites all slice through here.
-    ///
-    /// It replaced a regex that ended the slice at the next line opening a member at four spaces
-    /// (`///`, `func`, `var`, `enum`) — so a `let`, a `@MainActor func`, an `init` or a `case` after
-    /// the member was read as part of it, and a member it could not find an end for ran to the end
-    /// of the file. It also read the raw text, so a comment could answer a `contains`.
     static func body(of declaration: String, in file: String,
                      sourceLocation: SourceLocation = #_sourceLocation) throws -> CodeText {
         CodeText(try declarationBody(of: declaration, in: try EditorDivergenceWiringTests.source(file),
                                      sourceLocation: sourceLocation))
     }
 
-    /// **⌘N re-reads and selects in the pane, not only the rail** — the regression itself. The
-    /// rail refresh stays: collapsed, the rail is the list.
+    /// ⌘N re-reads and selects in the pane, not only the rail. The rail refresh stays: collapsed,
+    /// the rail is the list.
     @Test func creatingAFileShowsItInThePaneAsWellAsTheRail() throws {
         let body = try Self.body(of: "func createTextFile(named name: String) -> Bool {",
                                  in: "ContentView+Editor.swift")
@@ -51,10 +43,10 @@ import Sync
                 "the pane is asked to select the file before it is the open document")
     }
 
-    /// **The re-read is targeted** (TE47 review): the walks listing the file's folder are dropped
-    /// and the epoch bumped (`prepareReread`), then only the pane(s) whose folder holds the file
-    /// are reloaded, compared only in Compare — where it was a file operation's whole-cache drop
-    /// and a `.both` refresh with a full comparison scan, on every ⌘N and export.
+    /// The re-read is targeted: the walks listing the file's folder are dropped and the epoch
+    /// bumped (`prepareReread`), then only the panes whose folder holds the file are reloaded,
+    /// compared only in Compare, not a whole-cache drop and a `.both` refresh with a full
+    /// comparison scan on every ⌘N and export.
     @Test func theReReadIsTargetedAtThePaneThatShowsTheFile() throws {
         let show = try Self.body(of: "func showCreatedFileInPane(_ path: String) {",
                                  in: "ContentView+Editor.swift")
@@ -84,11 +76,11 @@ import Sync
         }
     }
 
-    /// Which panes are re-read: each whose folder holds the file, deep — and neither for a file
+    /// Which panes are re-read: each whose folder holds the file, deep, and neither for a file
     /// saved outside both (an export to Downloads). The iCloud container's pane holds a file in
     /// `~/Documents` through its link, and so does a pane above the container (synthetic tables).
-    /// A pane whose walk followed a folder link holds a file where the link leads — its walk's own
-    /// record, since no prefix of the pane's folder names it.
+    /// A pane whose walk followed a folder link holds a file where the link leads, by its walk's
+    /// own record, since no prefix of the pane's folder names it.
     @Test func onlyThePanesThatHoldTheFileAreReRead() {
         func scope(_ path: String, left: String = "/a/Finance", right: String = "/b",
                    leftTargets: Set<String> = [], rightTargets: Set<String> = [],
@@ -104,7 +96,7 @@ import Sync
         #expect(scope("/a/Fin/Test.md") == nil, "a sibling sharing the folder's opening is another folder")
         let links: PathBoundary.LinkedFolders = ["/c": ["Documents": "/h/Documents"]]
         #expect(scope("/h/Documents/Finance/Test.md", left: "/c", links: links) == .leftOnly)
-        // A pane ABOVE the container lists the linked folder too — its walk meets the link below it.
+        // A pane above the container lists the linked folder too: its walk meets the link below it.
         let below: PathBoundary.LinkedFolders = ["/lib/Mobile/c": ["Documents": "/h/Documents"]]
         #expect(scope("/h/Documents/Finance/Test.md", left: "/lib", links: below) == .leftOnly,
                 "a pane whose walk reaches the folder through a link below its root was not re-read")
@@ -114,9 +106,9 @@ import Sync
         #expect(scope("/t/sub/Test.md") == nil, "with no walk's record, a file outside both panes re-read one")
     }
 
-    /// **The record the rule reads is the one the walk wrote.** A real pane on `R`, holding
-    /// `link → T` with `T` outside it: a file written where the link leads, spelled as the pane's
-    /// rows name it, is in that pane — and was in neither before the walk recorded its links.
+    /// The record the rule reads is the one the walk wrote. A real pane on `R` holding `link → T`,
+    /// with `T` outside it: a file written where the link leads, spelled as the pane's rows name it,
+    /// is in that pane, and in neither without the walk's record of its links.
     @MainActor
     @Test func aPaneWhoseWalkFollowedAFolderLinkHoldsAFileWhereItLeads() async throws {
         let fm = FileManager.default
@@ -140,9 +132,9 @@ import Sync
         let row = try #require(m.leftNodes(for: [t.appendingPathComponent("sub/x.txt").path]).first,
                                "premise: the pane does not list the file below the link under its resolved spelling")
         let written = ((row.id as NSString).deletingLastPathComponent as NSString).appendingPathComponent("new.md")
-        // Written before the rule is asked, as every caller asks — after the write. The order is
-        // not a nicety here: the resolver takes `/private` off a temp path only when the path
-        // exists, so asked about a file that is not there yet, the spelling never meets the record.
+        // Written before the rule is asked, as every caller asks after the write. The order
+        // matters: the resolver takes `/private` off a temp path only when the path exists, so for
+        // a file not there yet the spelling never meets the record.
         try Data().write(to: URL(fileURLWithPath: written))
         try #require(ContentView.panesHolding(written, leftFolder: r.path, rightFolder: other.path, links: [:]) == nil,
                      "premise: the pane's folder alone holds the file — nothing below is measured")
@@ -152,8 +144,8 @@ import Sync
                 "the pane that lists the folder through its link was not found to hold the file")
     }
 
-    /// **Export as PDF adds a file to the folder too**, and refreshed only the rail for the same
-    /// reason ⌘N did — so with the pane open the exported PDF was not listed either.
+    /// Export as PDF adds a file to the folder too, so it re-reads the pane like ⌘N, or with the
+    /// pane open the exported PDF wouldn't be listed.
     @Test func exportingAPDFReReadsThePaneToo() throws {
         let body = try Self.body(of: "func exportEditorDocumentAsPDF() {", in: "EditorPrinting.swift")
         let write = try #require(body.range(of: "try EditorFileStore.write(data, toPath: url.path)"),
@@ -163,8 +155,8 @@ import Sync
         #expect(write.lowerBound < reread.lowerBound, "the pane is re-read before the PDF exists")
     }
 
-    /// The debt is paid on the tree publish, under the rule — and NOT through the setter a click
-    /// uses, whose Compare-with pick, focus move and surface claim are a click's (TE47 review).
+    /// The debt is paid on the tree publish, under the rule, and not through the setter a click
+    /// uses, whose Compare-with pick, focus move and surface claim are a click's.
     @Test func theOwedSelectionIsPaidOnPublishAsTheAppsOwnWrite() throws {
         let content = CodeText(try EditorDivergenceWiringTests.source("ContentView.swift"))
         #expect(content.contains(".onChange(of: syncManager.leftPaneTree) { _, _ in settleOwedPaneSelection() }"),
@@ -182,9 +174,9 @@ import Sync
                 "the rule is not told which document is open — it could drag the reader back")
     }
 
-    /// **Exactly one "Editor opened" per create.** Selecting a text file in Edit's open pane opens
-    /// it through `openInEditor`; that is a no-op here only because its first guard returns for
-    /// the path already open. Pinned so that guard cannot be loosened without this going red.
+    /// Exactly one "Editor opened" per create. Selecting a text file in Edit's open pane opens it
+    /// through `openInEditor`, a no-op here only because its first guard returns for the path
+    /// already open. Pinned so that guard can't be loosened without this going red.
     @Test func selectingTheOpenDocumentDoesNotOpenItAgain() throws {
         let body = try Self.body(of: "func openInEditor(path: String, selectsInPane: Bool = false) {",
                                  in: "ContentView+Editor.swift")

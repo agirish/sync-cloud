@@ -4,12 +4,9 @@ import SwiftUI
 import Testing
 import AppKit
 
-/// **The mark on the pane the sidebar opens into.**
-///
-/// The `Left | Right` control says which pane is armed and lives in the sidebar's header, so
-/// confirming meant looking away from the panes to a corner that was not part of the work. This is
-/// the other half — the answer on the destination — and its whole design is constrained by one
-/// thing: it may not take layout.
+/// The mark on the pane the sidebar opens into. The `Left | Right` control in the sidebar's header
+/// says which pane is armed; this shows the answer on the destination itself, so confirming needs
+/// no look away from the panes. Its design hangs on one constraint: it may not take layout.
 @MainActor @Suite struct ActivePaneMarkTests {
 
     private static let subject = CGSize(width: 260, height: 120)
@@ -32,34 +29,25 @@ import AppKit
         return NSHostingView(rootView: AnyView(view)).fittingSize
     }
 
-    /// **Decoration, never layout — the constraint the whole design hangs on.**
-    ///
-    /// Both of `PaneHeader`'s rows are pinned by measurement: `PaneHeaderHeightTests` holds the
-    /// header to `LiquidGlass.headerHeight`, and `PaneBarLadderTests` measures the top row
-    /// overflowing a 250pt pane by 10.5pt in the state nothing tested. A label in either row would
-    /// burst a rung — which is exactly what that file records happening to the search field. So the
-    /// mark has to be free, and this is the assertion that keeps it free when someone later reaches
-    /// for a chip with a word in it.
+    /// Decoration, never layout. Both of `PaneHeader`'s rows are pinned by measurement
+    /// (`PaneHeaderHeightTests`, `PaneBarLadderTests`), so a label in either row would burst a
+    /// rung. This keeps the mark free if someone later reaches for a chip with a word in it.
     @Test func markingAPaneCostsItNoSpace() {
         #expect(laidOut(true) == laidOut(false),
                 "the destination mark changed the pane's size — it must be decoration, or it will burst a header rung that is pinned by measurement")
         #expect(laidOut(true) == Self.subject)
     }
 
-    /// A pane that is not the destination gets nothing at all — not a transparent bar, not a
-    /// zero-height one. Half of "which pane" is the pane that is silent.
+    /// A pane that is not the destination gets nothing at all, not even a transparent or
+    /// zero-height bar. Half of "which pane" is the pane that is silent.
     @Test func anUnmarkedPaneIsUntouched() {
         #expect(laidOut(false) == Self.subject)
     }
 
-    /// **The border has a floor and a ceiling, and it has been at both.**
-    ///
-    /// Thicker than the card chrome it stands in for (a `.quaternary` hairline) or it reads as
-    /// ordinary chrome — and dark cards carry a light specular hairline of their own, which is what
-    /// stopped this going to 1pt. Quieter than the full accent or it shouts: a pane is surrounded
-    /// by accent-coloured chrome already (source chip, view-mode button, breadcrumb, every folder
-    /// icon), and at full strength three outlines around all of that read as an alarm. It shipped
-    /// at 2pt/100% for one build and was reported from the running app the same day.
+    /// The border has a floor and a ceiling. Thicker than the `.quaternary` hairline it replaces,
+    /// or it reads as ordinary chrome (dark cards carry a light specular hairline of their own, so
+    /// 1pt is too thin). Quieter than the full accent, because a pane already wears accent-coloured
+    /// chrome and three full-strength outlines around it read as an alarm.
     @Test func theBorderIsThickerThanAHairlineAndQuieterThanTheAccent() {
         #expect(LiquidGlass.activeCardBorderWidth > 1)
         #expect(LiquidGlass.activeCardBorderOpacity < 0.6,
@@ -68,8 +56,8 @@ import AppKit
                 "the border is faint enough to be ambiguous, and it is the only thing saying which pane Copy and Move act on")
     }
 
-    /// **The colour the cards get is the dimmed one**, not the raw accent — the two are one
-    /// function, so the `.cards` borders and the `.unified` ring cannot drift into different blues.
+    /// The cards get the dimmed accent, not the raw one. Both come from one function, so the
+    /// `.cards` borders and the `.unified` ring cannot drift into different blues.
     @Test func theCardsAreHandedTheDimmedAccent() throws {
         let raw = LiquidGlassHue.blue.accentColor
         let handed = try #require(ActivePaneMark.cardAccent(isFocused: true, accent: raw,
@@ -80,10 +68,9 @@ import AppKit
         #expect(abs(alpha(handed) - LiquidGlass.activeCardBorderOpacity) < 0.01)
     }
 
-    /// **A bordered card is exactly the size of an unbordered one**, which is the same constraint
-    /// as `markingAPaneCostsItNoSpace` applied to the mechanism that actually draws the mark in
-    /// `.cards`. `stroke` instead of `strokeBorder` would spill half the width outward and shrink
-    /// the gutter; a `.border`/`.padding` pair would grow the card into its neighbour.
+    /// A bordered card is exactly the size of an unbordered one: `markingAPaneCostsItNoSpace` for
+    /// the mechanism that draws the mark in `.cards`. `stroke` instead of `strokeBorder` would spill
+    /// half the width into the gutter; a `.border`/`.padding` pair would grow the card.
     @Test func borderingACardCostsItNoSpace() {
         #expect(card(LiquidGlassHue.blue.accentColor) == card(nil),
                 "the accent border changed the card's size — it must draw inside the shape")
@@ -91,8 +78,8 @@ import AppKit
 
     // MARK: - The two styles are marked by different mechanisms
 
-    /// **`.cards` is bordered per card, so the column-level modifier must draw nothing there** —
-    /// otherwise the pane would wear both a ring and three borders.
+    /// `.cards` is bordered per card, so the column-level modifier must draw nothing there, or the
+    /// pane would wear both a ring and three borders.
     @Test func theColumnRingIsUnifiedOnly() {
         #expect(ActivePaneMark.cardAccent(isFocused: true,
                                                  accent: LiquidGlassHue.blue.accentColor,
@@ -115,16 +102,15 @@ import AppKit
         }
     }
 
-    /// **`.unified` really does get the ring**, measured rather than asserted from the source: it
-    /// has no per-pane card, so if this modifier drew nothing there the style would be unmarked
-    /// altogether. Size is unchanged either way — presence is what is at stake, not cost.
+    /// The mark stays free in both styles. `.unified` has no per-pane card, so the column ring is
+    /// its only mark.
     @Test func unifiedIsStillMarkedAndStillFree() {
         #expect(laidOut(true, style: .unified) == Self.subject)
         #expect(laidOut(true, style: .cards) == Self.subject)
     }
 }
 
-/// **Which pane wears it**, which is three questions and not one.
+/// Which pane wears the mark, read from the app source with comments stripped.
 @Suite struct PaneIsDestinationTests {
 
     static func source() throws -> String {
@@ -146,18 +132,10 @@ import AppKit
         #expect(try Self.source().contains("func paneIsFocusedPane"))
     }
 
-    /// **Compare, and then the side — two conditions, where there used to be three.**
-    ///
-    /// Marking a pane in a workspace that has one answers a question nobody asked, so Compare
-    /// stays. The side has to come from the one rule that decides it, or the border and the click
-    /// disagree.
-    ///
-    /// **The third condition is required to be ABSENT.** The mark was gated on the folder column
-    /// being on screen, which was right while it named a sidebar destination and is wrong now that
-    /// it names the focused pane: ⌘F, Copy, Move and every lens scan act on that pane whether or
-    /// not the sidebar is showing, and hiding the answer in that state is exactly the gap
-    /// `focusedPaneSide` has always had. A restored gate would make this a resting indicator that
-    /// does not rest, and nothing else in the suite would notice.
+    /// The mark shows only in Compare (a one-pane workspace needs no answer), and its side comes
+    /// from the same rule as the click, or the border and the click disagree. It must not be gated
+    /// on the sidebar being open: ⌘F, Copy, Move and every lens scan act on the focused pane either
+    /// way, so hiding the mark then would hide the answer when it is still needed.
     @Test func theMarkIsGatedOnCompareAloneAndTakesTheOneRule() throws {
         let code = try Self.source()
         #expect(code.contains("guard selectedWorkspace == .compare else { return false }"),
@@ -175,14 +153,13 @@ import AppKit
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("MacApp/ContentView.swift")
         let code = try #require(try? String(contentsOf: url, encoding: .utf8))
-        // Counted inside `paneColumn`'s own body, not across the file: a fourth surface elsewhere
-        // adopting the spelling while a pane card lost it would keep a file-wide count at three —
-        // the assertion is about the column the test names.
+        // Counted inside `paneColumn`'s body, not across the file: a surface elsewhere adopting
+        // the spelling while a pane card lost it would keep a file-wide count at three.
         let start = try #require(code.range(of: "func paneColumn"),
                                  "paneColumn is gone — the mark has no home to be asserted in")
         let rest = String(code[start.upperBound...])
-        // Member indentation only (4–5 spaces): a looser `\s*` would stop at the first LOCAL
-        // `var` inside the body and truncate the slice above the cards it is counting.
+        // Member indentation only (4–5 spaces): a looser `\s*` would stop at the first local
+        // `var` inside the body and cut off the cards being counted.
         let end = rest.range(of: #"\n {4,5}(private )?(func|var) "#, options: .regularExpression)
         let column = end.map { String(rest[..<$0.lowerBound]) } ?? rest
         #expect(column.contains("ActivePaneMark(isFocused: paneIsFocusedPane(isLeft: isLeft)"),
@@ -193,12 +170,8 @@ import AppKit
                 "the column's three cards do not all take the accent border")
     }
 
-    /// **Every click in a pane reports it, and the reporter never takes the click.**
-    ///
-    /// The focused side used to move on three things — ⌃⇥, a row selection, a tab verb — and
-    /// `noteWorkingIn`'s own comment enumerates four gaps found one bug report at a time. An
-    /// enumeration of the ways to click a pane goes stale the moment a control is added, so the
-    /// question is asked once, where every press is visible.
+    /// Every click in a pane moves the focus to it. A list of the ways to click a pane goes stale
+    /// as soon as a control is added, so the question is asked once, where every press is visible.
     @Test func everyClickInAPaneMovesTheFocus() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -211,12 +184,12 @@ import AppKit
     }
 }
 
-/// **The reporter watches without intercepting**, which is the only thing that makes it safe to lay
-/// over a pane full of controls.
+/// The reporter watches without intercepting, which is what makes it safe to lay over a pane full
+/// of controls.
 @MainActor @Suite struct PaneClickReporterTests {
 
-    /// A press is working in a pane; hover is not. `hitTest` is called for far more than presses —
-    /// tracking areas and layout ask too — and a focus move on hover would re-aim ⌘W and Delete at
+    /// A press is working in a pane; hover is not. `hitTest` is called for far more than presses
+    /// (tracking areas and layout ask too), and a focus move on hover would re-aim ⌘W and Delete at
     /// whatever pane the pointer last crossed.
     @Test func onlyPressesCount() {
         #expect(PaneClickReporter.shouldReport(.leftMouseDown))
@@ -230,12 +203,10 @@ import AppKit
         #expect(!PaneClickReporter.shouldReport(nil), "focus moved with no event in flight at all")
     }
 
-    /// A reporter mounted in a host, with the event in flight injected — see
-    /// `ClickReportingView.currentEventType` for why that seam has to exist.
-    /// **Mounted in the RIGHT half of its host, not filling it.** A reporter at its superview's
-    /// origin makes local and superview coordinates identical, which hides a member reading the
-    /// point as local — substituting `bounds.contains(point)` passed a fixture built that way. This
-    /// is the geometry Compare actually has: two panes, and the right one never starts at zero.
+    /// A reporter mounted in a host, with the event in flight injected (see
+    /// `ClickReportingView.currentEventType` for why that seam exists). It sits in the right half
+    /// of its host, as Compare's right pane does: at the origin, local and superview coordinates
+    /// match, which would hide a member reading the point as local.
     private func mounted(_ event: NSEvent.EventType?) -> (PaneClickReporter.ClickReportingView, () -> Int) {
         let host = NSView(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
         let reporter = PaneClickReporter.ClickReportingView(
@@ -245,18 +216,16 @@ import AppKit
         let count = Count()
         reporter.onClick = { count.n += 1 }
         reporter.currentEventType = { event }
-        // Delivery made synchronous so these tests assert the REPORTING rule (which presses, at
-        // which points) without also spinning a runloop. The deferral itself is pinned by
-        // `theReportLeavesTheClicksOwnRoutingWindow`, which keeps the production `deliver`.
+        // Synchronous delivery, so these tests check the reporting rule without spinning a run
+        // loop. `theReportLeavesTheClicksOwnRoutingWindow` keeps the production `deliver`.
         reporter.deliver = { $0() }
         return (reporter, { count.n })
     }
 
-    /// **The report arrives OUTSIDE the click's own routing window.** `hitTest` runs while the
-    /// event is being routed, and the report is a `@Published` write the clicked List is bound
-    /// to — delivered synchronously it is the `aa9d407` two-clicks-to-select ordering, pending
-    /// inside the table's mouse-down tracking loop. This pins the production `deliver`: nothing
-    /// fires inside `hitTest`, and the report lands on the next `.default`-mode turn.
+    /// The report arrives outside the click's own routing window. `hitTest` runs while the event is
+    /// routed, and the report is a `@Published` write the clicked List is bound to: delivered
+    /// synchronously, inside the table's mouse-down tracking loop, the first click would not
+    /// select. Nothing fires inside `hitTest`; the report lands on the next `.default`-mode turn.
     @Test func theReportLeavesTheClicksOwnRoutingWindow() {
         let host = NSView(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
         let reporter = PaneClickReporter.ClickReportingView(
@@ -277,14 +246,9 @@ import AppKit
         #expect(count.n == 1, "the deferred report never arrived — the click would no longer move focus at all")
     }
 
-    /// **It answers nil to every hit test**, so the press continues to whatever lies beneath. A
-    /// reporter that returned itself would swallow the first click on every button it covers —
-    /// which is the whole pane.
-    ///
-    /// **Asserted along the path that reports**, which is the correction. Written without the seam
-    /// this took the guard's early exit on every input — `NSApp.currentEvent` is nil in a test
-    /// process — so it passed unchanged with `return self` substituted for `return nil`: the one
-    /// mutation it exists to catch.
+    /// It answers nil to every hit test, so the press goes on to whatever lies beneath; returning
+    /// itself would swallow the first click on every button in the pane. Asserted along the path
+    /// that reports, so `return self` in place of `return nil` must fail it.
     @Test func itNeverTakesTheClick() {
         let (reporting, reported) = mounted(.leftMouseDown)
         #expect(reporting.hitTest(CGPoint(x: 150, y: 100)) == nil,
@@ -296,12 +260,12 @@ import AppKit
         #expect(ignored() == 0)
     }
 
-    /// **Only presses inside the pane count.** The point arrives in the superview's coordinates, so
-    /// a member reading it as local would report clicks landing outside itself — and Compare's
-    /// right pane never sits at its superview's origin, which is where that would show.
+    /// Only presses inside the pane count. The point arrives in the superview's coordinates, so a
+    /// member reading it as local would report clicks outside itself, which shows in Compare's right
+    /// pane.
     @Test func aPressOutsideThePaneIsNotWorkingInIt() {
-        // (50, 100) is in the host's LEFT half — outside this reporter, but inside its `bounds`
-        // once you forget to convert, which is precisely the substitution being guarded.
+        // (50, 100) is in the host's left half: outside this reporter, but inside its `bounds` if
+        // the point is not converted.
         let (beside, notReported) = mounted(.leftMouseDown)
         #expect(beside.hitTest(CGPoint(x: 50, y: 100)) == nil)
         #expect(notReported() == 0,

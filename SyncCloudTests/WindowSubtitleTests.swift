@@ -4,7 +4,7 @@ import Testing
 import AppKit
 import SwiftUI
 
-/// **The window's name — the wording, and that it reaches the real `NSWindow`.**
+/// The window's name: the wording, and that it reaches the real `NSWindow`.
 @Suite struct WindowSubtitleTests {
 
     private func source(_ provider: String?, _ path: String) -> WindowSubtitle.Source {
@@ -32,14 +32,14 @@ import SwiftUI
         #expect(WindowSubtitle.describe(source("iCloud", "/")) == "iCloud")
     }
 
-    /// `paneLocation` returns a relative path, but the panes have carried a leading slash before
-    /// now and a doubled one reads as an absolute path in a name that is not.
+    /// `paneLocation` returns a relative path, but a pane may still carry a leading slash, and a
+    /// doubled one reads as an absolute path in a name that is not.
     @Test func aLeadingOrTrailingSlashDoesNotDoubleUp() {
         #expect(WindowSubtitle.describe(source("iCloud", "/Documents/Work/")) == "iCloud/Documents/Work")
     }
 
     /// A provider removed while a tab still remembers it. The window is still meaningfully the
-    /// other side's window — better in a Window menu than falling back to the app's name.
+    /// other side's window, which reads better in a Window menu than the app's name.
     @Test func anUnresolvedSideDropsOutRatherThanEmptyingTheWholeName() {
         #expect(WindowSubtitle.text(mode: .compare,
                                     left: source(nil, "Documents"),
@@ -51,14 +51,14 @@ import SwiftUI
                 == "Dropbox/Photos")
     }
 
-    /// Nothing configured at all — nothing to say, and the binder clears the subtitle so the
-    /// Window menu falls back to the scene's own "SyncCloud".
+    /// Nothing configured at all: nothing to say, and the binder clears the subtitle so the Window
+    /// menu falls back to the scene's own "SyncCloud".
     @Test func nothingResolvedMeansNoNameToSet() {
         #expect(WindowSubtitle.text(mode: .compare, left: source(nil, ""), right: source(nil, "")) == nil)
     }
 
-    /// Two tabs on one provider are distinguished by their paths, without the "(left)"/"(right)"
-    /// disambiguation `PaneProviderNames` adds for pane headers — which would read as noise here.
+    /// Two tabs on one provider are told apart by their paths, without the "(left)"/"(right)"
+    /// `PaneProviderNames` adds for pane headers, which would read as noise here.
     @Test func twoTabsOnOneProviderAreToldApartByPath() {
         #expect(WindowSubtitle.text(mode: .compare,
                                     left: source("iCloud", "Documents"),
@@ -67,11 +67,9 @@ import SwiftUI
     }
 }
 
-/// **The binder, against a real window.**
-///
-/// The rule above is a string function; this is the half that can be wired wrong — and it has two
-/// entry points that each miss half the cases on their own (`view.window` is nil during the first
-/// `updateNSView`, and `viewDidMoveToWindow` fires once).
+/// The binder, against a real window. The rule above is a string function; this is the half that
+/// can be wired wrong, and it has two entry points that each miss half the cases on their own
+/// (`view.window` is nil during the first `updateNSView`, and `viewDidMoveToWindow` fires once).
 @MainActor
 @Suite struct WindowChromeBinderTests {
 
@@ -83,7 +81,7 @@ import SwiftUI
         return w
     }
 
-    /// Added to a window *after* the probe already holds a name — the first-mount order, where
+    /// Added to a window *after* the probe already holds a name: the first-mount order, where
     /// `updateNSView` has nothing to write to yet.
     @Test func aProbeAddedToAWindowNamesItOnArrival() {
         let host = window()
@@ -93,7 +91,7 @@ import SwiftUI
         #expect(host.title == "SyncCloud", "the scene's own title is not the binder's to change")
     }
 
-    /// And every later change — navigating, switching tabs, swapping the panes.
+    /// And every later change: navigating, switching tabs, swapping the panes.
     @Test func aLaterChangeReachesTheWindowToo() {
         let host = window()
         let probe = WindowChromeBinder.Probe(subtitle: "iCloud")
@@ -112,20 +110,16 @@ import SwiftUI
         #expect(host.title == "SyncCloud")
     }
 
-    /// **How AppKit actually spells a window in the Window menu — measured, and the opposite of
-    /// what this was first built on.**
+    /// How AppKit spells a window in the Window menu: `"<title> (<subtitle>)"`, even for a
+    /// `.hiddenTitleBar` window that draws no subtitle. So the binder sets only the subtitle;
+    /// setting the pair as the title too would print it twice in one entry.
     ///
-    /// The first draft set `title` on the reasoning that a `.hiddenTitleBar` window draws no
-    /// subtitle, so nothing could be reading it. AppKit composes the window-list entry from
-    /// **both**, as `"<title> (<subtitle>)"` — so setting `title` too would have printed the pair
-    /// twice in one entry, and setting only `title` would have thrown away the better spelling.
-    ///
-    /// The window is put in the list under a placeholder and then each property is set in turn, so
-    /// what the entry says afterwards is AppKit's answer and not one this test supplied.
+    /// The window enters the list under a placeholder and each property is then set in turn, so
+    /// the entry afterwards is AppKit's answer, not one this test supplied.
     @Test func theWindowListEntryComposesTitleAndSubtitle() throws {
         let host = window()
-        // Far off any real display: AppKit lists a window it is managing whether or not anyone can
-        // see it, and this suite must not put anything on the user's screen.
+        // Far off any real display: AppKit lists a window whether or not anyone can see it, and
+        // this suite must not put anything on the user's screen.
         host.setFrameOrigin(CGPoint(x: -20_000, y: -20_000))
         host.title = "placeholder"
         host.orderFront(nil)
@@ -147,12 +141,9 @@ import SwiftUI
 }
 
 
-/// **The wiring, read off `ContentView`'s source.**
-///
-/// The rule and the binder are both tested, and both would stay green if nothing ever *mounted* the
-/// binder — the window would simply keep the scene's bare "SyncCloud" and no assertion anywhere
-/// would notice. That is the same failure `ShortcutCommandsTests` guards against for a deleted
-/// `.focusedSceneValue`: a feature that is fully built, fully tested, and not connected.
+/// The wiring, read off `ContentView`'s source. The rule and the binder tests stay green if
+/// nothing mounts the binder: the window would keep the scene's bare "SyncCloud" unnoticed, a
+/// feature fully built, fully tested and not connected.
 @Suite struct WindowSubtitleWiringTests {
 
     static func source(_ file: String) throws -> String {
@@ -177,7 +168,7 @@ import SwiftUI
     }
 
     /// And the name it is handed comes from the rule rather than being assembled at the call site,
-    /// which is where the "⇄ on a lens workspace" bug would live.
+    /// where a "⇄ on a lens workspace" mistake would live.
     @Test func theNameComesFromTheRule() throws {
         let content = try Self.source("MacApp/ContentView.swift")
         #expect(content.contains("WindowSubtitle.text(mode: layoutMode"),
@@ -185,13 +176,10 @@ import SwiftUI
     }
 }
 
-/// **Paste's enablement asks the same question the paste does.**
-///
-/// Both sites used to ask `clipboardNodes.isEmpty`, which was right while the app's list was the
-/// only clipboard and now greys out a paste of files copied in Finder. Neither site is reachable
-/// from a test — one is a `ContentView` property, the other a delegate built from a dozen live
-/// values — so this is a source scan, and it is scoped to the one regression it can actually see:
-/// a site reverting to the in-app-only check.
+/// Paste's enablement asks the same question the paste does, so files copied in Finder can be
+/// pasted; an in-app-only check like `clipboardNodes.isEmpty` would grey it out. Neither site is
+/// reachable from a test (a `ContentView` property, and a delegate built from live values), so
+/// this is a source scan.
 @Suite struct PasteEnablementWiringTests {
 
     @Test(arguments: ["MacApp/ShortcutCommands.swift", "MacApp/PaneActionDelegate.swift"])

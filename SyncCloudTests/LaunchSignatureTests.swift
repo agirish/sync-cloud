@@ -3,17 +3,12 @@ import Security
 import Testing
 @testable import SyncCloud
 
-/// The launch line that says how the running build is signed.
-///
-/// **It exists because speed audit P16 had no trace in the app's own log.** Fifteen of sixteen
-/// launches on 2026-09-25 waited behind the Documents-access dialog because every ad-hoc build is a
-/// new app to macOS privacy, and establishing that took `codesign`, the system log and a live `tccd`
-/// stream — the log only ever said "launched". These pin the classification that line reports and
-/// the wording a log reader greps for.
-///
-/// Only one branch can be reached for real: the test host is built ad-hoc, like every build here
-/// (`project.yml` pins `CODE_SIGN_IDENTITY: "-"` for every target). The others go through
-/// `classify`, which takes what `SecCodeCopySigningInformation` would have reported.
+/// The launch line that says how the running build is signed. Every ad-hoc build is a new app to
+/// macOS privacy and waits behind the Documents-access dialog at first launch, and without this
+/// line only `codesign` and the system log can show why. These pin the classification and the
+/// wording a log reader greps for. Only the ad-hoc branch is reachable for real (`project.yml` pins
+/// `CODE_SIGN_IDENTITY: "-"`); the others go through `classify`, which takes what
+/// `SecCodeCopySigningInformation` would report.
 @Suite struct LaunchSignatureTests {
 
     /// A made-up team: the repository is public, and the real one is not needed to test the branch.
@@ -64,10 +59,9 @@ import Testing
         #expect(LaunchSignature.unreadable(-67050).logLine.contains("-67050"))
     }
 
-    /// The live path, read in this very process: the test host is built ad-hoc.
-    ///
-    /// This is also the check on `project.yml`'s pin. If the builds ever became certificate-signed,
-    /// CI would suddenly need a keychain to build the app — and this would say so first.
+    /// The live path, read in this process: the test host is built ad-hoc. This also checks
+    /// `project.yml`'s pin: certificate-signed builds would need a keychain on CI, and this would
+    /// say so first.
     @Test func theTestHostIsAdHoc() {
         #expect(LaunchSignature.current() == .adHoc)
     }

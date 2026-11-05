@@ -1,21 +1,19 @@
 import Foundation
 import Testing
 
-/// Selectable text never carries an accessibility label of its own (2026-11-03). Its node is
-/// backed by the text's AppKit view, and while Ask Claude answered, SwiftUI's label for that node
-/// asked the view, whose label asked the node back, until the stack ran out: any assistive app
-/// reading the panel crashed SyncCloud. Found under lldb; a test window builds no accessibility
-/// tree, so a hosted view can't show it, and this reads the source instead. A label goes on an
-/// element of its own, `.accessibilityElement(children:)`, between the two.
+/// Selectable text never carries an accessibility label of its own. Its node is backed by the
+/// text's AppKit view, so SwiftUI's label for the node asks the view, whose label asks the node
+/// back, until the stack runs out: any assistive app reading it crashes SyncCloud. A test window
+/// builds no accessibility tree, so this reads the source. A label goes on an element of its own,
+/// with `.accessibilityElement(children:)` between the two.
 @Suite struct SelectableTextLabelTests {
 
-    /// Each modifier chain through `.textSelection(.enabled)`, both ways: the lines above it that
-    /// are modifiers of the same view, its own line, and the lines under it that go on with `.` (or
-    /// are comments), stepping over the body of a modifier's closure by its braces (review 2 of
-    /// 11-04: a label under `.overlay { … }` went unseen). A label, hint or value in that chain
-    /// with no `.accessibilityElement(children: .ignore)` or `.contain` before it is the crash's
-    /// shape. And a Toggle's or Button's label holding selectable text is too: the control reads
-    /// its label for VoiceOver (69c6b6584's read card, fixed by hand in 1c8376d88).
+    /// Line numbers of the crash's shape in `source`. Reads each modifier chain through
+    /// `.textSelection(.enabled)` both ways: the same view's modifiers above it, its own line, and
+    /// the lines below that go on with `.` (or are comments), stepping over a modifier's closure by
+    /// its braces so a label after `.overlay { … }` is seen. A label, hint or value with no
+    /// `.accessibilityElement(children: .ignore)` or `.contain` before it is the crash's shape. So
+    /// is selectable text in a Toggle's or Button's label, which the control reads for VoiceOver.
     static func unguardedLabels(in source: String) -> [Int] {
         let lines = source.components(separatedBy: "\n")
         let labels = [".accessibilityLabel(", ".accessibilityHint(", ".accessibilityValue("]
@@ -121,8 +119,8 @@ import Testing
         #expect(SelectableTextLabelTests.unguardedLabels(in: container).isEmpty)
     }
 
-    /// The shapes the first scan missed (review 2 of 11-04): a label above the selection, a label
-    /// past a modifier's closure, a hint, and selectable text in a Toggle's label.
+    /// The less obvious shapes: a label above the selection, a label past a modifier's closure, a
+    /// hint, and selectable text in a Toggle's label.
     @Test func theShapesTheFirstScanMissedAreCaught() {
         let above = """
             Text(text)

@@ -1,20 +1,12 @@
 import AppKit
 
-/// A question asked of a bitmap's pixels **once per distinct pixel value**, rather than once per
-/// pixel through `colorAt(x:y:)`.
+/// A question asked of a bitmap's pixels once per distinct pixel value, not once per pixel
+/// through `colorAt(x:y:)`. `colorAt` builds an `NSColor` and looks up the colour space on every
+/// call, and render suites scanning every pixel on the main actor held up other main-actor waits.
 ///
-/// `colorAt` builds an `NSColor` on every call and looks the bitmap's colour space up again each
-/// time, and the render suites asked it of every pixel they scanned — on the main actor, at
-/// `-Onone`. Sampled 2026-09-26, `LocationsWhyRenderTests`' pixel diff, the setup artwork's ink
-/// count and the setup card's alignment scan held the main thread for well over a second of every
-/// full app-target run: time `EditorAutosaveDriverTests`, and every other main-actor wait, queued
-/// behind.
-///
-/// **Exact by construction, not by tolerance.** What `colorAt` answers is a function of the pixel's
-/// bytes and the bitmap's format alone, so the question goes through the very same `colorAt` for
-/// the first pixel carrying each value, and that answer stands for every other pixel of this bitmap
-/// carrying the same bytes. A bitmap whose pixels cannot be keyed that way — planar, or wider than
-/// eight bytes — is asked per pixel, exactly as before.
+/// Exact, not approximate: `colorAt`'s answer depends only on the pixel's bytes and the bitmap's
+/// format, so the first pixel with each value is asked through `colorAt` and its answer stands for
+/// the rest. A bitmap that can't be keyed (planar, or over eight bytes a pixel) is asked per pixel.
 final class PixelMemo<Answer> {
     let rep: NSBitmapImageRep
     let pixelsWide: Int

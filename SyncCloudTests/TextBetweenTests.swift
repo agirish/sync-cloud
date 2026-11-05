@@ -1,26 +1,17 @@
 import Testing
 
-/// Pins `textBetween`'s one job: answering **nil** for positions that come back out of order,
-/// instead of trapping.
+/// Pins `textBetween`'s one job: answering nil for positions that come back out of order, instead
+/// of trapping.
 ///
-/// **Without this suite the guard is free to delete.** Measured, not assumed: with this file
-/// absent, removing `guard from <= to else { return nil }` from `TestSupport.swift` and running the
-/// whole target left 563 tests in 44 suites and the same single known failure — not one of the five
-/// call sites noticed, because every one of them passes its ranges in the RIGHT order while the
-/// code they scan is correct. The guard only ever runs on the failure path, which is exactly the path
-/// no green suite visits. A later "simplification" back to `String(source[from..<to])` would
-/// restore the crash for all five, silently, and the first sign of it would be another pair of
-/// `.ips` files.
-///
-/// **The out-of-order test proves itself.** If `textBetween` ever traps again, this suite does not
-/// fail — the test host dies and the run reports the crash, which is the very outcome the helper
-/// exists to prevent. Either way it cannot pass quietly.
+/// Nothing else guards it: every call site passes its ranges in the right order while the code it
+/// scans is correct, so removing `guard from <= to else { return nil }` from `TestSupport.swift`
+/// leaves the rest of the target green. If `textBetween` traps, the out-of-order test takes the
+/// test host down rather than failing, so it still cannot pass quietly.
 @Suite struct TextBetweenTests {
 
-    /// The real shape, not a synthetic pair of indices: two INDEPENDENT `range(of:)` searches over
-    /// one string, which is the only way this hazard ever arises. Here the second literal sits
-    /// first, so `from` lands after `to` — the state `restoreBrowseTabs` was in on 2026-08-16, when
-    /// this slice took the test host down.
+    /// The real shape, not a synthetic pair of indices: two independent `range(of:)` searches over
+    /// one string, the only way this hazard arises. The second literal sits first, so `from` lands
+    /// after `to`.
     @Test func positionsThatComeBackOutOfOrderAnswerNilInsteadOfTrapping() throws {
         let body = """
             Logger.warning("Restored the left browse tab at its source root")
@@ -36,19 +27,12 @@ import Testing
                 "out-of-order positions did not answer nil — if this line was reached at all")
     }
 
-    /// **The call sites' exact idiom**, end to end: `?.contains(_:) == true` over a nil must come
-    /// out FALSE. Trading a crash for a vacuous green is the worse of the two outcomes, and nothing
-    /// else in this suite says which one a nil produces.
+    /// The call sites' exact idiom, end to end: `?.contains(_:) == true` over a nil must come out
+    /// false, since a vacuous green is worse than a crash.
     ///
-    /// **The needle sits between the two literals on purpose, and that is the whole test.** It
-    /// first asked for `.contains("anything")` over a fixture containing no such word, so the
-    /// expectation held whichever way `textBetween` answered — nil and any real span alike came out
-    /// false — and it could not fail for its stated reason. With the needle actually there, the
-    /// obvious "helpful" rewrite is caught: an implementation that swaps the bounds and answers
-    /// about the span rather than refusing it finds the needle and fails this.
-    ///
-    /// Both directions are asked, because only the pair shows the idiom DISCRIMINATES rather than
-    /// always saying no — which is the other way this could pass while meaning nothing.
+    /// The needle sits between the two literals on purpose, so an implementation that swaps the
+    /// bounds and answers about the span instead of refusing it fails. Both directions are asked,
+    /// so the idiom is shown to discriminate rather than always say no.
     @Test func aNilAnswerFailsTheCallSiteExpressionRatherThanPassingIt() throws {
         let body = "second RETURNS first"
         let first = try #require(body.range(of: "first"))
@@ -63,8 +47,7 @@ import Testing
                 "the same idiom over ORDERED positions did not find what sits between them, so the check above passes for the wrong reason")
     }
 
-    /// Ordered positions still answer the text itself — the half that stops "return nil always"
-    /// from being a passing implementation.
+    /// Ordered positions still answer the text itself, so "return nil always" cannot pass.
     @Test func orderedPositionsAnswerExactlyWhatSitsBetweenThem() throws {
         let body = "opened { the middle } closed"
         let open = try #require(body.range(of: "opened {"))
@@ -73,9 +56,9 @@ import Testing
                 "the text between two ordered positions is not what sits there")
     }
 
-    /// Touching positions answer `""`, NOT nil — two call sites read this answer as
-    /// `.trimmingCharacters(in:).isEmpty == true` to mean "the guarded line is the first thing in
-    /// its branch". Were nil returned here, both would fail on correct code.
+    /// Touching positions answer `""`, not nil: call sites read
+    /// `.trimmingCharacters(in:).isEmpty == true` as "the guarded line is the first thing in its
+    /// branch", and a nil would fail them on correct code.
     @Test func touchingPositionsAnswerAnEmptyStringRatherThanNil() throws {
         let body = "if moves {Logger.shared.debug("
         let gate = try #require(body.range(of: "if moves {"))

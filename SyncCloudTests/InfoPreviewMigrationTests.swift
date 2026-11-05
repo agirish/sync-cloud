@@ -3,21 +3,21 @@ import Foundation
 import Sync
 @testable import SyncCloud
 
-/// The first launch with the preview in the Info inspector (TE318): Info opens for anyone who had
-/// the preview on, the preview folds away for anyone who had it off, and it happens once.
+/// The first launch with the preview in the Info inspector: Info opens for anyone who had the
+/// preview on, the preview folds away for anyone who had it off, and it happens once.
 @Suite struct InfoPreviewMigrationTests {
     typealias Step = InfoPreviewMigration
 
     private func defaults(_ name: String) -> UserDefaults { ScratchDefaults("info-preview-\(name)") }
 
-    /// **Reset All keeps the stamp** (review 2 of 11-04): the reset clears the preview's keys, so a
-    /// second run would read them as on and open Info for someone who had closed it.
+    /// Reset All keeps the stamp: the reset clears the preview's keys, so a second run would read
+    /// them as on and open Info for someone who had closed it.
     @Test func resetAllKeepsTheStamp() {
         #expect(SettingsResetKeeps.keeps(Step.doneKey))
     }
 
-    /// A new install, and an upgrade that never touched the preview, stored nothing — the default,
-    /// on — so both open Info.
+    /// A new install, and an upgrade that never touched the preview, stored nothing (the default,
+    /// on), so both open Info.
     @Test func withNothingStoredInfoOpens() {
         let d = defaults("nothing")
         #expect(Step.run(in: d) == .openedInfo)
@@ -25,8 +25,8 @@ import Sync
         #expect(d.object(forKey: Step.previewFractionKey) == nil, "the split was touched for a preview that was on")
     }
 
-    /// On in one workspace is on: Browse kept its preview while Compare's was off, and that user
-    /// still selects files expecting one.
+    /// On in one workspace is on: a user with Browse's preview on and Compare's off still selects
+    /// files expecting one.
     @Test func thePreviewOnInEitherWorkspaceOpensInfo() {
         let d = defaults("either")
         d.set(false, forKey: Step.comparePreviewKey)

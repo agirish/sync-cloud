@@ -1,25 +1,18 @@
 import Foundation
 import Testing
 
-/// **No shipped source may hold a `DateFormatter` that captures the system time zone.**
+/// No shipped source may hold a `DateFormatter` that captures the system time zone. One whose
+/// `timeZone` is never set takes the system zone the first time it formats and keeps it for the
+/// life of the process, so a `static let` formatter (static because building one per row is
+/// costly) goes on showing the old zone after a Date & Time change or a flight. Keyed on the
+/// constructor, since such formatters can have names that say nothing about formatting.
 ///
-/// A `DateFormatter` whose `timeZone` is never set takes the system zone the first time it formats
-/// and keeps it for the life of the process. Held in a `static let` — which every date column in
-/// this app was, for the good reason that `DateFormatter` is expensive and these run per row — that
-/// means the column goes on reading in the old zone for the rest of the session after a Date & Time
-/// change or a flight. Eleven types held sixteen such formatters between them.
-///
-/// **This scan exists because reading the tree by hand missed two of them.** The manual audit
-/// grepped for `static let …[Ff]ormatter` and missed two; `LensWorkspaceView.receiptWeekday` and
-/// `receiptDate` are the same defect with names that say nothing about formatting, and only a scan
-/// keyed on the CONSTRUCTOR saw them. A twelfth copy would arrive the same way.
-///
-/// It lives in the app-target tests because no package can see another: a scan inside
-/// `Modules/Design` reads Design and nothing else, and this question is repo-wide.
+/// It lives in the app-target tests because no package can see another, and this question is
+/// repo-wide.
 @Suite struct CapturedTimeZoneScanTests {
 
     /// Files permitted to construct a bare `DateFormatter`, each for a stated reason. Anything else
-    /// constructing one is a new copy of the rule and should use `Design.ZoneRefreshedFormatter`.
+    /// should use `Design.ZoneRefreshedFormatter`.
     private static let allowed: [String: String] = [
         "Modules/Design/Sources/Design/ZoneRefreshedFormatter.swift":
             "the shared type itself — this is the one place the rule is implemented",
@@ -37,9 +30,9 @@ import Testing
             "a computed `static var`, so it builds a fresh formatter per access and sets timeZone",
     ]
 
-    /// Every shipped `.swift` file, from the repo root — `Modules/*/Sources`, `MacApp`, and the CLI.
-    /// Tests are deliberately excluded: a test may construct a control formatter on a fixed zone,
-    /// which is exactly how these assertions compute their own expectations.
+    /// Every shipped `.swift` file, from the repo root: `Modules/*/Sources`, `MacApp`, and the CLI.
+    /// Tests are excluded: a test may build a control formatter on a fixed zone to compute its
+    /// expectations.
     private static func shippedSources() -> [(path: String, text: String)] {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()      // …/SyncCloudTests
@@ -67,14 +60,10 @@ import Testing
             .joined(separator: "\n")
     }
 
-    /// Whether `source` constructs a **bare** `DateFormatter`.
-    ///
-    /// Matched on the identifier and not on the substring, because `ISO8601DateFormatter()` ends
-    /// with `DateFormatter()` and is a different type with a different answer: it is fixed to a
-    /// stated zone by construction — `SyncHistoryExporter` pins it to UTC precisely so exports are
-    /// stable across machines — so it has nothing to capture. A substring scan flagged it, and
-    /// allow-listing it would have been the wrong fix: the exemption would then also cover any real
-    /// `DateFormatter` that file later grew.
+    /// Whether `source` constructs a bare `DateFormatter`. Matched on the identifier, not the
+    /// substring: `ISO8601DateFormatter()` ends with `DateFormatter()` but is fixed to a stated zone
+    /// (`SyncHistoryExporter` pins it to UTC), so it has nothing to capture. Allow-listing its file
+    /// instead would also cover any real `DateFormatter` that file later grew.
     private static func constructsBareDateFormatter(_ source: String) -> Bool {
         let text = codeOnly(source)
         var search = text.startIndex..<text.endIndex
@@ -94,8 +83,7 @@ import Testing
 
     @Test func noShippedFileBuildsItsOwnDateFormatter() {
         let sources = Self.shippedSources()
-        // Positive control on the scan itself: a walk that finds nothing would pass this suite
-        // silently, which is the failure mode a source scan is most prone to.
+        // Positive control on the scan itself: a walk that finds nothing would pass silently.
         #expect(sources.count > 200, "the source walk came back suspiciously small — it is not reading the tree")
         #expect(sources.contains { $0.path == "Modules/Design/Sources/Design/ZoneRefreshedFormatter.swift" },
                 "the walk did not reach the one file that is guaranteed to construct a DateFormatter")
@@ -114,8 +102,7 @@ import Testing
     }
 
     /// The allow-list may not rot. Every entry must name a file that still exists and still
-    /// constructs a formatter — an exemption for something that has moved on is an exemption
-    /// quietly covering whatever takes its place.
+    /// constructs a formatter, or the exemption quietly covers whatever takes its place.
     @Test func everyAllowListEntryIsStillEarningIt() {
         let byPath = Dictionary(uniqueKeysWithValues: Self.shippedSources().map { ($0.path, $0.text) })
         for (path, reason) in Self.allowed.sorted(by: { $0.key < $1.key }) {

@@ -3,12 +3,10 @@ import Testing
 @testable import SyncCloud
 import Sync
 
-/// The two launch reads that held the first window, now asked off the main thread (speed audit
-/// batch B).
-///
-/// **Item 4:** whether Apple's on-device model is available — the likely cause of a 5.4 s launch
-/// after a macOS update. **Item 5:** the survey date, which parses the whole corpus (about 5 MB)
-/// for one footnote, on every launch with a profile.
+/// Two launch reads that would hold the first window, asked off the main thread. Item 4: whether
+/// Apple's on-device model is available, which can take seconds after a macOS update. Item 5: the
+/// survey date, which parses the whole corpus (about 5 MB) for one footnote on every launch with a
+/// profile.
 @MainActor
 @Suite struct LaunchReadsOffMainTests {
 
@@ -103,9 +101,9 @@ import Sync
         #expect(manager.filingSurveyedAt == resurveyed)
     }
 
-    /// Reads that land out of order: only the latest attach's date is published. Three attaches,
-    /// because the count used to restart once a read had landed, so the third shared the first's
-    /// number and the newest date was dropped.
+    /// Reads that land out of order: only the latest attach's date is published. Three attaches, so
+    /// a count that restarted once a read landed would give the third the first's number and drop
+    /// the newest date.
     @Test func onlyTheLatestAttachPublishesItsDate() async throws {
         let profiles = try scratchProfiles()
         defer { try? FileManager.default.removeItem(at: profiles.deletingLastPathComponent()) }

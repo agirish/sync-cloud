@@ -4,17 +4,13 @@ import Sync
 import FileExplorer
 @testable import SyncCloud
 
-/// ⌘↓ and ⌘↑ — the column-stack chords (roadmap RD5, decided 2026-09-06).
+/// ⌘↓ and ⌘↑, the column-stack chords. What they hold is the axis: a pane has two positions, the
+/// comparison scope, which reloads the tree and re-runs the scan, and the column stack, which costs
+/// nothing. Both rules return a `PaneBrowsePath` or `nil`, so no return value can express a scope
+/// move.
 ///
-/// **What these hold is the axis**, which is the thing RD5 was deferred on for seventeen days. A
-/// pane has two positions: the comparison scope, which reloads the tree and re-runs the scan, and
-/// the column stack, which costs nothing. Both rules under test return a `PaneBrowsePath` or `nil`
-/// — there is no return value here that *can* express a scope move, which is the strongest form
-/// this invariant can take.
-///
-/// The `shortcut…` properties that call them live on `ContentView`, whose `init` is private and
-/// whose `@State` nothing can construct, so the rules were lifted into `PaneLogic` to be reachable
-/// at all. That lift is the reason these are tests rather than a source scan.
+/// The `shortcut…` properties that call them live on `ContentView`, which can't be constructed in
+/// a test, so the rules live in `PaneLogic` where these tests can reach them.
 @Suite struct ColumnStackChordTests {
 
     private let root = "/r"
@@ -55,20 +51,20 @@ import FileExplorer
         #expect(next.components == ["Documents", "Invoices"])
     }
 
-    /// **The rule with the most reason to be got wrong.** `drill(into:atDepth:)` discards every
-    /// column past `atDepth`, so a selection held in an EARLIER column would silently close the
-    /// columns to its right. Refused instead: a click there says where it landed, a chord does not.
+    /// `drill(into:atDepth:)` discards every column past `atDepth`, so a selection held in an
+    /// earlier column would silently close the columns to its right. Refused instead: a click there
+    /// says where it landed, a chord does not.
     @Test func theOpenChordRefusesARowThatIsNotInTheDeepestColumn() {
         let stack = PaneBrowsePath(components: ["Documents", "Invoices"])
-        // `Photos` lives in the ROOT column while two columns are open past it.
+        // `Photos` lives in the root column while two columns are open past it.
         #expect(PaneLogic.openSelectedFolderStack(
             drawsColumns: true, stack: stack, selection: [photos], treeRoot: root, index: index) == nil)
     }
 
-    /// **Below a folder link the deepest column lists rows spelled where the link leads**, so a
+    /// Below a folder link the deepest column lists rows spelled where the link leads, so a
     /// folder's id does not say which column holds it: `/t/sub/deeper` is listed in `/r/link/sub`'s
-    /// column, and comparing its parent `/t/sub` with that column's path kept ⌘↓ disabled there.
-    /// The walk's spellings are measured on a real link by `ColumnsBelowALinkTests`.
+    /// column, and comparing its parent `/t/sub` with that column's path would keep ⌘↓ disabled.
+    /// `ColumnsBelowALinkTests` measures the walk's spellings on a real link.
     @Test func theOpenChordOpensAFolderListedBelowAFolderLink() throws {
         let deeper = node("/t/sub/deeper", isDirectory: true)
         let sub = FileNode(id: "/r/link/sub", name: "sub", isDirectory: true, children: [deeper])
@@ -107,12 +103,10 @@ import FileExplorer
         #expect(next.components == ["Documents"])
     }
 
-    /// **The rule that distinguishes ⌘↑ from ⌘[, and the reason both exist.**
-    ///
-    /// `⌘[` pops this same stack and then falls through to the pane's focus history once it is
-    /// empty, stepping the comparison scope back and costing a reload. ⌘↑ returns `nil` here, so
-    /// the menu item disables and the scope never moves. Deleting the `!stack.isEmpty` guard — the
-    /// "simplification" this is written against — makes ⌘↑ pop an empty stack and fail this test.
+    /// What tells ⌘↑ from ⌘[. `⌘[` pops this same stack, then falls through to the pane's focus
+    /// history once it is empty, stepping the comparison scope back at the cost of a reload. ⌘↑
+    /// returns `nil` here, so the menu item disables and the scope never moves. Deleting the
+    /// `!stack.isEmpty` guard must fail this test.
     @Test func theEnclosingFolderChordStopsAtTheRootColumn() {
         #expect(PaneLogic.enclosingFolderStack(drawsColumns: true, stack: PaneBrowsePath()) == nil)
     }
@@ -124,8 +118,8 @@ import FileExplorer
         let next = try #require(PaneLogic.enclosingFolderStack(drawsColumns: true, stack: stack))
         #expect(next.canAdvance)
         var forward = next
-        // Called OUTSIDE `#expect`: `advance()` is mutating, and the macro's autoclosure makes its
-        // operand immutable — `#expect(forward.advance())` does not compile.
+        // Called outside `#expect`: `advance()` is mutating, and the macro's autoclosure makes its
+        // operand immutable, so `#expect(forward.advance())` does not compile.
         let walkedBack = forward.advance()
         #expect(walkedBack)
         #expect(forward.components == ["Documents", "Invoices"])
@@ -140,7 +134,7 @@ import FileExplorer
         #expect(PaneLogic.enclosingFolderStack(drawsColumns: false, stack: stack) == nil)
         #expect(PaneLogic.openSelectedFolderStack(
             drawsColumns: false, stack: stack, selection: [invoices], treeRoot: root, index: index) == nil)
-        // The positive control: the SAME inputs with columns on screen both answer, so the nils
+        // The positive control: the same inputs with columns on screen both answer, so the nils
         // above came from `drawsColumns` and not from a fixture that could never have worked.
         #expect(PaneLogic.enclosingFolderStack(drawsColumns: true, stack: stack) != nil)
         #expect(PaneLogic.openSelectedFolderStack(
@@ -149,20 +143,11 @@ import FileExplorer
 
     // MARK: - The wiring, scanned
 
-    /// **⌘↑ must not be rewired into ⌘[**, which is the one change that would undo RD5's decision
-    /// without failing any behavioural test above: `enclosingFolderStack` would still be correct
-    /// and still be tested, and simply have no caller.
-    ///
-    /// The rules test what the chord DOES once it is asked; nothing there can see which rule the
-    /// menu item asks. So this reads the source: `shortcutEnclosingFolder` must resolve its stack
-    /// through `PaneLogic.enclosingFolderStack`, and must not mention the focus history at all —
-    /// `canGoBack`/`goBack` are how ⌘[ steps the comparison scope back, and reaching them from here
-    /// would put a rescan behind a chord whose whole contract is that it never moves the scope.
-    ///
-    /// A source scan, not a behaviour: `ContentView.init` is private and its `@State` cannot be
-    /// constructed, which is the same reason `BrowseWorkspaceCallSiteTests` scans rather than
-    /// drives. The `#require`s are its positive controls — a renamed member or a truncated read
-    /// fails loudly instead of passing an empty scan.
+    /// ⌘↑ must not be rewired into ⌘[, a change no behavioural test above would catch:
+    /// `enclosingFolderStack` would still be correct and tested, with no caller. So this reads the
+    /// source: `shortcutEnclosingFolder` must resolve its stack through
+    /// `PaneLogic.enclosingFolderStack` and never reach `canGoBack`/`goBack`, which would put a
+    /// rescan behind a chord that must never move the scope. The `#require`s are positive controls.
     @Test func theEnclosingFolderChordIsNotWiredToTheFocusHistory() throws {
         let source = try ShortcutCommandsTests.publisherSource()
         let body = ShortcutCommandsTests.codeOnly(

@@ -3,19 +3,13 @@ import Foundation
 @testable import SyncCloud
 
 /// Which provider root a scope write is measured against.
+/// `OrganizeScope.normalizedPath(_:providerRoot:)` answers `""` (the global view) for a folder
+/// outside the root it is handed, so the wrong root silently wipes the scope and the folder just
+/// named, and that survives relaunch.
 ///
-/// `OrganizeScope.normalizedPath(_:providerRoot:)` answers `""` — the global view — for any folder
-/// that is not under the root it is handed. That is correct, and it is why handing it the WRONG
-/// root is not a near-miss but a silent wipe: the scope the user had set and the folder they just
-/// named both vanish, and it survives relaunch.
-///
-/// `setOrganizeScope` used to read the focused pane's root itself. Two of its three callers are row
-/// context menus, and **a SwiftUI context menu does not move focus** — so a right-click in the pane
-/// that did not have focus was answered with the other pane's root.
-///
-/// These are source assertions because the rule lives in a SwiftUI view body that no unit test can
-/// drive. The behaviour they stand for is already covered by `OrganizeScopeNormalizationTests`;
-/// what is unprotected without them is which value reaches it, and that is a call-site fact.
+/// **A SwiftUI context menu does not move focus**, so the row menus must pass their own pane's
+/// root, not the focused pane's. Source assertions, because the call sites live in a view body;
+/// `OrganizeScopeNormalizationTests` covers the normalization itself.
 @Suite struct OrganizeScopeRootOwnershipTests {
 
     private static func source(_ name: String) throws -> String {
@@ -27,8 +21,8 @@ import Foundation
         return text
     }
 
-    /// The row menus aim at their OWN pane. Both of them, named individually — the two closures
-    /// live one line apart and a fix applied to only one would look done.
+    /// The row menus aim at their own pane. Both are named, since the closures sit one line apart
+    /// and a fix to only one would look done.
     @Test func theRowMenusScopeAgainstTheirOwnPanesRoot() throws {
         let view = try Self.source("ContentView.swift")
         for closure in ["onOrganizeFolder:", "onOrganizeScope:"] {
@@ -42,8 +36,8 @@ import Foundation
         }
     }
 
-    /// And the write itself may not fall back to the focused pane on its own — the property that
-    /// stops a fourth caller re-introducing this by simply not thinking about it.
+    /// The write itself may not fall back to the focused pane, so a new caller can't inherit it by
+    /// not thinking about it.
     @Test func theScopeWriteTakesItsRootFromTheCallerOnly() throws {
         let view = try Self.source("ContentView.swift")
         let start = try #require(view.range(of: "func setOrganizeScope("))
@@ -54,8 +48,7 @@ import Foundation
                 "setOrganizeScope reads the focused pane's root again")
     }
 
-    /// The palette is the one caller for which the focused pane IS right, so it must still say so
-    /// rather than having been swept along with the row menus.
+    /// The palette is the one caller for which the focused pane is right, so it must still say so.
     @Test func thePaletteStillAimsAtTheFocusedPane() throws {
         let host = try Self.source("CommandPaletteHost.swift")
         #expect(host.contains("setOrganizeScope(scope, providerRoot: lensProviderRootExpanded)"))

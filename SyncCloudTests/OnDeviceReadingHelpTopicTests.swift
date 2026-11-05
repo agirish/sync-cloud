@@ -2,18 +2,11 @@ import Testing
 import Settings
 @testable import SyncCloud
 
-/// Settings ▸ Intelligence names a Help topic; this is the half that checks the book has it.
-///
-/// The twin of `RestructureHelpTopicTests`, and it exists for the same reason: the pointer and the
-/// article live in different modules, so nothing but a test in this target can join them, and an id
-/// that does not resolve opens the book at its cover rather than failing — the reader asked a
-/// specific question and got the front page.
-///
-/// **What is different here is what the article is FOR.** This one carries the app's privacy claim
-/// in its own words, so the checks below go past "a topic with this id exists": they pin that the
-/// article still says the things the switch beside the pointer implies, and that it still names the
-/// one exception. An article that quietly loses its "nothing is sent anywhere" paragraph would
-/// leave a pointer promising an answer the page no longer gives.
+/// Settings ▸ Intelligence names a Help topic; this checks the book has it. Like
+/// `RestructureHelpTopicTests`: pointer and article live in different modules, and an id that
+/// doesn't resolve opens the book at its cover instead of failing. This article carries the app's
+/// privacy claim, so the checks also pin that it still says what the switch beside the pointer
+/// implies, and still names the one exception.
 @Suite struct OnDeviceReadingHelpTopicTests {
 
     private static var topic: HelpBook.Topic? {
@@ -37,12 +30,9 @@ import Settings
         #expect(topic.title == "Reading your documents")
     }
 
-    /// **The claim the pointer promises is still on the page.**
-    ///
-    /// `NoTelemetryTests` keeps these sentences *true*; this keeps them *present*. The two are
-    /// separate failures — an article can lose its privacy paragraph in a tidy-up while the code
-    /// stays as quiet as it ever was, and the reader who clicked the glyph beside a switch about
-    /// reading their files is then shown a page that never answers them.
+    /// The claim the pointer promises is still on the page. `NoTelemetryTests` keeps these
+    /// sentences true; this keeps them present, since a tidy-up can drop the paragraph while the
+    /// code stays quiet.
     @Test func theArticleStillMakesThePrivacyClaim() throws {
         let text = try #require(Self.topic.map(Self.copy))
         for phrase in ["opens no network connection",
@@ -53,12 +43,8 @@ import Settings
         }
     }
 
-    /// **And it still names the exception.**
-    ///
-    /// The article's claim is scoped — the app does reach `api.anthropic.com` for Refine with
-    /// Claude — and the whole reason it holds up is that the page volunteers that itself instead of
-    /// waiting to be caught out by a reader who finds the button. Losing this paragraph would not
-    /// make any sentence false; it would make the page misleading, which is worse and quieter.
+    /// And it still names the exception: Refine with Claude reaches `api.anthropic.com`. Losing
+    /// this paragraph makes no sentence false, but it makes the page misleading.
     @Test func theArticleStillNamesTheOneException() throws {
         let text = try #require(Self.topic.map(Self.copy))
         #expect(text.contains("Refine with Claude"),
@@ -69,10 +55,8 @@ import Settings
                 "the article no longer says the key is the reader's own")
     }
 
-    /// The article says where the learned material lives, so it can be deleted.
-    ///
-    /// A privacy page that explains what is kept and not where reads as an assurance rather than
-    /// something the reader can act on.
+    /// The article says where the learned material lives, so the reader can act on it and delete
+    /// it.
     @Test func theArticleSaysWhereItAllLives() throws {
         let text = try #require(Self.topic.map(Self.copy))
         #expect(text.contains("Application Support/SyncCloud/profiles"),

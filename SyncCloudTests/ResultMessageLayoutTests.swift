@@ -5,9 +5,9 @@ import Testing
 import Design
 import Sync
 
-/// **The result message fits a pane** (Banner Room, CA). It used to span the window; now it docks in
-/// a pane's list, and a Compare pane can be 250pt wide. At that width the words wrap and the buttons
-/// drop under them — nothing may be pushed past the pane's edge or truncated away.
+/// The result message fits a pane. It docks in a pane's list, and a Compare pane can be 250pt
+/// wide; there the words wrap and the buttons drop under them, and nothing may run past the pane's
+/// edge or be truncated.
 ///
 /// Laid out, not pixel-sampled: the question is the width SwiftUI asks for, at each width a pane can
 /// have. Each render is also written to the temporary directory, for looking at.

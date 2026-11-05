@@ -5,8 +5,7 @@ import Settings
 import Sync
 @testable import SyncCloud
 
-/// TE290 step 4b: the chat's undo of settings changes, and the panel window sending Edit ▸ Undo
-/// to it.
+/// The chat's undo of settings changes, and the panel window sending Edit ▸ Undo to it.
 @MainActor
 @Suite struct AskClaudeSettingsUndoTests {
 
@@ -82,8 +81,8 @@ import Sync
         #expect(store.values["intelligence.readsFiles"] == .bool(true))
     }
 
-    /// TE290 step 4c: Claude's own change goes on the stack as a click's would, once its card is
-    /// in the chat. Its tightening comes back only by the card's Undo: that would raise again.
+    /// Claude's own change goes on the stack as a click's would, once its card is in the chat. Its
+    /// tightening comes back only by the card's Undo: that would raise again.
     @Test func claudesOwnChangesAreUndoneLikeAClicks() {
         let store = Store()
         store.values["appearance.theme"] = .string("dark")
@@ -104,8 +103,8 @@ import Sync
         #expect(store.values["intelligence.readsFiles"] == .bool(true))
     }
 
-    /// TE290 step 9: a write that lands only once the sources are rediscovered. Its undo read the
-    /// old value straight after writing; once the written value is there, Redo takes it again.
+    /// A write that lands only once the sources are rediscovered: once the undone value is there,
+    /// `resettle` lets Redo take it again.
     @Test func aWriteThatLandsLaterIsUndoneOnceItHas() {
         let store = Store()
         store.values["sources.name"] = .string("Dropbox (Work)")
@@ -129,8 +128,8 @@ import Sync
         #expect(undo.redoTitle == "Redo Source name")
     }
 
-    /// TE290 review: two changes to one setting on one card, then Undo twice, walks back to the
-    /// first value — the value an Undo puts back carries the token the earlier step holds.
+    /// Two changes to one setting on one card, then Undo twice, walks back to the first value: the
+    /// value an Undo puts back carries the token the earlier step holds.
     @Test func undoTwiceOnOneSettingWalksBackToTheStart() {
         let store = Store(); store.values["appearance.theme"] = .string("system")
         let undo = stack(store)

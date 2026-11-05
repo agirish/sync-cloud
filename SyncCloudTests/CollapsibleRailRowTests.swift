@@ -3,14 +3,11 @@ import AppKit
 import SwiftUI
 import Testing
 
-/// **Collapsing the rail keeps the workspace** (speed audit 13).
-///
-/// Organize and Edit each wrote their workspace into both arms of an `if collapsed`, so a collapse
-/// gave it a new identity: Edit built a new text view around the whole buffer and opened at the top,
-/// Organize's lists reopened at the top. Both now lay out through `CollapsibleRailRow`, where only
-/// the leading slot changes. This mounts the row with a real `NSTextView` as its workspace, folds it
-/// both ways, and checks the text view is the one it started with — and, as the control, that the
-/// two-arm shape it replaced does rebuild it, so the check can see a rebuild at all.
+/// Collapsing the rail keeps the workspace. Written into both arms of an `if collapsed`, a
+/// workspace gets a new identity on every collapse: Edit would rebuild its text view around the
+/// whole buffer and Organize's lists would reopen at the top. Through `CollapsibleRailRow` only the
+/// leading slot changes. This mounts the row with a real `NSTextView`, folds it both ways, and
+/// checks the text view is the one it started with; the control shows the two-arm shape rebuilds it.
 @MainActor @Suite struct CollapsibleRailRowTests {
 
     final class Fold: ObservableObject {
@@ -36,7 +33,7 @@ import Testing
 
         var body: some View {
             if twoArms {
-                // The shape `singleSourceLayout` and `editorLayout` had before.
+                // The two-arm shape, for the control.
                 if fold.collapsed {
                     HStack(spacing: 0) {
                         Color.gray.frame(width: 20)
@@ -109,15 +106,15 @@ import Testing
                 "a different text view was on screen after a fold")
     }
 
-    /// The control: the two-arm layout this replaced does rebuild the text view on every fold.
+    /// The control: the two-arm layout does rebuild the text view on every fold.
     @Test func theTwoArmShapeItReplacedRebuildsIt() async throws {
         let (built, mounted) = await foldBothWays(twoArms: true)
         try #require(mounted.allSatisfy { $0 != nil }, "the text view never mounted")
         #expect(built.count == 3, "the control no longer rebuilds — the test above cannot see a rebuild")
     }
 
-    /// **Both layouts go through the row, with one workspace each** — the mount above is about the
-    /// row; this pins that the app's two collapsible layouts use it, and write their workspace once.
+    /// Both layouts go through the row, with one workspace each. The mount above is about the row;
+    /// this pins that the app's two collapsible layouts use it and write their workspace once.
     @Test func organizeAndEditLayOutThroughTheRow() throws {
         let split = try CodeText(declarationBody(
             of: "func singleSourceLayout(collapsed: Bool, geo: GeometryProxy) -> some View {",
@@ -143,19 +140,18 @@ import Testing
     }
 }
 
-/// **A workspace switch, a rail collapse and an Organize lens switch are not animated** (speed audit
-/// 11). An animation around a layout swap keeps the outgoing layout mounted and drawn until it ends:
-/// leaving Compare kept two panes, the differences table and the sidebar alive under the next
-/// workspace for the 0.2 s fade, and a collapse cross-faded two whole copies of the workspace.
-/// Measured on a two-pane fixture, the main thread was busy about twice as long per switch with
-/// the fade (median 437 ms against 221 ms, Debug). The workspace bar slides its own pill.
+/// A workspace switch, a rail collapse and an Organize lens switch are not animated. An animation
+/// around a layout swap keeps the outgoing layout mounted and drawn until it ends: leaving Compare
+/// would keep two panes, the differences table and the sidebar alive under the next workspace,
+/// and a collapse would cross-fade two whole copies of the workspace, roughly doubling the main
+/// thread's work per switch. The workspace bar slides its own pill.
 @Suite struct WorkspaceSwitchSnapsTests {
 
     @Test func noAnimationIsKeyedOnTheWorkspaceOrTheCollapse() throws {
         for name in try QuickLookOriginTests.macAppSwiftFiles() {
             let source = sourceCodeOnly(try OpenInEditorMenuTests.macApp(name))
-            // `.animation(nil, value: …)` is the suppression that makes the snap structural — the one
-            // animation keyed on these that must be there, not the one that must not.
+            // `.animation(nil, value: …)` is the suppression that makes the snap structural, so it
+            // is the one keyed animation allowed.
             let animating = source.components(separatedBy: "\n")
                 .filter { !$0.contains(".animation(nil, value:") }.joined(separator: "\n")
             let code = CodeText(animating)

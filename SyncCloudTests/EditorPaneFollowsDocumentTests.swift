@@ -4,16 +4,12 @@ import Sync
 import FileExplorer
 @testable import SyncCloud
 
-/// **The pane's selection follows the open document** (TE47) — one rule, generalised from ⌘N's
-/// owed selection (TE44), for every moment a document is opened, created, revealed or shown.
-///
-/// Four layers, each pinned: the rule (`owedPaneSelection`, pure); what retires a debt or a reveal
-/// when the user moves; the one-click open not answering the app's own write (counted in log
-/// lines, through the same functions the app runs); and the wiring of every entry point, by source
-/// scan, since `ContentView` cannot be built in a test. The scroll itself is FileExplorer's
-/// `PaneRowRevealTests`, measured in hosted panes.
-///
-/// **Local-only**, like every suite in this target: CI runs package tests alone.
+/// The pane's selection follows the open document: one rule for every moment a document is
+/// opened, created, revealed or shown. Four layers, each pinned: the rule (`owedPaneSelection`,
+/// pure); what retires a debt or a reveal when the user moves; the one-click open not answering the
+/// app's own write (counted in log lines, through the functions the app runs); and the wiring of
+/// every entry point, by source scan, since `ContentView` can't be built in a test. The scroll
+/// itself is FileExplorer's `PaneRowRevealTests`.
 @MainActor
 @Suite struct EditorPaneFollowsDocumentTests {
 
@@ -49,8 +45,8 @@ import FileExplorer
         #expect(decide() == .select(Self.file))
     }
 
-    /// Not listed yet — a re-read not published, a shallow first paint, a column still grafting —
-    /// or listed only in a tree read for the folder the pane has just LEFT: the debt stands.
+    /// Not listed yet (a re-read not published, a shallow first paint, a column still grafting), or
+    /// listed only in a tree read for the folder the pane has just left: the debt stands.
     @Test func notListedOrNotCurrentWaits() {
         #expect(decide(isListed: false) == .wait)
         #expect(decide(paneIsCurrent: false) == .wait)
@@ -61,23 +57,23 @@ import FileExplorer
         #expect(decide(owed: .some(nil), isListed: false) == .nothing)
     }
 
-    /// **Another document opened since: dropped**, listed or not — in Edit a selected text file
-    /// OPENS, so paying it would drag the reader back.
+    /// Another document opened since: dropped, listed or not. In Edit a selected text file opens,
+    /// so paying the debt would drag the reader back.
     @Test func anotherOpenDocumentDropsTheDebt() {
         #expect(decide(openDocument: .some(Self.other)) == .drop(.anotherDocument))
         #expect(decide(openDocument: .some(nil)) == .drop(.anotherDocument))
         #expect(decide(openDocument: .some(Self.other), isListed: false) == .drop(.anotherDocument))
-        // …and where a selection opens nothing too: the document CLOSED (TE46) while ⌘N's debt
-        // waited behind a folded pane. Selecting the closed file would put it back under the
-        // pointer with nothing open — this guard is the only one that sees it.
+        // Also where a selection opens nothing: the document closed while ⌘N's debt waited behind
+        // a folded pane. Selecting the closed file would put it under the pointer with nothing
+        // open, and this is the only guard that sees it.
         #expect(decide(openDocument: .some(nil), selectingOpens: false) == .drop(.anotherDocument))
         #expect(decide(openDocument: .some(Self.other), selectingOpens: false) == .drop(.anotherDocument))
     }
 
-    /// **A debt belongs to the workspace it was owed in** (TE47 review). ⌘N's debt waits for the
-    /// re-read to publish, and the user can be in Compare or Browse by then — where paying it would
-    /// select over whatever they did there. Dropped, listed or not; paid in the workspace it names,
-    /// whichever that is (Reveal in Browse owes in Browse).
+    /// A debt belongs to the workspace it was owed in. ⌘N's debt waits for the re-read to publish,
+    /// and by then the user may be in Compare or Browse, where paying it would select over what they
+    /// did there. Dropped, listed or not; paid in the workspace it names (Reveal in Browse owes in
+    /// Browse).
     @Test func aDebtFromAnotherWorkspaceIsDropped() {
         #expect(decide(workspace: .compare) == .drop(.anotherWorkspace))
         #expect(decide(workspace: .browse) == .drop(.anotherWorkspace))
@@ -87,8 +83,8 @@ import FileExplorer
         #expect(decide(owed: .some(reveal), workspace: .editor) == .drop(.anotherWorkspace))
     }
 
-    /// **The pane shows another folder: dropped** — the user navigated it, or the hand-off left it
-    /// where it was (Compare's differences list). A sibling sharing the folder's opening is another
+    /// The pane shows another folder: dropped. The user navigated it, or the hand-off left it where
+    /// it was (Compare's differences list). A sibling sharing the folder's name prefix is another
     /// folder; the same folder with a trailing slash is not.
     @Test func aPaneInAnotherFolderDropsTheDebt() {
         #expect(decide(paneFolder: "/Users/me/Documents") == .drop(.anotherFolder))
@@ -97,10 +93,9 @@ import FileExplorer
         #expect(decide(paneFolder: Self.folder + "/") == .select(Self.file))
     }
 
-    /// **A multi-selection in the LEFT pane is the user's**, and is never replaced; a single
-    /// selection (or none) is. The RIGHT pane is not the rule's business at all — the payment
-    /// clears it, one file or several, as a left-pane click does (his decision, 2026-09-26; see
-    /// `theAppsWriteKeepsTheInvariantAndMarksFirst`) — so the rule is not even handed it.
+    /// A multi-selection in the left pane is the user's and is never replaced; a single selection
+    /// (or none) is. The right pane isn't the rule's business: the payment clears it, as a left-pane
+    /// click does (`theAppsWriteKeepsTheInvariantAndMarksFirst`), so the rule isn't handed it.
     @Test func aMultiSelectionDropsTheDebtAndASingleOneIsReplaced() {
         #expect(decide(selection: [Self.other, "/Users/me/Documents/Finance/Third.md"]) == .drop(.multiSelection))
         #expect(decide(selection: [Self.file, Self.other]) == .drop(.multiSelection))
@@ -111,7 +106,7 @@ import FileExplorer
                 "the drop line blames a pane the rule no longer reads")
     }
 
-    /// **Reveal in Browse from a rail row can owe a file that is NOT the document.** Paid where a
+    /// Reveal in Browse from a rail row can owe a file that is not the document. Paid where a
     /// selection opens nothing; dropped where it would open that file in Edit.
     @Test func aDebtForAnotherFileIsPaidOnlyWhereSelectingOpensNothing() {
         let reveal = Debt(path: Self.other, document: Self.file, workspace: .editor)
@@ -128,9 +123,9 @@ import FileExplorer
     static let batch = Debt(path: copies[0], document: file, workspace: .browse,
                             companions: Array(copies.dropFirst()), replaces: Set(sources))
 
-    /// **Every copy is selected, and the first is the row the pane goes to** — paid where a
-    /// selection opens nothing (Browse), and only once the first copy is listed. A companion the
-    /// pane does not list (deleted since the banner) is left out rather than holding the rest up.
+    /// Every copy is selected and the first is the row the pane goes to: paid where a selection
+    /// opens nothing (Browse), and only once the first copy is listed. A companion the pane doesn't
+    /// list (deleted since the banner) is left out rather than holding the rest up.
     @Test func aBatchsRevealSelectsEveryListedCopy() {
         let listed = Set(Self.copies.dropFirst())
         #expect(decide(owed: .some(Self.batch), workspace: .browse, companionsListed: listed,
@@ -147,9 +142,9 @@ import FileExplorer
                        companionsListed: listed, selectingOpens: false) == .drop(.anotherFolder))
     }
 
-    /// **The set the batch was run on is what its Reveal answers**, so it is replaced — and that
-    /// set only. Before, the sources' multi-selection dropped the debt: Reveal after a batch run
-    /// from the left pane selected nothing at all. A set the user made since is still theirs.
+    /// The set the batch ran on is what its Reveal answers, so that set, and only that, is
+    /// replaced. Otherwise the sources' multi-selection would drop the debt and Reveal would select
+    /// nothing. A set the user made since is still theirs.
     @Test func aBatchsRevealReplacesOnlyTheSetItWasRunOn() {
         let listed = Set(Self.copies.dropFirst())
         func decide(_ selection: Set<String>, owed: Debt = Self.batch) -> ContentView.OwedPaneSelection {
@@ -169,8 +164,8 @@ import FileExplorer
         #expect(decide(Set(Self.sources), owed: bare) == .drop(.multiSelection))
     }
 
-    /// The copies beside the first — the first copy's folder only, in the batch's order, once
-    /// each. A batch over files from two folders writes copies in both, and the pane shows one.
+    /// The copies beside the first: the first copy's folder only, in the batch's order, once each.
+    /// A batch over files from two folders writes copies in both, and the pane shows one.
     @Test func theCompanionsAreTheCopiesInTheFirstCopysFolder() {
         let elsewhere = "/Users/me/Documents/Tax/d (rotated).pdf"
         let nested = "\(Self.folder)/IN/e (rotated).pdf"
@@ -182,8 +177,8 @@ import FileExplorer
         #expect(EditorRevealInBrowse.companions(of: []).isEmpty)
     }
 
-    /// **The one-row debt and reveal are what they were**: a debt with no companions IS the old
-    /// debt, and a reveal built without a selection speaks for its row alone.
+    /// A debt with no companions is the one-row debt, and a reveal built without a selection
+    /// speaks for its row alone.
     @Test func aSingleRowDebtAndRevealAreTheOneRowRule() {
         let debt = Debt(path: Self.file, document: Self.file, workspace: .editor)
         #expect(debt.rows == [Self.file] && debt.companions.isEmpty && debt.replaces.isEmpty)
@@ -191,8 +186,8 @@ import FileExplorer
         #expect(decide() == .select(Self.file, with: []))
     }
 
-    /// The batch's debt survives only the copies themselves (and an emptied selection); its
-    /// reveal stands only while the copies are the whole selection — not the first alone.
+    /// The batch's debt survives only the copies themselves (and an emptied selection); its reveal
+    /// stands only while the copies are the whole selection, not the first alone.
     @Test func theCopiesRetireTheirDebtAndRevealAsOneSelection() {
         #expect(ContentView.debtSurvives(Self.batch, selection: []))
         #expect(ContentView.debtSurvives(Self.batch, selection: Set(Self.copies)))
@@ -208,7 +203,7 @@ import FileExplorer
     // MARK: Never fight the user
 
     /// A selection change that picks something else retires the debt; one that empties the
-    /// selection (navigation, a prune) does not — the debt's own guards decide that.
+    /// selection (navigation, a prune) doesn't, since the debt's own guards decide that.
     @Test func aDifferentSelectionRetiresTheDebt() {
         let debt = Debt(path: Self.file, document: Self.file, workspace: .editor)
         #expect(ContentView.debtSurvives(debt, selection: []))
@@ -217,8 +212,8 @@ import FileExplorer
         #expect(!ContentView.debtSurvives(debt, selection: [Self.file, Self.other]))
     }
 
-    /// The reveal stands only while its row is the whole selection — so a later remount of the
-    /// pane cannot scroll back to a file the user walked away from.
+    /// The reveal stands only while its row is the whole selection, so a later remount of the pane
+    /// can't scroll back to a file the user walked away from.
     @Test func anyOtherSelectionRetiresTheReveal() {
         let reveal = PaneRowReveal(path: Self.file, token: 1)
         #expect(ContentView.revealSurvives(reveal, selection: [Self.file]))
@@ -227,8 +222,8 @@ import FileExplorer
         #expect(!ContentView.revealSurvives(reveal, selection: [Self.file, Self.other]))
     }
 
-    /// **Answered once**: the pane's report retires the reveal it answered, and only that one — a
-    /// newer request (a later open, the same file opened again) keeps standing.
+    /// The pane's report retires the reveal it answered, and only that one: a newer request (a later
+    /// open, the same file opened again) keeps standing.
     @Test func anAnsweredRevealIsRetiredAndANewerOneStands() {
         let answered = PaneRowReveal(path: Self.file, token: 1)
         #expect(ContentView.revealAfterAnswer(standing: answered, answered: answered) == nil)
@@ -251,17 +246,13 @@ import FileExplorer
         #expect(opens(Self.other) == Self.file, "a marker for another row must not swallow this click")
     }
 
-    /// **Counted in log lines, through the functions the app runs**: the hand-off opens the file
-    /// (one "Editor opened"), the owed selection comes due under the rule, the app's write
-    /// (`PaneLogic.payOwedSelection`, on a real manager) marks itself and selects, and the
-    /// selection it LEFT reaches the one-click open with the marker IT set — which must add
-    /// nothing: no second line, no second settle. Neither the path nor the marker is the test's
-    /// own: both are read back from what the payment did.
-    ///
-    /// A readable file and a REFUSED one, because they are stopped by different guards: the
-    /// readable one by `EditorHandOffRun.opens` (the document is already open), the refused one
-    /// only by the paid marker — a refusal is let through that guard on purpose, so a second try
-    /// can retry it.
+    /// One open per open, counted in log lines through the functions the app runs: the hand-off
+    /// opens the file, the debt comes due, the app's write (`PaneLogic.payOwedSelection`, on a real
+    /// manager) marks itself and selects, and the selection it left reaches the one-click open with
+    /// that marker, which must add no second load and no second settle. The path and marker are read
+    /// back from what the payment did. Run for a readable file, stopped by `EditorHandOffRun.opens`,
+    /// and a refused one, stopped only by the marker: that guard lets a refusal through so it can be
+    /// retried.
     @Test(arguments: [false, true])
     func aProgrammaticSelectOpensNothingASecondTime(refused: Bool) throws {
         let dir = FileManager.default.temporaryDirectory
@@ -319,8 +310,8 @@ import FileExplorer
 
     // MARK: The app's write is not a click
 
-    /// A `PaneSelectionState` that records what each write saw — so the ORDER of the marker and
-    /// the write is observable, not only their end state.
+    /// A `PaneSelectionState` that records what each write saw, so the order of the marker and the
+    /// write is observable, not only their end state.
     private final class State: PaneSelectionState {
         var paid: String?
         var paidWhenLeftWasWritten: String??
@@ -331,13 +322,11 @@ import FileExplorer
         var lastSelectionSurface: SelectionSurface?
     }
 
-    /// **The payment writes the selection and nothing a click would add** (TE47 review). It went
-    /// through `paneSelectionBinding`, which resolves a standing Compare-with pick, claims the
-    /// selection surface, moves the keyboard's focus and logs a `[click]` — so opening a document
-    /// in Edit with "Compare with…" armed in Browse opened the pair overlay on it. On a real
-    /// manager: the left pane is selected, the surface and the focused pane are what they were, and
-    /// nothing is re-scoped, re-read or re-histories. The Compare-with half is ContentView's and
-    /// is held by `EditorNewFilePaneWiringTests` (the settle does not name the binding).
+    /// The payment writes the selection and nothing a click would add. The click's setter,
+    /// `paneSelectionBinding`, resolves a standing Compare-with pick, claims the selection surface,
+    /// moves focus and logs a `[click]`, so going through it would open the pair overlay on a
+    /// document. On a real manager: the left pane is selected; the surface, focused pane, scope, tree
+    /// and history are untouched. The Compare-with half is held by `EditorNewFilePaneWiringTests`.
     @Test func theAppsWriteSelectsAndClaimsNothingElse() {
         let manager = FileSyncManager()
         manager.focusOn(relativePath: "Documents", isLeft: true)
@@ -360,14 +349,12 @@ import FileExplorer
         #expect(refreshes == 0)
     }
 
-    /// **The other pane is cleared, whatever it holds** — one file or several — exactly as a
-    /// click in the left pane clears it: the app never keeps selections in both panes (his
-    /// decision, 2026-09-26; a set there used to drop the debt instead). Now, not a runloop turn
-    /// later, since no click's `List` commit is in flight; and the clear is marked, so it keeps a
-    /// Get Info target. And the left marker is set BEFORE the write, so the selection change can
-    /// never reach the one-click open unmarked; a selection that already names the row is not
-    /// rewritten, and not marked — a marker nobody consumes would swallow the user's next click on
-    /// that row. Likewise an empty right pane is not "cleared", and its marker stays down.
+    /// The other pane is cleared, whatever it holds, as a left-pane click clears it: the app never
+    /// keeps selections in both panes. Cleared now, not a runloop turn later, since no click's
+    /// `List` commit is in flight, and marked, so it keeps a Get Info target. The left marker is set
+    /// before the write, so the change never reaches the one-click open unmarked. A selection that
+    /// already names the row is neither rewritten nor marked, since an unconsumed marker would
+    /// swallow the user's next click on it; likewise an empty right pane isn't marked cleared.
     @Test func theAppsWriteKeepsTheInvariantAndMarksFirst() {
         for right: Set<String> in [["/c/x.md"], ["/c/x.md", "/c/y.md", "/c/z.md"]] {
             let state = State()
@@ -405,9 +392,9 @@ import FileExplorer
         #expect(rightCleared == 0, "an empty right pane was marked as cleared — the marker would swallow a real clear")
     }
 
-    /// **Is the tree the pane's?** No tree is not current (the rule waits rather than selecting
-    /// against nothing); the tree of the folder the pane just LEFT is not current; the pane's own
-    /// folder is, however its root was spelled. What `paneTreeFolder` answers is Sync's
+    /// Whether the tree is the pane's. No tree is not current (the rule waits rather than selecting
+    /// against nothing); the tree of the folder the pane just left is not current; the pane's own
+    /// folder is, however its root is spelled. `paneTreeFolder` itself is Sync's
     /// `PaneTreeFolderTests`.
     @Test func theTreeIsCurrentOnlyForThePanesOwnFolder() {
         let home = NSHomeDirectory()
@@ -419,13 +406,12 @@ import FileExplorer
         #expect(FileSyncManager().paneTreeFolder(isLeft: true) == nil)
     }
 
-    /// **iCloud's linked Documents** (TE47 review): on the iCloud source, `Documents/Finance`
-    /// composes through the container's link to the REAL `~/Documents/Finance` — in the pane's
-    /// folder (`currentLeftPath` → `PaneLogic.fullPath` → `PathBoundary.join`) and in the folder
-    /// the walk records (`focusURL` → the same `join`). The rule compares strings, so it holds
-    /// only while both sides compose through `join`; the link-side spelling of the same folder is
-    /// another string and would leave the debt waiting for ever. A synthetic table, so the case
-    /// runs on a Mac without iCloud.
+    /// iCloud's linked Documents: on the iCloud source, `Documents/Finance` composes through the
+    /// container's link to the real `~/Documents/Finance`, both in the pane's folder (via
+    /// `PathBoundary.join`) and in the folder the walk records (the same `join`). The rule compares
+    /// strings, so it holds only while both sides go through `join`; the link-side spelling is
+    /// another string and would leave the debt waiting for ever. A synthetic link table, so it runs
+    /// on a Mac without iCloud.
     @Test func theTreeIsCurrentForAFolderReachedThroughTheICloudLink() {
         let home = NSHomeDirectory()
         let container = "\(home)/Library/Mobile Documents/com~apple~CloudDocs"
@@ -446,14 +432,10 @@ import FileExplorer
     }
 }
 
-/// **Every entry point owes through the one rule** — scanned, because `ContentView` cannot be
-/// built in a test and a door wired to nothing would stay green in every suite above.
-///
-/// **Read as code, not as layout** (2026-09-26): each argument is checked by its LABEL on the call
-/// it belongs to (``CallArguments``), and every other snippet whitespace-insensitively
-/// (``CodeText``) — so breaking a call over more lines, or an argument becoming the last and
-/// losing its `,` to a `)`, cannot turn a check red with nothing wrong. Every check here was
-/// re-run against its mutation after the change.
+/// Every entry point owes through the one rule. Scanned, because `ContentView` can't be built in
+/// a test and a door wired to nothing would stay green in every suite above. Read as code, not
+/// layout: each argument is checked by its label on its call (``CallArguments``), every other
+/// snippet whitespace-insensitively (``CodeText``), so rewrapping a call can't turn a check red.
 @Suite struct EditorPaneFollowsDocumentWiringTests {
 
     static func body(_ declaration: String,
@@ -474,7 +456,7 @@ import FileExplorer
         let record = try #require(body.range(of: "editorPaneSelectionOwed = PaneSelectionDebt("),
                                   "the open-document debt is no longer what is recorded")
         let debt = try Self.call("PaneSelectionDebt(", in: body)
-        // The open file, text or PDF (`EditorOpenRoute.openPath`) — a PDF is the open document too.
+        // The open file, text or PDF (`EditorOpenRoute.openPath`): a PDF is the open document too.
         #expect(debt.passes("path", "path") && debt.passes("document", "editorOpenPath"),
                 "the debt no longer records the open document")
         #expect(debt.passes("workspace", "selectedWorkspace"),
@@ -484,8 +466,8 @@ import FileExplorer
         let settle = try #require(body.range(of: "settleOwedPaneSelection()"),
                                   "the debt is not tried at once — a rail click would wait for a publish that never comes")
         #expect(record.lowerBound < settle.lowerBound)
-        // One writer of a debt: every door goes through this function. Counted as CALLS in code —
-        // a construction spread over lines is still one, a comment naming it is none.
+        // One writer of a debt: every door goes through this function. Counted as calls in code, so
+        // a construction over several lines is one and a comment naming it is none.
         let editor = sourceCodeOnly(try EditorDivergenceWiringTests.source("ContentView+Editor.swift"))
         #expect(argumentLists(of: "PaneSelectionDebt(", in: editor).count == 1,
                 "a second place builds a debt — a second path around the rule")
@@ -510,7 +492,7 @@ import FileExplorer
                 "a hand-off no longer selects the file — or selects it after a Cancel")
 
         let reveal = try Self.body("func revealInBrowse(_ path: String, with companions: [String] = [], replacing replaces: Set<String> = [],")
-        // The order — switch, then owe — is `EditorRevealInBrowse.reveal`'s, and is measured by
+        // The order (switch, then owe) is `EditorRevealInBrowse.reveal`'s, measured by
         // `EditorHandOffRunTests.revealInBrowseFromEditLandsWithTheFileSelected`.
         let act = try Self.call("EditorRevealInBrowse.reveal(", in: reveal)
         #expect(act.passes("showBrowse", "{ selectedWorkspace = .browse }"))
@@ -525,8 +507,8 @@ import FileExplorer
                 "the header's location selects around the rule")
     }
 
-    /// **The pane's own click does NOT owe** — the row is already selected under the pointer, and a
-    /// reveal would scroll it to the middle under the user's hand.
+    /// The pane's own click doesn't owe: the row is already selected under the pointer, and a reveal
+    /// would scroll it to the middle under the user's hand.
     @Test func thePanesOwnClickDoesNotOwe() throws {
         let body = try Self.body("func openSelectedPaneFileInEditor(_ paths: Set<String>) {")
         #expect(body.contains("openInEditor(path: path)"), "the pane click no longer opens")
@@ -538,9 +520,9 @@ import FileExplorer
         #expect(body.contains("editorPaneSelectionPaid = nil"), "the marker is not consumed — it would swallow a later click")
     }
 
-    /// The payment: the rule's inputs are the live ones, the write is the app's own (marked, and
-    /// NOT the click's setter — see `theAppsWriteSelectsAndClaimsNothingElse`), a reveal follows,
-    /// and both outcomes say so at the level the user runs at.
+    /// The payment: the rule gets the live inputs, the write is the app's own (marked, and not the
+    /// click's setter; see `theAppsWriteSelectsAndClaimsNothingElse`), a reveal follows, and both
+    /// outcomes are logged at info.
     @Test func theSettleAsksTheRuleAndMarksAndRevealsItsWrite() throws {
         let body = try Self.body("func settleOwedPaneSelection() {")
         let rule = try Self.call("Self.owedPaneSelection(", in: body)
@@ -581,8 +563,7 @@ import FileExplorer
     @Test func theTriggersAndTheRevealAreWired() throws {
         let content = try EditorDivergenceWiringTests.source("ContentView.swift")
         // A workspace switch asks too, so a debt owed elsewhere drops at once, with its line. Each
-        // handler is its closure's own braces — `declarationBody` matches them — where it was a
-        // 4,000- and a 400-character window, and an end found by exact indentation.
+        // handler is read as its closure's own braces, which `declarationBody` matches.
         let switchHandler = CodeText(try declarationBody(of: ".onChange(of: selectedWorkspace) { _, workspace in",
                                                          in: content))
         #expect(switchHandler.contains("settleOwedPaneSelection()"),

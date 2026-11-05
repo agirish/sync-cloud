@@ -6,12 +6,10 @@ import Design
 import FileExplorer
 @testable import SyncCloud
 
-/// **Go to Folder's wiring**, which is where this feature can silently stop existing.
-///
-/// The rule itself is `PalettePath`, tested in the FileExplorer suite against fixtures. Everything
-/// here is the three things the app has to supply for that rule to do anything at all — and each of
-/// them fails *silently* if it goes: no probe means no path row ever, and a provider with no `root`
-/// means every typed path answers "Not in any source". Neither would fail a single routing test.
+/// Go to Folder's wiring, where the feature can silently stop existing. The rule, `PalettePath`, is
+/// tested in FileExplorer against fixtures; this covers what the app must supply for it to work.
+/// Each fails silently if it goes: no probe means no path row ever, and a provider with no `root`
+/// means every typed path answers "Not in any source", with every routing test still green.
 @MainActor
 @Suite struct GoToFolderCallSiteTests {
 
@@ -26,9 +24,9 @@ import FileExplorer
 
     // MARK: The probe, against the real disk
 
-    /// `pathKind` is the one place Go to Folder touches the filesystem, and the three answers are
-    /// three different rows. Run against a real tree rather than a fake, because a fake is what the
-    /// FileExplorer suite already uses — what is unproven there is that this function agrees with it.
+    /// `pathKind` is the one place Go to Folder touches the filesystem, and its three answers are
+    /// three different rows. Run against a real tree, since FileExplorer's suite already uses a fake
+    /// and can't show this function agrees with it.
     @Test func theProbeTellsAFolderFromAFileFromNothingAtAll() throws {
         let base = try Self.temporaryTree()
         defer { try? FileManager.default.removeItem(at: base) }
@@ -38,13 +36,12 @@ import FileExplorer
         #expect(ContentView.pathKind(base.appendingPathComponent("Nope").path) == .missing)
     }
 
-    /// **No tilde expansion here, deliberately** — `PalettePath.absolute` has already done it
-    /// against the index's `home`, and a second expansion would be a second rule. A `~` reaching
-    /// this function is a path that genuinely has one in its name.
+    /// No tilde expansion here: `PalettePath.absolute` has already expanded against the index's
+    /// `home`, and a second expansion would be a second rule. A `~` reaching this function is a path
+    /// that really has one in its name.
     @Test func theProbeDoesNotExpandATildeOfItsOwn() {
-        // Asserted as a **contrast**, not as one value: `~` answering `.missing` proves nothing on
-        // its own (any nonsense string does), and would still pass if the probe were broken outright.
-        // The home it would have expanded to really is a directory, and `~` is not it.
+        // Asserted as a contrast: `~` answering `.missing` alone proves nothing (any nonsense string
+        // does, and a broken probe would too). The home it would expand to is a directory; `~` isn't.
         #expect(ContentView.pathKind(NSHomeDirectory()) == .directory,
                 "the home directory did not read as one — this contrast cannot mean anything")
         #expect(ContentView.pathKind("~") == .missing,
@@ -53,8 +50,8 @@ import FileExplorer
 
     // MARK: The whole path, through the state the field drives
 
-    /// End to end: a real folder, a real provider root, the app's own probe, asked the way the
-    /// toolbar field asks it. This is the test that fails if any single link is dropped.
+    /// End to end: a real folder, a real provider root and the app's own probe, asked the way the
+    /// toolbar field asks. Fails if any single link is dropped.
     @Test func typingARealPathIntoTheFieldRoutesToThatFolder() throws {
         let base = try Self.temporaryTree()
         defer { try? FileManager.default.removeItem(at: base) }
@@ -81,8 +78,8 @@ import FileExplorer
         #expect(state.rows.first?.unavailable == "No folder at that path")
     }
 
-    /// A state built without a probe offers no path rows — the shape every existing palette test
-    /// uses, asserted here so "it worked in the app" cannot be confused with "the default is fine".
+    /// A state built without a probe offers no path rows: the shape other palette tests use,
+    /// asserted so "it worked in the app" can't be mistaken for "the default is fine".
     @Test func aStateWithNoProbeOffersNoPathRows() throws {
         let base = try Self.temporaryTree()
         defer { try? FileManager.default.removeItem(at: base) }
@@ -98,17 +95,16 @@ import FileExplorer
 
     // MARK: The two supplies the app has to keep making
 
-    /// `MacApp/` is in no SPM package, so these two are reachable from a test only as text. Each
-    /// pins a **supply**, not a spelling of the rule: without the probe there is no path row at
-    /// all, and without `root` on the providers every typed path answers "Not in any source" — and
-    /// neither failure would trip a single routing test.
+    /// `MacApp/` is in no SPM package, so these supplies are reachable only as text. Each pins a
+    /// supply, not a spelling of the rule: without the probe there is no path row, and without
+    /// `root` on the providers every typed path answers "Not in any source".
     @Test func theHostSuppliesTheProbeAndTheProviderRoots() throws {
         let host = try Self.source("CommandPaletteHost.swift")
         #expect(host.contains("CommandPaletteState(index: index, pathProbe: Self.pathKind)"),
                 "the palette is built without a path probe — Go to Folder silently offers nothing, on every query")
-        // The source's ROOT: a typed path is judged in-or-out against the whole account, so anyone
-        // swapping this for the landing folder would make every path above a source's documents
-        // tree answer "Not in any source" — the same silent nothing, one level narrower.
+        // The source's root: a typed path is judged against the whole account, so the landing
+        // folder here would make every path above a source's documents tree answer "Not in any
+        // source".
         #expect(host.contains("root: (provider.rootPath as NSString).expandingTildeInPath)"),
                 "the sources reach the router with no path on them — every typed path answers \"Not in any source\"")
 
@@ -119,18 +115,11 @@ import FileExplorer
 
     // MARK: How often the disk is actually asked
 
-    /// **An arrow key must not re-`stat` a path that has not changed.**
-    ///
-    /// Measured 2026-08-19 through a live presentation, before the memo existed: one keystroke cost
-    /// **two** probe calls and one ↓ cost **two more**. `rows` is a computed property read twice
-    /// per change — once by `setQuery` to re-seat the selection, once by the SwiftUI body — so
-    /// moving the highlight re-ran the whole router, and its disk question, against a query nobody
-    /// had touched. On a mounted-but-slow network share that is latency for a keystroke that asked
-    /// nothing new.
-    ///
-    /// Driven through the controller the toolbar field drives, not through `state.rows` directly:
-    /// the second read is the *view's*, and a test that only called `setQuery` would measure one
-    /// call and prove nothing.
+    /// An arrow key must not re-`stat` a path that hasn't changed. `rows` is read twice per change
+    /// (by `setQuery` to re-seat the selection, and by the SwiftUI body), so without the memo each
+    /// key would re-run the router and its disk question, which costs latency on a slow network
+    /// share. Driven through the controller the toolbar field drives, since the second read is the
+    /// view's and calling only `setQuery` would measure one call.
     @Test func movingTheHighlightDoesNotAskTheDiskAgain() async {
         final class Counter: @unchecked Sendable {
             var calls: [String] = []
@@ -156,11 +145,9 @@ import FileExplorer
         }
         defer { controller.dismiss(); host.orderOut(nil) }
 
-        // **The second read is taken here rather than waited for, and that is not a shortcut.**
-        // The first version slept 160 ms and hoped the SwiftUI body had run — which it does on an
-        // idle machine and need not under load, and a body that had not run yet would leave one
-        // call recorded and this test passing for the wrong reason, with the mutation surviving.
-        // `rows` is what the body reads; reading it is what the body does.
+        // The view's read is made here rather than waited for: a sleep would pass for the wrong
+        // reason under load, when the body hadn't run yet and one call was recorded. `rows` is what
+        // the body reads, so reading it is what the body does.
         controller.setQuery("/Users/x/Documents/Legal")
         _ = state.rows                                   // the view's read, made to happen
         let afterTyping = counter.calls.count
@@ -175,27 +162,24 @@ import FileExplorer
         #expect(counter.calls.count == afterTyping,
                 "moving the highlight re-checked the disk \(counter.calls.count - afterTyping) time(s) for a path that had not changed")
 
-        // …and the live view really is a second reader, which is the premise the count above rests
-        // on. Asserted separately so a change in SwiftUI's evaluation cannot make the numbers above
-        // pass by nobody reading at all.
+        // The mounted view must not re-check the disk on its own while nothing changes. Asserted
+        // separately so a change in SwiftUI's evaluation can't hide behind the counts above.
         let beforeIdle = counter.calls.count
         for _ in 0..<5 { try? await Task.sleep(nanoseconds: 20_000_000) }
         #expect(counter.calls.count == beforeIdle,
                 "the mounted view re-checked the disk on its own \(counter.calls.count - beforeIdle) time(s) while nothing changed")
     }
 
-    /// **A keystroke ranks the folders once, and an arrow key not at all** (speed audit item 6).
-    ///
-    /// Ranking scores every surveyed folder against the query — ~16 ms over 3,081 of them — and
-    /// `rows` is read by `setQuery`, by the panel's body, and by every ↑ ↓. Before the memo a key
-    /// ranked twice and each arrow twice more, against a query that had not moved. Driven through
-    /// the controller and a mounted panel, so the body's read is a real one.
     /// A few main-queue turns, so the mounted panel re-renders and its body really reads the rows
     /// before anything is counted.
     private func settle() async {
         for _ in 0..<3 { try? await Task.sleep(for: .milliseconds(30)) }
     }
 
+    /// A keystroke ranks the folders once, and an arrow key not at all. Ranking scores every
+    /// surveyed folder against the query (~16 ms over 3,000), and `rows` is read by `setQuery`, the
+    /// panel's body and every ↑ ↓. Driven through the controller and a mounted panel, so the body's
+    /// read is real.
     @Test func typingRanksOnceAndMovingRanksNothing() async {
         let host = NSWindow(contentRect: CGRect(x: -9_000, y: -9_000, width: 900, height: 600),
                             styleMask: [.borderless], backing: .buffered, defer: false)

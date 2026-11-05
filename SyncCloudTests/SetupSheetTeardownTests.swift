@@ -5,19 +5,17 @@ import SwiftUI
 import Testing
 @testable import SyncCloud
 
-/// **Taking the sheet down keeps the open screen's answers, whatever takes it down** (ST4).
+/// Taking the sheet down keeps the open screen's answers, whatever takes it down.
 ///
-/// The card's own ways out — Esc, ✕, a click outside, Not Now — commit through `close()`. But
-/// ContentView's overlays are one if/else, and Settings (⌘,), Help (⌘?) and a destination pick
-/// rank above setup: opening one destroys `SetupSheet` and its `@StateObject` model without a
-/// `close()`, as closing the window does, and setup reopened on a fresh model with the name typed
-/// on You gone.
+/// The card's own ways out commit through `close()`. But ContentView's overlays are one if/else,
+/// and Settings, Help or a destination pick rank above setup: opening one destroys `SetupSheet` and
+/// its model without a `close()`, as closing the window does, and the name typed on You would be
+/// lost.
 ///
-/// Hosted for real, because the fix is a view's `onDisappear` and nothing else can see it. The
-/// draft is asked of disk, in a scratch folder — never the real `setup-draft.json` — because the
-/// draft is what the next open reads. Quitting is heard through `willTerminateNotification`,
-/// which this test host must not post (the host IS SyncCloud.app, and every observer in it would
-/// hear it); `SetupFlowTests.theSetupButtonsCallTheRulesTheModelTests` pins that observer by source.
+/// Hosted for real, because the commit is a view's `onDisappear`. The draft is read from disk in a
+/// scratch folder, never the real `setup-draft.json`. Quitting isn't tested here: this host must not
+/// post `willTerminateNotification` (it is SyncCloud.app, and every observer would hear it), so
+/// `SetupFlowTests.theSetupButtonsCallTheRulesTheModelTests` pins that observer by source.
 @MainActor
 @Suite struct SetupSheetTeardownTests {
 
@@ -113,11 +111,9 @@ import Testing
         #expect(fixture.dismissals.count == 0, "premise: this was not the card's own close")
     }
 
-    /// The window closing with setup open.
-    ///
-    /// **Closed and its content let go, as the app's `WindowGroup` does** — the app outlives the
-    /// window, and a Dock click makes a new one. A bare `close()` of a window the test still holds
-    /// keeps the hosting view alive, and nothing disappears: measured, no draft in 3 s.
+    /// The window closing with setup open. Closed and its content let go, as the app's
+    /// `WindowGroup` does: a bare `close()` of a window the test still holds keeps the hosting view
+    /// alive, so nothing disappears and no draft is written.
     @Test(.timeLimit(.minutes(1)))
     func closingTheWindowKeepsTheTypedName() async throws {
         let fixture = try await mount("window")

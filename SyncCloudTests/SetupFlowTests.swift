@@ -5,20 +5,16 @@ import Testing
 
 /// The setup form's decision logic and the claims its copy makes.
 ///
-/// **This screen is the one nobody who works on the app ever sees.** It renders once per install on
-/// a machine that has never run SyncCloud, so it drifts silently while every other surface gets
-/// looked at daily — the tour it replaces spent an entire release calling Duplicates a *workspace*
-/// and nothing failed. Everything here that looks like it is testing prose is testing that.
+/// Nobody who works on the app ever sees this sheet: it renders once per install, on a machine that
+/// has never run SyncCloud, so its copy drifts silently. The tests that look like they test prose
+/// are guarding that.
 @Suite struct SetupFlowTests {
 
     // MARK: - Persisted keys
 
-    /// Renaming any of these changes what an existing install looks like to the app.
-    ///
-    /// The legacy one is the sharp edge: every machine that ran a build before the form carries
-    /// `hasSeenFirstRunWelcome`, and `shouldAutoShow` reads it as “already greeted”. Rename it and
-    /// every one of those users looks like a fresh install, so the form opens over their working
-    /// app on the next launch.
+    /// Renaming any of these changes what an existing install looks like to the app. The legacy
+    /// `hasSeenFirstRunWelcome` is the sharp edge: `shouldAutoShow` reads it as "already greeted",
+    /// so renaming it would open the form over every older install's working app.
     @Test func defaultsKeysAreStable() {
         #expect(SetupFlow.hasCompletedDefaultsKey == "hasCompletedSetup")
         #expect(SetupFlow.legacyWelcomeSeenDefaultsKey == "hasSeenFirstRunWelcome")
@@ -35,10 +31,8 @@ import Testing
                                          hasFilingProfile: false))
     }
 
-    /// Every other combination refuses — and each for its own reason, which is why this enumerates
-    /// all eight rather than spot-checking three.
-    ///
-    /// A single `||` written the wrong way round still passes a spot check; it fails here.
+    /// Every other combination refuses. All eight are enumerated, because a `||` written the wrong
+    /// way round still passes a spot check.
     @Test func everyOtherCombinationRefuses() {
         for completed in [true, false] {
             for greeted in [true, false] {
@@ -53,11 +47,8 @@ import Testing
         }
     }
 
-    /// Each input can refuse on its own.
-    ///
-    /// The positive control for the table above: with the other two clear, flipping any single flag
-    /// must be enough to close the gate. A rule that only refused on *two* of the three would still
-    /// satisfy a test that never varied them one at a time.
+    /// Each input can refuse on its own: with the other two clear, any single flag closes the gate.
+    /// The control for the table above, which a rule refusing only on two of three could pass.
     @Test func eachFlagClosesTheGateByItself() {
         #expect(!SetupFlow.shouldAutoShow(hasCompletedSetup: true,
                                           hasSeenLegacyWelcome: false, hasFilingProfile: false))
@@ -73,22 +64,16 @@ import Testing
     @Test func aFirstRunOpensOnTheWelcomeScreen() {
         #expect(SetupFlow.initialScreen(hasCompletedSetup: false, hasFilingProfile: false) == .welcome)
     }
-    /// Everything else opens on the first question.
-    ///
-    /// **The welcome screen is addressed to somebody who has never seen the app.** Showing it to
-    /// somebody who came back through Help ▸ Set Up SyncCloud… to change one answer describes
-    /// neither what they did nor what they are about to do.
+    /// Everything else opens on the first question: the welcome screen is for somebody who has
+    /// never seen the app, not somebody back through Help ▸ Set Up SyncCloud… to change an answer.
     @Test func aReRunOpensOnTheFirstQuestion() {
         #expect(SetupFlow.initialScreen(hasCompletedSetup: true, hasFilingProfile: false) == .locations)
         #expect(SetupFlow.initialScreen(hasCompletedSetup: false, hasFilingProfile: true) == .locations)
         #expect(SetupFlow.initialScreen(hasCompletedSetup: true, hasFilingProfile: true) == .locations)
     }
 
-    /// The two rules read the same facts.
-    ///
-    /// `shouldAutoShow` decides whether the sheet appears; `initialScreen` decides what it opens
-    /// on. Both are asking "has this machine been through this?", so a machine the gate would greet
-    /// is exactly the machine that gets the greeting.
+    /// `shouldAutoShow` (whether the sheet appears) and `initialScreen` (what it opens on) read the
+    /// same facts, so a machine the gate would greet is exactly the one that gets the greeting.
     @Test func theOpeningScreenAgreesWithTheShowGate() {
         for completed in [true, false] {
             for profile in [true, false] {
@@ -109,18 +94,12 @@ import Testing
         #expect(SetupFlow.next(after: .welcome) == .locations)
     }
 
-    /// **Back reaches Welcome when the run includes it, and this is the reversal.** The form this
-    /// replaces refused, because by its first step the user's answers were already written and a
-    /// Back into Welcome would have offered *Not Now* as a way out of a form in progress. Here
-    /// nothing is written until Structure's Save, so stepping back to the introduction costs
-    /// nothing.
+    /// Back reaches Welcome when the run includes it. Nothing is written until Structure's Save, so
+    /// stepping back to the introduction costs nothing.
     ///
-    /// **And whether it is reachable is a property of the RUN, not of the Mac** — the correction
-    /// this test carries. The rule was `hasCompletedSetup || hasProfile`, which is a fact about the
-    /// machine, so on any Mac that had set up once Back returned nil from Locations — including on
-    /// a run that had *opened* on the welcome card and walked forward from it, where the user could
-    /// see the card they had just left and had no way back to it. Asking for setup by name opens on
-    /// that card whatever the Mac has done before.
+    /// Whether it is reachable is a property of the run, not the Mac: a run that opened on the
+    /// welcome card must be able to go back to it, even on a Mac that has been set up or has a
+    /// profile. Asking for setup by name opens on that card whatever the Mac has done before.
     @Test func backReachesWelcomeWhenTheRunIncludesIt() {
         #expect(SetupFlow.previous(before: .welcome, welcomeIsInThisRun: true) == nil,
                 "there is nothing before the first screen")
@@ -162,9 +141,8 @@ import Testing
 
     // MARK: - What the walk drops
 
-    /// **Skipping Learn drops the two screens that need a walk, and drops them rather than
-    /// renumbering.** Locations through People keep 1 to 4, so there is no gap to explain and no
-    /// screen that changes number between two visits to the same sheet.
+    /// Skipping Learn drops the two screens that need a walk, without renumbering: Locations through
+    /// People keep 1 to 4, so no screen changes number between two visits to the same sheet.
     @Test func skippingLearnDropsCountriesAndStructure() {
         let crumbs = SetupFlow.crumbs(walk: .skipped, hasProfile: false)
         #expect(!crumbs.contains(.countries))
@@ -182,9 +160,8 @@ import Testing
         #expect(SetupFlow.next(after: .people, walk: .skipped, hasProfile: true) == .structure)
     }
 
-    /// **A failed walk is not a skipped one.** The user asked for a walk and did not get one, so
-    /// Countries stays — it is where the failure is explained — and only Structure, which needs a
-    /// tree to read, drops out.
+    /// A failed walk is not a skipped one: Countries stays, since it explains the failure, and only
+    /// Structure, which needs a tree, drops out.
     @Test func aFailedWalkKeepsCountriesAndDropsStructure() {
         #expect(SetupFlow.includes(.countries, walk: .failed, hasProfile: false))
         #expect(!SetupFlow.includes(.structure, walk: .failed, hasProfile: false))
@@ -220,9 +197,8 @@ import Testing
         #expect(SetupFlow.crumbs.count == SetupFlow.Screen.allCases.count - 2)
     }
 
-    /// **Four screens can be skipped, and the others cannot for a reason.** Locations and Countries
-    /// are already right if left alone, so a Skip there would be a second spelling of Continue;
-    /// Structure is the screen that writes.
+    /// Four screens can be skipped. Locations and Countries are right if left alone, so a Skip
+    /// there would be a second Continue; Structure is the screen that writes.
     @Test func theSkippableScreensAreTheOnesWithSomethingToRefuse() {
         let skippable = SetupFlow.Screen.allCases.filter(\.isSkippable)
         #expect(skippable == [.learn, .you, .people, .appearance])
@@ -240,12 +216,9 @@ import Testing
 
     // MARK: - Focus
 
-    /// The caret goes to You's first field — **including on the path a first launch takes.**
-    ///
-    /// The rule lived as a `case` inside `onAppear`, which fires once, before the first layout. A
-    /// re-run opens straight on a question and got the caret; a FIRST run opens on the welcome card
-    /// and reaches You by a screen change, long after `onAppear` — so the machine this whole sheet
-    /// exists for was the one machine whose first field never took focus.
+    /// The caret goes to You's first field, including on a first launch, which opens on the welcome
+    /// card and reaches You by a screen change long after `onAppear` has fired. A rule that only ran
+    /// in `onAppear` would miss exactly the machine this sheet exists for.
     @Test func onlyTheYouScreenClaimsTheCaret() {
         #expect(SetupFlow.wantsFirstFieldFocus(.you))
         #expect(!SetupFlow.wantsFirstFieldFocus(.welcome))
@@ -255,8 +228,8 @@ import Testing
         }
     }
 
-    /// The first-run route reaches the focused screen by a screen CHANGE, which is the fact the
-    /// broken version could not see.
+    /// The first-run route reaches the focused screen by a screen change, which an `onAppear`-only
+    /// rule can't see.
     @Test func aFirstRunReachesTheFocusedScreenByAScreenChange() throws {
         let opening = SetupFlow.initialScreen(hasCompletedSetup: false, hasFilingProfile: false)
         #expect(!SetupFlow.wantsFirstFieldFocus(opening),
@@ -299,9 +272,8 @@ import Testing
         #expect(unmatched.matchedFolder == nil)
     }
 
-    /// **Order matters, so surname-first is its own form** — the matcher is positional, and an
-    /// Indian bank statement prints one order while a US one prints the other. Initials are offered
-    /// and not ticked: `A. Girish` matches a great many people.
+    /// Surname-first is its own form, because the matcher is positional and statements print either
+    /// order. Initials are offered but not ticked: `A. Girish` matches a great many people.
     @Test func bothNameOrdersAreTickedAndInitialsAreNot() {
         let forms = SetupFlow.nameForms(first: "Abhishek", surname: "Girish")
         let ticked = forms.filter(\.ticked).map(\.form)
@@ -331,10 +303,8 @@ import Testing
     /// The welcome screen says what the sheet is going to ask before it asks it — for every screen
     /// that asks something.
     ///
-    /// Derived from `Screen.number` rather than counting to five, so a numbered screen added
-    /// without a line here fails instead of going unannounced. The screens that show rather than
-    /// ask are the deliberate exception: promising them up front would be promising a screen rather
-    /// than a question.
+    /// Derived from `Screen.number`, so a numbered screen added without a line fails instead of
+    /// going unannounced. Screens that show rather than ask are left out on purpose.
     @Test func theWelcomeOutlineNamesEveryQuestionTheSheetAsks() {
         let announced = Set(SetupFlow.outline.map(\.screen))
         let asking = Set(SetupFlow.Screen.allCases.filter { $0.number != nil })
@@ -352,10 +322,9 @@ import Testing
         #expect(SetupFlow.spelled(SetupFlow.questionCount) == "Five")
     }
 
-    /// **Setup never says how long it takes.** An earlier draft promised "about two minutes" over
-    /// a flow with a tree walk and an optional hours-long read in it. The reading offer's own
-    /// figure is a different claim — it is about work the user is choosing, measured from a real
-    /// count — and it is not made here.
+    /// Setup never says how long it takes: the flow holds a tree walk and an optional hours-long
+    /// read. The reading offer's own figure, measured from a real count, is a different claim and
+    /// isn't made here.
     @Test func noWelcomeCopyEstimatesHowLongSetupTakes() {
         let copy = [SetupFlow.welcomeBlurb, SetupFlow.welcomeQuestionsHeading,
                     SetupFlow.welcomeAfterQuestions, SetupFlow.privacyClaim,
@@ -366,10 +335,8 @@ import Testing
         }
     }
 
-    /// And neither does Help's page about it, which said the reading "takes seconds" after Learn
-    /// had stopped saying so — the guard above never read the book. "A few hours" is left out on
-    /// purpose: the page says the optional document reading runs "over a few hours", which is the
-    /// reading offer's own claim, the one the welcome test above also sets aside.
+    /// Nor does Help's page about it. "A few hours" isn't banned here: the page says the optional
+    /// document reading runs "over a few hours", the reading offer's own claim.
     @Test func helpsSetupPageEstimatesNoDurationEither() throws {
         let topic = try #require(HelpBook.sections.flatMap(\.topics).first { $0.id == "setup" })
         let copy = ([topic.article.intro] + topic.article.blocks.map(\.searchableText))
@@ -380,11 +347,7 @@ import Testing
         }
     }
 
-    /// Four panels, one per shipping workspace.
-    ///
-    /// **Edit is the one that was missing**, and its absence is exactly the defect this test now
-    /// catches: the three-panel strip was written before the editor shipped and went on describing
-    /// an app with three workspaces in it.
+    /// Four panels, one per shipping workspace, Edit included.
     @Test func everyPanelHasCopyAndItsOwnIllustration() {
         #expect(SetupFlow.panels.count == 4)
         for panel in SetupFlow.panels {
@@ -396,9 +359,8 @@ import Testing
         #expect(SetupFlow.panels.map(\.title).contains("Edit"))
     }
 
-    /// **Setup says Edit opens PDFs.** Both of its Edit lines — the welcome strip's panel and the
-    /// Workspaces screen's card — said "Text and Markdown, in place" after PDFs opened there with
-    /// Fill & Sign and Tools. Mutation: put either old line back and its check fails.
+    /// Setup says Edit opens PDFs, on both its Edit lines: the welcome strip's panel and the
+    /// Workspaces screen's card. Dropping "PDFs" from either must fail its check.
     @Test func setupsEditLinesNamePDFs() throws {
         let panel = try #require(SetupFlow.panels.first { $0.art == .edit })
         #expect(panel.blurb.contains("PDFs"), "the welcome strip's Edit panel leaves out PDFs: \(panel.blurb)")
@@ -406,12 +368,8 @@ import Testing
         #expect(card.blurb.contains("PDFs"), "the Workspaces screen's Edit card leaves out PDFs: \(card.blurb)")
     }
 
-    /// The strip opens on the workspace the app opens on.
-    ///
-    /// Inherited from the tour, where it was a real defect: the pages taught Compare, Transfer,
-    /// Duplicates and Organize and then dismissed the user into Browse, which they had never been
-    /// shown. Pinned against `WorkspaceSelection.default` rather than against the string "Browse",
-    /// so moving the default workspace fails here instead of silently making the strip wrong again.
+    /// The strip opens on the workspace the app opens on, so the user lands somewhere they were
+    /// shown. Pinned against `WorkspaceSelection.default`, so moving the default fails here.
     @Test func theWelcomeStripOpensWhereTheAppDoes() throws {
         #expect(WorkspaceSelection.default.workspace == .browse,
                 "if the default workspace moves, the leading panel should move with it")
@@ -420,13 +378,9 @@ import Testing
         #expect(leading.title == "Browse")
     }
 
-    /// No panel may describe a retired workspace as a workspace.
-    ///
-    /// Derived from `Workspace.retiredWorkspaceRawValues` rather than spelling out today's
-    /// offenders, because the failure is structural: every time a workspace folds into an Organize
-    /// lens, prose written before the fold keeps calling it a workspace. That is exactly what
-    /// happened to “The Duplicates workspace finds duplicate files”, which shipped for the whole of
-    /// the v3 line on a screen nobody was ever going to look at.
+    /// No panel may describe a retired workspace as a workspace. Derived from
+    /// `Workspace.retiredWorkspaceRawValues`, because each time a workspace folds into an Organize
+    /// lens, prose written before the fold keeps calling it a workspace.
     @Test func noPanelCallsARetiredWorkspaceAWorkspace() {
         for retired in Workspace.retiredWorkspaceRawValues.keys {
             for panel in SetupFlow.panels {
@@ -443,11 +397,8 @@ import Testing
         }
     }
 
-    /// The positive control for the scan above.
-    ///
-    /// That test asserts an ABSENCE across a derived list, so it passes just as happily if the
-    /// table is empty, the copy is empty, or the matcher never matches anything. This proves all
-    /// three are live.
+    /// The positive control for the scan above, which asserts an absence and would pass on an empty
+    /// table, empty copy or a matcher that never matches. This proves all three are live.
     @Test func theRetiredWorkspaceScanCanActuallyFail() {
         #expect(!Workspace.retiredWorkspaceRawValues.isEmpty)
         #expect(!SetupFlow.panels.isEmpty)
@@ -460,13 +411,10 @@ import Testing
 
     // MARK: - What the summary may claim
 
-    /// The Done step reports a household, not a guess.
-    ///
-    /// **The refusal is the point.** `PeopleStore.save()` will not write over a `people.json` it
-    /// could not read, nor over one whose duplicated id it had to collapse — so in both states the
-    /// list the form showed is a seed from folder names and nothing the user did to it was saved.
-    /// The heading above this line says "everything below is already in effect", which makes a
-    /// plain count the one thing it must not print.
+    /// The Done step reports a household, not a guess. `PeopleStore.save()` won't write over a
+    /// `people.json` it couldn't read or whose duplicated id it collapsed, so in both states nothing
+    /// the user did to the list was saved. Under a heading saying "everything below is already in
+    /// effect", a plain count would be false.
     @Test func theSummaryWillNotCountAHouseholdItCouldNotRead() {
         let honest = SetupFlow.peopleSummary(otherCount: 6, rosterIsReadOnly: false)
         #expect(honest == "6 others on the list")
@@ -492,26 +440,15 @@ import Testing
 
     // MARK: - Retired vocabulary
 
-    /// The form's copy may not use product words that were retired.
+    /// The form's copy may not use retired product words: "filing" (now Organize's To File lens) and
+    /// "tidy". The Help book has the same guard.
     ///
-    /// **The Help book has had this guard for a while, and it caught the first draft of this very
-    /// screen.** “Filing” became Organize's To File lens and “tidy” left the product's voice with
-    /// it; both survived in Help long after every other surface was reworded, because nothing
-    /// looked — and setup is the surface *least* likely to be looked at, since it renders once per
-    /// install on a machine nobody developing the app is using.
-    ///
-    /// Scanned over the source rather than over a list of constants because most of this screen's
-    /// copy is written inline in the step bodies, where a constant-only check would see none of it.
-    /// Only string literals count, so a comment explaining the retired word is not a violation, and
-    /// `Logger` lines are exempt: the log names the artifacts by what the code calls them
-    /// (`filing profile`, `filing-memory.json`), and renaming those in a log would make it harder
-    /// to read rather than easier.
+    /// Scanned over the source, since most of the copy is inline in the screen bodies. Only string
+    /// literals count, and `Logger` lines are exempt: the log names artifacts as the code does
+    /// (`filing profile`, `filing-memory.json`).
     @Test func noSetupCopyUsesRetiredVocabulary() throws {
-        // A known sentence from each file, so "the extractor works" is a claim about *this* copy
-        // rather than a count that a broken extractor could still satisfy on a big enough file.
-        // **Every screen file, each with its own canary.** The sheet used to be one file; a scan
-        // that still named only that one would pass over nine screens of unchecked copy, which is
-        // exactly the shape of the defect this rule exists to catch.
+        // Every screen file, each with a known sentence as its canary, so "the extractor works" is
+        // a claim about this copy rather than a count a broken extractor could still satisfy.
         let canaries = ["MacApp/SetupSheet.swift": "Set up SyncCloud",
                         "MacApp/SetupFlow.swift": "Stays on this Mac",
                         "MacApp/Setup/SetupChrome.swift": "More options",
@@ -546,11 +483,8 @@ import Testing
         }
     }
 
-    /// The positive control: the extractor really returns copy, and the matcher really catches the
-    /// banned word in it.
-    ///
-    /// Without this, an extractor that returned nothing — or a `contains` that never matched —
-    /// would let the scan above pass on a screen full of retired vocabulary.
+    /// The positive control: the extractor returns copy, and the matcher catches the banned word in
+    /// it. Without this, an extractor returning nothing would pass the scan above on any screen.
     @Test func theVocabularyScanCanActuallyFail() {
         let sample = [
             "        let a = \"Organize sorts loose files\"",
@@ -568,22 +502,15 @@ import Testing
                 "Logger lines should be exempt from the product-vocabulary rule")
     }
 
-    /// Every "Settings ▸ X" the form prints names a tab that really exists.
-    ///
-    /// **The same drift the Help book was carrying, on a surface with even less traffic.** The
-    /// Providers tab was relabelled *Sources* when it started listing plain folders beside the
-    /// cloud accounts, the case kept its name so stored state and deep links survived — correctly —
-    /// and two Help articles went on naming a tab that is not on screen. The form points at four
-    /// tabs, and it is read once per install.
-    ///
-    /// Derived from `SettingsTab.displayName`, so the next relabel fails here rather than shipping.
+    /// Every "Settings ▸ X" the form prints names a tab that really exists. A tab's label can change
+    /// while its case keeps its name, so this is derived from `SettingsTab.displayName` and the next
+    /// relabel fails here rather than shipping.
     @Test func everySettingsPathInTheFormNamesARealTab() throws {
         let realNames = Set(SettingsView.SettingsTab.allCases.map(\.displayName))
         var found = 0
 
-        // **Every file the sheet is made of.** Naming two of them was right when the sheet was
-        // one file; after the split it would have scanned the host — which sends the user nowhere
-        // — and passed over ten screens of live "Settings ▸ …" pointers.
+        // Every file the sheet is made of: the host alone sends the user nowhere, and the screens
+        // hold the live "Settings ▸ …" pointers.
         var files = ["MacApp/SetupSheet.swift", "MacApp/SetupFlow.swift"]
         let repo = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -609,11 +536,9 @@ import Testing
         #expect(found > 0, "no “Settings ▸ …” references were found in the form — this scan is vacuous")
     }
 
-    /// The tab names in every "Settings ▸ X" in a string.
-    ///
-    /// Scanning stops at the first character that is neither a letter nor a space, and then only the
-    /// leading *capitalised* words are kept — so "Settings ▸ People — a first name is enough" yields
-    /// `People` rather than the rest of the sentence.
+    /// The tab names in every "Settings ▸ X" in a string. Stops at the first character that is
+    /// neither a letter nor a space and keeps only the leading capitalised words, so "Settings ▸
+    /// People — a first name is enough" yields `People`.
     private static func settingsDestinations(in text: String) -> [String] {
         var out: [String] = []
         var rest = Substring(text)
@@ -631,12 +556,9 @@ import Testing
         return out
     }
 
-    /// String literals on lines that are neither comments nor `Logger` calls.
-    ///
-    /// Deliberately line-based and simple. It cannot see a literal split across lines by `+`
-    /// concatenation as one string — each half is checked on its own, which is enough for a
-    /// word-level ban — and it drops single-word literals, which are overwhelmingly symbol names,
-    /// SF Symbol ids and defaults keys rather than copy.
+    /// String literals on lines that are neither comments nor `Logger` calls. Line-based on
+    /// purpose: each half of a `+`-joined literal is checked alone, which suffices for a word ban.
+    /// Single-word literals are dropped, being mostly symbol names, SF Symbol ids and defaults keys.
     private static func userFacingLiterals(in source: String) -> [String] {
         var out: [String] = []
         for rawLine in source.split(separator: "\n", omittingEmptySubsequences: false) {
@@ -665,12 +587,9 @@ import Testing
 
     // MARK: - The privacy claim
 
-    /// The exception is named on the same screen that makes the promise.
-    ///
-    /// **The claim and its exception are two strings and could drift apart in one edit.** A promise
-    /// stated without its exception reads as complete, and the user meets the Refine button a week
-    /// later — so the survey step's note has to keep naming Claude, keep saying it is off, and keep
-    /// saying where it lives.
+    /// The exception is named on the same screen that makes the promise. They are two strings that
+    /// could drift apart in one edit, and a promise without its exception reads as complete, so the
+    /// note must keep naming Claude, saying it is off, and saying where it lives.
     @Test func theSurveyDisclosureNamesItsOneException() {
         #expect(SetupFlow.surveyPrivacyNote.contains("never leave it"))
         #expect(SetupFlow.surveyThirdPartyNote.localizedCaseInsensitiveContains("Claude"))
@@ -680,21 +599,11 @@ import Testing
                 "the exception has to say where it can be turned on")
     }
 
-    /// The plain claim promises nothing the app does not do.
+    /// The disclosure is made on the screen that asks for it, and is drawn from that rule. A promise
+    /// about reading somebody's files, made on a screen after the reading, is no promise, and tests
+    /// of the strings alone can't see where they are drawn.
     ///
-    /// It is stated on the welcome screen, where there is no room for the exception, so it must not
-    /// be phrased as an absolute the Refine pass contradicts — “nothing is uploaded” is about the
-    /// files SyncCloud reads, and the sentence that follows the user into the survey step is where
-    /// the third party is named.
-    /// **The disclosure is made on the screen that asks for it, and is drawn from that rule.**
-    ///
-    /// This was wrong for two commits and nothing failed. `89373824` folded the folder step into
-    /// Done and took the two notes with it; `e52076eb` brought the step back — with the button that
-    /// reads the user's documents on it — and left the notes on Done. A promise about reading
-    /// somebody's files, made on the screen *after* the reading, is not a promise, and every test
-    /// over this copy asserts the STRINGS, which were correct the whole time.
-    ///
-    /// So all four halves are pinned: the constant, the gate that reads it, the order against the
+    /// So four things are pinned: the constant, the gate that reads it, the order against the
     /// button, and each note being drawn exactly once.
     @Test func theDisclosureIsDrawnOnTheScreenThatAsksForIt() throws {
         #expect(SetupFlow.disclosureScreen == .learn,
@@ -712,16 +621,15 @@ import Testing
         // Drawn through the rule, not at a location somebody has to remember.
         #expect(source.contains("if SetupFlow.disclosureScreen == .learn {"),
                 "the notes are no longer gated on `disclosureScreen` — moving the constant would move nothing")
-        // **And above the button.** The button lives in the card's footer, which is drawn after the
-        // content, so what this holds is the notes being the LAST thing in the content column —
-        // nothing of the screen's own may come between them and the footer.
+        // And above the button: it lives in the footer, drawn after the content, so the notes must
+        // be the last thing in the content column.
         let gate = try #require(source.range(of: "if SetupFlow.disclosureScreen == .learn {"))
         let closing = try #require(source.range(of: "SetupFlow.surveyThirdPartyNote"))
         #expect(gate.lowerBound < closing.lowerBound)
         let after = String(source[closing.upperBound...])
         #expect(!after.contains("Button("),
                 "a control is drawn after the disclosure — the notice has to be the last thing before the footer")
-        // And exactly once each: a second copy is how the two screens came to disagree before.
+        // And exactly once each, so no second copy can sit on another screen.
         for note in ["SetupFlow.surveyPrivacyNote", "SetupFlow.surveyThirdPartyNote"] {
             #expect(source.components(separatedBy: note).count - 1 == 1,
                     "\(note) is drawn \(source.components(separatedBy: note).count - 1) times — one of them is on the wrong screen")
@@ -735,11 +643,9 @@ import Testing
                 "Learn's primary button no longer reads the walk state")
     }
 
-    /// **The setup buttons call the model's rules**, which `SetupModelTests` pins one by one.
-    ///
-    /// `SetupSheet` cannot be built in a test, so a rule extracted for testability is one revert
-    /// away from being unused: the tests would stay green over a button that went back to doing
-    /// its own thing. This is the other half — each button is wired to the rule that was tested.
+    /// The setup buttons call the model's rules, which `SetupModelTests` pins one by one.
+    /// `SetupSheet` can't be built in a test, so without this the rule tests would stay green over a
+    /// button that went back to doing its own thing.
     @Test func theSetupButtonsCallTheRulesTheModelTests() throws {
         let setup = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -760,7 +666,7 @@ import Testing
         // Structure: a failed write stays put.
         #expect(sheet.contains("Task { await model.pressStructurePrimary(shownSkipSaving: shownSkipSaving) }"),
                 "Structure's primary no longer goes through `pressStructurePrimary`")
-        // What the button said is captured as it is drawn, from the title it drew (SR5).
+        // What the button said is captured as it is drawn, from the title it drew.
         #expect(sheet.contains("let primary = model.structurePrimaryTitle\n            frame(primary: primary,"),
                 "Structure's button draws one title and the press reads another")
         #expect(sheet.contains("{ [shownSkipSaving = primary == SetupModel.skipSavingTitle] in"),
@@ -778,7 +684,7 @@ import Testing
         // A reading still running is said in the tree's box, not "Nothing has been learned yet".
         #expect(structure.contains("} else if model.structureShowsWalkStatus {"),
                 "Structure no longer says it is reading, or that the reading failed")
-        // And draws nothing that explains or counts a tree it does not have (SR5).
+        // And draws nothing that explains or counts a tree it does not have.
         #expect(structure.contains("let counts = Self.counts(model)"),
                 "Structure's stats row counts past `counts(_:)` — zeros or old counts while it reads")
         #expect(structure.contains(".disabled(!model.structureReadingSwitchIsEnabled)"),
@@ -791,7 +697,7 @@ import Testing
                 "Structure no longer draws a failed Save")
         #expect(structure.contains("Text(failure + \" \" + Self.saveFailedNextStep)"),
                 "the failure line no longer says what to do next")
-        // Closing — Esc, ✕, a click outside, Not Now — keeps the open screen's answers (ST4).
+        // Closing (Esc, ✕, a click outside, Not Now) keeps the open screen's answers.
         #expect(sheet.contains("model.commitBeforeClosing()\n        onDismiss()"),
                 "closing no longer commits the open screen before it closes")
         #expect(sheet.contains(".onTapGesture { close() }"), "a click outside skips the commit")
@@ -810,7 +716,7 @@ import Testing
         let people = try source("Setup/PeopleScreen.swift")
         #expect(people.contains("? nil : { model.requestRemovePerson(named: $0) })"),
                 "People's ✕ no longer goes through `requestRemovePerson` — a roster person may go unasked")
-        // …and none is drawn on a roster this sheet cannot write (review L1).
+        // …and none is drawn on a roster this sheet cannot write.
         #expect(people.contains("onRemove: model.rosterIsReadOnly\n                              ? nil :"),
                 "People draws a ✕ on a read-only roster — the chip goes and the person comes back")
         #expect(people.contains("rosterRepeatsAnId: model.rosterRepeatsAnId"),
@@ -821,8 +727,8 @@ import Testing
                 "the question's Remove no longer removes the person it asked about")
     }
 
-    /// **Countries says "ticked" only when it ticked something.** Short names found but none
-    /// certain enough to tick arrive with nothing ticked, and the line invites the picking.
+    /// Countries says "ticked" only when it ticked something. Short names found but none certain
+    /// enough to tick arrive unticked, and the line invites the picking.
     @Test func countriesClaimsTicksOnlyWhenItTickedSome() throws {
         #expect(CountriesScreen.foundBlurb(candidates: 3, confident: 2).contains("ticked"))
         let unsure = CountriesScreen.foundBlurb(candidates: 3, confident: 0)
@@ -831,8 +737,8 @@ import Testing
         #expect(CountriesScreen.foundBlurb(candidates: 0, confident: 0).hasPrefix("No short folder names"))
     }
 
-    /// **People tells "found names, all added" from "found none".** Taking the last chip used to
-    /// flip the header to "No folder names looked like people".
+    /// People tells "found names, all added" from "found none", so taking the last chip doesn't say
+    /// no names were found.
     @Test func peopleTellsAllAddedFromNoneFound() throws {
         #expect(PeopleScreen.foundBlurb(found: 4, offered: 2).contains("found some names to offer"))
         let allAdded = PeopleScreen.foundBlurb(found: 4, offered: 0)
@@ -865,11 +771,8 @@ import Testing
                 "the replacement copy is not there — every check above is vacuous")
     }
 
-    /// The Help topic counts the same screens the sheet has.
-    ///
-    /// **Prose does not fail to compile.** The article says how many screens setup is and how many
-    /// of them ask a question; both are facts about `SetupFlow`, and both went stale in the topic
-    /// this one replaces — it described four steps of a form that had five, for two releases.
+    /// The Help topic counts the same screens the sheet has. Prose doesn't fail to compile, and the
+    /// article's counts of screens and questions are facts about `SetupFlow`.
     @Test func theHelpTopicCountsTheScreensTheSheetHas() throws {
         let topic = try #require(HelpBook.topic(id: "setup"), "the setup Help topic is gone")
         let prose = ([topic.article.intro] + topic.article.blocks.map(\.searchableText))
@@ -889,21 +792,16 @@ import Testing
         }
     }
 
-    /// `hasWhyPanel` says what the sheet draws.
-    ///
-    /// **Two places decide this and only one of them is visible to a measurement.** The rule sets
-    /// how wide every fit test lays a screen out; the sheet's own `switch` decides whether a panel
-    /// is really there. When those parted, screens were measured against a width the card never
-    /// gives them — which is how the Structure screen came to overflow the card with its fit test
-    /// green.
+    /// `hasWhyPanel` says what the sheet draws. The rule sets the width every fit test lays a screen
+    /// out at, while the sheet's own `switch` decides whether a panel is there; if they part, screens
+    /// are measured at a width the card never gives them.
     @Test func theWhyPanelRuleMatchesWhatTheSheetDraws() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("MacApp/SetupSheet.swift")
         let source = try #require(try? String(contentsOf: url, encoding: .utf8))
-        // Anchored without the access level: `screenCard` went from `private` to internal so the
-        // screen gallery could photograph it, and this scan failed on the rename rather than on
-        // anything it exists to check.
+        // Anchored without the access level, so changing `screenCard`'s visibility doesn't break
+        // the scan.
         let body = try #require(source.range(of: "var screenCard: some View {"),
                                 "the sheet's screen switch has moved — this scan would be vacuous")
         let switchBody = String(source[body.upperBound...])
@@ -921,6 +819,9 @@ import Testing
         }
     }
 
+    /// The plain claim promises nothing the app does not do. It sits on the welcome screen, with no
+    /// room for the exception, so it must not be an absolute the Refine pass contradicts: it is
+    /// about the files SyncCloud reads, and the survey step names the third party.
     @Test func theWelcomeClaimIsAboutWhatSyncCloudItselfDoes() {
         #expect(SetupFlow.privacyClaim.contains("on this Mac"))
         #expect(!SetupFlow.privacyClaim.localizedCaseInsensitiveContains("never"),

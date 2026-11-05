@@ -3,17 +3,16 @@ import Foundation
 import FileExplorer
 @testable import SyncCloud
 
-/// Putting the open document away (TE46): the act both doors share, run against a real document,
-/// a real undo store and a pane selection held the way `FileSyncManager` holds it.
+/// Putting the open document away: the act both doors share, run against a real document, a real
+/// undo store and a pane selection held the way `FileSyncManager` holds it.
 ///
-/// **Run, not scanned.** `EditorDocumentClose.run` is the whole act; `ContentView` only supplies
-/// its pieces, and which pieces it supplies is scanned separately in `EditorHeaderDoorsWiringTests`
-/// — so a test here that passed its own `settle` proves the ORDER and the CONTRACT, and the scan
-/// proves the app passes the real `settleEditorDocument()`.
+/// Run, not scanned. `EditorDocumentClose.run` is the whole act and `ContentView` only supplies
+/// its pieces, which `EditorHeaderDoorsWiringTests` scans. So a test here with its own `settle`
+/// proves the order and the contract, and the scan proves the app passes the real
+/// `settleEditorDocument()`.
 ///
-/// **A class, for its `deinit`.** Swift Testing makes one instance per test, so each test's files
-/// live in one folder the instance owns and removes when it goes — where every call used to leave a
-/// folder of its own in the temporary directory, hundreds a run.
+/// A class, for its `deinit`: Swift Testing makes one instance per test, so each test's files live
+/// in one folder the instance removes when it goes.
 @MainActor
 @Suite final class EditorDocumentCloseTests {
 
@@ -57,8 +56,8 @@ import FileExplorer
 
     // MARK: When it is offered
 
-    /// Edit on screen with a document — and a REFUSED document counts, unlike the Text and Markup
-    /// menus: a refusal is still something on screen to put away.
+    /// Edit on screen with a document, and a refused document counts, unlike for the Text and
+    /// Markup menus: a refusal is still something on screen to put away.
     @Test func closeIsOfferedInEditWithAnyDocumentOpen() {
         #expect(EditorDocumentClose.isOffered(workspace: .editor, hasDocument: true))
         #expect(!EditorDocumentClose.isOffered(workspace: .editor, hasDocument: false),
@@ -71,8 +70,8 @@ import FileExplorer
 
     // MARK: What it does
 
-    /// **Settled first; Cancel means nothing happened.** The document stays open with its typing,
-    /// the pane selection is untouched, and the one log line says so.
+    /// Settled first; Cancel means nothing happened. The document stays open with its typing, the
+    /// pane selection is untouched, and the one log line says so.
     @Test func cancellingTheSettleLeavesTheDocumentOpen() throws {
         let (doc, path) = try document(named: "note.md")
         doc.text = "hello\ntyped\n"
@@ -87,8 +86,8 @@ import FileExplorer
         #expect(window.lines == ["Editor close of \(path) cancelled — the open document was kept"])
     }
 
-    /// **Closed: the empty state.** No path, no text, no refusal — which is what draws "Choose a
-    /// file…" — and one log line naming the file.
+    /// Closed: the empty state. No path, no text, no refusal (which draws "Choose a file…"), and
+    /// one log line naming the file.
     @Test func closingUnloadsToTheEmptyState() throws {
         let (doc, path) = try document(named: "note.md")
         let window = Window()
@@ -98,10 +97,10 @@ import FileExplorer
         #expect(window.lines == ["Editor closed \(path)"])
     }
 
-    /// A read-only document and a refused one close too — each still has a name in the header.
+    /// A read-only document and a refused one close too; each still has a name in the header.
     @Test func readOnlyAndRefusedDocumentsClose() throws {
-        // Valid text and one byte that is not UTF-8 (and not a NUL): a lossy decode, read-only —
-        // the fixture `EditorFileStoreTests.aLossyDecodeOpensReadOnly` uses.
+        // Valid text and one byte that is not UTF-8 (and not a NUL): a lossy decode, read-only, the
+        // fixture `EditorFileStoreTests.aLossyDecodeOpensReadOnly` uses.
         let folder = (self.folder as NSString).appendingPathComponent("read-only")
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         let bad = (folder as NSString).appendingPathComponent("lossy.txt")
@@ -129,15 +128,14 @@ import FileExplorer
 
     // MARK: Clicking the same row opens it again
 
-    /// **The pane selection that named the closed file is cleared, and that is what makes a click
-    /// on the same row reopen it.** TE41 opens on a CHANGE of `selectedLeftPaths`; left naming the
-    /// file, a click on that row would set the same set again and nothing would fire.
+    /// The pane selection that named the closed file is cleared, which is what lets a click on the
+    /// same row reopen it. A pane click opens on a change of `selectedLeftPaths`; left naming the
+    /// file, the click would set the same set again and nothing would fire.
     ///
-    /// Walked the way the window walks it: close, then the click sets `[path]`, which must differ
-    /// from what the close left; the one-click rule then names the file; and `openInEditor`'s
-    /// already-open guard (`path != editorDocument.path`) lets it through because the document is
-    /// empty. Mutation: return `nil` from `paneSelection(afterClosing:selection:)` and the first
-    /// expectation fails.
+    /// Walked as the window walks it: close, then the click sets `[path]`, which must differ from
+    /// what the close left; the one-click rule names the file; and `openInEditor`'s already-open
+    /// guard (`path != editorDocument.path`) lets it through because the document is empty. Fails
+    /// if `paneSelection(afterClosing:selection:)` returns `nil`.
     @Test func afterACloseClickingTheSamePaneRowOpensItAgain() throws {
         let (doc, path) = try document(named: "note.md")
         let window = Window()
@@ -154,8 +152,8 @@ import FileExplorer
         #expect(doc.path == path && doc.text == "hello\n", "the file did not reopen")
     }
 
-    /// **Only a selection of exactly the closed file is cleared.** Anything else is the user's —
-    /// and clicking the closed file's row from there is a change anyway.
+    /// Only a selection of exactly the closed file is cleared. Anything else is the user's, and
+    /// clicking the closed file's row from there is a change anyway.
     @Test func onlyTheClosedFilesOwnSelectionIsCleared() {
         let path = "/n/Notes/note.md"
         #expect(EditorDocumentClose.paneSelection(afterClosing: path, selection: [path]) == [])
@@ -166,7 +164,7 @@ import FileExplorer
         #expect(EditorDocumentClose.paneSelection(afterClosing: path, selection: []) == nil)
     }
 
-    /// And the run applies that rule, rather than clearing whatever is selected.
+    /// The run applies that rule, rather than clearing whatever is selected.
     @Test func aDifferentSelectionSurvivesTheClose() throws {
         let (doc, _) = try document(named: "note.md")
         let window = Window()
@@ -177,8 +175,8 @@ import FileExplorer
 
     // MARK: Undo
 
-    /// **The file's undo history is put away, not thrown away** — a fresh stack for the empty
-    /// editor, and the file's own back when it is reopened, exactly as a file switch does.
+    /// The file's undo history is put away, not thrown away: a fresh stack for the empty editor,
+    /// and the file's own back when it is reopened, as a file switch does.
     @Test func theUndoHistoryIsKeptForTheFileAndTheEmptyEditorStartsFresh() throws {
         let (doc, path) = try document(named: "note.md")
         let store = EditorUndoStore()
@@ -192,8 +190,8 @@ import FileExplorer
         close(doc, store, Window(), settle: true)
         #expect(store.current !== history && !store.current.canUndo,
                 "the empty editor inherited the closed file's undo stack")
-        // The storage goes with the stack (TE67.0): the empty editor follows a fresh, empty one, and
-        // the file's own is left holding the file's text.
+        // The storage goes with the stack: the empty editor follows a fresh, empty one, and the
+        // file's own is left holding the file's text.
         #expect(doc.buffer.source === store.source && store.source !== storage,
                 "the empty editor still follows the closed file's storage")
         #expect(store.source.textStorage.string.isEmpty)
@@ -207,11 +205,11 @@ import FileExplorer
 
     // MARK: Closing the WINDOW, which leaves the document open (UND-6)
 
-    /// **"Don't Save" before the window closes reloads the file.** The document outlives the
-    /// window, so a discard there used to leave the typing in the buffer — the alert had said it was
-    /// lost — and drop only its history: reopening the window brought the typing back with no ⌘Z
-    /// to take it back. The reload is the app's own (`reloadOverTheBuffer`, scanned below); here it
-    /// is the same forget-and-load. Mutation: drop `reload(path)` from `settleForWindowClose`.
+    /// "Don't Save" before the window closes reloads the file. The document outlives the window, so
+    /// without a reload the discarded typing would stay in the buffer with its history gone, and
+    /// reopening the window would bring it back with no ⌘Z. The app's reload is
+    /// `reloadOverTheBuffer` (scanned below); here it is the same forget-and-load. Fails if
+    /// `settleForWindowClose` drops `reload(path)`.
     @Test func discardingBeforeAWindowCloseReloadsTheFile() throws {
         let (doc, path) = try document(named: "note.md")
         let store = EditorUndoStore()
@@ -234,7 +232,7 @@ import FileExplorer
         #expect(!doc.isDirty)
     }
 
-    /// A settle that wrote the document, or was cancelled, reloads nothing — and Cancel keeps the
+    /// A settle that wrote the document, or was cancelled, reloads nothing, and Cancel keeps the
     /// window.
     @Test func aWindowCloseThatSavesOrCancelsReloadsNothing() throws {
         let (doc, _) = try document(named: "note.md")
@@ -251,7 +249,7 @@ import FileExplorer
         #expect(doc.text == "hello\ntyped\n")
     }
 
-    /// **The last tab's ⌘W hands the window-close settle the app's own reload.**
+    /// The last tab's ⌘W hands the window-close settle the app's own reload.
     @Test func theLastTabsCloseReloadsOnADiscard() throws {
         let tabs = try EditorHeaderDoorsWiringTests.source("ContentView+PaneTabs.swift")
         let call = try CallArguments(of: "EditorDocumentClose.settleForWindowClose(", in: normalizedCode(tabs))

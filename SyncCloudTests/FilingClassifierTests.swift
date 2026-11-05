@@ -3,10 +3,10 @@ import Testing
 import Sync
 @testable import SyncCloud
 
-/// Coverage for the on-device Filing backend's deterministic parts: the per-file prompt shaping,
-/// the model-answer→verdict mapping (what `FolderPick.asVerdict()` delegates to), and the
-/// availability gating. The Foundation Models session itself is environment-dependent (macOS 26 +
-/// Apple Intelligence), so no test asserts model output.
+/// The on-device Filing backend's deterministic parts: prompt shaping, the model-answer→verdict
+/// mapping (what `FolderPick.asVerdict()` delegates to), and availability gating. The Foundation
+/// Models session depends on the machine (macOS 26 + Apple Intelligence), so no test asserts model
+/// output.
 @Suite struct FilingClassifierTests {
 
     private static func candidate(name: String, ext: String, year: String? = nil,
@@ -64,8 +64,8 @@ import Sync
         #expect(!prompt.contains("Content excerpt"))
     }
 
-    /// Pins the instruction constant's load-bearing phrases — the decline word the verdict mapping
-    /// keys on, and the relative-path contract the folder matcher depends on.
+    /// Pins the instructions' load-bearing phrases: the decline word the verdict mapping keys on, and
+    /// the relative-path contract the folder matcher depends on.
     @Test func instructionsPinTheDeclineWordAndRelativePathContract() {
         let text = OnDeviceFilingClassifier.onDeviceInstructions
         #expect(text.contains("answer with the folder \"none\""))
@@ -116,8 +116,8 @@ import Sync
         #expect(OnDeviceFilingClassifier.isAvailable == OnDeviceFilingClassifier.isAvailable)
     }
 
-    /// With no taxonomy there is nothing to classify: `classify` returns empty both when the model
-    /// is unavailable (outer gate) and when it is (the empty-taxonomy guard) — never touching a file.
+    /// With no taxonomy there is nothing to classify: `classify` returns empty whether the model is
+    /// unavailable (outer gate) or available (the empty-taxonomy guard), never touching a file.
     @Test func classifyWithoutATaxonomyReturnsEmpty() async {
         let result = await OnDeviceFilingClassifier.classify(
             taxonomyFolders: [], files: [Self.candidate(name: "a.pdf", ext: "pdf")])
@@ -131,9 +131,8 @@ import Sync
         #expect(result.isEmpty)
     }
 
-    /// `prewarm` is documented safe to call repeatedly and must be a silent no-op when the model
-    /// isn't available; when it is available it only enqueues a background warm-up. Either way it
-    /// must return immediately without throwing or crashing.
+    /// `prewarm` is safe to call repeatedly: a silent no-op when the model isn't available, and only
+    /// a queued background warm-up when it is. Either way it returns at once without crashing.
     @Test func prewarmIsSafeToCallRepeatedly() {
         OnDeviceFilingClassifier.prewarm()
         OnDeviceFilingClassifier.prewarm()
@@ -141,8 +140,8 @@ import Sync
 
     // MARK: Hybrid backend routing (cloud vs. on-device)
 
-    /// Runs the router with a recording sink in place of `Logger.shared`, returning both halves of
-    /// the answer so a test can assert the route AND whether the user was told about a downgrade.
+    /// Runs the router with a recording sink in place of `Logger.shared`, so a test can assert the
+    /// route and whether the user was told about a downgrade.
     private func routed(cloudEnabled: Bool, hasCloudKey: Bool) -> (route: FilingBackendRoute, reported: [String]) {
         var reported: [String] = []
         let route = FilingBackendRouter.route(cloudEnabled: cloudEnabled, hasCloudKey: hasCloudKey) {
@@ -151,11 +150,11 @@ import Sync
         return (route, reported)
     }
 
-    /// The key question must not be ASKED unless the cloud toggle is on. In production the answer
-    /// is `AnthropicKeychain.hasKey` — a live Keychain query — so an eagerly-evaluated argument
-    /// meant every Filing scan touched the Keychain even with cloud Filing switched off, which on
-    /// a locked or denied item logs a warning and can raise an access prompt for a feature the
-    /// user disabled. Counted rather than inferred: the route alone is identical either way.
+    /// The key question must not be asked unless the cloud toggle is on. In production it is
+    /// `AnthropicKeychain.hasKey`, a live Keychain query; evaluated eagerly, every Filing scan would
+    /// touch the Keychain with cloud Filing off, which on a locked or denied item logs a warning and
+    /// can raise an access prompt for a feature the user disabled. Counted, since the route alone is
+    /// the same either way.
     @Test func theKeychainIsNotQueriedWhileCloudFilingIsOff() {
         var keyQueries = 0
         func hasKey() -> Bool {
@@ -167,14 +166,14 @@ import Sync
                                           logDowngrade: { _ in }) == .onDevice)
         #expect(keyQueries == 0, "cloud Filing is off — nothing may ask the Keychain about a key")
 
-        // …and with the toggle ON it is asked, exactly once (the gate must be lazy, not dead).
+        // With the toggle on it is asked exactly once: the gate must be lazy, not dead.
         #expect(FilingBackendRouter.route(cloudEnabled: true, hasCloudKey: hasKey(),
                                           logDowngrade: { _ in }) == .cloud)
         #expect(keyQueries == 1)
     }
 
     @Test func cloudFilingOffRunsOnDeviceWithNothingToReport() {
-        // Cloud off is not a downgrade — it's what the user asked for, key or no key.
+        // Cloud off is not a downgrade: it's what the user asked for, key or no key.
         let noKey = routed(cloudEnabled: false, hasCloudKey: false)
         #expect(noKey.route == .onDevice)
         #expect(noKey.reported.isEmpty)
@@ -190,10 +189,9 @@ import Sync
         #expect(result.reported.isEmpty)
     }
 
-    /// The gap this closes: the toggle is ON but no key can be read (never entered, deleted, or a
-    /// locked Keychain), so the on-device model files the documents while the user believes Claude
-    /// did. Before, that fell through with no log line at all — indistinguishable from a real cloud
-    /// run in the Activity Log.
+    /// The toggle is on but no key can be read (never entered, deleted, or a locked Keychain), so the
+    /// on-device model files the documents while the user believes Claude did. That must be logged
+    /// once, or the Activity Log can't tell it from a real cloud run.
     @Test func cloudFilingOnWithoutAKeyDowngradesAndSaysSoExactlyOnce() throws {
         let result = routed(cloudEnabled: true, hasCloudKey: false)
         #expect(result.route == .onDeviceCloudKeyUnavailable)
@@ -209,11 +207,10 @@ import Sync
 
     // MARK: Prompt budget
 
-    /// **A prompt that does not fit is a budget to shrink, not a file to skip.** The on-device
-    /// model's context window is small and shared with its output; once excerpts started being sent
-    /// for files whose text was already in hand, a 244-folder menu plus a 1,200-character excerpt
-    /// tipped a real T-Mobile bill over it. The session threw, the file was skipped, and it silently
-    /// kept the filename-derived home the whole change existed to replace.
+    /// A prompt that doesn't fit is a budget to shrink, not a file to skip. The on-device model's
+    /// context window is small and shared with its output: a few hundred folders plus a
+    /// 1,200-character excerpt can overflow it, and a skipped file silently keeps its
+    /// filename-derived home.
     @Test func eachRungOfTheLadderShrinksBothInputs() {
         let folders = (0..<400).map { "Folder\($0)" }.joined(separator: "\n")
         let file = Self.candidate(name: "DetailedBillApr2025.pdf", ext: "pdf",
@@ -233,15 +230,15 @@ import Sync
                 #expect(!prompt.contains("Content excerpt"))
             }
         }
-        // The last rung drops the excerpt entirely — the folder list is what a verdict must answer in.
+        // The last rung drops the excerpt entirely: the folder list is what a verdict must answer in.
         #expect(!OnDeviceFilingClassifier.promptText(
             for: file, folderList: folders,
             budget: OnDeviceFilingClassifier.PromptBudget.ladder.last!).contains("Content excerpt"))
     }
 
     /// The real message, verbatim from `~/sync-cloud.log`. Matched on text rather than a typed case
-    /// because the two are reported differently across OS updates, and the cost of a false positive
-    /// is one retry with a smaller prompt — against silently keeping a wrong home.
+    /// because the two are reported differently across OS updates, and a false positive costs only
+    /// one retry with a smaller prompt, against silently keeping a wrong home.
     @Test func aContextOverflowIsToldApartFromAModelDeclining() {
         struct Fake: LocalizedError { let errorDescription: String? }
         #expect(OnDeviceFilingClassifier.isContextOverflow(

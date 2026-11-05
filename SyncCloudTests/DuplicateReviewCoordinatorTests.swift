@@ -5,27 +5,24 @@ import Sync
 import FileExplorer
 @testable import SyncCloud
 
-/// Exercises ``DuplicateReviewCoordinator`` — the effect-EXECUTION half of the duplicate-review
-/// flow (``CompareReviewReducer`` owns the decisions and has its own suite). These paths used to
-/// live inline in `ContentView`'s `@State` glue, unreachable by tests; the coordinator receives
+/// Exercises ``DuplicateReviewCoordinator``, the execution half of the duplicate-review flow
+/// (``CompareReviewReducer`` owns the decisions and has its own suite). The coordinator takes
 /// bindings and closures, so a test can stand in for the view and pin the execution contracts:
 ///
-/// - the suppression counter is seeded BEFORE any provider-id write is applied (an id onChange
-///   that fires against an unseeded counter wipes the lens results the retarget is protecting),
-/// - `compareCopies` keeps the ORIGINAL restore snapshot when a second pair is compared without
-///   ending the first review (the panes are already pinned — capturing again would "restore" to
-///   the pinned provider and leak it),
-/// - teardown-with-restore vs drop-without-restore reach the right execution effects.
+/// - the suppression counter is seeded before any provider-id write is applied (an id onChange
+///   firing against an unseeded counter wipes the lens results the retarget is protecting),
+/// - `compareCopies` keeps the original restore snapshot when a second pair is compared without
+///   ending the first review (the panes are already pinned, so capturing again would "restore"
+///   to the pinned provider and leak it),
+/// - teardown-with-restore and drop-without-restore reach the right execution effects.
 @MainActor
 private final class Harness {
     let syncManager: FileSyncManager
     let reviewStore = ReviewSessionStore()
 
-    /// The injected `FileManaging` reaches the manager's stats AND, since `trashRightCopy` began
-    /// passing `fileManager:` explicitly, the removal itself — so a double that fails `trashItem`
-    /// drives the permanent-delete branch for real (see `DuplicateReviewLogHonestyTests`). This
-    /// used to say the removal took its own defaulted manager and was therefore undrivable; that
-    /// was true, and is the very seam that let the gate and the delete measure different disks.
+    /// The injected `FileManaging` reaches the manager's stats and, because `trashRightCopy` passes
+    /// `fileManager:` explicitly, the removal itself, so a double that fails `trashItem` drives the
+    /// permanent-delete branch for real (see `DuplicateReviewLogHonestyTests`).
     init(fileManager: FileManaging = FileManager.default) {
         syncManager = FileSyncManager(fileManager: fileManager)
     }
@@ -35,9 +32,8 @@ private final class Harness {
     var rightId = "dropbox"
     var pendingSwapProviderChanges = 0
     var workspace: Workspace = .filing
-    /// The rail item inside Organize. Starts on a DIFFERENT lens than the one the coordinator has
-    /// to select, so a coordinator that sets only the workspace fails here rather than passing on
-    /// a value that happened to be right already.
+    /// The rail item inside Organize. Starts on a different lens from the one the coordinator must
+    /// select, so a coordinator that sets only the workspace fails here.
     var organizeLens: OrganizeLens? = .toFile
 
     // Live-context stand-ins (ContentView resolves these from providers + pane state).
@@ -49,7 +45,7 @@ private final class Harness {
     // Recorded effects.
     var refreshCount = 0
     var appliedPlans: [ProviderPinPlan] = []
-    /// The counter's value at the moment each plan was applied — proves seeding came first.
+    /// The counter's value at the moment each plan was applied, which proves seeding came first.
     var pendingCounterAtApply: [Int] = []
 
     /// Answer for the trash confirmation, plus what it was asked about.
@@ -94,8 +90,8 @@ private final class Harness {
     }
 
     /// A review as `compareCopies` would set it up, with panes "pinned" to the lens provider.
-    /// Snapshots default to nil, which the fixed gate REFUSES for a folder review — tests that
-    /// drive the trash to completion capture real baselines and pass them in.
+    /// Snapshots default to nil, which the gate refuses for a folder review; tests that drive the
+    /// trash to completion capture real baselines and pass them in.
     func installReview(
         keepRel: String = "Docs", deleteRel: String = "Backup/Docs",
         keepSnapshot: FolderContentSnapshot? = nil,
@@ -126,14 +122,7 @@ private final class Harness {
     }
 }
 
-/// A `FileManager` that parks `attributesOfItem` for one chosen path until the test releases it.
-///
-/// `trashRightCopy` stats the keeper OFF the main actor precisely because that call can block for
-/// seconds against an unmounted cloud or SMB volume. That is also the whole hazard: seconds of
-/// window in which the user can act. Holding the stat open here reproduces the slow volume
-/// deterministically, so the window can be DRIVEN rather than raced — a `Task.sleep` long enough
-/// to hit it reliably would also be long enough to be a flake on a loaded runner.
-/// A real `FileManager` whose Trash always refuses — a Trash-less volume (exFAT, most SMB shares)
+/// A real `FileManager` whose Trash always refuses: a Trash-less volume (exFAT, most SMB shares)
 /// without needing one. Same shape as `Sync`'s `MergeUndoPromiseTests.TrashlessVolume`.
 private final class TrashlessVolume: FileManager, @unchecked Sendable {
     override func trashItem(at url: URL,
@@ -146,11 +135,10 @@ private final class TrashlessVolume: FileManager, @unchecked Sendable {
 /// never reaches the user's `~/.Trash`.
 ///
 /// Everything but `trashItem` is the real disk, which keeps the drift gate's stats and re-walks
-/// honest. The real Trash is the one thing a test cannot control: every move into it waits on a
-/// privacy check that the system can hold for as long as an unanswered dialog is up — see "A
-/// privacy prompt nobody answered wedges `sandboxd`, so a move into the real Trash outlasts the
-/// wait" in docs/flaky-tests.md — and every pass used to leave another `Docs <time>` in the
-/// Trash of whoever ran it.
+/// honest. The real Trash can't be controlled: every move into it waits on a privacy check the
+/// system can hold while a dialog goes unanswered (see "A privacy prompt nobody answered wedges
+/// `sandboxd`, so a move into the real Trash outlasts the wait" in docs/flaky-tests.md), and each
+/// pass would leave a `Docs <time>` in the Trash of whoever ran it.
 ///
 /// Reports where the item went, as the real Trash does: `deleteItems` counts an item with no
 /// resulting URL as permanently deleted, so leaving it out would quietly test the other branch.
@@ -176,6 +164,13 @@ private final class PermanentDeleteBox: @unchecked Sendable {
     var paths: [String] = []
 }
 
+/// A `FileManager` that parks `attributesOfItem` for one chosen path until the test releases it.
+///
+/// `trashRightCopy` stats the keeper off the main actor because that call can block for seconds
+/// against an unmounted cloud or SMB volume, which is also the hazard: seconds in which the user
+/// can act. Holding the stat open reproduces the slow volume deterministically, so the window is
+/// driven rather than raced; a `Task.sleep` long enough to hit it reliably would flake on a loaded
+/// runner.
 private final class GatedKeeperStat: FileManager, @unchecked Sendable {
     private let heldPath: String
     private let lock = NSLock()
@@ -187,8 +182,8 @@ private final class GatedKeeperStat: FileManager, @unchecked Sendable {
         super.init()
     }
 
-    /// True once the stat for the held path has actually begun — the proof that the trash task is
-    /// parked at its one suspension, so whatever the test does next lands inside that window.
+    /// True once the stat for the held path has begun: proof the trash task is parked at its one
+    /// suspension, so whatever the test does next lands inside that window.
     var isStatting: Bool {
         lock.lock(); defer { lock.unlock() }
         return _isStatting
@@ -205,17 +200,15 @@ private final class GatedKeeperStat: FileManager, @unchecked Sendable {
     }
 }
 
-/// Lets an in-flight trash task run as far as it is ever going to, for the assertions that must
-/// hold when the RIGHT answer is "nothing happened". `waitUntil` can't state that — it waits for
-/// an outcome, and the outcome here must never arrive — so this yields the main actor long enough
-/// for the alternative to have landed instead. The budget is deliberately generous: measured with
-/// the fix mutated out, the whole wrong outcome (trash, teardown, restore, tab switch) lands
-/// inside 100ms — a twentieth of the 2s waited here.
+/// Lets an in-flight trash task run as far as it ever will, for assertions whose right answer is
+/// "nothing happened". `waitUntil` can't state that (it waits for an outcome that must never
+/// arrive), so this yields the main actor long enough for the wrong outcome to land. The 2s budget
+/// is generous: the whole wrong outcome (trash, teardown, restore, tab switch) lands within 100ms.
 private func settleTheTrashTask() async {
     for _ in 0..<100 { try? await Task.sleep(nanoseconds: 20_000_000) }
 }
 
-/// A continuation-backed latch for parking an enqueued file operation WITHOUT blocking a
+/// A continuation-backed latch for parking an enqueued file operation without blocking a
 /// cooperative-pool thread (the Sync package's flake notes document why a semaphore park on the
 /// pool is the wrong tool here).
 private actor ReviewTestLatch {
@@ -263,12 +256,11 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         // only the right id really changes, so the plan carries exactly that one write.
         #expect(harness.leftId == "icloud")
         #expect(harness.rightId == "icloud")
-        // `#require`, not a bare subscript: on failure an index trap kills the whole test HOST
-        // (Swift array bounds are a fatal error, not an assertion), taking every other test's
-        // result with it. This exact line crashed the run when the fix it covers was mutated out.
+        // `#require`, not a bare subscript: on failure an index trap kills the whole test host
+        // (array bounds are a fatal error, not an assertion), taking every other result with it.
         #expect(harness.appliedPlans.count == 1)
         #expect(try #require(harness.appliedPlans.first).suppressCount == 1)
-        // The load-bearing order: the counter was already seeded when the plan was applied.
+        // The order that matters: the counter was already seeded when the plan was applied.
         #expect(harness.pendingSwapProviderChanges == 1)
         #expect(harness.pendingCounterAtApply == [1])
 
@@ -280,7 +272,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(review.deletePath == "/scan/root/Backup/Docs")
         #expect(review.keeperRelativePath == "Docs")
         #expect(review.redundantRelativePath == "Backup/Docs")
-        // The restore snapshot is the PRE-pin setup.
+        // The restore snapshot is the pre-pin setup.
         #expect(review.restore == SavedCompareState(
             leftProviderId: "icloud", rightProviderId: "dropbox",
             leftRelativePath: "", rightRelativePath: ""))
@@ -289,11 +281,10 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     }
 
     @Test func compareCopiesRekeysIgnoreStoreAndRestoreRekeysItBack() throws {
-        // The pin suppresses the provider-id onChange handlers — the ONLY other place the
-        // durable ignore store is re-keyed. Without an explicit re-key here, the pinned
-        // same-provider review filters its diff through the OLD pair's remembered ignores: a
-        // file the user ignored for iCloud↔Dropbox silently vanishes from the iCloud↔iCloud
-        // duplicate review they're using to decide "identical — trash the right copy".
+        // The pin suppresses the provider-id onChange handlers, the only other place the durable
+        // ignore store is re-keyed. Without a re-key here the pinned same-provider review filters
+        // its diff through the old pair's ignores: a file ignored for iCloud↔Dropbox silently
+        // vanishes from the iCloud↔iCloud review used to decide "identical, trash the right copy".
         let harness = Harness()
         let suite = "DuplicateReviewCoordinatorTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -309,7 +300,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
             keep: duplicateCopy(path: "/scan/root/Docs", keeper: true),
             delete: duplicateCopy(path: "/scan/root/Backup/Docs", keeper: false))
 
-        // Pinned to icloud↔icloud: the review reads THAT pair's ignores, not the old pair's.
+        // Pinned to icloud↔icloud: the review reads that pair's ignores, not the old pair's.
         #expect(store.rootRelativePaths == ["SamePair/notes.txt"])
 
         // Done → restore: the original pair's ignores come back with the original providers.
@@ -324,9 +315,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
             leftRelativePath: "Was/Left", rightRelativePath: "Was/Right")
         _ = harness.installReview(restore: original)
 
-        // Compare a second pair without ending the first review: the panes are already pinned,
-        // so capturing a fresh snapshot would remember the PINNED provider — the restore must
-        // keep pointing at the setup from before the first pair.
+        // Compare a second pair without ending the first review. The panes are already pinned, so
+        // a fresh snapshot would remember the pinned provider; the restore must keep pointing at
+        // the setup from before the first pair.
         harness.coordinator.compareCopies(
             keep: duplicateCopy(path: "/scan/root/Photos", keeper: true),
             delete: duplicateCopy(path: "/scan/root/Old/Photos", keeper: false))
@@ -338,7 +329,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
     @Test func compareCopiesRefusesACopyOutsideTheProviderRoot() {
         let harness = Harness()
-        // Boundary hazard: a sibling whose name merely EXTENDS the root must not be claimed.
+        // Boundary hazard: a sibling whose name merely extends the root must not be claimed.
         harness.coordinator.compareCopies(
             keep: duplicateCopy(path: "/scan/root/Docs", keeper: true),
             delete: duplicateCopy(path: "/scan/rootBackup/Docs", keeper: false))
@@ -348,9 +339,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.appliedPlans.isEmpty)
         #expect(harness.pendingSwapProviderChanges == 0)
         #expect(harness.workspace == .filing)
-        // Unchanged from where the harness started: this path refuses, so it must not
-        // navigate. (Asserted against `.toFile` rather than the destination, so a
-        // coordinator that DID navigate here fails instead of passing by coincidence.)
+        // Unchanged from where the harness started: this path refuses, so it must not navigate.
+        // Asserted against `.toFile`, not the destination, so navigating here fails.
         #expect(harness.organizeLens == .toFile)
         #expect(harness.refreshCount == 0)
     }
@@ -365,11 +355,10 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
         #expect(harness.duplicateReview == nil)
         // The pinned right pane went back to the saved provider, and the counter was seeded
-        // BEFORE the write (the restore path shares compareCopies' suppression contract).
+        // before the write (the restore path shares compareCopies' suppression contract).
         #expect(harness.rightId == "dropbox")
-        // `#require`, not a bare subscript: on failure an index trap kills the whole test HOST
-        // (Swift array bounds are a fatal error, not an assertion), taking every other test's
-        // result with it. This exact line crashed the run when the fix it covers was mutated out.
+        // `#require`, not a bare subscript: on failure an index trap kills the whole test host
+        // (array bounds are a fatal error, not an assertion), taking every other result with it.
         #expect(harness.appliedPlans.count == 1)
         #expect(try #require(harness.appliedPlans.first).suppressCount == 1)
         #expect(harness.pendingCounterAtApply == [1])
@@ -382,8 +371,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     @Test func leavingCompareWithAnInactiveReviewTearsItDownLikeDone() {
         let harness = Harness()
         _ = harness.installReview()
-        // The panes are NOT on the two copies (the user navigated away): the review is inactive,
-        // so leaving Compare abandons it — teardown with restore, exactly like Done.
+        // The panes are not on the two copies (the user navigated away), so the review is
+        // inactive and leaving Compare abandons it: teardown with restore, like Done.
         harness.currentLeftPath = "/scan/root/Somewhere/Else"
         harness.currentRightPath = "/scan/root/Backup/Docs"
 
@@ -401,15 +390,15 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     @Test func providerSwitchDuringAnActiveReviewDropsItWithoutRestoring() {
         let harness = Harness()
         let review = harness.installReview()
-        // Both panes are still on the two copies, so the review is ACTIVE: the comparison the
+        // Both panes are still on the two copies, so the review is active: the comparison the
         // user is redefining is the one in front of them.
         harness.currentLeftPath = review.keepPath
         harness.currentRightPath = review.deletePath
 
         harness.coordinator.dispatchReview(.providerSwitched(isLeft: true))
 
-        // The user chose the new comparison: the review is dropped, but nothing is restored —
-        // no pin plan, no suppression seeding, no focus change, no rescan.
+        // The user chose the new comparison: the review is dropped but nothing is restored (no
+        // pin plan, no suppression seeding, no focus change, no rescan).
         #expect(harness.duplicateReview == nil)
         #expect(harness.appliedPlans.isEmpty)
         #expect(harness.pendingSwapProviderChanges == 0)
@@ -417,23 +406,19 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.refreshCount == 0)
     }
 
-    /// **A browse tab changing a pane's source destroys an in-progress duplicate review, and both
-    /// halves of that loss are now said out loud.**
+    /// A browse tab changing a pane's source destroys an in-progress duplicate review, and both
+    /// halves of that loss are logged.
     ///
-    /// `.tabChangedSource` clears the review and *deliberately* strands the review's programmatic
-    /// provider pin on the sibling pane — undoing it would repoint that pane AND re-home it, which
-    /// a tab-driven switch must never do: the tab carries the navigation (see
-    /// `CompareReviewEvent.tabChangedSource`). That is the right call, and it is still a
-    /// loss the user can see and cannot explain: the banner is gone and the pane they did not touch
-    /// sits on a source the *review* chose. Neither half wrote anything to `~/sync-cloud.log` — the
-    /// clear case is a bare `duplicateReview = nil`, and the strand is represented by no effect at
-    /// all — so this delta added a NEW route into a silent state loss.
+    /// `.tabChangedSource` clears the review and deliberately strands its provider pin on the
+    /// sibling pane: undoing it would repoint and re-home that pane, which a tab-driven switch must
+    /// never do because the tab carries the navigation (see `CompareReviewEvent.tabChangedSource`).
+    /// It is still a loss the user can see and not explain: the banner is gone and the pane they
+    /// didn't touch sits on a source the review chose. So both halves reach `~/sync-cloud.log`.
     ///
-    /// **Read from a capture opened before each call, with the review's group name and both
-    /// provider ids carrying a token.** `Logger.shared` is process-wide and `entries` is a rolled
-    /// 1000-line window, so each window reads a `LogCapture` instead and `#require`s its own
-    /// closing line from it; the tokens are what make both the presence and the absence readings
-    /// exclusive to this run in a parallel suite.
+    /// Each window reads a `LogCapture` opened before the call and `#require`s its own closing
+    /// line, since `Logger.shared.entries` is a process-wide rolling window. The group name and
+    /// provider ids carry a per-run token, so both presence and absence readings are exclusive to
+    /// this run in a parallel suite.
     @Test func aTabDrivenSourceChangeSaysWhatItDiscardedAndWhatItStranded() async throws {
         /// Everything logged while `act` runs, read from a capture opened before it.
         func window(_ act: () -> Void) async throws -> [String] {
@@ -469,8 +454,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
             return review
         }
 
-        // 1. The tab-driven change itself: both halves land. The tab moved the LEFT pane, so the
-        //    pin that can be stranded is the RIGHT one — `was-right-…` below is the sibling's.
+        // 1. The tab-driven change itself: both halves land. The tab moved the left pane, so the
+        //    pin that can be stranded is the right one; `was-right-…` below is the sibling's.
         let tabToken = String(UUID().uuidString.prefix(8))
         let harness = Harness()
         _ = pinnedReview(tabToken, on: harness)
@@ -489,9 +474,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(stranded.first?.contains("pinned-\(tabToken)") == true,
                 "the line names the pre-review sources but not the ones the panes are actually left on, which is the half a reader is looking at")
 
-        // 2. …and the strand line is specific to this event. A swap clears the review the same way
-        //    but exchanges the two ids, so the pin travels with the pane rather than being left —
-        //    a warning there would be a sentence about something that did not happen.
+        // 2. The strand line is specific to this event. A swap clears the review the same way but
+        //    exchanges the two ids, so the pin travels with the pane and a warning would be false.
         let swapToken = String(UUID().uuidString.prefix(8))
         let swapped = Harness()
         _ = pinnedReview(swapToken, on: swapped)
@@ -501,9 +485,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(!afterSwap.contains(where: { $0.contains("was-right-\(swapToken)") }),
                 "a pane swap claims it stranded the review's provider pin — it exchanges the ids, so the pin travels with the pane")
 
-        // 3. …and an event that clears NOTHING says nothing. `.compareCopiesStarted` with no guided
-        //    review running produces no effects at all, so a discard line there would be a claim
-        //    about a review that is still sitting right where it was.
+        // 3. An event that clears nothing says nothing. `.compareCopiesStarted` with no guided
+        //    review running produces no effects, so a discard line would describe a review that is
+        //    still in place.
         let quietToken = String(UUID().uuidString.prefix(8))
         let quiet = Harness()
         let kept = pinnedReview(quietToken, on: quiet)
@@ -512,14 +496,12 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(!afterQuiet.contains(where: { $0.contains("Docs-\(quietToken)") }),
                 "a review that was not discarded is logged as discarded")
 
-        // 4. **The case this warning was firing on with nothing stranded.** `compareCopies` pins
-        //    both panes and `ProviderPinPlan` writes nothing for a side already on the target — so
-        //    a user whose pre-review pair was ALREADY that provider on both sides has no pin left
-        //    anywhere. A tab then moves one pane, the PAIR differs from the saved pair, and the old
-        //    gate warned that the review's pin was stranded and "Nothing will restore that". The
-        //    sibling here is where the user left it, so the review must say what it discarded and
-        //    nothing more. This is the half the commit body claimed and no window covered: window 2
-        //    tests a different EVENT (`.panesSwapped`), not this event with nothing to strand.
+        // 4. This event with nothing stranded. `compareCopies` pins both panes and
+        //    `ProviderPinPlan` writes nothing for a side already on the target, so a user whose
+        //    pre-review pair was already that provider on both sides has no pin anywhere. A tab
+        //    then moves one pane and the pair differs from the saved pair, but the sibling is where
+        //    the user left it: the log says what was discarded and nothing more. (Window 2 covers
+        //    a different event, `.panesSwapped`.)
         let calmToken = String(UUID().uuidString.prefix(8))
         let calm = Harness()
         let unchanged = "userchoice-\(calmToken)"
@@ -538,7 +520,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
             // nothing: there is no leftover on either side.
             restore: SavedCompareState(leftProviderId: unchanged, rightProviderId: unchanged,
                                        leftRelativePath: "Was/Left", rightRelativePath: "Was/Right"))
-        // The tab moves the RIGHT pane onto a new source — the user's own choice, on the pane they
+        // The tab moves the right pane onto a new source, the user's own choice on the pane they
         // clicked in. The sibling (left) is untouched, so nothing is stranded.
         calm.rightId = "tabchoice-\(calmToken)"
         let afterCalm = try await window { calm.coordinator.noteTabChangedSource(isLeft: false) }
@@ -552,15 +534,14 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
                 "the stranded-pin line named a pane whose source never moved")
     }
 
-    /// **Which pane can be holding the review's leftover pin, on the rule itself.**
+    /// Which pane can hold the review's leftover pin, on the rule itself.
     ///
-    /// The gate asked "has the PAIR moved from the pre-review pair", and strandedness is not that:
-    /// the user chose the source on the pane they clicked in, so the only pin that can be left
-    /// behind is on the SIBLING. Driven here rather than scanned, because the polarity is the whole
-    /// content — a `stranded(movedPane:)` that reads its own side instead of the sibling's warns
-    /// about the pane the user is looking at and stays silent about the one they are not.
+    /// Strandedness isn't "has the pair moved from the pre-review pair": the user chose the source
+    /// on the pane they clicked in, so only the sibling can hold a leftover pin. Driven, not
+    /// scanned, because the polarity is the whole content: a `stranded(movedPane:)` reading its own
+    /// side would warn about the pane the user is looking at and stay silent about the other.
     @Test func theStrandedPinIsTheSiblingsAndOnlyTheSiblings() {
-        // The tab moved the LEFT pane onto something new; the RIGHT one still carries the pin.
+        // The tab moved the left pane onto something new; the right one still carries the pin.
         let afterLeftMoved = StrandedProviderPin.stranded(
             movedPane: true,
             savedLeft: "was-left", savedRight: "was-right",
@@ -581,9 +562,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
                 "a tab moving the right pane reports the wrong pane's pin")
         #expect(afterRightMoved?.name == "left", "the warning names the wrong pane")
 
-        // **Nothing stranded: the sibling is where the user left it.** This is the shape the old
-        // gate warned about — the pane the tab moved differs from the saved pair, so "has the pair
-        // moved" said yes while there was no pin to strand anywhere.
+        // Nothing stranded: the sibling is where the user left it. The pane the tab moved differs
+        // from the saved pair, so "has the pair moved" would say yes with no pin anywhere.
         #expect(StrandedProviderPin.stranded(movedPane: false,
                                              savedLeft: "mine", savedRight: "mine",
                                              currentLeft: "mine", currentRight: "tab-choice") == nil,
@@ -607,9 +587,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         harness.syncManager.rightBrowsePath.drill(into: "Invoices", atDepth: 0)
         harness.syncManager.rightTree = [FileNode(id: "/pinned/x", name: "x", isDirectory: false)]
         #expect(!harness.syncManager.rightBrowsePath.isEmpty && !harness.syncManager.rightTree.isEmpty)
-        // The panes are NOT on the two copies — entering an Organize lens re-focused the shared left
-        // pane — so the review is inactive and the right pane's pin is stale bookkeeping.
-        // The user now repoints the rail (the LEFT pane) to a third provider.
+        // The panes are not on the two copies (entering an Organize lens refocused the shared left
+        // pane), so the review is inactive and the right pane's pin is stale bookkeeping. The user
+        // now repoints the rail (the left pane) to a third provider.
         harness.leftId = "onedrive"
 
         harness.coordinator.dispatchReview(.providerSwitched(isLeft: true))
@@ -617,28 +597,23 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.duplicateReview == nil)
         // The right pane went back to the provider it had before the review…
         #expect(harness.rightId == "dropbox")
-        // `#require`, not a bare subscript: on failure an index trap kills the whole test HOST
-        // (Swift array bounds are a fatal error, not an assertion), taking every other test's
-        // result with it. This exact line crashed the run when the fix it covers was mutated out.
+        // `#require`, not a bare subscript: on failure an index trap kills the whole test host
+        // (array bounds are a fatal error, not an assertion), taking every other result with it.
         #expect(harness.appliedPlans.count == 1)
         #expect(try #require(harness.appliedPlans.first).suppressCount == 1)
         // …seeded before the write, like every other programmatic id change…
         #expect(harness.pendingCounterAtApply == [1])
         // …while the user's own choice on the left is left exactly alone.
         #expect(harness.leftId == "onedrive")
-        // **The released pane is re-homed onto its pre-review folder, and that is this effect's own
-        // job now.** It used to restore no folder, on the reasoning that the caller's
-        // `resetNavigation()` re-homed both panes a moment later. Its replacement, `retargetPane`,
-        // re-homes only the pane the USER switched — so a pin release that restored no folder would
-        // leave this pane claiming "dropbox" while showing the pinned provider's tree at a path
-        // under the wrong root.
+        // The released pane is re-homed onto its pre-review folder by this effect itself:
+        // `retargetPane` re-homes only the pane the user switched, so without it this pane would
+        // claim "dropbox" while showing the pinned provider's tree at a path under the wrong root.
         #expect(harness.syncManager.rightRelativePath == "Was/Right",
                 "the pane whose source was put back was left on a path under the source it no longer shows")
-        // The folder is the least of it. That pane's ROOT moved, so its column stack names folders
-        // in a tree it is no longer showing and its tree has to be re-walked — the same three
-        // things `retargetPane` takes from any pane whose source changes. Asserted because
-        // "re-homed" is satisfied by the relative path alone, and the relative path is the one
-        // piece that would still look right if the effect had merely written it.
+        // That pane's root moved too, so its column stack names folders in a tree it no longer
+        // shows and its tree must be re-walked, as `retargetPane` does for any pane whose source
+        // changes. Asserted because the relative path alone would look right if the effect had
+        // merely written it.
         #expect(harness.syncManager.rightBrowsePath.isEmpty,
                 "the released pane kept a column stack indexed against the source the review pinned it to")
         #expect(harness.syncManager.rightTree.isEmpty,
@@ -668,9 +643,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
     // MARK: trashRightCopy — the one destructive path
 
-    /// Declining the confirmation must change nothing at all: no delete, no tab switch, and the
-    /// review stays up so the user can retry. Before the confirmer became a seam this path — the
-    /// only destructive one on the coordinator — could not be exercised by a test in any form.
+    /// Declining the confirmation changes nothing: no delete, no tab switch, and the review stays
+    /// up so the user can retry.
     @Test func decliningTheTrashConfirmationLeavesEverythingAlone() async {
         let harness = Harness()
         let review = harness.installReview()
@@ -682,17 +656,16 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.trashConfirmedFor == [review.deletePath])
         #expect(harness.duplicateReview == review)   // still up for a retry
         #expect(harness.workspace == .filing)
-        // Unchanged from where the harness started: this path refuses, so it must not
-        // navigate. (Asserted against `.toFile` rather than the destination, so a
-        // coordinator that DID navigate here fails instead of passing by coincidence.)
+        // Unchanged from where the harness started: this path refuses, so it must not navigate.
+        // Asserted against `.toFile`, not the destination, so navigating here fails.
         #expect(harness.organizeLens == .toFile)
         #expect(harness.appliedPlans.isEmpty)        // no restore ran
         #expect(harness.refreshCount == 0)
     }
 
     /// A keeper that no longer matches the scan refuses the trash even after the user confirmed:
-    /// an external move/delete during a long side-by-side review would otherwise make the copy
-    /// being trashed the LAST one. The review stays up, with a banner saying why.
+    /// an external move or delete during a long side-by-side review would otherwise make the copy
+    /// being trashed the last one. The review stays up, with a banner saying why.
     @Test func aDriftedKeeperRefusesTheTrashAfterConfirmation() async {
         let harness = Harness()
         // keepPath points at nothing on disk, so the existence half of the gate fails.
@@ -708,21 +681,19 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.duplicateReview == review)   // kept, not torn down
         #expect(harness.appliedPlans.isEmpty)
         #expect(harness.workspace == .filing)
-        // Unchanged from where the harness started: this path refuses, so it must not
-        // navigate. (Asserted against `.toFile` rather than the destination, so a
-        // coordinator that DID navigate here fails instead of passing by coincidence.)
+        // Unchanged from where the harness started: this path refuses, so it must not navigate.
+        // Asserted against `.toFile`, not the destination, so navigating here fails.
         #expect(harness.organizeLens == .toFile)
     }
 
-    /// The success path, end to end on a real temp tree: the confirmed trash actually removes the
-    /// right copy, the review is torn down with its Compare setup restored, the Duplicates list
-    /// drops just that copy, and the user lands back on the Duplicates lens. Needs a real fixture because
-    /// the keeper-drift gate stats the keeper (existence AND, for files, byte size vs the scan
-    /// snapshot) before anything is trashed.
+    /// The success path, end to end on a real temp tree: the confirmed trash removes the right
+    /// copy, the review is torn down with its Compare setup restored, the Duplicates list drops
+    /// that copy, and the user lands back on the Duplicates lens. Needs a real fixture because the
+    /// keeper-drift gate stats the keeper (existence and, for files, byte size against the scan)
+    /// before anything is trashed.
     ///
-    /// The trash itself goes to a `ScratchTrash` folder beside the fixture, not to `~/.Trash`:
-    /// the real Trash put this test's verdict in the hands of the system's privacy checks, and a
-    /// copy of `Docs` in the Trash of whoever ran it.
+    /// The trash goes to a `ScratchTrash` folder beside the fixture, not `~/.Trash`, so the
+    /// system's privacy checks can't decide the verdict and no copy lands in the runner's Trash.
     @Test func confirmingTrashesTheRightCopyAndReturnsToDuplicates() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-\(UUID().uuidString)")
@@ -769,7 +740,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         // It went to the stand-in, contents and all — not to the real Trash.
         #expect(FileManager.default.fileExists(atPath: trash.appendingPathComponent("Docs/a.txt").path),
                 "the right copy left the disk but never reached the test's own Trash folder")
-        // The keeper is untouched — the whole point of the drift gate above it.
+        // The keeper is untouched, the point of the drift gate above it.
         #expect(FileManager.default.fileExists(atPath: keep.path))
         // Back to the Duplicates list, with that copy dropped from its group (the group had two
         // copies, so removing one leaves only the keeper and the group disappears).
@@ -784,16 +755,15 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.syncManager.banner?.isUndoable == true)
     }
 
-    /// **"Trash Right Copy" refuses a right copy holding what the left lacks (FR13).** An
-    /// overlapping group's card offers Compare copies too, and the button checked only that the
-    /// pair was unchanged since the scan — so a right folder "1 unique here" went to the Trash with
-    /// its unique file inside, under a dialog that said only "The left copy is kept." Real folders,
-    /// real baselines: the refusal comes BEFORE the confirmation, names the file, points to Merge,
-    /// and leaves both copies, the review and the tab exactly as they were.
+    /// "Trash Right Copy" refuses a right copy holding what the left lacks. An overlapping group's
+    /// card offers Compare copies too, so checking only that the pair is unchanged since the scan
+    /// would trash a right folder "1 unique here" with its unique file inside. Real folders, real
+    /// baselines: the refusal comes before the confirmation, names the file, points to Merge, and
+    /// leaves both copies, the review and the tab as they were.
     @Test func aRightCopyHoldingWhatTheLeftLacksIsRefusedBeforeAsking() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-unique-\(UUID().uuidString)")
-        // A stand-in Trash, so a regression that DID trash never reaches the real one.
+        // A stand-in Trash, so a regression that did trash never reaches the real one.
         let trash = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-unique-trash-\(UUID().uuidString)")
         defer {
@@ -832,10 +802,10 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.appliedPlans.isEmpty)
     }
 
-    /// FR13: a file at the same path and size but a different modification date counts as
-    /// something the right copy holds — a same-length edit (2025 → 2026) keeps the size, and
-    /// nothing here reads the bytes. Real folders, real baselines: refused before asking, naming
-    /// the file. The control: the same pair dated alike is not a difference.
+    /// A file at the same path and size but a different modification date counts as something the
+    /// right copy holds: a same-length edit (2025 → 2026) keeps the size, and nothing here reads
+    /// the bytes. Real folders, real baselines: refused before asking, naming the file. The
+    /// control: the same pair dated alike is not a difference.
     @Test func aSameSizedFileWithAnotherDateIsRefusedBeforeAsking() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-dated-\(UUID().uuidString)")
@@ -881,12 +851,11 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(FileManager.default.fileExists(atPath: copy.appendingPathComponent("summary.txt").path))
     }
 
-    /// The scan's own count is enough on its own: the baselines compare path and size, so a file
+    /// The scan's own count refuses on its own: the baselines compare path and size, so a file
     /// edited to the same size agrees on every path while `uniqueItemCount`, which compares
-    /// content, still says the copy holds something the keeper lacks — so a count of 12 refuses
-    /// even over matching baselines. And the control:
-    /// matching baselines with a count of 0 are not refused, so the rule is not refusing every
-    /// folder review (the success path above is the end-to-end proof of that).
+    /// content, still says the copy holds something the keeper lacks. So a count of 12 refuses
+    /// even over matching baselines. The control: matching baselines with a count of 0 are not
+    /// refused (the success path above proves that end to end).
     @Test func theScansUniqueCountRefusesOnItsOwn() {
         let entries: [String: FolderContentSnapshot.Entry] = ["a.txt": .file(size: 1, modificationDate: nil)]
         let same = FolderContentSnapshot(entries: entries, ignoredNames: [])
@@ -899,8 +868,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(refusal?.log.contains(review.deletePath) == true)
     }
 
-    /// The count reaches the review at all: `compareCopies` is the only place it is read off the
-    /// copy, and `DuplicateCompareContext` defaults it to 0 — so dropping the argument would leave
+    /// The count reaches the review: `compareCopies` is the only place it is read off the copy,
+    /// and `DuplicateCompareContext` defaults it to 0, so dropping the argument would leave
     /// `uniqueItemsRefusal`'s first source silently reading 0 for every review.
     @Test func compareCopiesCarriesTheRightCopysUniqueCount() throws {
         let harness = Harness()
@@ -912,11 +881,11 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(try #require(harness.duplicateReview).deleteUniqueItemCount == 12)
     }
 
-    /// **An identical group's copy is trashed whatever its dates say (D1).** `cp -R` and most
-    /// downloads give a copy new dates, and the date comparison FR13 added refused every such
-    /// pair — pointing at "Merge into Keeper", which an identical group's card does not offer. The
-    /// scan hashed both trees and found the same content, so the dates are not evidence. Real
-    /// folders, the same bytes dated a year apart, run to the end: the right copy leaves the disk.
+    /// An identical group's copy is trashed whatever its dates say. `cp -R` and most downloads
+    /// give a copy new dates, and comparing them would refuse every such pair, pointing at "Merge
+    /// into Keeper", which an identical group's card doesn't offer. The scan hashed both trees and
+    /// found the same content, so dates are not evidence. Real folders, the same bytes dated a year
+    /// apart, run to the end: the right copy leaves the disk.
     @Test func anIdenticalGroupsCopyWithOtherDatesIsTrashed() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-cp-\(UUID().uuidString)")
@@ -968,7 +937,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     }
 
     /// The rule, both ways, over one pair of baselines: a same-sized file dated differently is a
-    /// difference in an overlapping group (FR13, unchanged) and not in an identical one (D1).
+    /// difference in an overlapping group and not in an identical one.
     @Test func datesCountOnlyWhenTheGroupIsNotIdentical() {
         let left = FolderContentSnapshot(
             entries: ["a.txt": .file(size: 8, modificationDate: Date(timeIntervalSince1970: 1_700_000_000))],
@@ -1005,8 +974,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(try #require(harness.duplicateReview).matchKind == .overlapping)
     }
 
-    /// Two real folders, identical, with real baselines — a review that WOULD trash the right copy
-    /// — and the Duplicates list as `groups(keep, copy)` builds it.
+    /// Two real identical folders with real baselines, a review that would trash the right copy,
+    /// and the Duplicates list as `groups(keep, copy)` builds it.
     private func heldReviewFixture(
         _ groups: (_ keep: URL, _ copy: URL, _ root: URL) -> [DuplicateGroup]
     ) async throws -> (harness: Harness, review: DuplicateCompareContext, copy: URL, cleanup: () -> Void) {
@@ -1036,9 +1005,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         })
     }
 
-    /// **A right copy inside a folder another group keeps is refused**, as the Compare Copies pair
-    /// refuses it (`copyProtected`) — this button checked neither that nor the keeper below, so it
-    /// trashed what the recommended removal would never have offered.
+    /// A right copy inside a folder another group keeps is refused, as the Compare Copies pair
+    /// refuses it (`copyProtected`), so this button can't trash what the recommended removal would
+    /// never offer.
     @Test func aRightCopyInsideAKeptFolderIsRefusedBeforeAsking() async throws {
         let fixture = try await heldReviewFixture { keep, copy, _ in
             [DuplicateGroup(
@@ -1063,8 +1032,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(fixture.harness.duplicateReview == fixture.review)
     }
 
-    /// **A right copy holding another group's keeper is refused** — the gate's FR10 check, which the
-    /// group flows apply and this button did not. Here the copy holds the keeper of a file group.
+    /// A right copy holding another group's keeper is refused, the gate check the group flows
+    /// apply too. Here the copy holds the keeper of a file group.
     @Test func aRightCopyHoldingAnotherGroupsKeeperIsRefusedBeforeAsking() async throws {
         let fixture = try await heldReviewFixture { keep, copy, root in
             let file = { (path: String, keeper: Bool) in
@@ -1095,10 +1064,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(fixture.harness.duplicateReview == fixture.review)
     }
 
-    /// **A right copy re-picked as this group's keeper is refused in those words (D6).** Pick the
-    /// right folder as the keeper on the card while the review is open, and the hold used to say it
-    /// "holds the copy another duplicate group keeps — rescan": no other group is involved, and a
-    /// rescan would not undo the pick.
+    /// A right copy re-picked as this group's keeper is refused in those words. Picked on the card
+    /// while the review is open, it must not be described as holding another group's keeper: no
+    /// other group is involved, and a rescan wouldn't undo the pick.
     @Test func aRightCopyRepickedAsThisGroupsKeeperIsRefusedInThoseWords() async throws {
         let fixture = try await heldReviewFixture { keep, copy, _ in
             [DuplicateGroup(matchType: .identical, name: "Docs", isDirectory: true,
@@ -1120,10 +1088,10 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(fixture.harness.duplicateReview == fixture.review)
     }
 
-    /// **A hold that appears during the queue wait is refused at the last check (D5).** The
-    /// pre-check reads the hold before asking; `deleteItems` can then wait behind a long queued
-    /// operation, and a keeper picked by hand inside the right copy in that window must still
-    /// stop the trash. The gate's own `refuseRemovalIfHeld` is the only thing that can see it.
+    /// A hold that appears during the queue wait is refused at the last check. The pre-check reads
+    /// the hold before asking; `deleteItems` can then wait behind a long queued operation, and a
+    /// keeper picked by hand inside the right copy in that window must still stop the trash. Only
+    /// the gate's own `refuseRemovalIfHeld` can see it.
     @Test func aHoldThatAppearsDuringTheQueueWaitIsRefusedByTheGate() async throws {
         let fixture = try await heldReviewFixture { keep, copy, _ in
             [DuplicateGroup(matchType: .identical, name: "Docs", isDirectory: true,
@@ -1172,20 +1140,14 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.duplicateReview == fixture.review, "a refusal keeps the review up")
     }
 
-    /// **The permanent-delete branch, driven for real** — which only became possible when
-    /// `trashRightCopy` started passing `fileManager:` to `deleteItems`.
+    /// The permanent-delete branch, driven for real, because `trashRightCopy` passes
+    /// `fileManager:` to `deleteItems`.
     ///
-    /// Before that the removal took `FileManager.default` whatever the manager held, so staging a
-    /// Trash-less volume achieved nothing: `trashItem` succeeded against the real temp directory,
-    /// the copy went to the user's ACTUAL Trash, and the branch was unreachable from a test. That
-    /// is why `DuplicateReviewLogHonestyTests` pins it by source scan, and why its doc used to say
-    /// no injection could reach it.
-    ///
-    /// The discriminator is `permanentDeleteConfirmer`, which `deleteItems` asks ONLY once the
-    /// trash has failed. With the removal on the injected manager it is asked, naming the copy;
-    /// with the removal on `FileManager.default` it is never asked at all — so an empty box here
-    /// means the two halves measured different filesystems. It also means this test never touches
-    /// the real Trash: the double refuses that call outright.
+    /// The discriminator is `permanentDeleteConfirmer`, which `deleteItems` asks only once the
+    /// trash has failed. With the removal on the injected manager it is asked, naming the copy; on
+    /// `FileManager.default` it would never be asked, so an empty box here means the gate and the
+    /// removal measured different filesystems (and the copy reached the user's real Trash). The
+    /// double refuses the trash outright, so this test never touches the real Trash.
     @Test func aPermanentlyDeletedRightCopyIsConfirmedAgainstTheManagersOwnFilesystem() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-perm-\(UUID().uuidString)")
@@ -1229,12 +1191,11 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(FileManager.default.fileExists(atPath: keep.path))
     }
 
-    /// **The review is the folder-ONLY flow, and its directory gate must see content.** The card
-    /// offers Compare for every directory group, a review is designed to stay open, and while it
-    /// is, the right folder can gain a file (a download landing, a provider sync) — trashing it
-    /// then destroys the only instance of that file, under a banner saying the left copy is kept.
-    /// The stat facts cannot catch this (a folder's stat size is not its contents), so the gate's
-    /// directory verdict comes from the engine's shared re-walk against the scan's baseline.
+    /// The review is a folder-only flow, so its directory gate must see content. A review stays
+    /// open, and meanwhile the right folder can gain a file (a download landing, a provider sync);
+    /// trashing it would destroy the only instance of that file under a banner saying the left
+    /// copy is kept. Stat facts can't catch this (a folder's stat size is not its contents), so
+    /// the directory verdict comes from the engine's shared re-walk against the scan's baseline.
     @Test func aRightFolderThatGainedAFileDuringTheReviewIsRefused() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-drift-\(UUID().uuidString)")
@@ -1256,7 +1217,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
             ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
         let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
 
-        // The right copy gains a file AFTER the scan's baseline — during the open review.
+        // The right copy gains a file after the scan's baseline, during the open review.
         try Data("the only copy of this".utf8).write(to: copy.appendingPathComponent("new-edit.txt"))
 
         harness.coordinator.trashRightCopy(review)
@@ -1271,11 +1232,10 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.workspace == .compare, "a refusal must not navigate")
     }
 
-    /// The KEEP side of the same content gate. The keeper still EXISTS — so the existence half
-    /// that `aDriftedKeeperRefusesTheTrashAfterConfirmation` pins never fires — but its contents
-    /// moved during the open review: what would be kept is no longer what the scan grouped, so
-    /// trashing the right copy would destroy the last instance of the scanned content. Only the
-    /// directory verdict from the shared re-walk can refuse this.
+    /// The keep side of the same content gate. The keeper still exists, so the existence half
+    /// `aDriftedKeeperRefusesTheTrashAfterConfirmation` pins never fires, but its contents changed
+    /// during the open review: trashing the right copy would destroy the last instance of the
+    /// scanned content. Only the directory verdict from the shared re-walk can refuse this.
     @Test func aKeepFolderWhoseContentsDriftedDuringTheReviewIsRefused() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-keep-drift-\(UUID().uuidString)")
@@ -1297,7 +1257,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
             ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
         let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
 
-        // The KEEPER loses its file after the scan's baseline — during the open review.
+        // The keeper loses its file after the scan's baseline, during the open review.
         try FileManager.default.removeItem(at: keep.appendingPathComponent("a.txt"))
 
         harness.coordinator.trashRightCopy(review)
@@ -1312,11 +1272,10 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.workspace == .compare, "a refusal must not navigate")
     }
 
-    /// A folder review with NO recorded baseline still refuses — but the banner must say the scan
-    /// couldn't check the pair, not that something changed: the scan records a nil snapshot on a
-    /// folder whose subtree held an unreadable descendant, a rescan reproduces nil, and the old
-    /// wording claimed a change nobody measured while pointing at a rescan that could never clear
-    /// it.
+    /// A folder review with no recorded baseline still refuses, but the banner says the scan
+    /// couldn't check the pair, not that something changed: the scan records a nil snapshot for a
+    /// folder with an unreadable descendant, and a rescan reproduces nil, so claiming a change and
+    /// pointing at a rescan would be wrong twice.
     @Test func aFolderReviewWithNoBaselineRefusesWithoutClaimingDrift() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-nil-baseline-\(UUID().uuidString)")
@@ -1349,13 +1308,12 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
     // MARK: trashRightCopy — the user-interaction window the keeper stat opens
 
-    /// Moving the keeper stat off the main actor (so an unmounted cloud volume can't beachball the
-    /// window on a button click) put a suspension where the code had none — and that suspension is
-    /// seconds long on exactly the volumes it was added for. The Duplicates list is one tab away
-    /// the whole time, so the user can compare a DIFFERENT pair while the stat is out. Resuming
-    /// blind then trashes a copy they are no longer looking at, and worse, `.rightCopyTrashed`
-    /// tears down the review that replaced this one and replays THIS review's saved compare state
-    /// over the new pair's panes. The trash must be abandoned instead.
+    /// The keeper stat runs off the main actor (so an unmounted cloud volume can't beachball the
+    /// window), which makes a suspension that is seconds long on exactly those volumes. The
+    /// Duplicates list is one tab away, so the user can compare a different pair meanwhile.
+    /// Resuming blind would trash a copy they no longer see, and `.rightCopyTrashed` would tear
+    /// down the review that replaced this one and replay this review's saved compare state over the
+    /// new pair's panes. The trash must be abandoned instead.
     @Test func aReviewReplacedWhileTheKeeperStatIsInFlightCancelsTheTrash() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-race-\(UUID().uuidString)")
@@ -1384,17 +1342,16 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
         // The copy the confirmation named is still on disk — nothing was trashed…
         #expect(FileManager.default.fileExists(atPath: first.deletePath))
-        // …the review the user IS looking at survived intact…
+        // …the review the user is looking at survived intact…
         #expect(harness.duplicateReview == second)
         // …and the superseded review's compare state was never replayed over it.
         #expect(harness.appliedPlans.isEmpty)
         #expect(harness.workspace == .compare)
     }
 
-    /// The same window, entered through the other control that sits in it: "Done" is rendered
-    /// directly beside the destructive button, so it is one stray click away during the whole stat.
-    /// A trash that resumes afterwards deletes a copy for a review that no longer exists, and drags
-    /// the user back to Organize from wherever they went.
+    /// The same window, entered through "Done", which sits beside the destructive button, one stray
+    /// click away during the whole stat. A trash resuming afterwards would delete a copy for a
+    /// review that no longer exists and drag the user back to Organize from wherever they went.
     @Test func endingTheReviewWhileTheKeeperStatIsInFlightCancelsTheTrash() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-done-\(UUID().uuidString)")
@@ -1416,7 +1373,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         await waitUntil("the keeper stat is in flight") { stat.isStatting }
 
         // "Done" while the stat is out: the review is torn down and the pre-review Compare setup
-        // restored — one pin plan, and it must stay one.
+        // restored. One pin plan, and it must stay one.
         harness.coordinator.endDuplicateReview()
         #expect(harness.duplicateReview == nil)
         stat.release()
@@ -1443,7 +1400,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.syncManager.leftRelativePath == "Docs")
         #expect(harness.syncManager.rightRelativePath == "Backup/Docs")
         #expect(harness.refreshCount == 1)
-        // No provider changed hands — refocusing must not touch the pin plumbing.
+        // No provider changed hands, so refocusing must not touch the pin plumbing.
         #expect(harness.appliedPlans.isEmpty)
         #expect(harness.pendingSwapProviderChanges == 0)
     }
@@ -1454,9 +1411,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     // shared buffer. Fixtures here embed a UUID in every path, so a fragment built from one can
     // never match another suite's line.
 
-    /// **A keep-side refusal reaches the log, not just the banner.** The delete side always
-    /// logged both of its refusal variants; the keep side set a banner and wrote NOTHING — a
-    /// refusal visible on screen was absent from ~/sync-cloud.log, which he audits.
+    /// A keep-side refusal reaches the log, not just the banner, like the delete side's: a refusal
+    /// visible on screen must also be in ~/sync-cloud.log, which he audits.
     @Test func aKeepSideRefusalIsLoggedLikeTheDeleteSide() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-keep-log-\(UUID().uuidString)")
@@ -1477,7 +1433,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
             ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
         let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
-        // The KEEPER's contents drift during the open review.
+        // The keeper's contents drift during the open review.
         try FileManager.default.removeItem(at: keep.appendingPathComponent("a.txt"))
 
         let log = LogCapture()
@@ -1493,11 +1449,10 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(FileManager.default.fileExists(atPath: copy.path))
     }
 
-    /// **The delete-side nil-baseline branch, actually reached.** The existing no-baseline test
-    /// sets BOTH snapshots nil, so the keep gate refuses first and the delete-side wording was
-    /// never exercised: a keep-valid/delete-nil review must refuse with the right-copy wording —
-    /// and with the honest "unreadable, or nested too deep" phrasing, because the walk's depth
-    /// cap and symlink-cycle guard record a nil baseline exactly like an unreadable descendant.
+    /// The delete-side nil-baseline branch. The no-baseline test above sets both snapshots nil, so
+    /// the keep gate refuses first. A keep-valid, delete-nil review must refuse with the right-copy
+    /// wording and the "unreadable, or nested too deep" phrasing, because the walk's depth cap and
+    /// symlink-cycle guard record a nil baseline just like an unreadable descendant.
     @Test func aDeleteFolderWithNoBaselineRefusesWithTheRightCopyWording() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-delete-nil-\(UUID().uuidString)")
@@ -1515,7 +1470,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let keepSnapshot = await FileSyncManager.folderContentSnapshot(
             ofPath: keep.path, ignoredNames: DuplicateFinderOptions.defaultIgnoredNames,
             fileManager: FileManager.default)
-        // Keep side fully checked; the DELETE side carries no baseline.
+        // Keep side fully checked; the delete side carries no baseline.
         let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: nil)
 
         let log = LogCapture()
@@ -1537,11 +1492,10 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.duplicateReview == review, "the review stays up")
     }
 
-    /// **Drift during the queue wait is refused at the last check.** `deleteItems` routes through
-    /// the serialized op queue, so a long operation queued ahead of the review's trash inserts
-    /// its whole duration between the pre-trash verdict and the removal — a file landing in the
-    /// right copy during that window used to be trashed on the stale verdict, destroying its only
-    /// instance under a banner saying the left copy is kept.
+    /// Drift during the queue wait is refused at the last check. `deleteItems` goes through the
+    /// serialized op queue, so a long operation queued ahead puts its whole duration between the
+    /// pre-trash verdict and the removal. A file landing in the right copy then must not be trashed
+    /// on the stale verdict, destroying its only instance.
     @Test func aRightCopyThatGainsAFileDuringTheQueueWaitIsRefused() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-queue-drift-\(UUID().uuidString)")
@@ -1577,7 +1531,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         await waitUntil("the review's delete is queued behind the blocker") {
             harness.syncManager.activeFileOperationsCount == 2
         }
-        // The right copy gains a file IN the queue-wait window — after the pre-trash verdict.
+        // The right copy gains a file in the queue-wait window, after the pre-trash verdict.
         try Data("the only copy of this".utf8).write(to: copy.appendingPathComponent("landed-late.txt"))
         await latch.open()
         await waitUntil("the drift refusal surfaces") {
@@ -1609,12 +1563,12 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     }
 }
 
-/// The same file in both copies, dated alike — what a Finder duplicate or a `cp -p` leaves. Two
-/// separate writes land moments apart, and in an overlapping group's review (the harness's
-/// default kind) a file dated differently is something the right copy holds that the left lacks
-/// (FR13), so a fixture meant to be a true duplicate pins the date. An identical group's review
-/// ignores dates (`anIdenticalGroupsCopyWithOtherDatesIsTrashed`).
-/// A whole second on both: `setAttributes` may round below a microsecond.
+/// The same file in both copies, dated alike, as a Finder duplicate or `cp -p` leaves it. Two
+/// writes land moments apart, and in an overlapping group's review (the harness's default kind) a
+/// file dated differently is something the right copy holds that the left lacks, so a true
+/// duplicate pins the date. An identical group's review ignores dates
+/// (`anIdenticalGroupsCopyWithOtherDatesIsTrashed`). A whole second on both, because
+/// `setAttributes` may round below a microsecond.
 private func writeTwins(_ name: String, in keep: URL, and copy: URL, _ text: String = "x") throws {
     let date = Date(timeIntervalSince1970: 1_760_000_000)
     for folder in [keep, copy] {

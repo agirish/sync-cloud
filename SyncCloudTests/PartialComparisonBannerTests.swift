@@ -3,15 +3,11 @@ import Sync
 import Testing
 import Foundation
 
-/// **That the incomplete-comparison warning reaches the screen.**
-///
-/// `PartialComparison` is a pure rule with its own suite in the Sync package, and a pure rule with
-/// no caller passes its own tests forever — which is exactly how the folder-sidebar's dragged order
-/// came to be persisted and never drawn. The fact travels manager → `bottomPaneView`, and every hop
-/// is defaulted or optional, so any one of them can be dropped with nothing going red.
-///
-/// Source-scanned for `FolderSidebarWiringTests`' reason: `ContentView` is a `View` with `@State`
-/// and cannot be instantiated here.
+/// That the incomplete-comparison warning reaches the screen. `PartialComparison` is a pure rule
+/// with its own Sync suite, and a rule with no caller passes its own tests forever. The fact travels
+/// manager → `bottomPaneView`, and every hop is defaulted or optional, so any one can be dropped with
+/// nothing going red. Source-scanned because `ContentView` is a `View` with `@State` and can't be
+/// built here.
 @Suite struct PartialComparisonBannerTests {
 
     static func appSource() throws -> String {
@@ -34,8 +30,8 @@ import Foundation
                 "the scan cannot see the host, so nothing below means anything")
     }
 
-    /// The banner is mounted, and in the pane that holds the differences table rather than somewhere the
-    /// user has to go looking.
+    /// The banner is mounted in the pane that holds the differences table, not somewhere the user has
+    /// to go looking.
     @Test func theBannerIsMountedAboveTheDifferencesTable() throws {
         let code = try Self.appSource()
         #expect(code.contains("partialComparisonBanner(message)"),
@@ -44,9 +40,8 @@ import Foundation
                 "the banner is not gated on Compare and a live message")
     }
 
-    /// **Named off the scan's own providers**, not off the panes. A pane navigated after the scan
-    /// would otherwise rename the source the warning is about, and the reader would go and check an
-    /// account that was never compared.
+    /// Named off the scan's own providers, not the panes: a pane navigated after the scan would
+    /// rename the source, and the reader would check an account that was never compared.
     @Test func theMessageIsNamedOffTheScansOwnProviders() throws {
         let code = try Self.appSource()
         #expect(code.contains("syncManager.lastScanProviders"),
@@ -55,8 +50,8 @@ import Foundation
                 "the wording is re-spelled in the view instead of coming from PartialComparison")
     }
 
-    /// The coverage is published under the same gate as the rows, so the two cannot describe
-    /// different scans — asserted on the manager's own source for the same reason as above.
+    /// The coverage is published under the same gate as the rows, so the two can't describe
+    /// different scans. Scanned on the manager's source for the same reason as above.
     @Test func theCoverageIsPublishedWithTheRowsItDescribes() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()

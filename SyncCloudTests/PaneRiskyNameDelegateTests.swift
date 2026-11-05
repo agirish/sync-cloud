@@ -6,7 +6,7 @@ import Sync
 @testable import SyncCloud
 
 /// `PaneActionDelegate`'s half of the row badge: the provider it asks about, the keep it honours,
-/// and — the one that bites silently — the pane's equality.
+/// and the pane's equality, which fails silently.
 @MainActor
 @Suite struct PaneRiskyNameDelegateTests {
 
@@ -20,19 +20,14 @@ import Sync
             onFindDuplicatesOf: { _ in }, onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
     }
 
-    /// **The staleness hazard, and the reason `keptNamesToken` is a stored property at all.**
+    /// The staleness hazard, and why `keptNamesToken` is a stored property. The pane skips
+    /// re-rendering when its delegate says nothing it answers has changed, and keeping a name
+    /// changes only how rows with that name draw. Left out of `isEquivalent`, the dismissed badge
+    /// would stay on screen until something unrelated moved, as `ignoreStateToken` prevents for
+    /// ignores.
     ///
-    /// The pane skips re-rendering — and with it every visible row — when its delegate vouches that
-    /// nothing it answers has changed. Keeping a name changes what every row showing that name
-    /// draws and NOTHING else the pane compares: same tree, same paths, same selection. Leave the
-    /// token out of `isEquivalent` and the pane answers "equivalent", skips the render, and the
-    /// badge the user just dismissed stays on screen until something unrelated moves. That is the
-    /// exact failure `ignoreStateToken` was added for, arriving through the second eagerly-rendered
-    /// answer.
-    ///
-    /// Written as a pair: the first case proves the token is compared, the second proves the
-    /// comparison is not simply always-false (which would "pass" the first while destroying the
-    /// optimization the whole `Equatable` boundary exists for).
+    /// A pair: the first case proves the token is compared, the second that the comparison isn't
+    /// always false, which would defeat the `Equatable` boundary's optimization.
     @Test func keepingANameMakesTheDelegateCompareUnequal() {
         let manager = FileSyncManager()
         let settings = SettingsManager()
@@ -47,8 +42,8 @@ import Sync
                 "an unchanged keep set must still let the pane skip the render")
     }
 
-    /// Withdrawing one keep while adding another leaves the COUNT where it was — which is why the
-    /// token is the set and not a number.
+    /// Withdrawing one keep while adding another leaves the count unchanged, which is why the token
+    /// is the set and not a number.
     @Test func swappingOneKeepForAnotherIsNoticed() {
         let manager = FileSyncManager()
         let settings = SettingsManager()
@@ -57,8 +52,8 @@ import Sync
         #expect(a.isEquivalent(to: b) == false)
     }
 
-    /// A kept name is silenced, and a name with the identical hazard beside it is not — a keep is
-    /// about one name, not about the hazard class.
+    /// A kept name is silenced, and a name with the same hazard beside it isn't: a keep is about
+    /// one name, not the hazard class.
     @Test func aKeptNameIsSilencedAndItsNeighbourIsNot() {
         let defaults = ScratchDefaults("PaneKept")
 
@@ -68,19 +63,17 @@ import Sync
         manager.keptNamesStore = store
 
         let d = delegate(syncManager: manager, settings: SettingsManager())
-        // No provider resolves for "left", so the delegate falls back to OneDrive — the strictest —
-        // which is the behaviour `paneProviderType` documents and what makes a trailing space risky
-        // here at all.
+        // No provider resolves for "left", so the delegate falls back to OneDrive, the strictest
+        // (as `paneProviderType` documents), which is what makes a trailing space risky here.
         #expect(d.riskyNameReason(forName: "kept name ", isDirectory: false) == nil)
         #expect(d.isKeptName("kept name "))
         #expect(d.riskyNameReason(forName: "other name ", isDirectory: false) != nil)
         #expect(d.isKeptName("other name ") == false)
     }
 
-    /// The badge and the menu answer the same rules, so a name that badges is a name "Fix name"
-    /// is offered for. They diverge on exactly one point — a KEPT name keeps its menu item (you may
-    /// have changed your mind) while losing its badge — and that divergence is asserted rather than
-    /// left to be discovered.
+    /// The badge and the menu answer the same rules, so a name that badges is offered "Fix name".
+    /// They diverge on one point, asserted here: a kept name loses its badge but keeps its menu
+    /// item, in case the user changes their mind.
     @Test func theMenuStillOffersToFixAKeptName() {
         let defaults = ScratchDefaults("PaneKeptMenu")
 

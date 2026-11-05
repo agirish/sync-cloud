@@ -4,21 +4,16 @@ import SwiftUI
 import Testing
 @testable import SyncCloud
 
-/// **The guided setup's words and glyphs wear the hue the user picked.**
-///
-/// They drew in `.foregroundStyle(.tint)`, and nothing above the sheet set a tint — so each was the
-/// SYSTEM accent: on a Coral sheet the welcome card's numbers, the Why panels' examples, the ticked
-/// chips and the tour's lit marks stayed the Mac's blue, even on the Appearance screen while the hue
-/// changed around them. Each now names the hue's raw accent. The pixels are read back as `colorAt`
-/// returns them from an sRGB window: Coral's accent must be there with Coral picked and absent with
-/// Green, so a reading cannot pass by Coral being hard-wired. Nothing here sets a `.tint`, so a site
-/// that went back to one draws the system's again and fails. The hue is also stored in a scratch
-/// suite, because the test host IS the app and must not read his real preference.
+/// The guided setup's words and glyphs wear the hue the user picked. Nothing above the sheet sets a
+/// tint, so a site drawing in `.foregroundStyle(.tint)` gets the system accent; each must name the
+/// hue's raw accent. Pixels are read as `colorAt` returns them from an sRGB window: Coral's accent
+/// must appear with Coral picked and not with Green, so a hard-wired Coral can't pass. The hue is
+/// stored in a scratch suite, because the test host is the app and must not read the real setting.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct SetupAccentTests {
 
-    /// `view` drawn at `scale` times its size — so a caption's stems hold whole pixels of their
-    /// colour — in an sRGB window of `scheme`, with `hue` stored.
+    /// `view` drawn at `scale` times its size, so a caption's stems hold whole pixels of their
+    /// colour, in an sRGB window of `scheme`, with `hue` stored.
     private func render(_ view: some View, size: CGSize, scale: CGFloat, hue: LiquidGlassHue,
                         scheme: ColorScheme) throws -> NSBitmapImageRep {
         let store = TestDefaults()
@@ -107,8 +102,8 @@ import Testing
         }
     }
 
-    /// Each tour page that lights something lights it in the hue — revealed, through the tour's own
-    /// renderer, since most pages draw their lit marks only once the reveal runs.
+    /// Each tour page that lights something lights it in the hue. Drawn revealed, through the
+    /// tour's own renderer, since most pages draw their lit marks only once the reveal runs.
     @Test(arguments: [SetupArt.Art.browse, .transfer, .duplicates, .filing, .edit])
     func aTourPageLightsInTheHue(art: SetupArt.Art) throws {
         for scheme in [ColorScheme.light, .dark] {

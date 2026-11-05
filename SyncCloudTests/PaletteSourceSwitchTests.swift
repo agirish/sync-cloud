@@ -3,31 +3,22 @@ import Foundation
 import FileExplorer
 @testable import SyncCloud
 
-/// **RD7 — ⌘K switches to the source a typed path is in.**
+/// ⌘K switches to the source a typed path is in. The trap: a provider change runs its own
+/// navigation reset on the next view update, so an `aimProvider` followed by a `focusOn` would land
+/// the pane at the source root with the typed folder silently dropped.
 ///
-/// The row that used to read "In Dropbox — switch source first" is a destination now, and the
-/// reason it was deferred for two releases is the only interesting thing about it: a provider
-/// change runs its own navigation reset on the *next* view update, so an `aimProvider` followed by
-/// a `focusOn` lands the pane at the source root with the typed folder silently dropped.
-///
-/// Two halves, because they fail in two different ways:
-///
-/// 1. **The decision** — `ContentView.sourceSwitchOutcome`, a pure rule with three refusals and one
-///    destination, extracted for the reason `RevealOutcome` is: the caller is a method on a SwiftUI
-///    `View` with `@State`, which nothing can construct.
-/// 2. **The ordering** — three statements whose order is the whole of the fix, and which no test in
-///    this repo can execute. `MacApp/` is in no SPM package, and the writes are `@AppStorage` and
-///    `@State` on a view a test cannot build, so this is a source scan of positions, exactly as
-///    `theOrganizeRouteResolvesItsScopeAgainstThePaneItCameFrom` scans the sibling hazard one
-///    function up. **Stated plainly: nothing here proves the pane really lands on the folder in a
-///    running app** — it proves the three statements are in the order that makes it, and that the
-///    provider write goes through the helper whose contract is the suppression.
+/// 1. The decision: `ContentView.sourceSwitchOutcome`, a pure rule with three refusals and one
+///    destination, extracted as `RevealOutcome` is, since the caller is a `View` method.
+/// 2. The ordering: three statements whose order is the fix, which no test can execute, so this is
+///    a source scan of positions, as `theOrganizeRouteResolvesItsScopeAgainstThePaneItCameFrom`
+///    does. It proves the order and that the provider write goes through the suppressing helper,
+///    not that the pane lands on the folder in a running app.
 @Suite struct PaletteSourceSwitchTests {
 
     private static let dropbox = "/Users/x/Dropbox"
 
-    /// A probe that records whether it was asked at all — the laziness below is a claim about the
-    /// disk not being touched, and a `PathKind` passed by value could not express it.
+    /// A probe that records whether it was asked: the laziness below is a claim that the disk is
+    /// not touched, which a `PathKind` passed by value can't express.
     private final class Probe: @unchecked Sendable {
         let answer: PathKind
         private(set) var calls = 0
@@ -43,37 +34,33 @@ import FileExplorer
                 == .switchAndFocus(relativePath: "Clients/Legal"))
     }
 
-    /// The source's own root is the pane's top, which `focusOn("")` is how you say — the same
-    /// answer `revealOutcome` gives for the root it is handed.
+    /// The source's own root is the pane's top, `focusOn("")`, as `revealOutcome` answers for its
+    /// root.
     @Test func theNamedSourcesRootIsTheEmptyRelativePath() {
         #expect(ContentView.sourceSwitchOutcome(path: Self.dropbox, namedRoot: Self.dropbox,
                                                 kind: .directory)
                 == .switchAndFocus(relativePath: ""))
     }
 
-    /// **A pasted path is usually a file's**, and the enclosing folder is the destination — the
-    /// rule `PaletteRouter.pathRow` applies inside the aimed source, applied here for the source
-    /// the pane is not on. It has to live here rather than in the router, because the router
-    /// deliberately does not `stat` a path outside the aimed source and so cannot tell a file from
-    /// a folder at the moment the row is built.
+    /// A pasted path is usually a file's, so the enclosing folder is the destination, as
+    /// `PaletteRouter.pathRow` does inside the aimed source. It lives here because the router
+    /// doesn't `stat` a path outside the aimed source, so it can't tell a file from a folder.
     @Test func aFilePathLandsOnItsEnclosingFolder() {
         #expect(ContentView.sourceSwitchOutcome(path: "\(Self.dropbox)/Clients/invoice.pdf",
                                                 namedRoot: Self.dropbox, kind: .file)
                 == .switchAndFocus(relativePath: "Clients"))
     }
 
-    /// A file sitting at the source root leaves nothing above it — and `""` is exactly right, not
-    /// a degenerate case: it is the pane's own top.
+    /// A file at the source root lands on `""`, the pane's own top.
     @Test func aFileAtTheSourceRootLandsOnTheRoot() {
         #expect(ContentView.sourceSwitchOutcome(path: "\(Self.dropbox)/invoice.pdf",
                                                 namedRoot: Self.dropbox, kind: .file)
                 == .switchAndFocus(relativePath: ""))
     }
 
-    /// **Nothing there is refused rather than delivered half.** The router could not ask — probing
-    /// a source the pane is not showing is the stall `PalettePath`'s ordering forbids — so ↩ is the
-    /// first moment anything can, and switching the source to land at the parent of a folder that
-    /// is gone is the silent drop this whole feature is arranged against.
+    /// Nothing there is refused rather than half delivered. The router can't probe a source the
+    /// pane isn't showing (the stall `PalettePath`'s ordering forbids), so ↩ is the first moment to
+    /// ask, and switching to the parent of a folder that is gone would be a silent drop.
     @Test func aPathWithNothingAtItSwitchesNothing() {
         #expect(ContentView.sourceSwitchOutcome(path: "\(Self.dropbox)/Gone",
                                                 namedRoot: Self.dropbox, kind: .missing)
@@ -88,9 +75,8 @@ import FileExplorer
                 == .noSuchSource)
     }
 
-    /// **An empty root must never claim a path.** An empty base prefixes every absolute path —
-    /// the hazard `PathBoundary.relativize` guards by name — so a source configured with no path
-    /// would otherwise answer "yes, and it is at Users/x/Dropbox/Legal" for anything at all, and
+    /// An empty root must never claim a path: an empty base prefixes every absolute path (the
+    /// hazard `PathBoundary.relativize` guards), so a source with no path would claim anything and
     /// the pane would be switched onto it.
     @Test func aSourceWithNoPathClaimsNothing() {
         #expect(ContentView.sourceSwitchOutcome(path: "\(Self.dropbox)/Legal", namedRoot: "",
@@ -105,9 +91,9 @@ import FileExplorer
                 == .outsideNamedSource(root: Self.dropbox))
     }
 
-    /// A sibling whose name merely *starts* with the root is not inside it — the prefix trap
-    /// `PathBoundary` exists to close, asserted here because getting it wrong would switch the pane
-    /// to Dropbox and hand it a garbage relative path.
+    /// A sibling whose name merely starts with the root isn't inside it: the prefix trap
+    /// `PathBoundary` closes. Wrong, it would switch the pane to Dropbox with a garbage relative
+    /// path.
     @Test func aSiblingSharingThePrefixIsNotInside() {
         #expect(ContentView.sourceSwitchOutcome(path: "/Users/x/DropboxOld/Legal",
                                                 namedRoot: Self.dropbox, kind: .directory)
@@ -116,12 +102,9 @@ import FileExplorer
 
     // MARK: The disk is asked once, and only when the answer can matter
 
-    /// **`kind` is `@autoclosure` so the two index questions are answered without a `stat`.**
-    ///
-    /// This is the same stall guard `PalettePath` states for the keystroke path, kept at the one
-    /// place a `stat` is still made. It is a real risk rather than a tidiness: the sources whose
-    /// rows can reach here are, by construction, ones the pane is NOT showing — a network mount or
-    /// an external drive that answered when the palette opened and need not still.
+    /// `kind` is `@autoclosure` so the two index questions are answered without a `stat`: the
+    /// stall guard `PalettePath` states for keystrokes. The sources that reach here are ones the
+    /// pane isn't showing, such as a network mount or external drive that may no longer answer.
     @Test func theDiskIsNotAskedWhenTheSourceCannotTakeThePathAnyway() {
         let gone = Probe(.directory)
         _ = ContentView.sourceSwitchOutcome(path: "\(Self.dropbox)/Legal", namedRoot: nil,
@@ -133,8 +116,8 @@ import FileExplorer
                                             namedRoot: Self.dropbox, kind: outside.kind())
         #expect(outside.calls == 0, "a path outside the named source was stat'ed anyway")
 
-        // …and the case that IS asked, so the two assertions above are not passing because the
-        // closure is never called at all.
+        // The case that is asked, so the assertions above can't pass because the closure is never
+        // called.
         let inside = Probe(.directory)
         _ = ContentView.sourceSwitchOutcome(path: "\(Self.dropbox)/Legal",
                                             namedRoot: Self.dropbox, kind: inside.kind())
@@ -144,19 +127,15 @@ import FileExplorer
 
     // MARK: The ordering — the whole of the deferral
 
-    /// **Three statements, one order, and each position is load-bearing.**
+    /// Three statements, one order, each position load-bearing:
     ///
-    /// - `focusOn` **before** the provider write, matching `tabAction`, where the verb applies the
-    ///   tab's navigation before the source is adopted. Both land in one synchronous turn, so by
-    ///   the time SwiftUI evaluates either `onChange` the pane already names the folder and the
-    ///   source.
-    /// - the provider write **through `adoptProviderForTab`**, never `aimProvider` and never a
-    ///   bare id assignment. That helper is what arms `pendingTabProviderChanges`; without it
-    ///   `onChange(of: leftProviderId)` takes the `.userSwitch` arm and calls `retargetPane()`,
-    ///   which re-homes the pane at its new source's landing folder — the typed folder dropped,
-    ///   with nothing logged and nothing failing.
-    /// - `refreshForTabSwitch` **last**, because it resolves both providers out of
-    ///   `enabledProviders` by the ids as they now are.
+    /// - `focusOn` before the provider write, as in `tabAction`. Both land in one synchronous turn,
+    ///   so when SwiftUI evaluates either `onChange` the pane already names folder and source.
+    /// - The provider write through `adoptProviderForTab`, never `aimProvider` or a bare id
+    ///   assignment. The helper arms `pendingTabProviderChanges`; without it
+    ///   `onChange(of: leftProviderId)` takes the `.userSwitch` arm and `retargetPane()` re-homes
+    ///   the pane at the new source's landing folder, silently dropping the typed folder.
+    /// - `refreshForTabSwitch` last, because it resolves both providers by the ids as they now are.
     @Test func theSwitchNavigatesFirstThenAdoptsUnderSuppressionThenReloads() throws {
         let body = try declarationBody(
             of: "private func switchSourceAndReveal(providerId: String, path: String, isLeft paneIsLeft: Bool? = nil) {",
@@ -172,11 +151,9 @@ import FileExplorer
         #expect(adopt.lowerBound < reload.lowerBound,
                 "the reload runs before the provider write, so it resolves the source being left rather than the one being adopted")
 
-        // **The writers that must NOT be here.** `aimProvider` is the `.provider` route's writer
-        // and arms nothing — it is *meant* to run the full reset — so reaching for it here is the
-        // exact defect the deferral was about, spelled with the obvious call. A bare id assignment
-        // is the same defect one step cruder; `theOnlyWriterOfAPaneProviderIdInTheTabsFileIsTheAdoptHelper`
-        // counts those in the tabs file and cannot see this one.
+        // The writers that must not be here. `aimProvider` is the `.provider` route's writer and
+        // is meant to run the full reset; a bare id assignment does the same.
+        // `theOnlyWriterOfAPaneProviderIdInTheTabsFileIsTheAdoptHelper` covers only the tabs file.
         for wrong in ["aimProvider(", "leftProviderId =", "rightProviderId =",
                       "$leftProviderId", "$rightProviderId", "retargetPane("] {
             #expect(!Self.codeOnly(body).contains(wrong),
@@ -184,9 +161,8 @@ import FileExplorer
         }
     }
 
-    /// **Every refusal says something.** Three of the four outcomes deliver nothing, and an
-    /// accepted ⌘K route that does nothing without a trace is the failure this whole surface's
-    /// logging exists for — `revealInSourcePane` shipped two silent `return`s of exactly this shape.
+    /// Every refusal logs. Three of the four outcomes deliver nothing, and an accepted ⌘K route
+    /// must never do nothing without a trace.
     @Test func everyRefusalIsLoggedRatherThanReturningSilently() throws {
         let body = try declarationBody(
             of: "private func switchSourceAndReveal(providerId: String, path: String, isLeft paneIsLeft: Bool? = nil) {",
@@ -201,11 +177,9 @@ import FileExplorer
         }
     }
 
-    /// **The pane it switches is the one ⌘K was aimed at, read once.**
-    ///
-    /// `aimedAtRight` is computed over the layout, so re-reading it per statement is how
-    /// `aimOrganize` came to reveal a right-pane scope into the left pane. Both writes have to name
-    /// the same side, and the side has to be a binding rather than the expression twice.
+    /// The pane it switches is the one ⌘K was aimed at, read once. `aimedAtRight` is computed over
+    /// the layout, so re-reading it per statement can reveal into the wrong pane. Both writes name
+    /// the same side, through a binding, not the expression twice.
     @Test func bothWritesNameTheSameCapturedPane() throws {
         let body = try declarationBody(
             of: "private func switchSourceAndReveal(providerId: String, path: String, isLeft paneIsLeft: Bool? = nil) {",
@@ -214,8 +188,8 @@ import FileExplorer
         // A caller may name its pane (Ask Claude setting one side of Compare); otherwise the aim.
         #expect(code.contains("let isLeft = paneIsLeft ?? !aimedAtRight"),
                 "the aimed pane is no longer captured once at the top")
-        // Counted, not merely present: a second live read of `aimedAtRight` in here is the shape
-        // that made the Organize route reveal into the wrong pane.
+        // Counted, not merely present: a second live read of `aimedAtRight` could name the other
+        // pane.
         #expect(code.components(separatedBy: "aimedAtRight").count - 1 == 1,
                 "the aim is read more than once in the switch — the two writes can name different panes")
         let sides = PaneTabWiringTests.argumentTokens(labelled: "isLeft", in: code)
@@ -223,15 +197,11 @@ import FileExplorer
                 "a side argument in the switch names something other than the captured pane: \(sides)")
     }
 
-    /// **The link toggle deliberately does not apply**, and the absence is asserted because it is
-    /// the kind of thing a later session adds "for consistency".
-    ///
-    /// The source switch is per-pane — the sibling's provider is untouched — so a linked follow
-    /// would move it to a folder path relativized against a source it is not showing. That is
-    /// verbatim the defect `revealInSourcePane`'s doc records and the one
+    /// The link toggle deliberately doesn't apply, asserted because it is the kind of thing added
+    /// later "for consistency". The switch is per-pane, so a linked follow would move the sibling
+    /// to a path relativized against a source it isn't showing, which is what
     /// `FileActionHandler.focusFolder`'s `suppressLinkedNavigation` exists for.
-    /// `focusOn(relativePath:isLeft:)` is the single-pane door, which is also what the `.folder`
-    /// route has always used, so this introduces no asymmetry between the two path rows.
+    /// `focusOn(relativePath:isLeft:)` is the single-pane call the `.folder` route uses too.
     @Test func theSwitchMovesOnePaneAndNeverFollowsTheLink() throws {
         let body = try declarationBody(
             of: "private func switchSourceAndReveal(providerId: String, path: String, isLeft paneIsLeft: Bool? = nil) {",
