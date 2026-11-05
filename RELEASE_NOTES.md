@@ -5,10 +5,7 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v7.0 — DRAFT, not released
-
-> What is on `main` since v6.2. It may still change before v7.0 is cut, and nothing here is
-> installable from a release yet.
+## v7.0
 
 **Ask Claude about your files, copy iCloud to Dropbox one way, and know when a cloud folder is out of
 date.** v7.0 adds Ask Claude, a chat panel that answers questions about what is on screen and moves

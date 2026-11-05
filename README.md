@@ -11,7 +11,7 @@ keep across iCloud Drive, OneDrive, Dropbox and Google Drive.**
   <img src="docs/assets/screenshots/hero-compare.png" alt="SyncCloud comparing two folders side by side" width="900">
 </p>
 
-> **✨ New in v7.0 — Ask Claude** (in development on `main`). Press **⌘J** and ask about what's on
+> **✨ New in v7.0 — Ask Claude.** Press **⌘J** and ask about what's on
 > screen: *"which files are only on Dropbox?"*, *"where should this go?"*, *"combine these PDFs"*.
 > Claude answers, takes you there, or proposes the change on a card, and nothing changes until you
 > click Apply. It sees a description of the screen, not your files, and what's inside a file is read
