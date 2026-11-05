@@ -5,22 +5,19 @@ import Design
 
 /// The pane bar's words: when they are drawn, when they are declined, and what they say.
 ///
-/// **Deliberately not `.machinePinned`.** `PaneBarLadderTests` carries the geometry and is pinned
-/// because it reads painted pixels back out of a live renderer, which means none of it runs on CI.
-/// The decisions below are the ones that must not regress unnoticed — above all the text-size gate,
-/// which is the only thing keeping a title out of a header that cannot hold it — so they are
-/// arithmetic over published constants and run everywhere. Where the gate's *line* belongs is a
-/// question about drawn ink and cannot be settled here; `PaneBarLadderTests.theTitledHeaderClearsBothEdges`
-/// settles it, and this suite holds the resulting table.
+/// Not machine-pinned: `PaneBarLadderTests` reads painted pixels and so never runs on CI, while
+/// these decisions, above all the text-size gate that keeps a title out of a header that can't
+/// hold it, are arithmetic over published constants and run everywhere. Where the gate's line
+/// belongs is a question about drawn ink, settled by
+/// `PaneBarLadderTests.theTitledHeaderClearsBothEdges`; this suite holds the resulting table.
 ///
-/// Nothing here asserts a point size for its own sake. The claims are behavioural (does the bar
-/// title at this text size, does this word change when that state does), so a font whose metrics
-/// moved would fail these for the same reason a code change would: the bar would be wrong.
+/// The claims are behavioural, not point sizes, so a font whose metrics moved fails these for the
+/// same reason a code change would: the bar would be wrong.
 @MainActor
 @Suite struct PaneBarTitleTests {
 
-    /// The items a full Columns pane offers — the same list `PaneHeader.availableItems` builds for
-    /// a header with every binding passed.
+    /// The items a full Columns pane offers, as `PaneHeader.availableItems` builds them for a header
+    /// with every binding passed.
     private static let available: [PaneBarItem] =
         [.backForward, .sort, .hiddenFiles, .viewMode, .scan, .newFolder, .delete, .search]
 
@@ -31,24 +28,10 @@ import Design
 
     // MARK: - The text-size gate
 
-    /// **Which of the ten text sizes the slider offers get words, stated as a table.**
-    ///
-    /// The gate itself is right and always was — a row the header cannot hold falls back to
-    /// `iconOnly` — but its budget was the *retired provider capsule's* 34pt rather than the
-    /// header's own room, which put the cliff at **110%**: the first step up from the default, and
-    /// six of these ten. The doc beside it said Large and Larger. Reported as "icon + text mode
-    /// isn't showing text any more" by someone sitting at 110%.
-    ///
-    /// **This test could not have caught that, and the reason is the arguments it used to take.**
-    /// They were `0.9, 1.0, 1.25, 1.35` — the four *named presets*, which were the only sizes that
-    /// existed when the gate was written. `FontSize` became a 90–135 slider in steps of 5 and the
-    /// six sizes in between were never asked about by anything. So the table below is the whole
-    /// selectable set, spelled percentage by percentage, and it is written out rather than derived
-    /// from `rowBudget` — a table that recomputes the thing it is checking agrees with any budget
-    /// it is given, including the wrong one.
-    ///
-    /// If the slider's range or step ever widens, this fails as unhandled percentages rather than
-    /// passing silently over them, which is the whole point of listing them.
+    /// Which of the slider's text sizes get words, as a table. A row the header can't hold falls
+    /// back to `iconOnly`. Every selectable percentage is listed, written out rather than derived
+    /// from `rowBudget`, since a table that recomputes the budget agrees with any budget, wrong ones
+    /// included. `theTableCoversEverySelectableSize` fails if the slider gains a size.
     @Test(arguments: [(90, true), (95, true), (100, true), (105, true), (110, true), (115, true),
                       (120, false), (125, false), (130, false), (135, false)])
     func theTextSizesThatGetWords(percent: Int, expected: Bool) {
@@ -59,32 +42,18 @@ import Design
                 "at \(percent)% the titled row is \(row)pt against a \(PaneBarTitleMetrics.rowBudget)pt budget")
     }
 
-    /// The table above covers exactly the sizes the app offers, and nothing outside it.
-    ///
-    /// A pair of tables that drift apart is the failure this prevents: the arguments above are
-    /// hand-written, so without this a percentage added to the slider would simply go unasked.
+    /// The table above covers exactly the sizes the app offers. Its arguments are hand-written, so
+    /// without this a percentage added to the slider would go unasked.
     @Test func theTableCoversEverySelectableSize() {
         #expect(Self.gatedPercents == FontSize.selectablePercents)
     }
 
     private static let gatedPercents = [90, 95, 100, 105, 110, 115, 120, 125, 130, 135]
 
-    /// Both sides of the gate are real — some sizes title and some do not — and the boundary is not
-    /// sitting on the budget by a hair.
-    ///
-    /// **The margin is the assertion.** `rowBudget` is calibrated to fall *between* two of the row
-    /// heights the app can produce (36 and 37), so the widest admitted row and the narrowest
-    /// refused one should each be clear of it. A budget nudged onto either of those values still
-    /// passes the table above, and fails here — which is what stops the next edit from re-creating
-    /// the original defect by moving the line onto a measured number.
-    ///
-    /// **The margin is half a point, and it used to be a whole one.** That is not a weakening: the
-    /// row heights only *looked* 2pt apart while `LabelMetrics.lineHeight` returned
-    /// `NSLayoutManager.defaultLineHeight`, which steps more coarsely than the type it is
-    /// describing and was a point short at five of the ten sizes. Measured against the drawn line
-    /// box the rows are 33, 34, 35, 36, 37, 38 — six consecutive integers, so no budget anywhere
-    /// has a whole point on both sides and half is the widest margin that exists. Stated as a named
-    /// constant so the number is the claim rather than a `- 1` nobody re-derives.
+    /// Both sides of the gate are real, and the budget sits clear of the rows on each side.
+    /// `rowBudget` falls between two producible row heights (36 and 37); a budget nudged onto
+    /// either still passes the table above but fails here. The producible rows are consecutive
+    /// integers, so half a point is the widest margin there is.
     @Test func theGateHasBothDirectionsWithMarginOnEach() {
         let pill = PaneNavMetrics.pill(.small).height
         let rows = FontSize.selectablePercents.map {
@@ -99,9 +68,7 @@ import Design
                 "the widest admitted row (\(admitted.map(\.row).max()!)pt) is flush against the \(PaneBarTitleMetrics.rowBudget)pt budget")
         #expect(refused.map(\.row).min()! >= PaneBarTitleMetrics.rowBudget + Self.gateMargin,
                 "the narrowest refused row (\(refused.map(\.row).min()!)pt) is flush against the \(PaneBarTitleMetrics.rowBudget)pt budget")
-        // The rows really are a point apart, which is what makes half a point the whole of what is
-        // available. Without this the margin above could be quietly narrowed further and read as
-        // the same story.
+        // The rows really are a point apart, which is what makes half a point the right margin.
         let distinct = Set(rows.map(\.row)).sorted()
         #expect(zip(distinct, distinct.dropFirst()).allSatisfy { $1 - $0 == 1 },
                 "the producible rows are \(distinct) — no longer one point apart, so re-derive the margin instead of keeping \(Self.gateMargin)")
@@ -116,15 +83,9 @@ import Design
         #expect(Self.ladder(.iconOnly, scale: FontSize(percent: percent).scale).titledRungs == 0)
     }
 
-    /// With titles declined — by the preference or by the gate — the ladder is *exactly* the one
-    /// that shipped before them: no rung taller than its own pill, and one rung shorter for having
-    /// no titled head. This is what makes Icon Only and the large text sizes free of regression
-    /// risk rather than merely believed to be.
-    ///
-    /// **Asserted against the pill rather than against the titled ladder at one hard-coded scale.**
-    /// It used to compare `iconAndText` at 1.35 with `iconOnly` at 1.35 and expect them equal,
-    /// which says nothing at all about any size the gate admits — and would have gone on passing if
-    /// the gate had started refusing every size there is.
+    /// With titles declined, by the preference or by the gate, the ladder is the plain one: no rung
+    /// taller than its own pill and no titled head. Asserted against the pill at every size, and a
+    /// gated size must land on the same ladder as Icon Only.
     @Test(arguments: FontSize.selectablePercents)
     func decliningTitlesRestoresTheOriginalLadder(percent: Int) {
         let plain = Self.ladder(.iconOnly, scale: FontSize(percent: percent).scale)
@@ -146,13 +107,9 @@ import Design
 
     // MARK: - Titles shed as one rung
 
-    /// Titles go **all together**, ahead of the step down to `.mini` — the rule
-    /// `WorkspaceBarMetrics` already applies, because a bar where some items are words and others
-    /// are glyphs reads as two controls.
-    ///
-    /// Asserted as "the same items, drawn differently": rung 0 and rung 1 must carry an identical
-    /// plan and differ only in whether they are titled. If shedding a title ever cost an item as
-    /// well, this is where it shows.
+    /// Titles go all together, ahead of the step down to `.mini`, as in `WorkspaceBarMetrics`: a bar
+    /// mixing words and bare glyphs reads as two controls. Rung 0 and rung 1 carry an identical plan
+    /// and differ only in being titled.
     @Test func titlesShedAsOneRungBeforeAnythingElseChanges() {
         let bar = Self.ladder(.iconAndText)
         #expect(bar.titledRungs == 1)
@@ -165,8 +122,7 @@ import Design
         #expect(bar.width(forRung: 0) > bar.width(forRung: 1))
     }
 
-    /// The rung after the untitled one is where the glyphs shrink — titles are not competing with
-    /// `.mini` for the same step.
+    /// The glyphs shrink on the rung after the untitled one, not on the same step as the titles.
     @Test func theSizeStepComesAfterTheTitleStep() {
         let bar = Self.ladder(.iconAndText)
         #expect(bar.controlSize(forRung: bar.titledRungs + 1) == .mini)
@@ -174,8 +130,8 @@ import Design
 
     // MARK: - What the words say
 
-    /// A title names the control; the glyph reports its state. Hidden Files is the case that makes
-    /// the rule visible — its eye swaps open and slashed while the word holds.
+    /// A title names the control; the glyph reports its state. Hidden Files' eye swaps open and
+    /// slashed while its word holds.
     @Test func onlyTheScanRungChangesItsWord() {
         for item in PaneBarItem.allCases where !item.isSpacer {
             #expect(item.titleVariants.first == item.barTitle)
@@ -193,14 +149,13 @@ import Design
     @Test func scansWordFollowsItsMode() {
         #expect(ScanRungMode.resolve(isRefreshing: false, canCancel: true).barTitle == "Scan")
         #expect(ScanRungMode.resolve(isRefreshing: true, canCancel: true).barTitle == "Stop")
-        // No cancel handler: the rung stays a (disabled) Scan, so its word must too — a "Stop" on a
-        // control that cannot stop anything is the disagreement this pairing exists to prevent.
+        // No cancel handler: the rung stays a disabled Scan, so its word does too, not a "Stop"
+        // that can't stop anything.
         #expect(ScanRungMode.resolve(isRefreshing: true, canCancel: false).barTitle == "Scan")
     }
 
-    /// The reservation: an item whose word can change is laid out at the widest of them, so the bar
-    /// cannot re-flow under the cursor. Today both of Scan's words are narrower than its pill, so
-    /// the guarantee costs nothing — which is exactly why it needs a test rather than a comment.
+    /// An item whose word can change is laid out at its widest word, so the bar can't reflow under
+    /// the cursor. Both of Scan's words fit its pill today, so the item is pill-wide.
     @Test func aSwappingWordNeverChangesItsItemsWidth() {
         let pill = PaneNavMetrics.pill(.small)
         let reserved = PaneBarLayout.titledWidth(of: .scan, pill: pill, compactsViewMode: false, scale: 1)
@@ -210,8 +165,8 @@ import Design
         #expect(reserved == pill.width, "both of Scan's words fit its pill, so the item is pill-wide")
     }
 
-    /// Every control has a word. A new `PaneBarItem` that forgets one would otherwise ship as a
-    /// pill with a blank line under it, which no geometry assertion notices.
+    /// Every control has a word, or a new `PaneBarItem` would ship as a pill with a blank line under
+    /// it, which no geometry assertion notices.
     @Test func everyControlHasAWordAndEverySpacerHasNone() {
         for item in PaneBarItem.allCases {
             if item.isSpacer {
@@ -222,9 +177,8 @@ import Design
         }
     }
 
-    /// The short title is a *different* string from the menu's, not a copy — that is the whole
-    /// reason it exists. Collapse is the case that forced it: "Collapse Pane" is wider than the
-    /// pill it would sit under.
+    /// The bar's word can be shorter than the menu's name: "Collapse Pane" is wider than the pill it
+    /// would sit under.
     @Test func theBarsWordIsShorterThanTheMenusWhereItHadToBe() {
         #expect(PaneBarItem.collapse.barTitle != PaneBarItem.collapse.displayName)
         #expect(LabelMetrics.width(of: PaneBarItem.collapse.barTitle, font: PaneBarTitleMetrics.font, scale: 1)
@@ -242,10 +196,7 @@ import Design
         let deep = bar.terminal
         #expect(!bar.plan(forRung: deep).overflow.isEmpty)
         let pill = PaneNavMetrics.pill(bar.controlSize(forRung: deep))
-        // The overflow contributes exactly a pill and its gap — **priced in BOTH modes**, which is
-        // what this test's name claims and what neither call used to ask for: every `width(of:)`
-        // here omitted `titled:`, so it measured the untitled rung twice and the word "titled" in
-        // the name was answered by nothing.
+        // The overflow costs exactly a pill and its gap, priced in both modes.
         let plan = bar.plan(forRung: deep)
         let itemsOnlyPlan = PaneBarLayoutPlan(visible: plan.visible, overflow: [],
                                               compactsViewMode: plan.compactsViewMode)

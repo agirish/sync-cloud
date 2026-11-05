@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Dashboard
 
-/// **"Show in Enclosing Folder"** — the row that names where a favorite lives.
+/// "Show in Enclosing Folder", the row that names where a favorite lives.
 @Suite struct SidebarEnclosingFolderTests {
 
     private func row(_ relativePath: String, root: String = "/iCloud",
@@ -29,17 +29,16 @@ import Testing
         #expect(parent.name == "iCloud", "with no parent path left, the row is the source itself")
     }
 
-    /// **Two different nils.** A row already at the root has no enclosing folder a pane can be
-    /// pointed at; an unavailable row has no answer at all. Both must refuse, and the menu item is
-    /// absent rather than disabled, so it never names a place that does not exist.
+    /// Two different nils: a row at the root has no enclosing folder to point a pane at, and an
+    /// unavailable row has no answer at all. Both refuse, so the menu item is absent, not disabled,
+    /// and never names a place that doesn't exist.
     @Test func aRootRowAndAnUnavailableRowBothRefuse() {
         #expect(FolderSidebarModel.enclosingFolder(of: row("")) == nil)
         #expect(FolderSidebarModel.enclosingFolder(of: row("Work", isAvailable: false)) == nil)
     }
 
-    /// The parent is a destination, and the only thing that decides where a jump lands is the root
-    /// plus the relative path — so a favorite in another account must keep ITS root, not borrow the
-    /// pane's. `openFolderSidebarRow` switches sources on exactly this value.
+    /// A jump lands by root plus relative path, so a favorite in another account must keep its own
+    /// root, not borrow the pane's. `openFolderSidebarRow` switches sources on this value.
     @Test func theParentKeepsTheRowsOwnRoot() throws {
         let parent = try #require(FolderSidebarModel.enclosingFolder(
             of: row("Health/Scans", root: "/Dropbox", sourceName: "Dropbox")))

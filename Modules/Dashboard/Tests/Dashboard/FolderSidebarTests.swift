@@ -4,15 +4,15 @@ import AppKit
 import Design
 @testable import Dashboard
 
-/// **Browse's remembered-folders sidebar.**
+/// Browse's remembered-folders sidebar: the rows the model builds.
 @Suite struct FolderSidebarModelTests {
 
-    /// The provider's display name — what a top-level folder is "in", and what the badge reads.
+    /// The provider's display name: what a top-level folder is "in", and what the badge reads.
     static let rootName = "iCloud"
     static let root = "/iCloud"
 
-    /// One source, which is the shape most of these assertions are about — qualification and
-    /// ordering do not need two accounts to be wrong.
+    /// One source, the shape most of these assertions need: qualification and ordering can go
+    /// wrong without two accounts.
     private func one(recents: [String] = [], favorites: [String] = [],
                      isAvailable: Bool = true) -> [FolderSidebarRow] {
         FolderSidebarModel.rows(
@@ -23,8 +23,8 @@ import Design
                                                    visitedAt: nil) })
     }
 
-    /// Favorites are curated and recents are a rolling eight, so the curated list goes first — and
-    /// the order within each is the store's.
+    /// Favorites are curated and recents a rolling eight, so favorites go first; the order within
+    /// each is the store's.
     @Test func favoritesComeFirstAndEachListKeepsTheStoresOrder() {
         let rows = one(recents: ["Downloads", "Notes"], favorites: ["Work", "Archive"])
         #expect(rows.map(\.name) == ["Work", "Archive", "Downloads", "Notes"])
@@ -38,34 +38,27 @@ import Design
         #expect(rows.first?.relativePath == "Clients/Acme/Legal")
     }
 
-    /// **The case the ⌘K palette had to be rebuilt twice to see.** Two folders with the same leaf
-    /// are two rows that read identically, and one of them goes somewhere the user did not mean.
+    /// Two folders with the same leaf would read identically, and one goes somewhere the user
+    /// didn't mean, so each shows its parent.
     @Test func twoFoldersSharingALeafNameEachShowTheirParent() {
         #expect(one(favorites: ["Clients/Legal", "Archive/Legal"]).map(\.detail) == ["Clients", "Archive"])
     }
 
-    /// **Found by rendering it.** A top-level folder has no parent path, so a collision between
-    /// `Clients/Legal` and a root-level `Legal` drew one qualified row and one bare one — two rows
-    /// reading "Legal" where only one says which. The provider's own name is what a top-level
-    /// folder is in.
+    /// A top-level folder has no parent path, so in a collision between `Clients/Legal` and a
+    /// root-level `Legal` it is qualified by the provider's name, or only one row would say which.
     @Test func aTopLevelFolderInACollisionIsQualifiedByTheProvider() {
         #expect(one(favorites: ["Clients/Legal", "Legal"]).map(\.detail) == ["Clients", "iCloud"])
     }
 
-    /// Counted across both groups, because the reader is looking at one column: a favorite and a
-    /// recent can collide as easily as two favorites. **The recent does not get a line of its own**
-    /// — only the favorite does — but it still makes the favorite grow one, which is the half of
-    /// this rule that survived 2026-08-27.
+    /// Collisions are counted across both groups, since the reader sees one column. The recent gets
+    /// no second line of its own, but it still makes the colliding favorite grow one.
     @Test func theCollisionIsCountedAcrossFavoritesAndRecentsTogether() {
         #expect(one(recents: ["Archive/Legal"], favorites: ["Clients/Legal"]).map(\.detail) == ["Clients", nil])
     }
 
-    /// **A recent never carries a second line**, whatever would qualify it.
-    ///
-    /// Asserted over every shape that produced one before — a collision with a parent to show, a
-    /// top-level collision that would have borrowed the source's name, and a recent colliding with
-    /// another recent — because the rule is "recents have one line", not "recents skip this one
-    /// case". Its whole path is still in the tooltip.
+    /// A recent never carries a second line, whatever would qualify it. Asserted over every shape
+    /// that could qualify one: a collision with a parent, a top-level collision that would borrow
+    /// the source's name, and two colliding recents. Its whole path is in the tooltip.
     @Test func aRecentNeverShowsASecondLine() {
         let cases: [[FolderSidebarRow]] = [
             one(recents: ["Archive/Legal"], favorites: ["Clients/Legal"]),
@@ -81,8 +74,7 @@ import Design
         }
     }
 
-    /// The badge is the recent's disambiguator, and it is untouched by the line going away — the
-    /// whole argument for dropping the line was that the badge already says which source.
+    /// The badge is the recent's disambiguator, so it stays: it already says which source.
     @Test func aRecentKeepsItsSourceBadge() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/iCloud", "iCloud", ["Health"]),
@@ -93,15 +85,15 @@ import Design
         #expect(recents.map(\.detail) == [nil])
     }
 
-    /// And the other direction, which is what stops every row growing a second line: a name nothing
-    /// else shares needs no disambiguation.
+    /// The other direction, which keeps every row from growing a second line: a name nothing else
+    /// shares needs no disambiguation.
     @Test func aNameNothingSharesShowsNoParent() {
         #expect(one(favorites: ["Clients/Legal", "Archive/Invoices"]).allSatisfy { $0.detail == nil })
         #expect(one(favorites: ["Work", "Work extra"]).allSatisfy { $0.detail == nil })
     }
 
-    /// A root that did not answer means "everything remembered, unchecked" — the rows stay and are
-    /// marked, because deleting a favorite over a sleeping drive costs the user their favorites.
+    /// A root that didn't answer means "everything remembered, unchecked": the rows stay, marked,
+    /// because dropping them over a sleeping drive would cost the user their favorites.
     @Test func aSleepingRootLeavesEveryRowListedAndUnavailable() {
         let rows = one(recents: ["Notes"], favorites: ["Work"], isAvailable: false)
         #expect(rows.count == 2)
@@ -113,8 +105,8 @@ import Design
         #expect(one(favorites: ["Work"]).allSatisfy { FolderSidebarModel.canOpen($0) })
     }
 
-    /// ⌘ opens a new tab; nothing else does. ⌥ in particular must not — it is the pane-mirroring
-    /// modifier everywhere else in the app, and it is banned from chords for the reveal's sake.
+    /// ⌘ opens a new tab; nothing else does. ⌥ must not: it mirrors panes everywhere else in the
+    /// app, and is kept out of chords for the shortcut reveal.
     @Test func onlyCommandOpensANewTab() {
         #expect(FolderSidebarModel.opensInNewTab(.command))
         #expect(FolderSidebarModel.opensInNewTab([.command, .shift]))
@@ -123,9 +115,8 @@ import Design
         #expect(!FolderSidebarModel.opensInNewTab(.shift))
     }
 
-    /// The ids a `ForEach` runs on cannot collide across the groups — the same folder can be a
-    /// favorite in one install and recent in another, and a store bug that let it be both would
-    /// otherwise crash the list rather than draw it twice.
+    /// The ids a `ForEach` runs on can't collide across the groups, so a store bug that made a
+    /// folder both favorite and recent would draw it twice rather than crash the list.
     @Test func rowIdsAreUniqueEvenIfAFolderAppearsInBothLists() {
         let rows = one(recents: ["Work"], favorites: ["Work"])
         #expect(Set(rows.map(\.id)).count == rows.count)
@@ -143,8 +134,8 @@ import Design
                         name: (path as NSString).lastPathComponent, visitedAt: nil)
     }
 
-    /// **The same relative path under two sources is two folders**, and both must survive the
-    /// `ForEach` — the root is part of the row's identity for exactly this.
+    /// The same relative path under two sources is two folders, and both survive the `ForEach`;
+    /// that is why the root is part of the row's identity.
     @Test func theSamePathUnderTwoSourcesIsTwoRows() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/iCloud", "iCloud", ["Health"]),
@@ -155,24 +146,22 @@ import Design
         #expect(rows.map(\.root) == ["/iCloud", "/Dropbox"])
     }
 
-    /// **Two sources on one root must not crash the sidebar.** `SettingsManager.existingSource`
-    /// keeps two enabled providers off one root today, but a hand-edited plist or a future entry
-    /// point is all it takes — and the builder used `uniqueKeysWithValues:`, which TRAPS on the
-    /// duplicate, turning that guard's gap into a crash on every refresh. First-wins instead, so
-    /// every row resolves against the source Settings lists first: with the two sources disagreeing
-    /// on availability and name, a row crediting the second would be visible here.
+    /// Two sources on one root must not crash the sidebar. `SettingsManager.existingSource` keeps
+    /// enabled providers off a shared root, but a hand-edited plist could still produce one, and
+    /// `uniqueKeysWithValues:` traps on the duplicate on every refresh. First wins instead; the two
+    /// sources here disagree on availability and name, so crediting the second would show.
     @Test func twoSourcesOnOneRootDrawWithoutTrappingAndTheFirstWins() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/iCloud", "Personal", ["Legal"]),
                       Self.source("/iCloud", "Impostor", ["Legal"], available: false)],
             recents: [])
-        // Both favorites lists still contribute rows — membership is per source; only the lookup
+        // Both favorites lists still contribute rows: membership is per source; only the lookup
         // by root collapses.
         #expect(rows.count == 2, "a duplicate root dropped rows rather than resolving them")
         #expect(rows.allSatisfy { $0.isAvailable },
                 "a row took the duplicate's availability — the first listed source must win")
-        // Top-level collision, so the qualifier is the owning source's name: first-wins is what
-        // keeps it reading "Personal" rather than crediting the duplicate.
+        // A top-level collision, so the qualifier is the owning source's name: first wins keeps it
+        // reading "Personal".
         #expect(rows.allSatisfy { $0.detail == "Personal" },
                 "a row was qualified by the duplicate source's name: \(rows.map(\.detail))")
     }
@@ -193,8 +182,8 @@ import Design
         #expect(both.map(\.sourceName) == ["iCloud", "Dropbox"])
     }
 
-    /// A source contributing only a *recent* still counts toward the badge — otherwise the one
-    /// column would show badges on some rows and not others depending on which list a folder is in.
+    /// A source contributing only a recent still counts toward the badge, or the column would badge
+    /// some rows and not others depending on which list a folder is in.
     @Test func aSourceContributingOnlyARecentStillCountsAsASecondSource() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/iCloud", "iCloud", ["Health"]),
@@ -203,8 +192,8 @@ import Design
         #expect(rows.allSatisfy { $0.sourceName != nil }, "some rows are badged and some are not")
     }
 
-    /// **Both disambiguators at once**, which is the case neither alone can carry: two rows reading
-    /// `Legal`, from two accounts, one nested and one top-level.
+    /// Both disambiguators at once, the case neither alone can carry: two `Legal` rows from two
+    /// accounts, one nested and one top-level.
     @Test func aRowCanNeedBothItsBadgeAndItsParent() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/Drive", "Drive", ["Clients/Legal"]),
@@ -214,9 +203,9 @@ import Design
         #expect(rows.map(\.sourceName) == ["Drive", "iCloud"])
     }
 
-    /// Recents arrive already ordered by the store and are not re-sorted here — the ordering rule
-    /// needs a clock and lives in `FolderJumpStore.mostRecentAcrossRoots`, which is where it is
-    /// tested. Two rules for one order is how they come to disagree.
+    /// Recents arrive ordered by the store and are not re-sorted: the rule needs a clock and lives
+    /// (and is tested) in `FolderJumpStore.mostRecentAcrossRoots`. Two rules for one order would
+    /// drift apart.
     @Test func recentsKeepTheOrderTheStoreGaveThem() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/a", "A", []), Self.source("/b", "B", [])],
@@ -224,10 +213,8 @@ import Design
         #expect(rows.map(\.name) == ["Second", "First"])
     }
 
-    /// **A recent whose whole source has gone is dropped, not drawn unavailable.** A sleeping drive
-    /// is a source that exists and is not answering; a source that has been removed from Settings
-    /// is one the app can no longer say anything about, including whether the folder is still
-    /// there.
+    /// A recent whose source has gone is dropped, not drawn unavailable. A sleeping drive exists
+    /// and isn't answering; a source removed from Settings is one the app can say nothing about.
     @Test func aRecentFromAnUnknownSourceIsDropped() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/iCloud", "iCloud", [])],
@@ -246,9 +233,8 @@ import Design
 
     // MARK: A folder the column already lists under another heading
 
-    /// **The rule the user asked for**: a recent naming a folder that Favorites or Locations
-    /// already offers is not drawn a second time. The reader is looking at one 180pt column, and
-    /// two rows to one folder is one wasted row out of eight.
+    /// A recent naming a folder that Favorites or Locations already offers is not drawn again: in
+    /// one 180pt column, two rows to one folder waste one of eight.
     @Test func aRecentTheColumnAlreadyListsIsNotDrawnAgain() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/iCloud", "iCloud", [])],
@@ -257,9 +243,8 @@ import Design
         #expect(FolderSidebarModel.rows(rows, in: .recents).map(\.name) == ["Health"])
     }
 
-    /// **Per root, not per path.** Two sources holding the same relative path are two folders, and
-    /// a place listed under one of them says nothing about the other — the same reason the row's
-    /// identity carries its root.
+    /// Per root, not per path: two sources holding the same relative path are two folders, and a
+    /// place listed under one says nothing about the other.
     @Test func theSubtractionIsKeyedByRoot() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/iCloud", "iCloud", []), Self.source("/Dropbox", "Dropbox", [])],
@@ -276,9 +261,8 @@ import Design
 
     // MARK: The cap counts rows that are DRAWN
 
-    /// **The cap moved here from the store**, and this is why: it was applied before this builder
-    /// dropped a recent whose source had been removed, so a dead entry took one of the eight and
-    /// then vanished — leaving the section a row short for no reason on screen.
+    /// The cap is applied here, after dropping recents whose source was removed; applied before, a
+    /// dead entry would take one of the eight and leave the section a row short.
     @Test func aRecentFromARemovedSourceDoesNotSpendOneOfTheEight() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/iCloud", "iCloud", [])],
@@ -288,8 +272,8 @@ import Design
                 "the ghost spent a slot the column never drew")
     }
 
-    /// The same, for the subtraction above — it would otherwise make the section shorter in exact
-    /// proportion to how well it worked.
+    /// The same for the subtraction above, which would otherwise shorten the section by every row it
+    /// removed.
     @Test func aSubtractedRecentDoesNotSpendOneOfTheEight() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/iCloud", "iCloud", [])],
@@ -299,8 +283,8 @@ import Design
         #expect(FolderSidebarModel.rows(rows, in: .recents).map(\.name) == ["F3", "F4"])
     }
 
-    /// The cap is on Recents alone. Favorites is curated and finite by the user's own hand, and a
-    /// cap there would silently hide one they had added.
+    /// The cap is on Recents alone: Favorites is curated by the user, and a cap there would silently
+    /// hide one they added.
     @Test func theCapDoesNotTouchFavorites() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/iCloud", "iCloud", ["A", "B", "C"])],
@@ -310,7 +294,7 @@ import Design
         #expect(FolderSidebarModel.rows(rows, in: .recents).map(\.name) == ["F1"])
     }
 
-    /// A zero cap draws no recents rather than every one of them — the clamp's other end.
+    /// A zero cap draws no recents rather than all of them: the clamp's other end.
     @Test func aZeroCapDrawsNoRecents() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/iCloud", "iCloud", ["A"])],
@@ -322,9 +306,8 @@ import Design
 
     // MARK: The badge counts sources that are DRAWN
 
-    /// **"Is this multi-source" is read off the rows, not off the inputs.** A second account whose
-    /// every recent is subtracted contributes nothing visible, and putting a badge on every row in
-    /// the column to name it is the noise `sourceName` is nil for in the first place.
+    /// "Is this multi-source" is read off the rows, not the inputs: a second account whose every
+    /// recent is subtracted contributes nothing visible, so it must not badge the whole column.
     @Test func aSourceWhoseEveryRecentIsSubtractedPutsNoBadgeOnTheColumn() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/iCloud", "iCloud", ["Health"]),
@@ -335,8 +318,8 @@ import Design
         #expect(rows.map(\.sourceName) == [nil], "a badge names a source with nothing on screen")
     }
 
-    /// **A recent always names its source** (decided 2026-10-19) — Petition read "iCloud" under
-    /// Recents and nothing under Frequent, the only row there, because the badge was counted per mode.
+    /// A recent always names its source, even with one source, so its badge doesn't come and go
+    /// between Recents modes. A favorite from the only source stays unbadged.
     @Test func aRecentFromTheOnlySourceIsStillBadged() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/iCloud", "iCloud", ["Health"])],
@@ -346,7 +329,7 @@ import Design
                 "a favorite from the only source is badged — the same word down the column says nothing")
     }
 
-    /// And the case it must not break: two sources that both draw still badge.
+    /// The case it must not break: two sources that both draw still badge.
     @Test func twoSourcesThatBothDrawStillBadge() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/iCloud", "iCloud", ["Health"]),
@@ -356,7 +339,7 @@ import Design
     }
 }
 
-/// **The column, rendered.** Geometry cannot say whether a row is dimmed or which one is current.
+/// The column, rendered: geometry can't say whether a row is dimmed or which one is current.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct FolderSidebarRenderTests {
 
@@ -389,7 +372,7 @@ import Design
         return rep
     }
 
-    /// Pixels differing from the background — "something is painted here".
+    /// Pixels differing from the background: "something is painted here".
     private func inked(_ rep: NSBitmapImageRep) -> Int {
         guard let background = rep.colorAt(x: 1, y: 1)?.usingColorSpace(.sRGB) else { return 0 }
         var count = 0
@@ -414,12 +397,8 @@ import Design
             })
     }
 
-    /// More rows paint more.
-    ///
-    /// Against a **shorter list**, not against the empty state — measured, and the first cut had it
-    /// backwards: the empty state is two sentences of explanation and out-inks a pair of one-word
-    /// rows almost three to one (1535 against 685). "Rows paint more than nothing" is not the claim
-    /// worth making anyway; this one fails if a row stops drawing.
+    /// More rows paint more. Compared with a shorter list, not the empty state: the empty state's
+    /// two sentences out-ink a pair of one-word rows. This fails if a row stops drawing.
     @Test func eachRowPaints() throws {
         let one = try #require(render(rows: rows(RememberedFolders(
             recents: [], pinned: ["Work"], rootIsAvailable: true))))
@@ -429,15 +408,14 @@ import Design
                 "four rows paint no more than one — \(inked(four)) vs \(inked(one))")
     }
 
-    /// The empty state is not blank: a sidebar someone has just switched on with nothing in it must
-    /// say how it fills, or it reads as broken.
+    /// The empty state is not blank: a sidebar just switched on with nothing in it must say how it
+    /// fills, or it reads as broken.
     @Test func theEmptyStateSaysSomething() throws {
         #expect(inked(try #require(render(rows: []))) > 120)
     }
 
-    /// **An unavailable row is dimmed, and the dimming is drawn rather than left to `.disabled`.**
-    /// Under `hoverAffordance` a disabled button is not dimmed by the style at all, so this is the
-    /// half that would silently be missing.
+    /// An unavailable row is dimmed, drawn rather than left to `.disabled`: under `hoverAffordance`
+    /// the style doesn't dim a disabled button at all.
     @Test func anUnavailableRowIsVisiblyQuieter() throws {
         let live = try #require(render(rows: rows(RememberedFolders(
             recents: [], pinned: ["Work"], rootIsAvailable: true))))
@@ -447,12 +425,10 @@ import Design
                 "the unavailable row paints as strongly as the live one — \(inked(asleep)) vs \(inked(live))")
     }
 
-    /// **The current row fills the column, and that is a claim about the hit area.**
-    ///
-    /// A `hoverAffordance` row is clickable only where it paints, so a row sized to its text would
-    /// be readable across 180pt and clickable across forty. Nothing can hover a SwiftUI button from
-    /// a test, but the current-folder highlight is drawn by the same modifier chain that carries
-    /// the hit shape — so measuring how wide *it* paints measures the row.
+    /// The current row fills the column, which is a claim about the hit area: a `hoverAffordance`
+    /// row is clickable only where it paints. A test can't hover a SwiftUI button, but the
+    /// current-folder highlight is drawn by the same modifier chain as the hit shape, so its width
+    /// measures the row.
     @Test func theCurrentRowFillsTheColumn() throws {
         let listed = rows(RememberedFolders(recents: [], pinned: ["Work"], rootIsAvailable: true))
         let rep = try #require(render(rows: listed, current: "Work"))
@@ -476,8 +452,8 @@ import Design
                 "the widest painted row spans \(widest) of \(column) px — the row is sized to its text, so most of the column is unclickable")
     }
 
-    /// The current folder is emphasised — semibold and an accented glyph — so the column says where
-    /// the pane is as well as where it could go.
+    /// The current folder is emphasised (semibold, accented glyph), so the column says where the
+    /// pane is as well as where it could go.
     @Test func theCurrentFolderIsMarked() throws {
         let listed = rows(RememberedFolders(recents: [], pinned: ["Work"], rootIsAvailable: true))
         let elsewhere = try #require(render(rows: listed, current: "Somewhere/Else"))
@@ -487,18 +463,14 @@ import Design
     }
 }
 
-/// **Where the sidebar exists, and where it is showing.** Two questions that read alike and are
-/// not the same one — a menu item that asked the second could never be used to switch the column
-/// on, and a refresh that asked the first would `stat` a provider root on every workspace.
+/// Where the sidebar exists, and where it is showing: two different questions. A menu item asking
+/// the second could never switch the column on; a refresh asking the first would `stat` a provider
+/// root in every workspace.
 ///
-/// Every case below passes `enabled:` rather than relying on the default, and keeps doing so now
-/// that the default is `true`: `true && x` asserts nothing about the rule, exactly as `false && x`
-/// asserted nothing while the column was held. `TheSidebarIsOn` asserts the switch itself, through
-/// the defaulted spellings the app really calls.
-///
-/// **Which workspaces support it is `Workspace.supportsFolderSidebar`, not here** — this module
-/// cannot see `Workspace`, so the caller supplies the verdict. `WorkspaceSidebarSupportTests` in
-/// the app target pins the mapping; these pin what the verdict then means.
+/// Every case passes `enabled:` explicitly, since the defaulted `true && x` asserts nothing about
+/// the rule; `TheSidebarIsOn` checks the switch through the defaulted calls. Which workspaces
+/// support it is `Workspace.supportsFolderSidebar`, which this module can't see, so the caller
+/// supplies the verdict; `WorkspaceSidebarSupportTests` in the app target pins that mapping.
 @Suite struct FolderSidebarVisibilityTests {
 
     @Test func aWorkspaceThatDoesNotSupportItGetsNoSidebar() {
@@ -506,8 +478,8 @@ import Design
         #expect(!FolderSidebarModel.appliesTo(workspaceSupportsSidebar: false, enabled: true))
     }
 
-    /// **The item stays live with the column switched off**, because it is what switches it on.
-    /// This is the assertion that stops the two rules being collapsed into one.
+    /// The item stays live with the column switched off, because it is what switches it on. This
+    /// keeps the two rules from being collapsed into one.
     @Test func theToggleIsStillAvailableWhileTheColumnIsHidden() {
         #expect(FolderSidebarModel.appliesTo(workspaceSupportsSidebar: true, enabled: true))
         #expect(!FolderSidebarModel.isShowing(workspaceSupportsSidebar: true, preference: false, enabled: true))
@@ -519,12 +491,9 @@ import Design
         #expect(!FolderSidebarModel.isShowing(workspaceSupportsSidebar: false, preference: false, enabled: true))
     }
 
-    /// **Collapsed panes get no sidebar.** Collapsing asks for maximum workspace room, and a 180pt
-    /// column beside a 34pt spine takes 185 of it straight back.
-    ///
-    /// Folded into `appliesTo` rather than checked at the view, so the toolbar button, the menu
-    /// item and the refresh guard cannot come to different answers — which is the entire reason
-    /// this function exists rather than three `if`s.
+    /// Collapsed panes get no sidebar: collapsing asks for maximum room, and a 180pt column beside a
+    /// 34pt spine takes it back. Folded into `appliesTo`, not checked at the view, so the toolbar
+    /// button, menu item and refresh guard can't disagree.
     @Test func collapsedPanesGetNoSidebarAnywhere() {
         #expect(!FolderSidebarModel.appliesTo(workspaceSupportsSidebar: true,
                                               panesCollapsed: true, enabled: true))
@@ -532,16 +501,16 @@ import Design
                                               preference: true, enabled: true))
     }
 
-    /// The collapse rule must not be the ONLY thing tested — an implementation returning
-    /// `!panesCollapsed` alone would pass the case above and be badly wrong.
+    /// The collapse rule must not be the only thing tested: returning `!panesCollapsed` alone would
+    /// pass the case above.
     @Test func anExpandedPaneInASupportedWorkspaceDoesGetOne() {
         #expect(FolderSidebarModel.appliesTo(workspaceSupportsSidebar: true,
                                              panesCollapsed: false, enabled: true))
     }
 
-    /// **A workspace whose sidebar outlives the collapse keeps it** — Edit, asked 2026-10-04: its
-    /// Text Files list follows the folded pane's folder, so the sidebar is useful with no pane
-    /// open. All three questions agree, and a collapsed pane still greys nothing there.
+    /// A workspace whose sidebar outlives the collapse keeps it. Edit's Text Files list follows the
+    /// folded pane's folder, so the sidebar is useful with no pane open. All three questions agree,
+    /// and a collapsed pane greys nothing there.
     @Test func aSidebarThatOutlivesTheCollapseStaysBesideAFoldedPane() {
         #expect(FolderSidebarModel.appliesTo(workspaceSupportsSidebar: true, panesCollapsed: true,
                                              outlivesCollapse: true, enabled: true))
@@ -551,8 +520,8 @@ import Design
                                                      outlivesCollapse: true, enabled: true) == nil)
     }
 
-    /// The exemption is from the collapse rule only: it does not conjure a sidebar for a workspace
-    /// that carries none, past the preference, or past the switch.
+    /// The exemption is from the collapse rule only: it doesn't override a workspace without a
+    /// sidebar, the preference, or the switch.
     @Test func outlivingTheCollapseOverridesNothingElse() {
         #expect(!FolderSidebarModel.appliesTo(workspaceSupportsSidebar: false, panesCollapsed: true,
                                               outlivesCollapse: true, enabled: true))
@@ -563,14 +532,9 @@ import Design
     }
 }
 
-/// **The switch is on, asserted where it is decided.**
-///
-/// The column, its menu item, its toolbar button and its chord were built for v4.2, held on
-/// 2026-08-20 so it could arrive as a place rather than as two ungrouped lists, carried past v4.3,
-/// and turned on for v4.4. This suite was `TheSidebarIsHeldForV43` and asserted the opposite; it is
-/// inverted rather than deleted, because the thing worth pinning never changed — **one line of
-/// production code decides whether any of this is reachable**, and it is one line away from being
-/// flipped by someone who reads it as a leftover flag.
+/// The switch is on, asserted where it is decided. One line of production code,
+/// `FolderSidebarModel.isEnabled`, decides whether the column, its menu item, toolbar button and
+/// chord are reachable, and it could be flipped by someone who reads it as a leftover flag.
 @Suite struct TheSidebarIsOn {
 
     @Test func theSwitchIsOn() {
@@ -578,18 +542,11 @@ import Design
                 "the sidebar is v4.4's item #13 — turning this off takes the column, the ⌃⌘S chord, the View item and the toolbar button with it, and leaves four surfaces advertising a column that cannot appear")
     }
 
-    /// **Every question the app actually asks, in the combinations that decide the column.**
-    ///
-    /// The defaulted spellings and not the injected ones: these are the calls `ContentView`,
-    /// `shortcutFolderSidebar` and the toolbar button make, so this is the check that the switch
-    /// reaches the host rather than only the constant.
-    ///
-    /// `appliesTo` ignores the preference by design — it answers *can this workspace have a
-    /// column*, which is what the menu item and the toolbar button are enabled by — so it is
-    /// asserted against the workspace verdict alone while `isShowing` consults both.
-    ///
-    /// Through the DEFAULTED spellings, deliberately: this is the one place that asks the question
-    /// the app actually asks, so it fails if the shipped switch is ever turned back off.
+    /// Every question the app asks, in the combinations that decide the column. Through the
+    /// defaulted spellings, the calls `ContentView`, `shortcutFolderSidebar` and the toolbar button
+    /// make, so this fails if the switch is turned off. `appliesTo` ignores the preference by design
+    /// (it answers "can this workspace have a column", which enables the menu item and button);
+    /// `isShowing` consults both.
     @Test(arguments: [true, false], [true, false])
     func theColumnIsReachableExactlyWhereSupportedAndOnlyWhenAskedFor(supported: Bool, preference: Bool) {
         #expect(FolderSidebarModel.appliesTo(workspaceSupportsSidebar: supported) == supported)
@@ -597,22 +554,16 @@ import Design
                 == (supported && preference))
     }
 
-    /// `browseSidebarVisible` still defaults to `true`, and that is the answer everyone already has
-    /// written in their defaults — from the v4.2 builds where the item briefly existed, and from
-    /// never having touched it. The hold was deliberately placed on `isEnabled` rather than on the
-    /// preference so that this stayed true: switching the column on shows it to everyone, rather
-    /// than to the subset who happened to tick a box during one release.
+    /// `browseSidebarVisible` defaults to `true`, so the column shows for everyone where it is
+    /// supported, not only for those who once ticked a box.
     @Test func theColumnIsShownByDefaultWhereItIsSupported() {
         #expect(FolderSidebarModel.isShowing(workspaceSupportsSidebar: true, preference: true))
     }
 }
 
-/// **What a greyed-out sidebar toggle says about itself.**
-///
-/// Two ways to be unavailable, with different remedies — "go somewhere else" and "expand the pane
-/// you collapsed" — so one sentence cannot serve both. Until 2026-08-24 there was one, reading
-/// "The sidebar is available in Browse"; it was true when written and became wrong the moment
-/// Organize and Storage got one, which is the failure mode of any wording that enumerates.
+/// What a greyed-out sidebar toggle says about itself. There are two ways to be unavailable, with
+/// different remedies ("go somewhere else", "expand the pane you collapsed"), so one sentence can't
+/// serve both. Neither may enumerate workspaces, since that goes stale when the set changes.
 @Suite struct SidebarUnavailableReasonTests {
 
     @Test func anAvailableSidebarHasNoReason() {
@@ -621,10 +572,8 @@ import Design
                 "a reason is offered for a sidebar that is available — the tooltip would explain a state the user is not in")
     }
 
-    /// **It names no workspace**, and that is the fix rather than an omission. The sentence has
-    /// been wrong twice — "available in Browse", then "in Browse, Organize and Storage" — because
-    /// an enumeration has to be re-edited every time the set changes and nothing makes it fail when
-    /// it is not.
+    /// It names no workspace on purpose: an enumeration must be re-edited every time the set
+    /// changes, and nothing fails when it isn't.
     @Test func anUnsupportedWorkspaceSaysSoWithoutEnumerating() throws {
         let reason = try #require(FolderSidebarModel.unavailableReason(
             workspaceSupportsSidebar: false, panesCollapsed: false, enabled: true))
@@ -642,9 +591,8 @@ import Design
         #expect(!reason.contains("Browse"), "a collapsed pane was told to change workspace, which would not help")
     }
 
-    /// **Both at once resolves to the workspace**, and that ordering is the point: a collapsed pane
-    /// in Compare is unavailable twice over, and only one of those is something expanding a pane
-    /// would fix. Telling that user to show their panes sends them to do work that changes nothing.
+    /// Both at once resolves to the workspace: a collapsed pane in an unsupported workspace stays
+    /// unavailable after expanding, so telling the user to show their panes would change nothing.
     @Test func theWorkspaceReasonWinsWhenBothApply() throws {
         let reason = try #require(FolderSidebarModel.unavailableReason(
             workspaceSupportsSidebar: false, panesCollapsed: true, enabled: true))
@@ -653,8 +601,8 @@ import Design
         #expect(reason.contains("not available here"))
     }
 
-    /// With the whole feature switched off, the reason must not blame the workspace the user is in
-    /// — every workspace would be equally wrong.
+    /// With the whole feature switched off, the reason must not blame the user's workspace: every
+    /// workspace would be equally wrong.
     @Test func aDisabledFeatureDoesNotBlameTheWorkspace() throws {
         let reason = try #require(FolderSidebarModel.unavailableReason(
             workspaceSupportsSidebar: true, panesCollapsed: false, enabled: false))
@@ -662,18 +610,13 @@ import Design
     }
 }
 
-/// **The caption that makes Compare's sidebar defensible.**
-///
-/// Compare re-roots whichever pane holds the selection, defaulting to the left — a rule that is
-/// invisible in the case that matters most, since with nothing selected nothing on screen says
-/// where a click will land. Getting it wrong resets that pane's column stack, and navigation has no
-/// undo. So the column says which pane it acts on, and these pin what it must be able to say.
+/// The caption saying which pane Compare's sidebar acts on. Compare re-roots whichever pane holds
+/// the selection, defaulting to the left, and with nothing selected nothing else on screen says
+/// where a click lands. A wrong guess resets that pane's column stack, and navigation has no undo.
 @Suite struct SidebarTargetTests {
 
-    /// **The side is all there is, and that is the design.** Comparing a source against itself is
-    /// ordinary here — the log shows "comparing Dropbox and Dropbox" — so a provider name could
-    /// never separate the two panes. It carried one anyway until 2026-08-24; see
-    /// `theHeaderNamesTheSide`.
+    /// The side is the whole label. Comparing a source against itself is ordinary, so a provider
+    /// name can't separate the two panes; see `theHeaderNamesTheSide`.
     @Test func theSideSeparatesTwoPanesOnOneProvider() {
         #expect(SidebarTarget(targetsRight: false) != SidebarTarget(targetsRight: true),
                 "the two panes are indistinguishable — the side must separate them")
@@ -681,26 +624,23 @@ import Design
         #expect(SidebarTarget.label(targetsRight: true) == "Right")
     }
 
-    /// **The header names the SIDE, and naming the source instead was a regression.**
-    ///
-    /// "Opens in Google Drive (Preserve)" shipped for one build and read as a scoping claim: the
-    /// rows below come from EVERY enabled source (`refreshFolderSidebarRows`), so naming one says
-    /// these are that source's folders, which is false. The side is the only thing true of every
-    /// row in the column.
+    /// The header names the side, not a source. The rows come from every enabled source
+    /// (`refreshFolderSidebarRows`), so naming one would falsely scope them to it; the side is the
+    /// only thing true of every row.
     @Test func theHeaderNamesTheSide() {
         #expect(SidebarTarget(targetsRight: false).openingDescription == "Opens on Left")
         #expect(SidebarTarget(targetsRight: true).openingDescription == "Opens on Right")
     }
 
-    /// The two sides must not describe themselves identically — the whole line exists to separate
-    /// them, and two panes on one source is ordinary here.
+    /// The two sides must not describe themselves identically: the line exists to separate them,
+    /// and two panes on one source is ordinary.
     @Test func theTwoSidesDescribeThemselvesDifferently() {
         #expect(SidebarTarget(targetsRight: false).openingDescription
                     != SidebarTarget(targetsRight: true).openingDescription)
     }
 
-    /// **The glyph is a side indicator, not a direction.** Both panes sit to the RIGHT of this
-    /// column, so `arrow.left` / `arrow.right` would point the same way for both and mean nothing.
+    /// The glyph is a side indicator, not a direction: both panes sit to the right of this column,
+    /// so an arrow would point the same way for both.
     @Test func theTwoSidesCarryDifferentGlyphs() {
         let left = SidebarTarget.symbol(targetsRight: false)
         let right = SidebarTarget.symbol(targetsRight: true)
@@ -709,8 +649,8 @@ import Design
                 "the glyph is an arrow — both panes are to the right of this column, so it points the same way for either")
     }
 
-    /// **The line sits under the list, not over it.** Above the first row it pushed Favorites down
-    /// in Compare alone, so the column's top stopped lining up with every other workspace's.
+    /// The line sits under the list, not over it: above the first row it would push Favorites down
+    /// in Compare alone, and the column's top would stop lining up with other workspaces'.
     @Test func theLineSitsUnderTheList() throws {
         let code = try SidebarRowSideMenuTests.source()
         let body = try #require(code.range(of: "public var body: some View {"),
@@ -724,13 +664,10 @@ import Design
     }
 }
 
-/// **"Open in Left Pane" / "Open in Right Pane" on a row**, the per-row companion to the target
-/// control.
-///
-/// Both exist because they answer different questions. The control is a MODE — it says where every
-/// click lands — and a mode is the wrong shape for "this one folder, over there": flipping it to
-/// open one folder and flipping it back is exactly the friction the menu removes. Asserted on the
-/// view's declared inputs rather than by opening a real menu, which would be testing AppKit.
+/// "Open in Left Pane" / "Open in Right Pane" on a row, the per-row companion to the target
+/// control. The control is a mode, saying where every click lands, which is the wrong shape for
+/// "this one folder, over there". Asserted on the view's source rather than by opening a real menu,
+/// which would test AppKit.
 @Suite struct SidebarRowSideMenuTests {
 
     static func source() throws -> String {
@@ -740,10 +677,8 @@ import Design
         let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
                                "cannot read FolderSidebar.swift — this scan would be vacuous")
         try #require(raw.count > 3000, "the file is implausibly short — the scan is vacuous")
-        // **Comments stripped**, as every other source scan in this project does. `leftIsOfferedFirst`
-        // failed against correct code because a doc comment 600 lines above the buttons quotes the
-        // labels while explaining them — so the scan found the prose, not the menu. A scan that
-        // reads comments is asserting about what the code SAYS about itself.
+        // Comments stripped, as every source scan here does: doc comments quote the labels, and a
+        // scan that reads them asserts what the code says about itself, not what it does.
         return raw.split(separator: "\n", omittingEmptySubsequences: false)
             .map { line -> Substring in
                 guard let comment = line.range(of: "//") else { return line }
@@ -756,10 +691,8 @@ import Design
         #expect(try Self.source().contains("private func sideItems("))
     }
 
-    /// **Remove from Recents is offered only on a recent.** A favorite is removed by the verb
-    /// directly above it, so drawing both on one row would read as a choice between two removals
-    /// that are not alternatives — and "Remove from Recents" on a favorite would name a list the
-    /// row is not in.
+    /// Remove from Recents is offered only on a recent. A favorite has its own removal verb just
+    /// above, and "Remove from Recents" on it would name a list the row isn't in.
     @Test func removeFromRecentsIsGatedOnTheRecentsGroup() throws {
         let code = try Self.source()
         let gate = try #require(code.range(of: "if row.group == .recents {"),
@@ -769,17 +702,15 @@ import Design
                 "the gate no longer holds the Remove from Recents item — this scan is aimed at nothing")
     }
 
-    /// **The item names the list the heading shows.** A Frequent row offering "Remove from
-    /// Recents" named a list the user could not see.
+    /// The item names the list the heading shows, never one the user can't see.
     @Test func removeItemNamesTheShownList() {
         #expect(FolderSidebarView.forgetItemTitle(.recents) == "Remove from Recents")
         #expect(FolderSidebarView.forgetItemTitle(.revisited) == "Remove from Revisited")
         #expect(FolderSidebarView.forgetItemTitle(.frequent) == "Remove from Frequent")
     }
 
-    /// **Enabled on an unavailable row, unlike everything above it.** Taking a row off the column
-    /// is the one act still worth doing when the folder behind it cannot be opened, which is the
-    /// state — a source asleep, a folder renamed away — that makes a stale recent worth removing.
+    /// Enabled on an unavailable row, unlike the items above it: a stale recent (source asleep,
+    /// folder renamed away) is exactly the one worth removing.
     @Test func removeFromRecentsIsNotDisabledWithTheRest() throws {
         let code = try Self.source()
         let gate = try #require(code.range(of: "if row.group == .recents {"))
@@ -788,8 +719,8 @@ import Design
                 "the item now refuses on an unavailable row, which is the row it exists for")
     }
 
-    /// **Only where there are two panes.** `target` is nil outside Compare, and naming a left and a
-    /// right pane in a workspace with one would offer a choice that does not exist.
+    /// Only where there are two panes: `target` is nil outside Compare, and offering a left and a
+    /// right pane where there is one would offer a choice that doesn't exist.
     @Test func theSideItemsAppearOnlyWhenThereIsATarget() throws {
         let code = try Self.source()
         let items = try #require(code.range(of: "private func sideItems("))
@@ -798,16 +729,10 @@ import Design
                 "the side items are not gated on there being two panes")
     }
 
-    /// **The menu does not move the target.** Picking a side for one folder is not a statement
-    /// about the next one, and silently re-aiming from a context menu would be a mode change the
-    /// user did not ask for and would not see — and the target now carries the action bar, the lens
-    /// scans and the pane-scoped chords with it, so the mode change would be a large one.
-    ///
-    /// **This asserted the absence of `onPickSide`, and went vacuous when that was deleted.** The
-    /// symbol no longer exists anywhere in the module, so the check could not fail for any edit at
-    /// all. What can do the damage now is the column being handed a way to move the focused pane,
-    /// so that is what is named — plus a premise guard, because a renamed member would otherwise
-    /// take this straight back to passing over an empty window.
+    /// The menu doesn't move the target. Picking a side for one folder says nothing about the next,
+    /// and silently re-aiming would be an unseen mode change that also moves the action bar, lens
+    /// scans and pane-scoped chords. Checks for any way to move the focused pane, with a premise
+    /// guard so a renamed member can't make it pass over an empty window.
     @Test func theMenuDoesNotRepointTheSidebar() throws {
         let code = try Self.source()
         let items = try #require(code.range(of: "private func sideItems("))
@@ -819,8 +744,8 @@ import Design
         }
     }
 
-    /// Both row kinds offer it — a folder row and a Locations row are both things you might want on
-    /// the other side, and offering it on one only would be arbitrary.
+    /// Both row kinds offer it: a folder row and a Locations row are both things you might want on
+    /// the other side.
     @Test func bothRowKindsOfferIt() throws {
         let code = try Self.source()
         #expect(code.contains("sideItems(enabled: canOpen) { onOpenRowOnSide(row, $0) }"),
@@ -829,15 +754,14 @@ import Design
                 "Locations rows do not offer the side items")
     }
 
-    /// **Not the Trash.** It is `revealOnly` — it opens in Finder and is never a pane's scope — so
-    /// offering to open it in a pane would name an action that cannot happen.
+    /// Not the Trash: it is `revealOnly` (opens in Finder, never a pane's scope), so it can't be
+    /// opened in a pane.
     @Test func theTrashOffersNoPaneItems() throws {
         #expect(try Self.source().contains("if source.state != .revealOnly {"),
                 "the Trash row offers to open in a pane, which it can never do")
     }
 
-    /// Left before Right, matching the control above it and the panes themselves. Trivial, and the
-    /// kind of thing that reads as a bug when it is wrong.
+    /// Left before Right, matching the control above it and the panes themselves.
     @Test func leftIsOfferedFirst() throws {
         let code = try Self.source()
         let left = try #require(code.range(of: "\"Open in Left Pane\""))
@@ -846,19 +770,13 @@ import Design
     }
 }
 
-/// **The recents-drag arming rule, read off the view's source.**
-///
-/// A recents drag becomes a favorite — a persisted membership change — and it must arm only once
-/// the pointer has actually reached the Favorites band. The rule lives in the gesture's `onChanged`
-/// closure, which no test process can drive (a `DragGesture` needs a real event stream), and its
-/// two consumers sit in `onEnded` and the indicator overlay — so this is scanned the way
-/// `SidebarRowSideMenuTests` scans the same file: comments stripped, with premise anchors so a
-/// renamed member fails loudly instead of passing over an empty match.
-///
-/// What went wrong without it: any ≥5pt slip on a recent — a sloppy trackpad click — favorited the
-/// row irrevocably, because the insertion index was clamped into Favorites' band and every release
-/// committed. `SidebarInsertionIndicatorTests` proves the unarmed drag paints no line; these prove
-/// the release and the overlay consult the same bit the line does.
+/// The recents-drag arming rule, read off the view's source. A recents drag becomes a favorite, a
+/// persisted change, so it arms only once the pointer reaches the Favorites band; otherwise any
+/// ≥5pt slip on a recent would favorite it. The rule lives in the gesture's `onChanged`, which no
+/// test can drive (a `DragGesture` needs a real event stream), so this scans the file as
+/// `SidebarRowSideMenuTests` does, with premise anchors so a renamed member fails loudly.
+/// `SidebarInsertionIndicatorTests` proves an unarmed drag paints no line; these prove the release
+/// and the overlay consult the same bit.
 @Suite struct SidebarRecentsDragArmingScanTests {
 
     static func source() throws -> String {
@@ -868,9 +786,8 @@ import Design
         let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
                                "cannot read FolderSidebar.swift — this scan would be vacuous")
         try #require(raw.count > 3000, "the file is implausibly short — the scan is vacuous")
-        // Comments stripped, as every source scan here does: the arming rule is QUOTED in the doc
-        // comments explaining it, and a scan that reads comments asserts what the code says about
-        // itself rather than what it does.
+        // Comments stripped, as every source scan here does: the doc comments quote the arming
+        // rule, and a scan that reads them asserts what the code says about itself.
         return raw.split(separator: "\n", omittingEmptySubsequences: false)
             .map { line -> Substring in
                 guard let comment = line.range(of: "//") else { return line }
@@ -879,8 +796,8 @@ import Design
             .joined(separator: "\n")
     }
 
-    /// The rule itself: armed only above Locations' measured top, and `.infinity` when the column
-    /// is unmeasured — an unmeasured column stays armed rather than dead.
+    /// The rule itself: armed only above Locations' measured top, with `.infinity` when unmeasured
+    /// so an unmeasured column stays armed rather than dead.
     @Test func theArmingRuleComparesAgainstLocationsTop() throws {
         let code = try Self.source()
         #expect(code.contains("let willDrop = section != .recents"),
@@ -889,10 +806,9 @@ import Design
                 "the boundary is no longer Locations' measured top with an armed fallback — an unmeasured column would go dead, or a slip would commit")
     }
 
-    /// **The release consults the bit.** The `.recents` case of `onEnded` must guard on
-    /// `willDrop` before it calls `onFavoriteRecent` — an unarmed release is a cancel, not a
-    /// no-op variant, and this guard is the only thing between a sloppy click and a persisted
-    /// membership change.
+    /// The release consults the bit: `onEnded`'s `.recents` case guards on `willDrop` before
+    /// `onFavoriteRecent`. An unarmed release is a cancel, and this guard is all that stands between
+    /// a sloppy click and a persisted change.
     @Test func theRecentsDropGuardsOnTheArmedBit() throws {
         let code = try Self.source()
         let ended = try #require(code.range(of: ".onEnded {"),
@@ -906,8 +822,8 @@ import Design
                 "the recents drop does not guard on willDrop — every ≥5pt slip on a recent favorites it irrevocably")
     }
 
-    /// **The indicator consults the same bit**, so the line and the release cannot disagree: the
-    /// line is the promise that releasing commits, and an unarmed drag must promise nothing.
+    /// The indicator consults the same bit, so line and release can't disagree: the line promises
+    /// that releasing commits, and an unarmed drag must promise nothing.
     @Test func theIndicatorOverlayGuardsOnTheSameBit() throws {
         let code = try Self.source()
         #expect(code.contains("if let drag, drag.willDrop, !collapsed.contains(dropTarget(for: drag.section))"),
@@ -915,10 +831,9 @@ import Design
     }
 }
 
-/// **The provider-settings door on a source row** — offered only where the host supplied a title,
-/// placed above the consequential tail, and never confirmed: it changes nothing in SyncCloud.
-///
-/// Source scans, like `SidebarRowSideMenuTests` above and reusing its comment-stripped read.
+/// The provider-settings door on a source row: offered only where the host supplied a title,
+/// placed above the consequential tail, and never confirmed, since it changes nothing in SyncCloud.
+/// Source scans, reusing `SidebarRowSideMenuTests`' comment-stripped read.
 @Suite struct SidebarProviderSettingsMenuTests {
 
     /// The dictionary is the capability set: no entry, no item. A bare `Button` here would draw
@@ -929,8 +844,8 @@ import Design
                 "the provider-settings item is no longer gated on the host-supplied capability")
     }
 
-    /// The door opens someone else's surface and changes nothing here, so it must not run
-    /// through `arm(_:)` — a confirmation would put it in the same class as Eject and Remove.
+    /// The door opens another app's surface and changes nothing here, so it doesn't go through
+    /// `arm(_:)`; a confirmation would class it with Eject and Remove.
     @Test func theDoorOpensDirectlyWithoutArmingAConfirmation() throws {
         let code = try SidebarRowSideMenuTests.source()
         let gate = try #require(code.range(of: "if let title = providerSettingsTitles[source.id]"),
@@ -942,9 +857,8 @@ import Design
                 "the provider-settings door arms a confirmation it has nothing to confirm")
     }
 
-    /// Above Eject and Remove: those two end the menu because a mis-aimed click should land on
-    /// the mildest thing possible, and a menu item that merely shows another app's window is
-    /// milder than either.
+    /// Above Eject and Remove, which end the menu so a mis-aimed click lands on something mild;
+    /// showing another app's window is milder than either.
     @Test func theDoorSitsAboveTheConsequentialTail() throws {
         let code = try SidebarRowSideMenuTests.source()
         let door = try #require(code.range(of: "providerSettingsTitles[source.id]"))

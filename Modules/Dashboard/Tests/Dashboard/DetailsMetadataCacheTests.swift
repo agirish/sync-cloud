@@ -4,23 +4,16 @@ import SwiftUI
 import Sync
 @testable import Dashboard
 
-/// Pins DetailsMetadataCache (extracted from DetailsSidebar's view body): per-path
-/// memoization and the two invalidation gestures — a refreshSubject event and a scan
-/// completing. The scan trigger is deliberately one-sided: only isScanning flipping to
-/// false drops the cache; a scan starting must not.
-///
-/// Plus the property the whole thing exists to guarantee: the filesystem work happens somewhere
-/// the main thread never waits on it. See `TheLoadNeverBlocksTheMainThread` at the bottom.
+/// Pins DetailsMetadataCache: per-path memoization and the two invalidations, a refreshSubject
+/// event and a scan completing. Only isScanning flipping to false drops the cache; a scan starting
+/// must not. `TheLoadNeverBlocksTheMainThread`, below, pins that the main thread never waits on the
+/// filesystem work.
 @MainActor
 @Suite struct DetailsMetadataCacheTests {
 
-    /// Injected metadata loader that counts stat calls and returns configurable values,
-    /// standing in for DetailsSidebar.loadMetadata(for:).
-    ///
-    /// Lock-guarded and `@unchecked Sendable` because the cache now runs the loader on its own
-    /// queue rather than on the main actor. In practice these tests await each load before
-    /// touching the loader again, so the lock is never contended — it is here to make the
-    /// concurrency claim honest rather than to resolve a real race.
+    /// Stands in for DetailsSidebar.loadMetadata(for:), counting stat calls and returning
+    /// configurable values. Lock-guarded and `@unchecked Sendable` because the cache runs the
+    /// loader on its own queue; the tests await each load, so the lock is never contended.
     final class CountingLoader: @unchecked Sendable {
         private let lock = NSLock()
         private var _statCount = 0
@@ -108,7 +101,7 @@ import Sync
         #expect(loader.statCount == 2)
         #expect(second.metadata?.name == "b.txt")
 
-        // Switching back is a path change too — the cache holds a single entry.
+        // Switching back is a path change too: the cache holds a single entry.
         _ = await cache.load(for: "/vault/a.txt")
         #expect(loader.statCount == 3)
     }
@@ -133,9 +126,8 @@ import Sync
         #expect(fresh.metadata?.modificationDate == "Jul 6, 2026 at 3:00:00 PM")
     }
 
-    /// The computed-directory-size task keys on `generation`, so the same events that drop the
-    /// memoized metadata must bump it — that is what clears a stale folder total after a
-    /// copy/delete inside the selected folder and triggers the recompute.
+    /// The directory-size task keys on `generation`, so the events that drop the memo must bump it;
+    /// that clears a stale folder total after a copy or delete inside the selected folder.
     @Test func generationBumpsOnRefreshAndScanCompletionOnly() {
         let loader = CountingLoader()
         let cache = makeCache(loader: loader)
@@ -145,7 +137,7 @@ import Sync
         cache.refreshOccurred()
         #expect(cache.generation == 1)
 
-        // Scan starting keeps the metadata cache — and must keep the computed size too.
+        // Scan starting keeps the metadata cache, and must keep the computed size too.
         cache.scanningChanged(true)
         #expect(cache.generation == 1)
 
@@ -168,9 +160,8 @@ import Sync
 
     // MARK: The unreadable-item warning
 
-    /// A loader whose stat always fails, reporting the reason exactly as
-    /// `DetailsSidebar.loadMetadata` does for an item it is not allowed to read — with a switch so
-    /// a test can let the item become readable again.
+    /// A loader whose stat fails, reporting the reason as `DetailsSidebar.loadMetadata` does for an
+    /// item it may not read, with a switch to make the item readable again.
     final class FailingLoader: @unchecked Sendable {
         private let lock = NSLock()
         private var _statCount = 0
@@ -214,23 +205,22 @@ import Sync
         let cache = makeCache(loader: loader, spy: spy)
 
         // A bulk run: N file operations, each posting a refresh, with an unreadable item selected.
-        // The memo cannot carry the "once per path" claim its doc used to make — `refreshOccurred`
-        // drops it every time — so this wrote N identical warnings, each a real disk write in the
-        // log writer.
+        // `refreshOccurred` drops the memo every time, so only the rate limit stops N identical
+        // warnings, each a real disk write in the log writer.
         for _ in 0..<8 {
             _ = await cache.load(for: "/Volumes/Cloud/locked.pdf")
             cache.refreshOccurred()
         }
 
         #expect(spy.messages.count == 1)
-        // The premise: the stat really did re-run every time, so the single warning comes from the
-        // rate limit and not from a memo that quietly survived the invalidations.
+        // The premise: the stat re-ran every time, so the single warning comes from the rate limit,
+        // not from a memo that survived the invalidations.
         #expect(loader.statCount == 8)
         #expect(spy.messages.first?.contains("/Volumes/Cloud/locked.pdf") == true)
     }
 
     @Test func eachUnreadablePathGetsItsOwnWarning() async {
-        // Per PATH, not per session: the limit must not swallow a different item's failure.
+        // Per path, not per session: the limit must not swallow a different item's failure.
         let loader = FailingLoader()
         let spy = WarningSpy()
         let cache = makeCache(loader: loader, spy: spy)
@@ -246,7 +236,7 @@ import Sync
 
     @Test func anItemThatBecomesReadableAgainCanBeWarnedAboutAgain() async {
         // The limit remembers a failure, not a path: a volume that came back and went away again
-        // is a new fact, and suppressing it would trade one noisy bug for a silent one.
+        // is a new fact, and suppressing it would hide it.
         let loader = FailingLoader()
         let spy = WarningSpy()
         let cache = makeCache(loader: loader, spy: spy)
@@ -285,25 +275,19 @@ import Sync
     }
 }
 
-/// The regression net for the launch hang reproduced on `4d55246` and its parent `80a235d`:
-/// the app alive with zero windows and an empty log, 100% of samples parked on the main thread in
-/// `getxattr` under `DetailsSidebar`'s stat.
+/// Guards against a launch hang: a `getxattr` in `DetailsSidebar`'s stat against a wedged file
+/// provider parks the main thread, leaving the app alive with no windows.
 ///
-/// `f77bdc3` had already moved that stat out of the render pass into a `.task`, which is why the
-/// sampled frame reads `body.getter closure #4` — a `.task` closure is lexically inside `body`.
-/// That was the right shape and still hung, because a `View`'s `.task` inherits the view's
-/// `@MainActor` isolation: the syscall left the render pass but never left the main thread.
-///
-/// So the property worth pinning is not "not in `body`" — it is **"the main thread never waits on
-/// the loader"**. Each test here holds the loader hostage on a semaphore, which is what a wedged
-/// file provider does, and asserts the main actor keeps working anyway.
+/// Moving the stat into a `.task` is not enough: a `View`'s `.task` inherits the view's
+/// `@MainActor` isolation, so the syscall leaves the render pass but not the main thread. The
+/// property pinned is "the main thread never waits on the loader". Each test holds the loader
+/// hostage on a semaphore, as a wedged provider does, and asserts the main actor keeps working.
 @MainActor
 @Suite struct TheLoadNeverBlocksTheMainThread {
 
-    /// A loader that parks whoever calls it until released — standing in for a `getxattr` against a
-    /// wedged provider. The wait is bounded so that a regression FAILS the suite instead of hanging
-    /// it: nothing here should ever get near the ceiling, and if it does, the elapsed-time
-    /// assertions below report it as a plain failure.
+    /// Parks whoever calls it until released, standing in for a `getxattr` against a wedged
+    /// provider. The wait is bounded so a regression fails the suite instead of hanging it; the
+    /// elapsed-time assertions below report it.
     final class HostageLoader: @unchecked Sendable {
         private let gate = DispatchSemaphore(value: 0)
         private let entered = DispatchSemaphore(value: 0)
@@ -330,20 +314,20 @@ import Sync
                 failure: nil)
         }
 
-        /// Blocks until the loader has actually been entered, so a test can be sure the stat is
-        /// genuinely in flight and stuck rather than merely not started yet.
+        /// Blocks until the loader has been entered, so the stat is known to be in flight and stuck,
+        /// not merely not started.
         func waitUntilEntered(seconds: Double = 5) { _ = entered.wait(timeout: .now() + seconds) }
 
-        /// Lets every parked call finish, so no queue thread is leaked past the test. Signals once
-        /// per recorded call because more than one load can be in flight at a time — see the
-        /// re-key note in `aStatThatNeverReturnsStillLetsTheFirstFramePaint`.
+        /// Lets every parked call finish, so no queue thread leaks past the test. Signals once per
+        /// call because more than one load can be in flight (see the re-key note in
+        /// `aStatThatNeverReturnsStillLetsTheFirstFramePaint`).
         func release() {
             for _ in 0..<max(lock.withLock { _callCount }, 1) { gate.signal() }
         }
     }
 
-    /// A loader with a per-path gate, so a test can choose the order two in-flight loads finish in.
-    /// `ioQueue` is `.concurrent`, so that order is genuinely not the order they were started.
+    /// A loader with a per-path gate, so a test chooses the order two in-flight loads finish in.
+    /// `ioQueue` is `.concurrent`, so finish order need not match start order.
     final class OrderedLoader: @unchecked Sendable {
         private let lock = NSLock()
         private var gates: [String: DispatchSemaphore] = [:]
@@ -375,18 +359,13 @@ import Sync
         func release(_ path: String) { gate(path).signal() }
     }
 
-    /// **The memo must track the last path REQUESTED, not the last load to come back.**
+    /// The memo must track the last path requested, not the last load to come back.
     ///
-    /// A superseded load is not cancellable — `.task(id:)` cancels its Task, but the Task is
-    /// suspended on a continuation whose queue block runs to completion regardless, and then
-    /// writes the memo. With a `.concurrent` `ioQueue` the two are genuinely unordered, so the
-    /// stale one can land last.
-    ///
-    /// Without a guard the cache ends up memoizing `/a` while the inspector is showing `/b`, and a
-    /// later re-selection of `/a` is served from an entry that was already superseded once — the
-    /// exact staleness `refreshOccurred()` exists to prevent. The synchronous code this replaced
-    /// could not exhibit it, so this is a regression the async split introduced, not a pre-existing
-    /// hole.
+    /// A superseded load can't be cancelled: `.task(id:)` cancels its Task, but the queue block
+    /// behind its continuation runs to completion and then writes the memo, and with a
+    /// `.concurrent` `ioQueue` the stale one can land last. Unguarded, the cache memoizes `/a`
+    /// while the inspector shows `/b`, and a later re-selection of `/a` is served a superseded
+    /// entry.
     @Test func aSupersededLoadMustNotOverwriteTheMemoWithItsStalePath() async {
         let loader = OrderedLoader()
         let cache = DetailsMetadataCache(loadMetadata: loader.load, loadIcon: { _ in NSImage() })
@@ -395,15 +374,15 @@ import Sync
         let first = Task { await cache.load(for: "/vault/a.txt") }
         let second = Task { await cache.load(for: "/vault/b.txt") }
 
-        // Yield (never block — these Tasks are main-actor isolated and a blocking wait here would
-        // deadlock them) until both are genuinely parked inside the loader.
+        // Yield, never block (these Tasks are main-actor isolated, so a blocking wait deadlocks
+        // them), until both are parked inside the loader.
         for _ in 0..<300 where loader.entered.count < 2 {
             await Task.yield()
             try? await Task.sleep(for: .milliseconds(10))
         }
         #expect(loader.entered.count == 2, "both loads should be in flight — otherwise this proves nothing")
 
-        // The superseding load lands FIRST, the superseded one LAST.
+        // The superseding load lands first, the superseded one last.
         loader.release("/vault/b.txt")
         _ = await second.value
         loader.release("/vault/a.txt")
@@ -413,14 +392,10 @@ import Sync
         #expect(cache.cached(for: "/vault/a.txt") == nil, "a superseded load overwrote the memo")
     }
 
-    /// The other half of the same guard: an invalidation that lands while a load is in flight must
-    /// not be undone by that load finishing afterwards.
-    ///
-    /// `refreshOccurred()` fires after every file operation and means "the item may have changed on
-    /// disk, re-stat it". A load started BEFORE it carries pre-operation attributes, so committing
-    /// it afterwards would put the stale size and dates back into the memo — the precise thing the
-    /// invalidation existed to prevent, and invisible because the card would look populated and
-    /// current.
+    /// An invalidation that lands while a load is in flight must not be undone by that load
+    /// finishing. `refreshOccurred()` follows every file operation; a load started before it
+    /// carries pre-operation attributes, and committing it would put a stale size and dates back
+    /// into a card that looks current.
     @Test func aLoadStartedBeforeAnInvalidationMustNotResurrectTheMemo() async {
         let loader = OrderedLoader()
         let cache = DetailsMetadataCache(loadMetadata: loader.load, loadIcon: { _ in NSImage() })
@@ -442,26 +417,23 @@ import Sync
                 "a pre-invalidation load repopulated the memo the refresh had just dropped")
     }
 
-    /// The narrow, timing-free version of the claim: a miss is answered out of memory, immediately,
-    /// without the loader being consulted at all. This is the call `body` and the `.task` make
-    /// first, and it is the reason neither can be made to block.
+    /// The timing-free version: a miss is answered from memory at once, without consulting the
+    /// loader. `body` and the `.task` make this call first, which is why neither can block.
     @Test func aCacheMissAnswersFromMemoryWithoutTouchingTheLoader() {
         let loader = HostageLoader()
         defer { loader.release() }
         let cache = DetailsMetadataCache(loadMetadata: loader.load, loadIcon: { _ in NSImage() })
 
         #expect(cache.cached(for: "/Volumes/Cloud/wedged.pdf") == nil)
-        // The point: a miss is nil, not a stat. If `cached(for:)` ever filled misses itself, this
-        // call would still be parked inside the loader and we would never reach the next line.
+        // A miss is nil, not a stat. If `cached(for:)` filled misses itself, this call would park
+        // inside the loader and never reach the next line.
         #expect(loader.callCount == 0)
     }
 
-    /// The whole bug, end to end: a stat that never returns, and a first frame that paints anyway.
-    ///
-    /// Renders the real `DetailsSidebar` through `NSHostingView` with its cache's loader held
-    /// hostage, then asserts a laid-out size comes back promptly. Against the pre-fix code — the
-    /// `.task` calling a `@MainActor` loader synchronously — the main thread is inside the loader
-    /// and this measures the full 30s hostage timeout instead of milliseconds.
+    /// End to end: a stat that never returns, and a first frame that paints anyway. Renders the
+    /// real `DetailsSidebar` with its loader held hostage and asserts a laid-out size comes back
+    /// promptly. If the `.task` called a `@MainActor` loader synchronously, this would measure the
+    /// full 30s hostage timeout.
     @Test func aStatThatNeverReturnsStillLetsTheFirstFramePaint() async throws {
         let loader = HostageLoader()
         defer { loader.release() }
@@ -484,32 +456,27 @@ import Sync
         window.isReleasedWhenClosed = false
         window.contentView = host
 
-        // First layout is what makes the view appear and arms its `.task`; the drain then lets
-        // that task run and reach the loader. Bounded by turns taken, and it exits the moment the
-        // stat is in flight rather than burning the whole budget.
+        // First layout makes the view appear and arms its `.task`; the drain lets that task reach
+        // the loader. Bounded by turns, and it exits as soon as the stat is in flight.
         let start = Date()
         host.layoutSubtreeIfNeeded()
         for _ in 0..<300 where loader.callCount == 0 {
             await Task.yield()
             try? await Task.sleep(for: .milliseconds(10))
         }
-        // Waited for generously: how soon the stat STARTS is not what this tests. It runs on the
-        // cache's IO queue, whose threads other tests in the run hold with hostage loads of their
-        // own, and on a 3-vCPU runner a new one can be seconds coming (CI 5c2cecd58: 9.7 s).
+        // A generous wait, since how soon the stat starts isn't under test: other tests' hostage
+        // loads hold the IO queue's threads, and on a 3-vCPU runner a new one can take seconds.
         loader.waitUntilEntered(seconds: 30)
         let drained = Date().timeIntervalSince(start)
-        // At least one, not exactly one: appearing re-keys the task once by itself. `.onReceive`
-        // on `$isScanning` fires immediately with the current value, and `scanningChanged(false)`
-        // invalidates, so the first render always loads twice. That predates this change — the
-        // pre-fix code took the same two trips, just one after the other on the main thread.
+        // At least one, not exactly one: `.onReceive` on `$isScanning` fires at once with the
+        // current value and `scanningChanged(false)` invalidates, so the first render loads twice.
         #expect(loader.callCount >= 1, "the stat never ran — this test would prove nothing")
 
         host.layoutSubtreeIfNeeded()
         let size = host.fittingSize
-        // **The clock starts when the stat began, wherever it ran**, so a slow start can't read
-        // as a stall. A stat run on the main thread (the pre-fix `.task` calling a `@MainActor`
-        // loader) holds this very code until the hostage's 30 s are up, and the layout below lands
-        // that long after the stat began: still a fail.
+        // The clock starts when the stat began, wherever it ran, so a slow start can't read as a
+        // stall. A stat on the main thread holds this code until the hostage's 30 s are up, so the
+        // layout lands that long after the stat began: still a fail.
         let entered = try #require(loader.firstEntered, "the stat never began")
         let elapsed = Date().timeIntervalSince(entered)
 

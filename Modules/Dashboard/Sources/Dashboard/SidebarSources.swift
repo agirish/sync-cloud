@@ -1,81 +1,71 @@
 import Foundation
 
-/// **One place row** — a cloud account, a folder source, a disk, the Trash, or a standard folder
-/// SyncCloud has not been given yet.
+/// One place row: a cloud account, a folder source, a disk, the Trash, or a standard folder
+/// SyncCloud hasn't been given yet. Used by both Locations and the standard-folder half of
+/// Favorites; ``band`` says which.
 ///
-/// Used by both **Locations** and the standard-folder half of **Favorites**; ``band`` says which.
-///
-/// Cloud accounts and folder sources share a band because the model says they are one thing: a
-/// folder source *is* a `CloudProvider` with `type == .localFolder`, and every pane, lens, diff,
-/// undo and CLI path treats it identically — the type exists only so name rules and the Drive
-/// date-noise filter can tell them apart.
+/// Cloud accounts and folder sources share a band because the model treats them as one thing: a
+/// folder source is a `CloudProvider` with `type == .localFolder`, and every pane, lens, diff, undo
+/// and CLI path handles it identically. The type only lets name rules and the Drive date-noise
+/// filter tell them apart.
 public struct SidebarSourceRow: Identifiable, Equatable, Sendable {
 
     /// What clicking this row will do, and how the row reads before you click it.
     ///
-    /// **The three states exist because "local folder" is two different things here.** A folder
-    /// source is a root the user added in Settings; `~/Downloads`, if they never added it, is
-    /// nothing to this app. Listing the familiar four regardless means a click has to resolve which
-    /// case it is in — and the row says which *first*, so the click is never a surprise.
+    /// "Local folder" means two things here: a folder source is a root the user added in Settings,
+    /// while `~/Downloads`, if never added, is nothing to this app. The row says which case it is
+    /// in before the click, so the click is never a surprise.
     public enum State: Equatable, Sendable {
         /// A configured source: a discovered cloud account, or a folder source in Settings.
         case configured
-        /// A local shortcut whose folder lives **inside** a source that already exists — the case
-        /// macOS's Desktop & Documents syncing creates, where `~/Desktop` is a link into
-        /// `com~apple~CloudDocs`. Clicking navigates there inside the owning source; nothing is
-        /// added, because adding it would mean two sources scanning one tree.
+        /// A local shortcut whose folder lives inside an existing source, as macOS's Desktop &
+        /// Documents syncing makes `~/Desktop` a link into `com~apple~CloudDocs`. Clicking
+        /// navigates there inside the owning source; nothing is added, or two sources would scan
+        /// one tree.
         ///
-        /// Carries the owner's **id, and its name only for display**: `owningSource` resolves the
-        /// owner precisely, and a handler re-resolving it by display name would pick the wrong one
-        /// of two same-named sources — name collisions being the very case this section's
-        /// qualifiers exist for.
+        /// Carries the owner's id, and its name only for display: re-resolving the owner by name
+        /// would pick the wrong one of two same-named sources.
         case inside(sourceId: String, sourceName: String)
-        /// A local shortcut SyncCloud does not know about. Drawn dimmed. Clicking adds it as a
-        /// folder source, scans it, and says so with an inline Remove.
+        /// A local shortcut SyncCloud doesn't know about. Clicking adds it as a folder source,
+        /// scans it, and says so with an inline Remove.
         case unknown
-        /// **A place that opens in Finder and is never added as a source.** The Trash, and only the
-        /// Trash: promoting it would have SyncCloud scan it, hash it, offer to file into it and
-        /// count it in Storage — for a folder whose whole purpose is that its contents are on their
-        /// way out. Finder's own Trash row is a special case for the same reason.
+        /// A place that opens in Finder and is never added as a source: the Trash, and only the
+        /// Trash. As a source it would be scanned, hashed, offered as a filing target and counted
+        /// in Storage, though its contents are on their way out.
         case revealOnly
     }
 
     /// The provider id for a configured source; the absolute path for one that is not a source yet.
     public let id: String
-    /// The leaf name — `Dropbox`, `Drive`, `Downloads`.
+        /// The leaf name: `Dropbox`, `Drive`, `Downloads`.
     public let name: String
-    /// Shown **only when it is needed to tell two rows apart**, or when a shortcut lives inside
-    /// another source. Three Google Drive accounts all read `Drive` without it.
+    /// Shown only when needed to tell two rows apart, or when a shortcut lives inside another
+    /// source. Three Google Drive accounts all read `Drive` without it.
     public let detail: String?
     /// The provider's mark, or an SF Symbol for a local folder.
     public let symbol: String
     public let absolutePath: String
-    /// Which band of the column this row belongs to.
-    ///
-    /// Replaced a plain `isLocal` when the section became **Locations** and the standard folders
-    /// moved out of it: two booleans could not say the difference between a Google Drive account, a
-    /// mounted SD card and `~/Desktop`, and those now live in two different sections.
+    /// Which band of the column this row belongs to. A band rather than a Bool, because a Google
+    /// Drive account, a mounted SD card and `~/Desktop` are three different things in two sections.
     public let band: Band
 
-    /// Where a row sits, and therefore what it is.
-    ///
-    /// The order of the cases is the order they are drawn in, which is Finder's: the clouds you
-    /// signed into, then the hardware, then the Trash.
+    /// Where a row sits, and therefore what it is. The cases are in drawing order, which is
+    /// Finder's: the clouds you signed into, then the hardware, then the Trash.
     public enum Band: Int, Comparable, Sendable, CaseIterable {
-        /// A cloud account or a folder source — something SyncCloud syncs.
+        /// A cloud account or a folder source: something SyncCloud syncs.
         case cloud
         /// The home folder, the startup disk, an external drive, a mounted card.
         case device
-        /// The Trash, which is last and is not like the others — see ``State/revealOnly``.
+        /// The Trash, which is last and unlike the others (see ``State/revealOnly``).
         case trash
-        /// A standard folder that lives in **Favorites**, not here — Desktop, Documents, Downloads.
+        /// A standard folder that lives in Favorites, not here: Desktop, Documents, Downloads.
         case shortcut
 
         public static func < (a: Band, b: Band) -> Bool { a.rawValue < b.rawValue }
     }
     public let state: State
-    /// False when the root did not answer. The row stays listed and refuses, the same rule the
-    /// folder rows have always used: a source that is asleep has not gone.
+    /// False when the root didn't answer. The row stays listed and refuses, as folder rows do: a
+    /// source that is asleep hasn't gone.
     public let isAvailable: Bool
 
     public init(id: String, name: String, detail: String?, symbol: String, absolutePath: String,
@@ -90,23 +80,18 @@ public struct SidebarSourceRow: Identifiable, Equatable, Sendable {
         self.isAvailable = isAvailable
     }
 
-    /// **Dimmed means "not answering", and nothing else.**
-    ///
-    /// It also covered `.unknown` — a place SyncCloud has not been given yet — until that was drawn
-    /// and looked wrong: Locations' whole device band greys out on a fresh install, because a disk
-    /// is not a source until someone makes it one, and a column of grey rows reads as broken rather
-    /// than as available. Finder does not dim your disks either. A place you have not added is a
-    /// perfectly good place; what is unusual about it belongs in the tooltip and in the notice the
-    /// click produces, not in the row's weight.
+    /// Dimmed means "not answering", and nothing else. Not `.unknown`: on a fresh install every
+    /// disk is unknown, and a column of grey rows reads as broken. Finder doesn't dim your disks
+    /// either. What is unusual about an unadded place belongs in the tooltip and the notice the
+    /// click produces.
     public var isDimmed: Bool { !isAvailable }
 
     /// Whether this row lives in Favorites rather than Locations.
     public var isFavoriteShortcut: Bool { band == .shortcut }
 
-    /// **The same place, in the other section.** Favoriting a place MOVES its row rather than
-    /// copying it: one place, one row, which is the invariant the builder's `claimed` set exists to
-    /// keep. Two rows for `Dropbox` in a 180pt column — one under each heading — is worse than
-    /// either place on its own, and it would make "which one do I remove?" a question.
+    /// The same place, in the other section. Favoriting a place moves its row rather than copying
+    /// it: one place, one row, the invariant the builder's `claimed` set keeps. Two `Dropbox` rows
+    /// would make "which one do I remove?" a question.
     public func inBand(_ band: Band) -> SidebarSourceRow {
         SidebarSourceRow(id: id, name: name, detail: detail, symbol: symbol,
                          absolutePath: absolutePath, band: band, state: state,
@@ -114,85 +99,64 @@ public struct SidebarSourceRow: Identifiable, Equatable, Sendable {
     }
 }
 
-/// **What a source row is named, and when it needs qualifying.**
-///
-/// Separate from the view so the rule can be asserted without mounting anything, and separate from
-/// `FolderSidebarModel` because it answers a different question about a different list.
+/// What a source row is named, and when it needs qualifying. Separate from the view so the rule
+/// can be asserted without mounting anything, and from `FolderSidebarModel` because it answers a
+/// different question about a different list.
 public enum SidebarSourceModel {
 
-    /// **The three standard folders that exist ONLY as Favorites rows** — Desktop, Documents and
-    /// Downloads, the three a person files *into*.
+    /// The three standard folders that exist only as Favorites rows: Desktop, Documents and
+    /// Downloads, the three a person files into.
     ///
-    /// Not the whole of Favorites, and the distinction matters: ``SidebarFavoritePlaces/standard``
-    /// is what a first run actually gets, and it puts the home folder above these three. Home is
-    /// absent HERE because it is already a place in its own right — it heads `deviceEntries()` — so
-    /// a second entry for it would build two rows for one folder. The startup disk is absent for
-    /// the same reason and is no longer in the default list either, so on a first run it is drawn
-    /// in Locations. What decides which section a place appears in is membership of the Favorites
-    /// list, not this constant; this is only the set of places that have no Locations row to fall
-    /// back to.
+    /// Not the whole of Favorites: ``SidebarFavoritePlaces/standard`` also puts the home folder
+    /// above these. Home is absent here because it heads `deviceEntries()`, and a second entry
+    /// would build two rows for one folder; the startup disk likewise. Membership of the Favorites
+    /// list decides a place's section; this is only the set with no Locations row to fall back to.
     ///
-    /// **Fixed, and deliberately short.** Every folder past these is somebody's preference rather
-    /// than everybody's, and adding a folder source is the mechanism this list is a shortcut *to*
-    /// rather than a replacement for. Applications is left out for a reason of its own: every row
-    /// in Favorites is a drop target, and a sidebar row you can drop a document onto should be
-    /// somewhere you would actually file one.
+    /// Fixed and short: any other folder is a preference, and adding a folder source covers it.
+    /// Applications is left out because every Favorites row is a drop target, and a row you can
+    /// drop a document onto should be somewhere you would file one.
     public static let favoriteShortcuts: [(name: String, symbol: String, path: String)] = [
         ("Desktop", "menubar.dock.rectangle", NSHomeDirectory() + "/Desktop"),
         ("Documents", "doc", NSHomeDirectory() + "/Documents"),
         ("Downloads", "arrow.down.circle", NSHomeDirectory() + "/Downloads"),
     ]
 
-    /// The home folder, which heads the device band in Locations — and which
-    /// ``SidebarFavoritePlaces/standard`` favorites, so by default it is drawn at the TOP of
-    /// Favorites and the device band starts at the volumes.
-    ///
-    /// It is built as a device row either way. Taking it out of Favorites therefore returns it to
-    /// Locations rather than removing it from the column, which is the difference between a place
-    /// that has a Locations row of its own and one of the three in ``favoriteShortcuts`` that does
-    /// not.
+    /// The home folder, which heads the device band in Locations. ``SidebarFavoritePlaces/standard``
+    /// favorites it, so by default it is drawn at the top of Favorites and the device band starts
+    /// at the volumes. It is built as a device row either way, so taking it out of Favorites
+    /// returns it to Locations rather than removing it from the column.
     public static let homeEntry: (name: String, symbol: String, path: String) =
         (NSUserName(), "house", NSHomeDirectory())
 
-    /// **The startup disk, by path only.**
+    /// The startup disk, by path only.
     ///
-    /// Its row is already built by the mounted-volume walk, which is where its name comes from —
-    /// `Macintosh HD` on a stock install, and whatever the user renamed it to otherwise — and its
-    /// `internaldrive` glyph. Naming it here as well would be a constant that goes stale the day
-    /// someone renames their disk.
+    /// The mounted-volume walk already builds its row, with its name (`Macintosh HD` or whatever
+    /// the user renamed it) and its `internaldrive` glyph, so naming it here would go stale on a
+    /// rename. It isn't in ``SidebarFavoritePlaces/standard``: it heads Locations' device band
+    /// (`orderedVolumes(_:)`). This path is what ``SidebarFavoritePlaces/migrate(defaults:)``
+    /// removes from an older stored list, and what a favorite of the disk is matched against.
     ///
-    /// **Not in ``SidebarFavoritePlaces/standard`` since 2026-09-07** — the disk is drawn in
-    /// Locations' device band, which `orderedVolumes(_:)` heads with it. This path is what
-    /// ``SidebarFavoritePlaces/migrate(defaults:)`` removes from a list stored before then, and
-    /// what a favorite of the disk is still matched against if the user adds it back.
-    ///
-    /// `/` is the boot volume by definition, so this needs no lookup and cannot fail to resolve.
+    /// `/` is the boot volume by definition, so this needs no lookup and can't fail to resolve.
     public static let startupDiskPath = "/"
 
     /// The Trash, last in Locations and the one row that never becomes a source.
     public static let trashEntry: (name: String, symbol: String, path: String) =
         ("Trash", "trash", NSHomeDirectory() + "/.Trash")
 
-    /// **A mounted volume, as the sidebar needs it.** Injected rather than read here so the rule
-    /// that turns volumes into rows is testable without plugging in a card.
+    /// A mounted volume, as the sidebar needs it. Injected rather than read here so the rule that
+    /// turns volumes into rows is testable without plugging in a card.
     public struct Volume: Equatable, Sendable {
         public let name: String
         public let path: String
-        /// Removable or ejectable — an SD card, a USB stick, an external disk. Decides the glyph,
-        /// and nothing else: a card is browsed exactly like the startup disk.
+        /// Removable or ejectable: an SD card, a USB stick, an external disk. Decides the glyph and
+        /// nothing else; a card is browsed exactly like the startup disk.
         public let isRemovable: Bool
-        /// The startup disk. Drawn first among the volumes, because it is the one that is always
-        /// there.
+        /// The startup disk. Drawn first among the volumes, because it is always there.
         public let isInternal: Bool
-        /// **Local, as opposed to a network share.** Nothing about the row uses it — a share is
-        /// browsed like any other volume — but ``MountedVolumeMemory`` does: a share is
-        /// `ejectable` too, so without this a Wi-Fi drop and a card being pulled are the same
-        /// event, and only one of them means the sources on it are gone for good.
-        ///
-        /// **Defaulted, and the default is the safe direction.** A test constructing a `Volume`
-        /// without saying gets `true`, which is what an SD card is; the removability flag beside
-        /// it is what actually gates anything, and `false` here would silently exempt every
-        /// fixture from the rule.
+        /// Local, as opposed to a network share. The row doesn't use it, but
+        /// ``MountedVolumeMemory`` does: a share is `ejectable` too, and only a card being pulled
+        /// means its sources are gone for good. Defaults to `true`, what an SD card is, so a test
+        /// fixture can't silently exempt itself from the rule.
         public let isLocal: Bool
 
         public init(name: String, path: String, isRemovable: Bool, isInternal: Bool,
@@ -204,15 +168,10 @@ public enum SidebarSourceModel {
             self.isLocal = isLocal
         }
 
-        /// **Whether unmounting this volume means the sources on it are GONE, not asleep.**
-        ///
-        /// The rule the eject behaviour turns on, named here so the two places that need it — the
-        /// confirmation the user reads, and `MountedVolumeMemory` acting on the unmount — cannot
-        /// answer it differently. They did: the dialog asked only whether the row was a source, so
-        /// for a network share it promised a removal that `isDetachable` was never going to make.
-        ///
-        /// A share is *ejectable* (Finder draws it an eject arrow) but not local, and a share that
-        /// drops comes back — so the volume must be both.
+        /// Whether unmounting this volume means its sources are gone, not asleep. Named once so
+        /// the eject confirmation and `MountedVolumeMemory` can't answer it differently. A share
+        /// is ejectable (Finder draws it an eject arrow) but not local, and a share that drops
+        /// comes back, so the volume must be both.
         public var losesItsSourcesOnUnmount: Bool { isRemovable && isLocal }
 
         /// `internaldrive` for the startup disk, `sdcard` for something you can pull out,
@@ -224,11 +183,8 @@ public enum SidebarSourceModel {
     }
 
     /// Volumes in the order Locations draws them: the startup disk, then everything else by name.
-    ///
-    /// Sorted rather than left in mount order, which is arrival order and therefore changes between
-    /// launches — the same reason the favorites and source orders are partitioned rather than
-    /// `sorted(by:)`-ed. A sidebar whose disks rearranged themselves on every boot would look
-    /// broken.
+    /// Sorted, not left in mount order, which changes between launches and would rearrange the
+    /// disks on every boot.
     public static func orderedVolumes(_ volumes: [Volume]) -> [Volume] {
         volumes.sorted {
             if $0.isInternal != $1.isInternal { return $0.isInternal }
@@ -236,15 +192,12 @@ public enum SidebarSourceModel {
         }
     }
 
-    /// **Qualify a name only when another row shares it** — the duplicate-leaf rule that
+    /// Qualify a name only when another row shares it: the duplicate-leaf rule that
     /// `FolderSidebarModel.rows` applies to folders, pointed at sources.
     ///
-    /// This is the case the whole section is shaped around: three Google Drive accounts and two
-    /// OneDrive accounts all render one word. Finder answers this with a tooltip, and shows two
-    /// rows reading `Projects` and two reading the user's own name until you hover one of them.
-    /// Naming the difference inline is simply better, and it costs nothing on the rows that do not
-    /// collide — a column where every second row carries a qualifier is the other failure.
-    ///
+    /// Three Google Drive accounts and two OneDrive accounts would otherwise each render one word.
+    /// Naming the difference inline beats Finder's hover tooltip, and rows that don't collide stay
+    /// bare, since a qualifier on every row is the other failure.
     /// - Parameter names: the leaf name of every row that will be on screen together, in order.
     /// - Parameter qualifiers: what to say about each, when it has to be said.
     /// - Returns: the qualifier for each row, or `nil` where the name stands alone.
@@ -257,19 +210,14 @@ public enum SidebarSourceModel {
         }
     }
 
-    /// **Which existing source contains this path, if any** — the check that has to happen before a
-    /// local shortcut is promoted to a source of its own.
+    /// Which existing source contains this path, if any: the check before a local shortcut is
+    /// promoted to a source of its own.
     ///
-    /// Under macOS's Desktop & Documents syncing, `~/Desktop` is a link into
-    /// `com~apple~CloudDocs`, so a plain path comparison says it is nothing to do with iCloud
-    /// Drive. `SettingsManager.addFolderSource` already refuses to mint a duplicate for a path that
-    /// *equals* a source's root — its own note says a cloud account "knows things about that folder
-    /// (its name rules, its date behaviour) that a folder source would throw away" — but equality
-    /// is not enough here: a *contained* path would sail past it, and the result is two sources
-    /// scanning one tree, double-counted in Storage.
-    ///
-    /// So: resolve symlinks on both sides, then test containment, longest root first so a source
-    /// nested inside another resolves to the more specific one.
+    /// Under Desktop & Documents syncing `~/Desktop` is a link into `com~apple~CloudDocs`, so a
+    /// plain path comparison misses iCloud Drive. `SettingsManager.addFolderSource` refuses a path
+    /// that equals a source's root, but a contained path would pass, leaving two sources scanning
+    /// one tree, double-counted in Storage. So: resolve symlinks on both sides, then test
+    /// containment, longest root first so a nested source resolves to the more specific one.
     ///
     /// - Parameter resolve: injected so the rule is testable without a disk. Production passes
     ///   `URL(fileURLWithPath:).resolvingSymlinksInPath().path`.
@@ -286,27 +234,21 @@ public enum SidebarSourceModel {
         return best.map { ($0.id, $0.name) }
     }
 
-    /// **Whether two paths name the same folder**, normalised and case-folded.
-    ///
-    /// Its own member because the call site had it as containment asserted in both directions,
-    /// which is true but reads as a puzzle — and because "is this shortcut already a source in its
-    /// own right" is a different question from "is it inside one", even though one rule can answer
-    /// both.
+    /// Whether two paths name the same folder, normalised and case-folded. Its own member because
+    /// "is this shortcut already a source" is a different question from "is it inside one", even
+    /// though one rule can answer both.
     public static func isSameFolder(_ a: String, _ b: String) -> Bool {
         trimmed(a.lowercased()) == trimmed(b.lowercased())
     }
 
     /// Path containment on component boundaries, case-folded.
     ///
-    /// **Not `hasPrefix`**, which reports `/Users/ab/Downloads2` as inside `/Users/ab/Downloads`.
-    /// Case-folded because the default macOS volume is case-insensitive, so the two spellings name
-    /// one folder — and claiming is the safe direction here: a wrong claim costs a navigation the
-    /// user can see and correct, a missed one costs a duplicate source they will not notice.
-    /// Trailing slashes are stripped from **both** sides before comparing, which is not cosmetic: a
-    /// provider Location is user-settable and arrives spelled however it was typed, and with the
-    /// base spelled `…/Downloads/` the equality case failed — the path `…/Downloads` is neither
-    /// equal to it nor prefixed by `…/Downloads//`, so a source's own root read as outside itself.
-    /// `FolderJumpStore.key(forRoot:)` normalises the same way for the same reason.
+    /// Not `hasPrefix`, which reports `/Users/ab/Downloads2` as inside `/Users/ab/Downloads`.
+    /// Case-folded because the default macOS volume is case-insensitive, and claiming is the safe
+    /// direction: a wrong claim costs a visible navigation, a missed one an unnoticed duplicate
+    /// source. Trailing slashes are stripped from both sides, because a provider Location is
+    /// user-typed, and `…/Downloads/` as the base would put the source's own root outside itself.
+    /// `FolderJumpStore.key(forRoot:)` normalises the same way.
     public static func contains(_ path: String, under base: String) -> Bool {
         let p = trimmed(path.lowercased()), b = trimmed(base.lowercased())
         guard !b.isEmpty else { return false }
@@ -323,16 +265,12 @@ public enum SidebarSourceModel {
 }
 
 
-/// **Where a dragged row lands.**
+/// Where a dragged row lands.
 ///
-/// Its own type because the rule is pure arithmetic over measured geometry and the risk here is all
-/// in the arithmetic: an off-by-one puts the row one place from where the user aimed, which reads as
-/// the drag being broken rather than as a rounding choice.
-///
-/// **Measured midpoints, not a row height.** The rows are not uniform — a favorite carrying a parent
-/// qualifier draws a second line — so an index computed as `translation / rowHeight` is wrong the
-/// moment one row in the list is taller, and wrong by more the further you drag. The view reports
-/// each row's real midpoint and this compares against those.
+/// Pure arithmetic over measured geometry, kept apart because an off-by-one puts the row one place
+/// from where the user aimed, which reads as a broken drag. It uses measured midpoints, not a row
+/// height: a favorite with a parent qualifier draws a second line, so `translation / rowHeight`
+/// drifts further the further you drag.
 public enum SidebarReorder {
 
     /// The index a row dragged to `y` should be inserted at.
@@ -341,9 +279,8 @@ public enum SidebarReorder {
     ///   same coordinate space as `y`.
     /// - Returns: an insertion index in `0...midpoints.count`.
     ///
-    /// Insertion semantics, not swap semantics: the answer is a gap between rows, which is what the
-    /// insertion line the user sees is drawn at. Above every midpoint is 0; below every midpoint is
-    /// the end.
+    /// Insertion semantics, not swap: the answer is a gap between rows, where the insertion line is
+    /// drawn. Above every midpoint is 0; below every midpoint is the end.
     public static func insertionIndex(forY y: CGFloat, midpoints: [CGFloat]) -> Int {
         var index = 0
         for midpoint in midpoints {
@@ -355,10 +292,9 @@ public enum SidebarReorder {
 
     /// The list after moving the item at `from` to insertion index `to`.
     ///
-    /// **`to` is an insertion index measured against the ORIGINAL list**, which is the whole subtlety
-    /// of a move: dragging row 0 down to the gap after row 2 gives `to == 3`, but once row 0 is
-    /// lifted out every later index shifts down by one, so the actual destination is 2. Getting this
-    /// backwards is the classic off-by-one that makes a downward drag land one short every time.
+    /// `to` is an insertion index into the original list: dragging row 0 to the gap after row 2
+    /// gives `to == 3`, but once row 0 is lifted out the destination is 2. Getting this backwards
+    /// makes every downward drag land one short.
     public static func moved<T>(_ items: [T], from: Int, to: Int) -> [T] {
         guard items.indices.contains(from), to >= 0, to <= items.count else { return items }
         var out = items
@@ -368,23 +304,17 @@ public enum SidebarReorder {
     }
 
     /// Whether a move would change anything. A drag that ends where it started must not write to
-    /// defaults or publish a change — it would put the column through a redraw and, for the source
-    /// order, mark a preference the user never actually set.
+    /// defaults or publish a change, which would redraw the column and, for the source order, mark
+    /// a preference the user never set.
     public static func isNoOp(from: Int, to: Int) -> Bool { to == from || to == from + 1 }
 
-    /// **A new relative order for part of a list, without disturbing the rest.**
+    /// A new relative order for part of a list, without disturbing the rest.
     ///
-    /// The Locations section draws only some of the app's sources — a provider whose folder is a
-    /// canonical place (Desktop, Downloads, the home folder) is drawn in Favorites instead — so a
-    /// drag there reorders a SUBSET. Writing that subset out followed by everything else would move
-    /// the sources nobody touched to the end of the pane header's dropdown, which is a change the
-    /// user did not ask for and would not connect to the drag they made.
-    ///
-    /// Every member keeps the set of positions the members already occupied, filled in the new
-    /// order; every non-member stays exactly where it was.
-    /// An id in `subset` that is not in `all` is ignored rather than inserted: this is a new ORDER
-    /// for existing members, never a membership change. Callers do filter first, and it still
-    /// should not be possible to grow or shrink a list by reordering part of it.
+    /// Locations draws only some sources (a provider at a canonical place like Desktop is drawn in
+    /// Favorites), so a drag there reorders a subset. Writing the subset followed by everything
+    /// else would move the untouched sources to the end of the pane header's dropdown. Members
+    /// refill the positions members already held, in the new order; non-members stay put. An id in
+    /// `subset` not in `all` is ignored: reordering never changes membership.
     public static func reordering(_ all: [String], subsetInNewOrder subset: [String]) -> [String] {
         let members = Set(all)
         let slots = Set(subset).intersection(members)
@@ -392,13 +322,11 @@ public enum SidebarReorder {
         return all.map { slots.contains($0) ? (next.next() ?? $0) : $0 }
     }
 
-    /// **Clamps a drop to the band it started in.**
+    /// Clamps a drop to the band it started in.
     ///
-    /// Locations draws its rows grouped — clouds, a rule, then the device rows and the Trash — and
-    /// that grouping is applied when the rows are BUILT, from each row's band. So a row released
-    /// past the rule is re-grouped straight back, and the move appears to do nothing: the
-    /// insertion line promised a landing the column cannot draw. Clamping makes the line honest —
-    /// the row goes as far as its own band allows and stops there.
+    /// Locations groups its rows by band when they are built, so a row released past the rule
+    /// between bands would be re-grouped straight back and the drop would seem to do nothing.
+    /// Clamped, the row goes as far as its band allows and the insertion line stays honest.
     ///
     /// `bandStart` and `bandEnd` are the half-open range of the dragged row's band; the returned
     /// insertion index is within `bandStart ... bandEnd`.
@@ -406,16 +334,12 @@ public enum SidebarReorder {
         min(max(to, bandStart), bandEnd)
     }
 
-    /// **Which of Favorites' two lists a drag addresses, and the index inside it.**
+    /// Which of Favorites' two lists a drag addresses, and the index inside it.
     ///
-    /// The section draws place rows first and remembered folders after, in ONE index space, but
-    /// they are two stores holding two different kinds of thing — a place is a root, a remembered
-    /// folder is a path inside one. So a combined index has to be resolved before it can be used,
-    /// and the resolution is the part that was missing: the combined index went straight to the
-    /// remembered-folder list, where with three standard folders present the first folder's drag
-    /// asked to move item 3 of a two-item list. `moved` returned it unchanged, so folders could not
-    /// be reordered at all, and a place drag reordered a folder instead. Nothing wrote a wrong
-    /// value and nothing logged, which is how it went unnoticed.
+    /// The section draws place rows, then remembered folders, in one index space, but they are two
+    /// stores of different things (a place is a root, a remembered folder a path inside one). The
+    /// combined index must be split before use, or a folder drag would address the wrong list and
+    /// index past its end, and `moved` would silently do nothing.
     ///
     /// - Parameter places: how many place rows are drawn above the remembered folders.
     /// - Returns: `isPlace` says which list, and `from`/`to` are indices within it.
@@ -426,18 +350,13 @@ public enum SidebarReorder {
             : (false, from - places, max(0, to - places))
     }
 
-    /// **A reorder of the rows that were on screen, written back into a list that holds more.**
+    /// A reorder of the rows on screen, written back into a list that holds more.
     ///
-    /// The stored Favorites places outlive the drawn ones: a favorited volume that is unplugged
-    /// keeps its entry and draws no row. Appending those leftovers after the reordered visible ones
-    /// — which is what this did until it was reviewed — silently rewrites their positions, so
-    /// dragging Desktop up moved an unplugged disk to the end of a list nothing on screen was
-    /// describing, and it reappeared last when it was plugged back in.
-    ///
-    /// The invisible entries keep the slots they occupied; only the visible ones are re-dealt into
-    /// theirs. `visibleInNewOrder` must be a permutation of the entries of `stored` that it names —
-    /// anything it does not name is invisible by definition, so the caller does not pass a
-    /// predicate as well.
+    /// Stored Favorites places outlive drawn ones: an unplugged favorited volume keeps its entry
+    /// and draws no row. Appending such leftovers after the visible ones would silently move them
+    /// to the end, so they keep the slots they held and only the visible entries are re-dealt into
+    /// theirs. `visibleInNewOrder` must be a permutation of the entries of `stored` it names;
+    /// anything it doesn't name is invisible by definition.
     public static func resplicing<T: Hashable>(_ stored: [T], visibleInNewOrder: [T]) -> [T] {
         let visible = Set(visibleInNewOrder)
         var next = visibleInNewOrder.makeIterator()
@@ -448,62 +367,38 @@ public enum SidebarReorder {
     }
 }
 
-/// **Which places sit in Favorites** — the standard set to begin with, and whatever the user has
-/// added or removed since.
+/// Which places sit in Favorites: the standard set to begin with, and whatever the user has added
+/// or removed since. A place row's section is decided by membership of this list.
 ///
-/// Before this, Favorites' place rows were the fixed `SidebarSourceModel.favoriteShortcuts` and
-/// nothing else: Desktop, Documents and Downloads, always, with no way to take one out and no way
-/// to put a source you actually live in beside them. The list is now the user's, seeded with those
-/// three — which keeps the first run identical to what it was — and a place row's SECTION is
-/// decided by membership of it rather than by a constant in the source.
-///
-/// Stored as one JSON string rather than as a set of keys, for the reason `browseSidebarCollapsed`
-/// gives: one answer belongs in one key, and a per-place key would need cleaning up when a disk is
-/// unplugged. JSON rather than a joined string because these are POSIX paths, which may contain the
-/// separator any plain join would pick.
+/// Stored as one JSON string, not a key per place, for the reason `browseSidebarCollapsed` gives:
+/// one answer belongs in one key, and per-place keys would need cleaning up when a disk is
+/// unplugged. JSON, not a joined string, because POSIX paths may contain any separator.
 public enum SidebarFavoritePlaces {
 
-    /// **What a first run gets** — the home folder, then Finder's own three.
+    /// What a first run gets: the home folder, then Finder's own three. These are the places a
+    /// person navigates to from a standing start, and a default every user rebuilds by hand is no
+    /// default. Order is Finder's, which is why this is a list, not a set.
     ///
-    /// It was the three standard folders alone until 2026-08-27, when home AND the startup disk
-    /// were both added: these are the places a person navigates to from a standing start, and
-    /// Locations on a machine with seven cloud accounts is where you go to find an account. A
-    /// default that every user rebuilds by hand is not a default.
-    ///
-    /// **The startup disk came back out on 2026-09-07**, asked for directly, and the reason is the
-    /// half of that argument it never fitted. Home is where a path starts; the disk is the widest
-    /// scope and the least often wanted, so it sat at the bottom of Favorites earning a row above
-    /// the section that already describes it. Locations' device band is where hardware belongs, and
-    /// putting it back there gives that band the shape it should always have had — the disk, then
-    /// any card plugged in beside it, then the Trash (``SidebarSourceModel/orderedVolumes(_:)``
-    /// puts the startup disk first and `Band.trash` is last by declaration, so no code here orders
-    /// them). Existing installs are moved across once by ``migrate(defaults:)``; without it a
-    /// stored list keeps the disk in Favorites and nothing changes for anyone who has ever launched
-    /// the app.
-    ///
-    /// **Order is Finder's, and it is the reason this is a list rather than a set**: home first
-    /// because it is where a path starts, then the three you file into.
+    /// The startup disk is left out: it is the widest scope and least often wanted, and Locations'
+    /// device band is where hardware belongs (the disk, any card beside it, then the Trash;
+    /// ``SidebarSourceModel/orderedVolumes(_:)`` and `Band`'s declaration order handle that).
+    /// ``migrate(defaults:)`` moves it out of lists stored before.
     ///
     /// Home is also a Locations row (``SidebarSourceModel/homeEntry``), so removing it from
-    /// Favorites moves it back down the column rather than off it — unlike Desktop, Documents and
-    /// Downloads, whose only band is `.shortcut` and for which ``restoring(_:)`` is the way back.
-    /// The startup disk has the same fallback, through the mounted-volume walk; it is simply no
-    /// longer lifted out of it to begin with.
+    /// Favorites moves it back down the column rather than off it, and the startup disk falls back
+    /// the same way through the mounted-volume walk. Desktop, Documents and Downloads have only
+    /// `.shortcut`, and ``restoring(_:)`` is their way back.
     public static var standard: [String] {
         [SidebarSourceModel.homeEntry.path] + SidebarSourceModel.favoriteShortcuts.map(\.path)
     }
 
-    /// **Absent is not the same as empty, and the difference is the whole default.**
+    /// Absent is not the same as empty, and the difference is the whole default.
     ///
-    /// Someone who has never touched Favorites gets ``standard``; someone who has deliberately
-    /// removed every one of them gets none, and must not have them handed back on the next
-    /// launch. An empty *string* is the untouched key and an empty *array* is a decision, so the
-    /// encoding has to be able to say both — which a comma-joined list cannot.
-    ///
-    /// A value that will not decode falls back to ``standard`` rather than to nothing: it is the
-    /// same answer a first run gets, and a column that has lost its Favorites silently is worse
-    /// than one that has been reset to a state the user recognises. `restoring` is how the standard
-    /// set comes back deliberately.
+    /// Someone who has never touched Favorites gets ``standard``; someone who removed every place
+    /// gets none, and must not have them handed back on the next launch. An empty string is the
+    /// untouched key and an empty array is a decision, which a comma-joined list couldn't tell
+    /// apart. A value that won't decode also reads as ``standard``: a recognisable reset beats
+    /// silently lost Favorites. `restoring` brings the standard set back deliberately.
     public static func places(from raw: String) -> [String] {
         guard !raw.isEmpty else { return standard }
         guard let data = raw.data(using: .utf8),
@@ -511,19 +406,14 @@ public enum SidebarFavoritePlaces {
         return list
     }
 
-    /// **Whether `raw` holds bytes this build could not read** — the third state, and the only one
-    /// that must never be written over.
+    /// Whether `raw` holds bytes this build can't read: the third state, and the one that must
+    /// never be written over.
     ///
-    /// `places(from:)` answers ``standard`` for both an untouched key and an unreadable one,
-    /// which is right for a READ: a column that has silently lost its Favorites is worse than one
-    /// reset to a state the user recognises. It is wrong for the WRITE that follows, and the write
-    /// is where the loss happens — the next Add, Remove or drag encodes the standard set over the
-    /// key and the real list is gone. Absent, empty and unreadable are three states; the encoding can
-    /// already say the first two, and this is what lets a caller notice the third.
-    ///
-    /// `FolderJumpStore.salvageKey(for:)` draws the same line for the pinned and recent maps, and
-    /// for the same reason: the bytes are kept rather than overwritten, which loses nothing either
-    /// way. See ``salvageKey``.
+    /// `places(from:)` answers ``standard`` for both an untouched key and an unreadable one, which
+    /// is right for a read and wrong for the write after it: the next Add, Remove or drag would
+    /// encode the standard set over the key and lose the real list. This lets a caller notice.
+    /// `FolderJumpStore.salvageKey(for:)` keeps such bytes for the pinned and recent maps the same
+    /// way; see ``salvageKey``.
     public static func isUnreadable(_ raw: String) -> Bool {
         guard !raw.isEmpty else { return false }
         guard let data = raw.data(using: .utf8),
@@ -535,10 +425,9 @@ public enum SidebarFavoritePlaces {
     /// literal at the property; `favoritePlacesKeyMatchesTheAppStorageProperty` binds the two.
     public static let storageKey = "browseSidebarFavoritePlaces"
 
-    /// Where bytes this build cannot decode are put, instead of being overwritten —
-    /// `FolderJumpStore.salvageKey(for:)`'s spelling, so the two stores are recoverable the same
-    /// way. Derived from ``storageKey`` so a rename cannot leave the salvage pointing at the old
-    /// name.
+    /// Where bytes this build can't decode are put instead of being overwritten, in
+    /// `FolderJumpStore.salvageKey(for:)`'s spelling so both stores recover the same way. Derived
+    /// from ``storageKey`` so a rename can't leave the salvage pointing at the old name.
     public static let salvageKey = storageKey + ".unreadable"
 
     public static func encoded(_ places: [String]) -> String {
@@ -547,40 +436,32 @@ public enum SidebarFavoritePlaces {
         return text
     }
 
-    /// Adds a place that is not there, removes one that is. Added at the END, because a new
-    /// favorite joining the list at the top would push the row the user is looking at somewhere
-    /// else on the same click.
+    /// Adds a place that isn't there, removes one that is. Added at the end, because a new favorite
+    /// at the top would push the row the user is looking at elsewhere on the same click.
     public static func toggling(_ path: String, in places: [String]) -> [String] {
         places.contains(path) ? places.filter { $0 != path } : places + [path]
     }
 
-    /// ``standard`` put back at the top **in its own order**, with everything the user has added
-    /// kept below it in the order it was in.
+    /// ``standard`` put back at the top in its own order, with everything the user has added kept
+    /// below it in its order.
     ///
-    /// The affordance that stops "Remove from Favorites" being a one-way door. Removing Desktop
-    /// takes its row off the column and there is nowhere else it appears, so without this the only
-    /// route back would be adding `~/Desktop` as a folder source — which is a different thing that
-    /// happens to look similar.
-    ///
-    /// **Only the missing ones used to be prepended**, which restored them in an order the name
-    /// does not promise: with Documents still there, Restore produced Desktop, Downloads,
-    /// Documents. An item called "Restore Standard Places" that leaves the standard places out of
-    /// their standard order has done half of what it says. They are placed as a block, so the one
-    /// cost is that a standard place the user had dragged below a place of their own comes back up
-    /// — which is the same thing the item is named after.
+    /// This keeps "Remove from Favorites" from being a one-way door: a removed Desktop appears
+    /// nowhere else, and adding `~/Desktop` as a folder source is a different thing. The standard
+    /// places come back as a block in standard order, as the item's name promises, so one the user
+    /// had dragged below a place of their own comes back up.
     public static func restoring(_ places: [String]) -> [String] {
         standard + places.filter { !standard.contains($0) }
     }
 
-    /// Whether anything standard is currently missing — the one condition under which Restore is
-    /// worth offering. A menu item that would do nothing is a menu item that teaches nothing.
+    /// Whether anything standard is missing, the one condition under which Restore is worth
+    /// offering. A menu item that would do nothing teaches nothing.
     public static func isMissingStandard(_ places: [String]) -> Bool {
         standard.contains { !places.contains($0) }
     }
 
     // MARK: - Bringing a stored list forward
 
-    /// How far a stored Favorites list has been brought forward — see ``migrate(defaults:)``.
+    /// How far a stored Favorites list has been brought forward; see ``migrate(defaults:)``.
     public static let migrationKey = "browseSidebarFavoritePlacesMigration"
 
     /// Bump this, and add a step in ``migrate(defaults:)``, whenever ``standard`` changes in a way
@@ -593,10 +474,9 @@ public enum SidebarFavoritePlaces {
         case unchanged
         /// The stored list was rewritten. `removed` names what came out, in the order it was in.
         case rewritten(removed: [String])
-        /// The stored bytes could not be decoded, so they were left exactly as they are. Migrating
-        /// an unreadable value means writing ``standard`` over the user's real list, which is the
-        /// loss ``isUnreadable(_:)`` exists to prevent — and it would happen here rather than at
-        /// the read that caused it.
+        /// The stored bytes couldn't be decoded, so they were left exactly as they are. Migrating
+        /// them would write ``standard`` over the user's real list, the loss ``isUnreadable(_:)``
+        /// exists to prevent.
         case unreadable
 
         public var logLine: String? {
@@ -614,17 +494,13 @@ public enum SidebarFavoritePlaces {
         }
     }
 
-    /// **Brings a Favorites list someone already has forward when ``standard`` changes.**
+    /// Brings an existing Favorites list forward when ``standard`` changes.
     ///
-    /// A change to ``standard`` reaches a first run for free and reaches nobody else at all: the
-    /// stored list is the whole answer once the key has a value, and every install that has ever
-    /// drawn the sidebar has one. Without a step here, moving the startup disk out of the default
-    /// would have been invisible on every machine it was asked for.
+    /// A change to ``standard`` reaches only a first run: once the key has a value, the stored list
+    /// is the whole answer, and every install that has drawn the sidebar has one.
     ///
-    /// **Stamped, not conditional**, for the reason `PaneBarMigration` gives: it runs once, so a
-    /// place the user puts back afterwards stays put. A list that grows back is worse than one that
-    /// never moved, because the user can see they are being overruled.
-    ///
+    /// Stamped, not conditional, as in `PaneBarMigration`: it runs once, so a place the user puts
+    /// back afterwards stays put. A list that keeps growing back overrules the user visibly.
     /// Idempotent, so the repeat `App.init` calls the launch path makes are harmless.
     public static func migrate(defaults: UserDefaults) -> Outcome {
         let from = defaults.integer(forKey: migrationKey)   // 0 when never stamped
@@ -632,21 +508,19 @@ public enum SidebarFavoritePlaces {
         defer { defaults.set(currentVersion, forKey: migrationKey) }
 
         // No stored list: a first run already gets `standard`, and writing one here would turn an
-        // untouched key into a decision — the third state `places(from:)` is shaped around.
+        // untouched key into a decision, the distinction `places(from:)` is shaped around.
         let raw = defaults.string(forKey: storageKey) ?? ""
         guard !raw.isEmpty else { return .unchanged }
         guard !isUnreadable(raw) else { return .unreadable }
 
         var places = places(from: raw)
         let before = places
-        // v1 — the startup disk went back to Locations' device band, above any card and the Trash.
+        // Step 1: the startup disk goes back to Locations' device band, above any card and the Trash.
         if from < 1 { places.removeAll { $0 == SidebarSourceModel.startupDiskPath } }
 
-        // **Compared, not flagged.** Every step above does nothing but mutate `places`, so whatever
-        // a later step does — remove, add, reorder — reaches the defaults through this one write
-        // and is described by this one outcome, rather than by somebody remembering to set a flag
-        // beside their new step. `PaneBarMigration.apply` shipped a flag that lied for exactly
-        // this reason.
+        // Compared, not flagged: each step above only mutates `places`, so whatever a later step
+        // does reaches the defaults through this one write and is described by this one outcome,
+        // with no flag for a new step to forget to set.
         guard places != before else { return .unchanged }
         defaults.set(encoded(places), forKey: storageKey)
         return .rewritten(removed: before.filter { !places.contains($0) })
@@ -655,11 +529,9 @@ public enum SidebarFavoritePlaces {
 
 extension SidebarSourceModel {
 
-    /// **What the Favorites verb reads for a place row, or nil where there is none to offer.**
-    ///
-    /// The Trash is the one place with no answer: it is `revealOnly` — it opens in Finder and is
-    /// never a pane's scope — so a Favorites row for it would be a row that cannot do what every
-    /// other row in that section does.
+    /// What the Favorites verb reads for a place row, or nil where there is none to offer. The
+    /// Trash has none: it is `revealOnly`, opens in Finder and is never a pane's scope, so a
+    /// Favorites row for it couldn't do what every other row there does.
     public static func favoriteVerb(for row: SidebarSourceRow) -> String? {
         guard row.state != .revealOnly else { return nil }
         return row.isFavoriteShortcut ? "Remove from Favorites" : "Add to Favorites"

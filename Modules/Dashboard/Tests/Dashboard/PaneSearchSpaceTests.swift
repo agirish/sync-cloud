@@ -6,32 +6,23 @@ import SwiftUI
 
 /// A space typed into the pane search field must reach the query.
 ///
-/// **This is the measurement the Quick Look defect turned on, so it is a test rather than a
-/// comment.** The pane column carried `.onKeyPress(.space)` — Space → Quick Look — from before the
-/// search field existed, and its own note said the scoping made it safe: onKeyPress "only fires
-/// while key focus is inside this subtree (the pane Lists) … so text fields elsewhere get Space
-/// normally." The field is not elsewhere. It is inside that subtree.
-///
-/// Whether that actually matters depends on something no amount of reading settles: does SwiftUI
-/// give an ancestor's `.onKeyPress` the key before the focused `TextField` gets it? Escape does the
-/// opposite — `PaneSearchEscapeTests` measured the field consuming it outright and the ancestor
-/// never running — so the two directions genuinely had to be checked separately, and the answers
-/// differ.
-///
-/// Measured here with a real `keyDown` through `NSWindow.sendEvent`, not `insertText`, which would
-/// skip the routing that is the entire subject.
+/// SwiftUI gives an ancestor's `.onKeyPress(.space)` the key before the focused `TextField`, so a
+/// Space → Quick Look handler on a subtree holding the field swallows every space typed into it
+/// (`PaneQuickLookScopeTests` keeps the handler off that subtree). Escape routes the other way
+/// (`PaneSearchEscapeTests`), so each key needs its own test. Sent as a real `keyDown` through
+/// `NSWindow.sendEvent`, not `insertText`, which would skip the routing under test.
 @MainActor
 @Suite struct PaneSearchSpaceTests {
 
     final class Box: ObservableObject {
         @Published var query = "tax"
         @Published var isExpanded = true
-        /// Whether the ancestor's Space handler — the stand-in for Space → Quick Look — ever ran.
+        /// Whether the ancestor's Space handler, standing in for Space → Quick Look, ran.
         @Published var ancestorSawSpace = false
     }
 
-    /// A header with an open field, wrapped in the `.onKeyPress(.space)` the pane column used to
-    /// put around it.
+    /// A header with an open field, wrapped in an ancestor `.onKeyPress(.space)` like a pane-wide
+    /// Quick Look handler.
     private struct Harness: View {
         @ObservedObject var box: Box
 
@@ -60,23 +51,11 @@ import SwiftUI
         return found
     }
 
-    /// The fixture window: key, and **never ordered in**.
-    ///
-    /// This suite used to `makeKeyAndOrderFront`, which stood a 560×120 titled window — an empty
-    /// title bar over a pane header with "tax" in its field — in the middle of the user's desktop
-    /// for the length of every package run. `DetailsWhereItLivesTests` had already measured the
-    /// general form of this ("ordered in" and "on a display" are separate things); here the
-    /// stronger answer holds, because nothing in these tests reads the backing store: the key is
-    /// delivered by hand through `sendEvent`, and what routes it is the responder chain, not the
-    /// window server.
-    ///
-    /// Measured three ways, both tests, same verdict — key and ordered front (the old arrangement),
-    /// key and never ordered in (this one), and no key at all: all three pass, including the two
-    /// halves that would go vacuous first, the field holding first responder and the query growing
-    /// a space. `makeKey()` is what is kept, because focus is the thing these tests are about and
-    /// it is one call rather than none; `ExpandingSearchFieldTests` mounts its field the same way.
-    ///
-    /// `windowIsUnseen` is the guard: it fails if a later edit orders this window in again.
+    /// The fixture window: key, and never ordered in, so no test window stands on the user's desktop
+    /// during a run. Nothing here reads the backing store: the key goes in through `sendEvent` and
+    /// the responder chain routes it, not the window server. `makeKey()` stays because focus is the
+    /// subject; `ExpandingSearchFieldTests` mounts its field the same way. `windowIsUnseen` fails if
+    /// the window is ever ordered in again.
     private static func unseenWindow(hosting host: NSView) -> NSWindow {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 120),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -86,15 +65,10 @@ import SwiftUI
         return window
     }
 
-    /// The other direction, and the one a well-meant edit trips: a fixture window the user can see.
-    ///
-    /// Both halves of "unseen" are named rather than just the mechanism this suite happens to use —
-    /// an ordered-in window parked past every display (what `DetailsWhereItLivesTests` does, because
-    /// its card must render) would be just as fine. What fails here is a window standing on a
-    /// screen. Mutation-verified by restoring `makeKeyAndOrderFront`.
-    ///
-    /// The screen half goes vacuous on a host with no displays attached; the visibility half does
-    /// not, and it is the one that carries this suite.
+    /// Fails when the fixture window stands on a display the user can see. An ordered-in window
+    /// parked past every display (as `DetailsWhereItLivesTests` does) also passes. Restoring
+    /// `makeKeyAndOrderFront` must make it fail. The screen half is vacuous with no displays
+    /// attached; the visibility half is not.
     private static func windowIsUnseen(_ window: NSWindow,
                                        sourceLocation: SourceLocation = #_sourceLocation) {
         let frame = window.frame
@@ -113,14 +87,10 @@ import SwiftUI
         window.sendEvent(event)
     }
 
-    /// **The bug, as an assertion.** With a Space handler wrapped around the header, a space typed
-    /// into the focused field was swallowed: the query never grew and the ancestor fired instead —
-    /// which in the app opened the Quick Look panel over whatever the pane had selected, and the
-    /// panel then took key focus, so typing stopped dead.
-    ///
-    /// Both halves are checked, and the ancestor half is the one that matters: a query that fails
-    /// to grow could just as easily mean the harness never delivered the key at all, and this test
-    /// would then pass for the wrong reason once the arrangement is fixed.
+    /// With a Space handler around the header, a space typed into the focused field is swallowed:
+    /// the ancestor fires instead, which in the app would open Quick Look and take key focus. The
+    /// ancestor half is the one that matters; a query that fails to grow could also mean the key
+    /// was never delivered.
     @Test("An ancestor Space handler swallows the space the field was typed")
     func anAncestorHandlerStealsTheSpace() async {
         let box = Box()

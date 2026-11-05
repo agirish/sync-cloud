@@ -1,13 +1,12 @@
 import SwiftUI
 
-/// The Info inspector's two halves — the picture over the details — with a bar between them to
-/// drag (TE318 B).
+/// The Info inspector's two halves, the picture over the details, with a bar between them to drag.
 ///
 /// `fraction` is the picture's share of the room, written only when a drag ends, so the stored
-/// preference changes once per drag rather than once per frame. Within `foldMargin` of either end a
-/// drag snaps shut: dragged to the top, the picture folds away and is not built at all (no Quick
-/// Look extension for a preview nobody can see); dragged to the bottom, the details do. A
-/// double-click puts it back at `defaultFraction`.
+/// preference changes once per drag, not once per frame. Within `foldMargin` of either end a drag
+/// snaps shut: at the top the picture folds away and is not built at all (no Quick Look extension
+/// for a preview nobody can see); at the bottom the details do. A double-click restores
+/// `defaultFraction`.
 struct InspectorSplit<Upper: View, Lower: View>: View {
     @Binding var fraction: Double
     let defaultFraction: Double
@@ -15,8 +14,8 @@ struct InspectorSplit<Upper: View, Lower: View>: View {
     @ViewBuilder let lower: Lower
 
     /// The live share while a drag is in flight; nil at rest. Gesture state, so a drag the system
-    /// cancels — with no `onEnded` — puts it back by itself rather than leaving the split stuck at the
-    /// drag's share. The drag is measured from the stored share, which does not move until it ends.
+    /// cancels (with no `onEnded`) resets by itself instead of leaving the split stuck. The drag is
+    /// measured from the stored share, which does not move until it ends.
     @GestureState private var dragFraction: Double?
 
     static var handleHeight: CGFloat { 9 }
@@ -37,9 +36,8 @@ struct InspectorSplit<Upper: View, Lower: View>: View {
     }
 
     /// One VoiceOver step from `share`, up (`grows`) or down. A step out of a folded end lands on the
-    /// first share that stays open, and a step toward an end stops at the edge of its fold — the
-    /// next step is the one that folds. A plain 5% step would snap straight back shut out of a fold,
-    /// and fold a half away entirely from anywhere within 5% of its margin.
+    /// first open share, and a step toward an end stops at the edge of its fold; the next step folds.
+    /// A plain 5% step would snap straight back shut out of a fold.
     static func stepped(_ share: Double, grows: Bool) -> Double {
         let current = settled(share)
         let low = foldMargin, high = 1 - foldMargin

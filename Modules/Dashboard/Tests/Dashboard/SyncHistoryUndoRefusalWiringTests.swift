@@ -4,10 +4,9 @@ import Testing
 /// Sync History shows Undo Last Run's refusal itself, in its own alert.
 ///
 /// The reason comes from `FileSyncManager.undoLastSyncRunAskingFirst`, tested in the Sync package.
-/// What no package test can reach is the view's half: the button keeping that reason, and an
-/// alert that shows it. Drop either and a refused click looks dead again — the bug this fixed — and
-/// SwiftUI cannot be driven from a unit test, so this reads the source with its comments stripped
-/// (a comment quoting the call must not satisfy the scan).
+/// This covers the view's half: the button keeping that reason, and an alert that shows it. Drop
+/// either and a refused click looks dead. SwiftUI can't be driven from a unit test, so this reads
+/// the source with comments stripped, so a comment quoting the call can't satisfy the scan.
 @Suite struct SyncHistoryUndoRefusalWiringTests {
 
     private static func code() throws -> String {

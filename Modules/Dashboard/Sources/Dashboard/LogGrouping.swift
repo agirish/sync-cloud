@@ -2,17 +2,13 @@ import Foundation
 import Design
 import Events
 
-/// Pure grouping for the Activity Log — day buckets and collapsed operation runs — kept out of the
-/// `LogViewer` View so the ordering, day boundaries, and run-folding are unit-testable without
-/// `@State`. Internal (never crosses a module boundary; matches `LogEntryFilter`), tested via
-/// `@testable import Dashboard`.
+/// Pure grouping for the Activity Log, day buckets and folded operation runs, kept out of
+/// `LogViewer` so ordering, day boundaries and folding are unit-testable without `@State`.
 ///
-/// The log is a flat, one-line-per-event stream (`LogEntry` carries no operation id), so "operations"
-/// are recovered here from the two message prefixes that actually emit *runs* of per-file lines —
-/// guided review's `"Synced file: …"` and Filing's `"Filing: filed …"`. Bulk copy/move already logs a
-/// single summary line, so it needs no folding. Keying on those exact prefixes (rather than a general
-/// "collapse similar lines" heuristic) means only genuine per-file runs fold; every other line renders
-/// as itself.
+/// The log is a flat stream with no operation id, so operations are recovered from the two message
+/// prefixes that emit runs of per-file lines: guided review's `"Synced file: …"` and Filing's
+/// `"Filing: filed …"`. Bulk copy/move logs one summary line and needs no folding. Keying on exact
+/// prefixes, not a "similar lines" heuristic, means only real per-file runs fold.
 enum LogGrouping {
 
     /// One rendered item: a standalone entry, or a collapsed run of per-file lines from one action.
@@ -104,9 +100,8 @@ enum LogGrouping {
                     id: run[0].id.uuidString, kind: kind, children: run,
                     level: level, timestamp: run[0].timestamp)))
             } else {
-                // EVERY entry of a too-short run stays visible. With the default minRun of 2
-                // this branch only ever sees a single entry, but appending just run[0] was a
-                // latent drop of entries 2..n should the threshold ever rise.
+                // Every entry of a too-short run stays visible, not just run[0], so nothing is
+                // dropped if `minRun` ever rises above 2.
                 items.append(contentsOf: run.map { .entry($0) })
             }
             i = j
@@ -114,9 +109,8 @@ enum LogGrouping {
         return items
     }
 
-    /// Buckets `entries` (already newest-first) into consecutive same-calendar-day sections, folding
-    /// operation runs within each day. Because the input is time-ordered, a single left-to-right pass
-    /// yields the sections in order; a day boundary starts a new section.
+    /// Buckets `entries` (already newest-first) into consecutive same-day sections, folding runs
+    /// within each day. The input is time-ordered, so one pass yields the sections in order.
     static func byDay(_ entries: [LogEntry], now: Date = Date(), calendar: Calendar = .current) -> [DaySection] {
         var sections: [DaySection] = []
         var startOfCurrent: Date?
@@ -146,33 +140,20 @@ enum LogGrouping {
         if day == today { return "Today" }
         if let yesterday = calendar.date(byAdding: .day, value: -1, to: today), day == yesterday { return "Yesterday" }
         let sameYear = calendar.component(.year, from: day) == calendar.component(.year, from: today)
-        // Rendered in the zone the bucket was computed in, not in whatever zone a shared
-        // formatter woke up in. `day` is `calendar.startOfDay(for:)`, so `calendar.timeZone` is
-        // the only zone in which it means the midnight it was built to mean — read it in any
-        // other and the header names the wrong day. In the app `calendar` is `.current`, so this
-        // changes nothing there; it is what makes the two agree by construction.
+        // Drawn in `calendar.timeZone`, the zone the bucket was computed in: `day` is that zone's
+        // midnight, and read in any other zone the header names the wrong day.
         return (sameYear ? Self.headerThisYear : Self.headerOtherYear)
             .string(from: day, in: calendar.timeZone)
     }
 
-    /// Stable `yyyy-MM-dd` section id — locale-independent so it never collides across days.
-    ///
-    /// Now also calendar-pinned, which `fixed` brings with it: the id was Gregorian only by
-    /// accident of the reader's region, and a Buddhist-calendar Mac keyed its sections `2569-…`.
-    /// Nothing compared these ids across machines, so that was invisible rather than broken.
+    /// Stable `yyyy-MM-dd` section id, locale- and calendar-independent (`fixed`), so a
+    /// non-Gregorian Mac keys its sections the same way.
     private static let keyFormatter = ZoneRefreshedFormatter.fixed("yyyy-MM-dd")
 
-    /// The two DISPLAYED day headers, and the reason this file is in the zone sweep at all.
-    ///
-    /// `byDay` takes each section's `day` from a **fresh** `Calendar.current`, so the bucket
-    /// boundary always moved with the system zone — but these formatters captured whichever zone
-    /// was current when the Activity Log first drew, so they rendered that boundary in a zone the
-    /// machine had left. The result was a header a full day out: entries stamped 2026-06-01,
-    /// bucketed at midnight IST, drawn under "Sunday, May 31" by a formatter still on Pacific.
-    ///
-    /// The `Today`/`Yesterday` branch above never had the bug — it compares against the same fresh
-    /// calendar — so this only ever showed on sections two days old and older, which is exactly
-    /// where a reader has no other way to tell.
+    /// The two displayed day headers. `byDay` buckets by a fresh `Calendar.current`, so these must
+    /// follow the system zone too: a formatter that kept the zone of the log's first draw would put
+    /// sections two or more days old under a header a full day out. `Today`/`Yesterday` compare
+    /// against the same fresh calendar and need no formatter.
     private static let headerThisYear = ZoneRefreshedFormatter.template("EEEEMMMd")
     private static let headerOtherYear = ZoneRefreshedFormatter.template("MMMdyyyy")
 }

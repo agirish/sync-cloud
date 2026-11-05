@@ -7,8 +7,8 @@ import AppKit
 import Design
 import FileExplorer
 
-/// The Info inspector's contents (TE318 B): a picture of the selected item over its name, its
-/// actions and its details, for the current selection or, with nothing selected, the focused folder.
+/// The Info inspector's contents: a picture of the selected item over its name, its actions and
+/// its details, for the current selection or, with nothing selected, the focused folder.
 public struct DetailsSidebar: View {
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
@@ -26,37 +26,31 @@ public struct DetailsSidebar: View {
     /// right pane is hidden there, so its (possibly stale) selection from a prior Compare session must
     /// not drive the inspector — otherwise the panel would describe a file in the wrong provider.
     public let singleSource: Bool
-    /// The cloud ground the *Where it lives* rows are resolved against — see `FileLocation`.
+    /// The cloud ground the *Where it lives* rows are resolved against; see `FileLocation`.
     ///
-    /// **nil means "the coverage is not known here", and draws no verdict at all.** That is the
-    /// safe default rather than `.none`: an empty coverage is a positive claim that no cloud
-    /// folder contains anything, so a caller who forgot to pass this would have every file in
-    /// iCloud reported as *This Mac only* — the exact false statement this feature exists not to
-    /// make. Absent is absent.
+    /// nil means "the coverage is not known here" and draws no verdict at all. That is the safe
+    /// default rather than `.none`: an empty coverage claims no cloud folder contains anything, so
+    /// a caller who forgot to pass this would have every iCloud file reported as *This Mac only*.
     public let cloudCoverage: FileLocation.Coverage?
-    /// How this host opens a file in Edit, or nil where it has no editor — see ``EditorHandOff``.
-    ///
-    /// Defaulted to nil on both initializers, so every existing construction site keeps compiling
-    /// and keeps asking the question it was written to ask. The default is a correct answer rather
-    /// than a silently broken one: the inspector then draws exactly the row it always drew.
+    /// How this host opens a file in Edit, or nil where it has no editor; see ``EditorHandOff``.
+    /// Defaults to nil on both initializers, which is a correct answer: the inspector then draws
+    /// its action row without Open in Edit.
     public let editorHandOff: EditorHandOff?
     /// The picture's share of the height, which the host persists and the bar under the picture
-    /// sets. The card layout it once sat beside is gone: the inspector is the only host.
+    /// sets.
     public let previewFraction: Binding<Double>
     /// The host's preview of `previewPath`, drawn as the picture. nil for anything the host does not
     /// preview — a folder, several items — which then shows its icon in the same frame.
     public let preview: AnyView?
     /// The file `preview` shows. The picture is drawn only while the details below describe that
-    /// same file: the preview is built from the selection as it is now and the details from the
-    /// last stat, which lags it — briefly after every click, for seconds on a slow provider — and
-    /// the new file's picture over the previous file's name was the one inconsistency the card
-    /// never had. Until the stat catches up, the picture is the described item's icon.
+    /// same file: the preview follows the selection as it is now, the details the last stat, which
+    /// lags it (for seconds on a slow provider). Until the stat catches up, the picture is the
+    /// described item's icon, so a new file's picture never sits over the previous file's name.
     public let previewPath: String?
-    /// Whether the right pane's selection comes first. The host's answer to "which pane is the user
-    /// working in" (TE317·5): left-first alone described the left pane right after a click in the
-    /// right one whenever the left pane still held a selection. A right pane with nothing selected
-    /// falls through to the left; with nothing selected anywhere, the focused folder is the right
-    /// pane's.
+    /// Whether the right pane's selection comes first: the host's answer to "which pane is the user
+    /// working in", so a click in the right pane isn't described as the left pane's selection. A
+    /// right pane with nothing selected falls through to the left; with nothing selected anywhere,
+    /// the focused folder is the right pane's.
     public let followsRight: Bool
 
     /// The picture's share of the inspector's height until the user drags it: most of it, since the
@@ -80,20 +74,17 @@ public struct DetailsSidebar: View {
     @State private var loadedLocation: LoadedLocation?
 
     /// Item previewed via the metadata card's "Quick Look" action. Presented by this view's own
-    /// `.quickLookPreview`, mirroring `FileTreeView` — the sidebar has no host presenter to
-    /// delegate to and the shared QL panel only shows one preview at a time anyway.
+    /// `.quickLookPreview`, like `FileTreeView`: the sidebar has no host presenter to delegate to,
+    /// and the shared QL panel shows one preview at a time anyway.
     @State private var quickLookItem: URL?
 
     /// Shared formatter for created/modified dates. Reused instead of reallocated on every access
     /// of `metadata` (DateFormatter is expensive to construct).
     ///
-    /// `nonisolated` so the stat that reads it can run off the main actor — see
-    /// `loadMetadata(for:fileManager:)`. **That is why it is a `ZoneRefreshedFormatter` and not a
-    /// bare `DateFormatter` with a zone check bolted on.** The old note here was right that
-    /// formatting is thread-safe and wrong about what that buys: it held only while the formatter
-    /// was "never mutated afterwards", and re-checking the zone is a mutation. This column is the
-    /// one site in the sweep reached from more than one thread, so the check and the format are
-    /// taken together under that type's lock.
+    /// `nonisolated` so the stat that reads it can run off the main actor (see
+    /// `loadMetadata(for:fileManager:)`). That is why it is a `ZoneRefreshedFormatter`, not a bare
+    /// `DateFormatter` with a zone check: re-checking the zone mutates the formatter, so from more
+    /// than one thread the check and the format must be taken together under that type's lock.
     nonisolated private static let dateFormatter = ZoneRefreshedFormatter.localized(date: .medium,
                                                                                     time: .medium)
     
@@ -106,9 +97,8 @@ public struct DetailsSidebar: View {
     }
 
     /// Test seam: hands in the metadata cache instead of letting `@State` mint one, so a test can
-    /// control the loader behind it — specifically, hold it hostage and prove the first frame still
-    /// paints. `DetailsMetadataCache` is internal, which is why this initializer cannot be the
-    /// public one.
+    /// hold the loader back and prove the first frame still paints. `DetailsMetadataCache` is
+    /// internal, so this initializer can't be the public one.
     init(syncManager: FileSyncManager, leftPath: String, rightPath: String,
          overridePath: String?, singleSource: Bool, cloudCoverage: FileLocation.Coverage? = nil,
          editorHandOff: EditorHandOff? = nil, cache: DetailsMetadataCache,
@@ -146,10 +136,9 @@ public struct DetailsSidebar: View {
     /// What one stat produced: the metadata, plus the reason it failed when the item exists but
     /// could not be read.
     ///
-    /// The reason is *returned* rather than logged from inside the loader for two reasons. The
-    /// loader now runs off the main actor, where a `@MainActor` logging sink cannot be reached
-    /// at all; and the caller — `DetailsMetadataCache` — is the only party that knows a re-stat
-    /// of the same path is not news, which is what its `warnedPaths` rate limit is for.
+    /// The reason is returned rather than logged by the loader: the loader runs off the main actor,
+    /// where a `@MainActor` logging sink can't be reached, and only the caller,
+    /// `DetailsMetadataCache`, knows a re-stat of the same path is not news (its `warnedPaths`).
     struct MetadataLoad: Sendable {
         let metadata: FileMetadata?
         /// Non-nil only for the "exists but unreadable" case. A path that is simply not there is
@@ -169,9 +158,8 @@ public struct DetailsSidebar: View {
         // selection of its own).
         if let overridePath, !overridePath.isEmpty { return overridePath }
         if followsRight, let right = rightSelectionPaths.min() { return right }
-        // Was a hand-written copy of the left-first `min()` rule, under a comment claiming it
-        // matched `PaneLogic.primarySelectionPath` — it re-derived it instead, which is how the
-        // inspector and Space came to disagree about which file was current. Both now call this.
+        // The shared resolver, so the inspector and Space (`PaneLogic.primarySelectionPath`)
+        // always agree on which file is current.
         if let selected = CurrentSelection.primaryPanePath(
             left: syncManager.selectedLeftPaths,
             right: syncManager.selectedRightPaths,
@@ -189,12 +177,9 @@ public struct DetailsSidebar: View {
     /// Drives the "— focused folder" caption so the metadata card doesn't read as a selection the
     /// user made.
     ///
-    /// It has to answer for the SAME branches `activePath` takes, and it used to answer for only
-    /// one of them: it re-derived "no pane selection" by hand and ignored `overridePath` entirely.
-    /// So "Get Info" on a differences row — which sets the override precisely when no pane holds a
-    /// selection — showed that file's metadata captioned "— focused folder", which is wrong twice
-    /// over: it is not the focused folder, and it IS an item the user chose. Now it mirrors
-    /// `activePath`'s own order, override first and the shared resolver second.
+    /// Mirrors `activePath`'s branches in the same order, override first and the shared resolver
+    /// second. Otherwise "Get Info" on a differences row, which sets the override when no pane
+    /// holds a selection, would caption a chosen file "— focused folder".
     internal var isShowingFocusedFolderFallback: Bool {
         if let overridePath, !overridePath.isEmpty { return false }
         if followsRight, !rightSelectionPaths.isEmpty { return false }
@@ -205,16 +190,15 @@ public struct DetailsSidebar: View {
         ) == nil
     }
 
-    /// Non-nil when 2+ items are selected: the sidebar shows the Finder-style summary instead
-    /// of single-item metadata (which would silently describe only the alphabetically-first
-    /// path). Answers for the pane `activePath` reads — the right one when `followsRight` and it
-    /// holds something, the left one otherwise — and never over a Get Info target, which
-    /// `activePath` puts first: with several items selected in a pane, Get Info on a differences
-    /// row showed "3 items" and seemed to do nothing.
+    /// Non-nil when 2+ items are selected: the sidebar shows the Finder-style summary instead of
+    /// single-item metadata, which would describe only the alphabetically-first path. Answers for
+    /// the pane `activePath` reads (the right one when `followsRight` and it holds something, the
+    /// left otherwise), and never over a Get Info target, which `activePath` puts first, or Get
+    /// Info on a differences row would show "3 items" and seem to do nothing.
     ///
-    /// Resolved through the manager's cached path→node index, NOT `leftTree.findNodes` — this is
-    /// read from `body`, and the walk costs 8–11ms per render whenever the selection sits deep in
-    /// the tree or holds a path a rescan has removed. See `DetailsSelectionSummary.make(selectedPaths:resolving:)`.
+    /// Resolved through the manager's cached path→node index, not `leftTree.findNodes`: this is
+    /// read from `body`, where a walk costs milliseconds per render. See
+    /// `DetailsSelectionSummary.make(selectedPaths:resolving:)`.
     internal var selectionSummary: DetailsSelectionSummary? {
         if let overridePath, !overridePath.isEmpty { return nil }
         if followsRight, !rightSelectionPaths.isEmpty {
@@ -244,21 +228,14 @@ public struct DetailsSidebar: View {
 
     /// What the metadata card renders, once the stat behind it has actually run.
     ///
-    /// Held in `@State` and filled by a task rather than resolved inline, because resolving it
-    /// inline meant resolving it *inside `body`* — and the resolve is four blocking filesystem
-    /// calls (`fileExists`, `attributesOfItem`, a `typeIdentifier` fetch, and
-    /// `NSWorkspace.icon(forFile:)`, which looks for a custom icon resource). The memo in
-    /// `DetailsMetadataCache` bounded how OFTEN they ran but not WHERE: it is dropped after every
-    /// file operation and at the end of every scan, and `activePath` changes on every click, so in
-    /// practice each click on a file serialized the pane's own re-render behind four stats against
-    /// a cloud path.
+    /// Held in `@State` and filled by a task, never resolved inside `body`: the resolve is four
+    /// blocking filesystem calls (`fileExists`, `attributesOfItem`, a `typeIdentifier` fetch, and
+    /// `NSWorkspace.icon(forFile:)`), and the memo is dropped on every file operation, scan end and
+    /// click, so each click would hold the pane's re-render behind four stats on a cloud path. This
+    /// way the click paints first and the card fills a beat later.
     ///
-    /// Landing them in state instead means the click paints first and the card fills a beat later.
-    ///
-    /// That reordering alone was **not** enough, and the note that used to sit here saying the
-    /// stats "still run on the main actor … the next step if it measures" understated it: a
-    /// `View`'s `.task` inherits the view's `@MainActor` isolation, so the syscalls were still on
-    /// the main thread and a wedged `getxattr` still froze the app at launch. They now run on
+    /// Not on the main actor either: a `View`'s `.task` inherits its `@MainActor` isolation, so
+    /// a wedged `getxattr` there would freeze the app. The stats run on
     /// `DetailsMetadataCache.ioQueue`; see `loadMetadata(for:fileManager:)`.
     private struct LoadedDetails: Equatable {
         let key: DirectorySizeTaskID
@@ -270,23 +247,17 @@ public struct DetailsSidebar: View {
 
     /// Whether this file's content is on this Mac, for the item the card is describing.
     ///
-    /// **Its own task, and its own state, deliberately.** The obvious alternative was to fold the
-    /// `lstat` into `DetailsMetadataCache.load(for:)` alongside the other four syscalls. That
-    /// couples one more answer to a memo whose invalidation rules are tuned for metadata, and —
-    /// more to the point — the metadata card is what the user is waiting for on every click. A
-    /// separate task lets the name, size and dates paint the moment they land while this row is
-    /// still resolving, instead of holding all of them behind the slowest stat against a cloud
-    /// path.
+    /// Its own task and state, not folded into `DetailsMetadataCache.load(for:)`: that memo's
+    /// invalidation is tuned for metadata, and a separate task lets the name, size and dates paint
+    /// as soon as they land instead of waiting on the slowest stat against a cloud path.
     ///
-    /// **The `lstat` runs off the main actor.** `MaterializationStatus.isCloudOnlyIfKnown` is a
-    /// single `lstat`, which is cheap right up until it is not: this sidebar is the surface that
-    /// froze the app at launch on a wedged `getxattr` (2026-07-30, with zero windows and an empty
-    /// log), and a `View`'s `.task` inherits the view's `@MainActor` isolation. `Task.detached` is
-    /// what actually gets it off the main thread — the same shape `CloudOnlyBadgeCache` uses for
-    /// the row badge's copy of this stat.
+    /// The `lstat` runs off the main actor. `MaterializationStatus.isCloudOnlyIfKnown` is a
+    /// single `lstat`, cheap until a file provider wedges, and a `View`'s `.task` inherits the
+    /// view's `@MainActor` isolation. `Task.detached` gets it off the main thread, the same shape
+    /// `CloudOnlyBadgeCache` uses for the row badge's copy of this stat.
     ///
-    /// `isCloudOnly` keeps its Optional: nil is "the stat could not answer", which is a different
-    /// fact from "the content is here" and draws nothing at all rather than a guess.
+    /// `isCloudOnly` keeps its Optional: nil is "the stat could not answer", a different fact from
+    /// "the content is here", and draws nothing rather than a guess.
     private struct LoadedLocation: Equatable {
         let key: DirectorySizeTaskID
         let isCloudOnly: Bool?
@@ -309,31 +280,24 @@ public struct DetailsSidebar: View {
 
     /// Stats `activePath` for the metadata card, or an empty result when there is nothing to show.
     ///
-    /// An empty result is genuinely ambiguous to the caller — a path that isn't there and a path
-    /// the app is not allowed to read both render the same empty inspector — so the second case
-    /// carries a breadcrumb back in `MetadataLoad.failure`. Without it a permissions or IO failure
-    /// on a cloud provider was indistinguishable from "nothing selected", with nothing recorded
-    /// anywhere to say otherwise.
+    /// A path that isn't there and one the app may not read both render the same empty inspector,
+    /// so the second carries its reason back in `MetadataLoad.failure`; otherwise a permissions or
+    /// IO failure on a cloud provider would look like "nothing selected", with nothing logged.
     ///
-    /// This function reports EVERY failed stat — the once-per-path limit belongs to the caller that
-    /// knows a re-stat is a re-stat, `DetailsMetadataCache` (see its `warnedPaths`). The claim used
-    /// to be made here and rest on that cache's memo, which is wrong: the memo is dropped after
-    /// every file operation, so a bulk run of N operations over an unreadable selection wrote N
-    /// identical warnings.
+    /// This reports every failed stat; the once-per-path limit belongs to `DetailsMetadataCache`
+    /// (its `warnedPaths`), which knows a re-stat is a re-stat.
     ///
     /// ## Why this is `nonisolated`
     ///
     /// **Every call below can block indefinitely.** `attributesOfItem(atPath:)` reaches
-    /// `getxattr`, which on a wedged file provider (bird/fileproviderd) does not return — measured
-    /// 2026-07-30: `xattr -l ~/Documents` blocked >8s with no SyncCloud process running at all,
-    /// while a plain `stat` of the same path answered in 6ms. `f77bdc3` moved this call out of the
-    /// render pass and into a `.task`, which is the right shape but not sufficient: a `View`'s
-    /// `.task` closure is `@MainActor`-isolated, so the syscall still ran on the main thread and
-    /// still froze the app — with zero windows and an empty log when it happened during launch.
+    /// `getxattr`, which does not return on a wedged file provider (bird/fileproviderd), even
+    /// while a plain `stat` of the same path answers at once. A `View`'s `.task` is
+    /// `@MainActor`-isolated, so run from there the syscall would freeze the app, at launch with
+    /// zero windows and an empty log.
     ///
-    /// Being `nonisolated` is what lets `DetailsMetadataCache` run it on a private queue. It must
-    /// therefore stay free of main-actor state: `logError` is gone (the failure comes back in the
-    /// return value) and `dateFormatter` is `nonisolated`.
+    /// Being `nonisolated` lets `DetailsMetadataCache` run it on a private queue, so it must stay
+    /// free of main-actor state: the failure comes back in the return value, and `dateFormatter`
+    /// is `nonisolated`.
     ///
     /// `fileManager` is injected (defaulting to the real one) so the failure path is testable,
     /// following `FolderJump.siblings`.
@@ -391,9 +355,8 @@ public struct DetailsSidebar: View {
                 failure: nil
             )
         } catch {
-            // The item exists (the guard above passed) but its attributes could not be read —
-            // a permissions failure, or a cloud provider's placeholder that won't materialize.
-            // Say so; the inspector itself can only fall silent.
+            // The item exists but its attributes could not be read: a permissions failure, or a
+            // cloud placeholder that won't materialize. Say so; the inspector can only fall silent.
             return MetadataLoad(
                 metadata: nil,
                 failure: "Details: couldn't read attributes of \(activePath): \(error.localizedDescription)")
@@ -452,21 +415,18 @@ public struct DetailsSidebar: View {
     public var body: some View {
         let summary = selectionSummary
         let sizeKey = DirectorySizeTaskID(path: activePath, isMultiSelection: summary != nil, generation: sizeGeneration)
-        // Read out of state, never resolved here: the lookup hits the filesystem, and `body` is the
-        // one place it must not run from. See `LoadedDetails`.
+        // Read out of state, never resolved here: the lookup hits the filesystem, and `body` must
+        // never run it. See `LoadedDetails`.
         //
-        // Stale-while-revalidate, the same rule the pane trees follow. Withholding the previous
-        // answer until the new stat lands would drop the card into its "No item selected" branch
-        // for the turn in between — a flash saying the opposite of what the user just did. The
-        // pair is held together in one value, so a stale card is internally consistent (this
-        // file's icon, this file's name); it is only a beat behind. What it must NOT do is offer
-        // to act, which is why the action row is withheld while stale — Reveal and Quick Look
-        // would otherwise target the previous file.
+        // Stale-while-revalidate, as the pane trees do: dropping the previous answer until the new
+        // stat lands would flash "No item selected". Icon and name are held together, so a stale
+        // card is consistent, only a beat behind. It must not offer to act, though: the action row
+        // is withheld while stale, or Reveal and Quick Look would target the previous file.
         let shown = loaded
         let isStale = shown?.key != sizeKey
-        // The picture stays through a re-read of the same file (review 2 of 11-04): every file
-        // operation and scan bumps the generation, and tearing the preview down for it lost a
-        // PDF's page and a playing video. The file's own changes reach it through its identity.
+        // The picture stays through a re-read of the same file: every file operation and scan
+        // bumps the generation, and tearing the preview down for it would lose a PDF's page or a
+        // playing video. The file's own changes reach it through its identity.
         let pictureStale = shown?.key.path != sizeKey.path || shown?.key.isMultiSelection != sizeKey.isMultiSelection
         let (data, icon): (FileMetadata?, NSImage?) = (shown?.metadata, shown?.icon)
         return inspectorLayout(summary: summary, data: data, icon: icon, isStale: isStale,
@@ -492,21 +452,17 @@ public struct DetailsSidebar: View {
                 loaded = LoadedDetails(key: sizeKey, metadata: nil, icon: nil)
                 return
             }
-            // Still the memoized lookup — `DetailsMetadataCache` keeps owning the per-path memo
-            // and the once-per-path warning. What changed is where a miss runs.
-            //
-            // `load(for:)` serves a memo hit without ever suspending, so a re-render of an
-            // already-loaded path still paints its card in one pass; there is deliberately no
-            // separate `cached(for:)` branch here, which would only duplicate that check. A miss
-            // suspends and the syscalls run on the cache's private queue; until they land, `body`
-            // renders the previous card (see the stale-while-revalidate note there). If they
-            // never land, this task simply stays suspended — the window is already on screen.
+            // `DetailsMetadataCache` owns the per-path memo and the once-per-path warning.
+            // `load(for:)` serves a hit without suspending, so an already-loaded path paints in one
+            // pass and needs no separate `cached(for:)` branch. A miss suspends while the syscalls
+            // run on the cache's private queue, and `body` renders the previous card meanwhile. If
+            // they never land, this task stays suspended; the window is already on screen.
             let entry = await cache.load(for: sizeKey.path)
             guard !Task.isCancelled else { return }
             loaded = LoadedDetails(key: sizeKey, metadata: entry.metadata, icon: entry.icon)
         }
         // The materialization half of *Where it lives*, off the main actor and off the metadata
-        // card's critical path — see `LoadedLocation`.
+        // card's critical path; see `LoadedLocation`.
         .task(id: sizeKey) {
             guard !sizeKey.isMultiSelection, !sizeKey.path.isEmpty else {
                 loadedLocation = LoadedLocation(key: sizeKey, isCloudOnly: nil)
@@ -517,15 +473,14 @@ public struct DetailsSidebar: View {
                 MaterializationStatus.isCloudOnlyIfKnown(atPath: path)
             }.value
             // `Task.detached` does not inherit cancellation and `.value` on `Task<Bool?, Never>`
-            // does not throw, so this resumes carrying a stale answer after the selection has
-            // moved on — the same window `FileRowView.resolveBadge` closes for the row badge.
+            // does not throw, so this can resume with a stale answer after the selection moved
+            // on. `FileRowView.resolveBadge` closes the same window for the row badge.
             guard !Task.isCancelled else { return }
             loadedLocation = LoadedLocation(key: sizeKey, isCloudOnly: answer)
         }
-        // Keyed on the walk id, not the base key: the metadata this depends on now arrives
-        // asynchronously, so a task keyed on the base alone would run once — before the stat
-        // landed — see a nil `data`, bail, and never re-fire, leaving every folder reading
-        // "Calculating…" forever.
+        // Keyed on the walk id, not the base key: the metadata arrives asynchronously, so a task
+        // keyed on the base alone would run before the stat landed, bail, and never re-fire,
+        // leaving every folder at "Calculating…".
         .task(id: sizeWalkKey(base: sizeKey)) {
             // No directory walk while multi-selected: the summary never shows a computed
             // folder size (it stays metadata-only). Nor before the stat says it's a directory.
@@ -555,49 +510,40 @@ public struct DetailsSidebar: View {
 
     /// The folder total, or nil when there is no honest number to show (the caller renders "--").
     ///
-    /// Not `private`, so `DetailsSidebarSizeTests` can drive it against a real locked directory.
-    /// The unreadable case cannot be reached any other way: it is a property of the filesystem,
-    /// and the sidebar itself is a SwiftUI view no unit test can drive.
+    /// Not `private`, so `DetailsSidebarSizeTests` can drive it against a real locked directory;
+    /// the sidebar itself is a SwiftUI view no unit test can drive.
     ///
-    /// **A folder whose contents are not on this Mac is asked for, never walked into.** The
-    /// enumerator reads a folder's contents on the call after the one that yielded it, and for a
-    /// dataless folder that asks its cloud app — which, not running, never answers. Each OneDrive
-    /// account's folder holds a dataless `.Trash` on this machine (measured 2026-10-15), so selecting
-    /// one with OneDrive quit would leave the size at "Calculating…" for good, one more stuck thread
-    /// per selection. Each such folder is skipped by the enumerator and asked through
-    /// `waitForContents`, which holds no thread while it waits; answered, it is walked like any
-    /// other, and unanswered it is a part of the tree withheld — the total becomes a floor ("+"),
-    /// or "--" when it was the folder itself.
+    /// A folder whose contents are not on this Mac is asked for, never walked into. The
+    /// enumerator reads a dataless folder's contents by asking its cloud app, which never answers
+    /// if the app isn't running, leaving the size at "Calculating…" and a thread stuck for good.
+    /// OneDrive accounts can hold a dataless `.Trash`. Each such folder is skipped and asked
+    /// through `waitForContents`, which holds no thread while it waits; answered, it is walked like
+    /// any other, and unanswered, the total becomes a floor ("+"), or "--" for the folder itself.
     nonisolated static func computeDirectorySizeString(path: String,
                                                        fileManager: FileManaging = FileManager.default) async -> String? {
         let url = URL(fileURLWithPath: path)
         let fm = fileManager
 
         let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .fileSizeKey]
-        // Built ONCE. `resourceValues(forKeys:)` takes a Set, and constructing it inside the
-        // per-entry loop allocated and hashed a fresh three-element Set for every entry — ~39,000
-        // of them when sizing near the root — for a value that never changes. The enumerator is
-        // already given `keys` as `includingPropertiesForKeys`, so the values are prefetched and
-        // this Set is pure overhead on top of a lookup that is already cheap.
+        // Built once, not per entry: a walk near the root visits tens of thousands of entries,
+        // and the values are already prefetched through `includingPropertiesForKeys`.
         let keySet = Set(keys)
 
-        /// One streaming pass. nil means the task was cancelled; everything else is what the walk
-        /// saw, handed to `classify` by the caller.
+        /// One streaming pass. nil means the task was cancelled; otherwise what the walk saw,
+        /// handed to `classify` by the caller.
         ///
-        /// Extracted so it can run TWICE — see the symlink retry below. It has to stay a stream
-        /// rather than going through `FileManaging.listing(of:)`: that collects every entry into
-        /// an array, and this walks a tree that can hold tens of thousands of them while polling
-        /// for cancellation.
+        /// A function so it can run twice (see the symlink retry below). A stream rather than
+        /// `FileManaging.listing(of:)`, which collects every entry into an array; this walks tens
+        /// of thousands while polling for cancellation.
         func walk(_ root: URL) async -> (total: Int64, entries: Int, failures: [URL])? {
             // Asked first, suspending, if its contents are not on this Mac (see the doc above).
-            // Unanswered, nothing below it was read: the root's own failure, as a locked one is.
+            // Unanswered, nothing below it was read: a failure of the root, as a locked one is.
             guard await fm.waitForContents(of: root) else {
                 return Task.isCancelled ? nil : (0, 0, [root])
             }
-            // The enumerator is non-nil even for a folder that cannot be listed — it simply yields
-            // nothing — so this walk used to total 0 bytes for a locked folder and the sidebar
-            // reported "Zero KB" as if that were its size. The error handler is what separates the
-            // two, and `DirectoryListingSupport.classify` turns what it saw into the same verdict
+            // The enumerator is non-nil even for a folder that can't be listed (it yields
+            // nothing), so without the error handler a locked folder would read "Zero KB".
+            // `DirectoryListingSupport.classify` turns what it saw into the same verdict
             // `FileManaging.listing(of:)` reaches.
             //
             // A box rather than a captured `var`: the handler is an escaping closure and this
@@ -614,7 +560,7 @@ public struct DetailsSidebar: View {
                 errorHandler: { failed, _ in failures.urls.append(failed); return true }
             ) else {
                 // Documented as unreachable on a real filesystem; reported as the root itself
-                // having failed, which is the verdict a nil enumerator used to short-circuit to.
+                // having failed.
                 return (0, 0, [root])
             }
 
@@ -656,23 +602,16 @@ public struct DetailsSidebar: View {
         guard var walked = await walk(url) else { return nil }
         var verdictRoot = url
 
-        // A SYMLINKED directory is not an unreadable one, and this walk could not tell them apart.
-        // `enumerator(at:)` refuses to traverse a symlinked directory: non-nil, zero entries, and
-        // the error handler fires with the link's own URL — which is exactly the signature
-        // `classify` answers `.unreadable` for, so a folder Finder sizes fine rendered as "--".
+        // A symlinked directory is not an unreadable one, but the walk alone can't tell them
+        // apart: `enumerator(at:)` won't traverse a symlinked directory, yielding zero entries and
+        // an error for the link's own URL, which `classify` calls `.unreadable` ("--").
         //
-        // Same retry as `DirectoryListing.childCount`, reached through the same public
+        // Same retry as `DirectoryListing.childCount`, through the same public
         // `traversableTarget`. A link to a locked directory, a broken link and a self-referential
-        // link all still report "--", and that is the `classify` BELOW running on the retried walk
-        // — not a guard here. There was one: the retry's result was adopted only when it classified
-        // as something other than `.unreadable`. It decided nothing, because a walk that fails
-        // yields zero entries and zero bytes whichever root it was asked about, so both branches
-        // reached the same `nil`. `aLinkToALockedFolderIsStillUnreadable` and
-        // `aBrokenOrSelfReferentialLinkHasNoSize` are what hold the line — each paired with a
-        // control link that answers a real number.
-        //
-        // No re-spelling to do, unlike `listing(of:)`: this hands back a NUMBER, and the number is
-        // the target's either way — so `.producesRelativePathURLs` is not needed here.
+        // link still report "--" through the `classify` below on the retried walk.
+        // `aLinkToALockedFolderIsStillUnreadable` and `aBrokenOrSelfReferentialLinkHasNoSize` pin
+        // that. No re-spelling as in `listing(of:)`: the number is the target's either way, so
+        // `.producesRelativePathURLs` isn't needed.
         if DirectoryListingSupport.classify(
             entryCount: walked.entries, failures: walked.failures, root: verdictRoot).outcome == .unreadable,
            let target = DirectoryListingSupport.traversableTarget(of: url, using: fm) {
@@ -688,21 +627,13 @@ public struct DetailsSidebar: View {
         case .listed:
             return formatted
         case .listedWithUnreadableDescendants:
-            // Part of the tree was withheld, so `total` is a floor. "+" is the same idiom the
-            // review card's "1000+ items" uses for a number that is known to be short.
-            //
-            // Except at zero, where the idiom breaks. The formatter renders 0 as "Zero KB", so the
-            // folder whose only content is an unreadable subtree came out as **"Zero KB+"** — a
-            // phrase that reads as a size and states nothing ("at least nothing" is true of every
-            // folder alive). The review card's analogous case is guarded by arithmetic, since
-            // `classify` cannot answer partial on a count of zero; this one cannot borrow that,
-            // because bytes and entries are different quantities and a partial walk can legitimately
-            // total zero. "--" is what this function already returns for "no honest number", and a
-            // floor of zero is exactly that.
+            // Part of the tree was withheld, so `total` is a floor: "+", the idiom of the review
+            // card's "1000+ items". Except at zero, where "Zero KB+" would read as a size and state
+            // nothing; a partial walk can total zero bytes, and a floor of zero is "--", no honest
+            // number.
             return total == 0 ? nil : formatted + "+"
         case .unreadable:
-            // Nothing was read. nil, which the caller renders as "--" — the same thing it shows
-            // for a folder it has no answer for, and not a size of zero.
+            // Nothing was read: nil, which the caller renders as "--", not a size of zero.
             return nil
         }
     }
@@ -710,14 +641,14 @@ public struct DetailsSidebar: View {
     // MARK: The Info inspector's layout (TE318 B)
 
     /// Picture, bar, then name, actions and grouped details. The file is named once, under its
-    /// picture — the card's own 80pt icon and title are the preview's job here — and Kind and Size
-    /// move up into the line under the name, where Finder's preview pane keeps them.
+    /// picture, and Kind and Size sit in the line under the name, where Finder's preview pane keeps
+    /// them.
     @ViewBuilder
     private func inspectorLayout(summary: DetailsSelectionSummary?, data: FileMetadata?, icon: NSImage?,
                                  isStale: Bool, pictureStale: Bool, key: DirectorySizeTaskID) -> some View {
         if summary == nil, data == nil {
             // Nothing to draw yet is not "nothing selected": while the first stat is out, the panel
-            // stays blank rather than say the opposite of the click that brought it here.
+            // stays blank rather than contradict the click that brought it here.
             if isStale {
                 Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if isShowingFocusedFolderFallback {
@@ -729,9 +660,8 @@ public struct DetailsSidebar: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                // A selected item the stat found nothing for: deleted since the last scan, moved, or
-                // unreadable. The in-pane preview said "This file is no longer here"; saying "No item
-                // selected" over a selection is wrong.
+                // A selected item the stat found nothing for: deleted since the last scan, moved,
+                // or unreadable. "No item selected" over a selection would be wrong.
                 EmptyStateView(
                     icon: "questionmark.folder",
                     title: "Can’t show this item",
@@ -747,8 +677,8 @@ public struct DetailsSidebar: View {
                 ScrollView(.vertical, showsIndicators: true) {
                     VStack(spacing: 14) {
                         inspectorCaption(summary: summary, data: data, key: key)
-                        // Hidden while the card is a beat behind the selection, as the card's own
-                        // row is: an action must act on the item the name above it says.
+                        // Hidden while the card is a beat behind the selection: an action must act
+                        // on the item the name above it says.
                         if summary == nil, let data, !isStale {
                             inspectorActions(for: data)
                         }
@@ -763,9 +693,9 @@ public struct DetailsSidebar: View {
         }
     }
 
-    /// The host's preview for one file; otherwise the item's icon, in the same frame, so going from a
-    /// file to a folder moves nothing below it (TE318·m6). The preview only while the details describe
-    /// the file it shows — see `previewPath`.
+    /// The host's preview for one file; otherwise the item's icon, in the same frame, so going from
+    /// a file to a folder moves nothing below it. The preview only while the details describe the
+    /// file it shows; see `previewPath`.
     @ViewBuilder
     private func inspectorPicture(summary: DetailsSelectionSummary?, data: FileMetadata?, icon: NSImage?,
                                   isStale: Bool) -> some View {
@@ -841,14 +771,14 @@ public struct DetailsSidebar: View {
     }
 
     /// The row, in order: Open in Edit first where the file opens there (`offersEditor`), as the
-    /// row menu leads with it, then the three every item gets. Pure, so the order can be asked for —
-    /// the buttons are icons of one width, and a rendered row cannot tell them apart.
+    /// row menu leads with it, then the three every item gets. Pure, so a test can read the order:
+    /// the buttons are icons of one width, and a rendered row can't tell them apart.
     static func inspectorActionRow(offersEditor: Bool) -> [InspectorAction] {
         InspectorAction.allCases.filter { $0 != .openInEdit || offersEditor }
     }
 
-    /// The verbs as one row of icons, always directly under the name (TE318·m3) — in the card they
-    /// sat at the foot of the facts and moved with however many there were.
+    /// The verbs as one row of icons, always directly under the name, so they don't move with
+    /// however many facts there are.
     private func inspectorActions(for data: FileMetadata) -> some View {
         let offers = Self.offersEditor(handOff: editorHandOff, data: data)
         return HStack(spacing: 8) {
@@ -881,7 +811,7 @@ public struct DetailsSidebar: View {
         }
     }
 
-    /// The remaining facts in three short groups instead of one long list (TE318·m5).
+    /// The remaining facts in three short groups instead of one long list.
     private func inspectorGroups(for data: FileMetadata, key: DirectorySizeTaskID) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             inspectorGroup("Location", lines: [.fact("Where:", data.path)]
@@ -909,13 +839,11 @@ public struct DetailsSidebar: View {
 
     /// Whether the inspector offers to open its file in Edit.
     ///
-    /// **Pure, and static, so the rule can be called rather than mounted** — the same reason every
-    /// other decision in this file is a value. Three terms, and each has already been the wrong
-    /// answer somewhere: no hand-off means the host has no editor at all (the Dashboard package
-    /// knows nothing about one); a DIRECTORY never offers it, because this card renders for
-    /// focused-folder selections too and `kind` is a localized UTI description that cannot be
-    /// asked; and the host answers PER PATH rather than once, because the closure is fixed when
-    /// this view is built and the selection is not.
+    /// Pure and static, so tests can call the rule rather than mount it. Three terms: no hand-off
+    /// means the host has no editor; a directory never offers it, because this card renders for
+    /// focused folders too and `kind` is a localized UTI description that can't be asked; and the
+    /// host answers per path, because the closure is fixed when this view is built and the
+    /// selection is not.
     static func offersEditor(handOff: EditorHandOff?, data: FileMetadata) -> Bool {
         guard let handOff, !data.isDirectory else { return false }
         return handOff.isOffered(data.path)
@@ -926,14 +854,12 @@ public struct DetailsSidebar: View {
     /// What the *On this Mac* row says for one materialization answer, or nil when there is
     /// nothing honest to put there.
     ///
-    /// A static pure function so the wording is pinned without mounting anything — the three
-    /// states and the one non-state are the whole of what this row can say.
+    /// Static and pure so the wording is pinned without mounting anything: the three states and the
+    /// one non-state are all this row can say.
     ///
-    /// nil for a DIRECTORY: a folder has no content of its own to be downloaded or not, and its
-    /// children can each answer differently. Claiming a folder is "downloaded" because its
-    /// directory entry is on disk would be the one kind of over-claim this feature must not make.
-    /// What IS sound for a folder is where it is, and *Where it lives* says that for one — see
-    /// `FileLocation.folderLabel`.
+    /// nil for a directory: a folder has no content of its own to be downloaded, and its children
+    /// can each answer differently, so calling it "downloaded" would over-claim. *Where it lives*
+    /// says where a folder is instead; see `FileLocation.folderLabel`.
     static func onThisMacText(isDirectory: Bool, isCloudOnly: Bool?, hasAnswer: Bool) -> String? {
         guard !isDirectory else { return nil }
         guard hasAnswer else { return "Checking…" }
@@ -941,13 +867,13 @@ public struct DetailsSidebar: View {
         return isCloudOnly ? "No — placeholder only" : "Yes — downloaded"
     }
 
-    /// What the *Where it lives* row says, or nil for no row — static and pure, like `onThisMacText`.
+    /// What the *Where it lives* row says, or nil for no row; static and pure, like
+    /// `onThisMacText`.
     ///
-    /// A FILE gets the verdict: containment crossed with its materialization answer, so none until
-    /// that answer is in. A FOLDER gets containment alone (`FileLocation.folderLabel`), which needs no
-    /// stat — and this row is the only place the app still says it, now that the ⌂ row badge that
-    /// marked folders outside every cloud folder is gone from the rows. Neither without a coverage
-    /// answer to judge against.
+    /// A file gets the verdict: containment crossed with its materialization answer, so none until
+    /// that answer is in. A folder gets containment alone (`FileLocation.folderLabel`), which needs
+    /// no stat; this row is the only place the app says it. Neither without a coverage answer to
+    /// judge against.
     static func whereItLivesText(path: String, isDirectory: Bool, coverage: FileLocation.Coverage?,
                                  isCloudOnly: Bool?, hasAnswer: Bool) -> String? {
         guard let coverage else { return nil }
@@ -958,14 +884,12 @@ public struct DetailsSidebar: View {
 
     /// The supporting *On this Mac* row and the *Where it lives* verdict beneath it.
     ///
-    /// Both are withheld entirely when there is nothing provable to say — an unresolvable stat, an
-    /// unknown coverage, or a dataless file outside every discovered provider root. A row that
-    /// said "Unknown" would be worse than no row: it invites the reading that SyncCloud looked and
-    /// found nothing, when it did not look.
+    /// Both are withheld when there is nothing provable to say: an unresolvable stat, an unknown
+    /// coverage, or a dataless file outside every discovered provider root. An "Unknown" row would
+    /// suggest SyncCloud looked and found nothing, when it did not look.
     private func whereItLivesLines(for data: FileMetadata, key: DirectorySizeTaskID) -> [DetailsMetadataLine] {
-        // Keyed on the stat this card came from, exactly like Size: a location answer belongs to
-        // the item it was measured for, so a card that is a beat behind the selection says
-        // "Checking…" rather than crediting the previous file's answer to the current one.
+        // Keyed on the stat this card came from, like Size, so a card a beat behind the selection
+        // says "Checking…" rather than crediting the previous file's answer to the current one.
         let settled = loadedLocation.flatMap { $0.key == key ? $0 : nil }
         var lines: [DetailsMetadataLine] = []
         if let text = Self.onThisMacText(isDirectory: data.isDirectory,
@@ -988,19 +912,16 @@ enum DetailsMetadataLine: Equatable {
     case divider
 }
 
-/// **The Info card's label/value table, as a `Grid` whose label column takes its widest label
-/// (BR17).** The labels sat in a fixed 80pt column, and "Where it lives:" measures 85.3pt at the
-/// default 13pt — so it wrapped onto two lines at the default size, and every label grew past
-/// the column as the text size went up. A grid sizes the column to what it holds, at every size.
+/// The Info card's label/value table, as a `Grid` whose label column takes its widest label at
+/// every text size; a fixed column would wrap "Where it lives:" even at the default size.
 ///
-/// The labels never wrap (`fixedSize`); the values take the rest and wrap, as the path always
-/// has. Both follow the app's text size, like the card's title above them.
+/// The labels never wrap (`fixedSize`); the values take the rest and wrap. Both follow the app's
+/// text size, like the card's title above them.
 ///
-/// **When the labels leave the values too little room, each label goes above its value.** At the
-/// largest text size in a 200pt inspector the label column took all but ~17pt, and the values
-/// wrapped a few letters to a line. The side-by-side grid is offered only when its value column can
-/// be at least ``minimumValueWidth`` wide (`ViewThatFits`, reading the grid's ideal width as the
-/// widest label plus that); otherwise the facts stack.
+/// When the labels leave the values too little room (large text in a narrow inspector), each label
+/// goes above its value. The side-by-side grid is offered only when its value column can be at
+/// least ``minimumValueWidth`` wide (`ViewThatFits`, reading the grid's ideal width as the widest
+/// label plus that); otherwise the facts stack.
 struct DetailsMetadataGrid: View {
     let lines: [DetailsMetadataLine]
     @Environment(\.appFontScale) private var scale
@@ -1079,21 +1000,16 @@ struct DetailsMetadataGrid: View {
 
 /// How a host opens one of its files in the Edit workspace, handed to ``DetailsSidebar``.
 ///
-/// **Two closures rather than one, and neither is optional-per-file.** The literal shape this was
-/// first specified with — "a closure that is nil for a file the editor cannot open" — cannot work:
-/// a closure is fixed when the view is built and the inspector's selection changes underneath it,
-/// so a nil chosen at construction would answer about whichever file happened to be selected then.
-/// `isOffered` is therefore asked per path, on every render, and must be cheap and I/O-free (in the
-/// app it is `EditableText.opensInEdit`, which reads a path extension).
+/// Two closures, and neither is optional per file: a closure is fixed when the view is built while
+/// the selection changes underneath it, so a nil chosen at construction would answer for whichever
+/// file was selected then. `isOffered` is asked per path, on every render, and must be cheap and
+/// I/O-free (in the app it is `EditableText.opensInEdit`, which reads a path extension).
 ///
-/// **One value rather than two separate parameters**, on the argument `PaneRowVerbs` makes about
-/// its own pair: two properties are two chances for a host to wire one and forget the other, and a
-/// predicate that says yes beside an `open` that does nothing is a button that looks live and is
-/// not. They arrive together or not at all.
+/// One value rather than two parameters, as with `PaneRowVerbs`: a host can't wire one and forget
+/// the other, leaving a button that looks live and does nothing.
 ///
-/// The whole value is optional: nil means this host has no editor, and the inspector draws the row
-/// it always drew. The Dashboard package deliberately learns nothing about what a text file is —
-/// that answer lives in one place, and the app passes it down.
+/// The whole value is optional: nil means this host has no editor, and the row offers no Open in
+/// Edit. The Dashboard package learns nothing about what a text file is; the app passes it down.
 public struct EditorHandOff {
     /// Whether the editor opens the file at this path. Asked per render, per path.
     public let isOffered: (String) -> Bool

@@ -4,56 +4,49 @@ import Testing
 import Sync
 @testable import Dashboard
 
-/// **The eject half, and the wiring that makes it real.**
-///
-/// `MountedVolumeMemoryTests` and `VolumeMembershipTests` pin the rules; this pins that anything
-/// calls them. Three of the four pieces live in `MacApp/`, which is in no SPM package and which
-/// only CI's app-target step even compiles, so a source scan is the only reading of it available
-/// from here — and the failure this guards against is silent by construction: a subscription that
-/// is never made, or a menu item wired to a handler that was renamed, leaves every rule below
-/// green and the feature absent.
+/// The eject half, and the wiring that makes it real. `MountedVolumeMemoryTests` and
+/// `VolumeMembershipTests` pin the rules; this pins that something calls them. Most of the wiring
+/// lives in `MacApp/`, which is in no SPM package, so a source scan is the only reading available
+/// from here. The failure is silent: a subscription never made, or a menu item wired to a renamed
+/// handler, leaves every rule green and the feature absent.
 @Suite struct EjectWiringTests {
 
     // MARK: The notice can say something with nothing to offer
 
-    /// **Every notice has a way off the column.** Nothing else in the host clears one, so a notice
-    /// whose link was omitted — the shape this feature nearly shipped with — would sit at the
-    /// bottom of the sidebar for the rest of the session. An eject-removal has nothing to *undo*,
-    /// the volume being gone, and "Dismiss" is the honest verb for that rather than no verb.
+    /// Every notice has a way off the column. Nothing else in the host clears one, so a notice
+    /// without a link would sit at the bottom of the sidebar all session. An eject-removal has
+    /// nothing to undo, the volume being gone, so its verb is "Dismiss".
     @Test func everyNoticeKindNamesItsLink() throws {
         let host = try Self.appSource("ContentView+FolderSidebar.swift")
         #expect(host.contains("case .dismiss: return \"Dismiss\""),
                 "the eject notice has no link, so nothing can clear it")
         #expect(host.contains("case .undoPromotion: return \"Remove\""),
                 "the promotion notice lost its Remove")
-        // And the host actually clears it: a "Dismiss" that dismisses nothing is worse than none.
+        // And the host clears it: a "Dismiss" that dismisses nothing is worse than none.
         #expect(host.contains("func actOnFolderSidebarNotice"),
                 "the notice's link is not routed anywhere")
         #expect(host.contains("folderSidebarNotice = nil"),
                 "acting on a notice never clears it")
     }
 
-    /// The messages the two paths post. **Neither may say "ejected"**: `didUnmount` fires for a card
-    /// pulled out of the reader as readily as for one ejected in Finder, and macOS does not say
-    /// which — so naming the tidy one tells the user something the app does not know, in the exact
-    /// case where they did the untidy thing.
+    /// The removal notice must not say "ejected": `didUnmount` fires for a card pulled out of the
+    /// reader as readily as for one ejected in Finder, and macOS doesn't say which.
     @Test func theRemovalNoticeDoesNotClaimTheCardWasEjected() throws {
         let host = try Self.appSource("ContentView+FolderSidebar.swift")
         let handler = try #require(Self.body(of: "func forgetFolderSidebarSourcesOnUnmount", in: host),
                                    "the unmount handler was renamed — this scan now reads nothing")
         #expect(handler.contains("is no longer connected"),
                 "the removal notice no longer states the neutral fact")
-        // Matched on the literal's opening, capital and trailing space included, so the comment
-        // beside it explaining WHY the word is wrong does not trip its own guard — the shape that
-        // makes a text scan report the thing it is documenting.
+        // Matched on the literal's opening, capital and trailing space included, so a comment
+        // beside it explaining why the word is wrong doesn't trip the guard.
         #expect(!handler.contains("\"Ejected "),
                 "the removal notice claims an eject it cannot know happened")
     }
 
-    /// **The eject itself must leave the main actor.** `unmountAndEjectDevice(at:)` is synchronous
-    /// and macOS flushes the volume before unmounting it, which on a card with writes in flight is
-    /// seconds of frozen window. An `async` member of a `@MainActor` type would hop straight back,
-    /// so the detach is the thing under test, not the `await`.
+    /// The eject must leave the main actor. `unmountAndEjectDevice(at:)` is synchronous and macOS
+    /// flushes the volume first, which with writes in flight freezes the window for seconds. An
+    /// `async` member of a `@MainActor` type would hop straight back, so the detach is under test,
+    /// not the `await`.
     @Test func ejectingDoesNotRunOnTheMainActor() throws {
         let host = try Self.appSource("ContentView+FolderSidebar.swift")
         #expect(host.contains("nonisolated static func ejectVolume(at url: URL) async throws"),
@@ -62,9 +55,9 @@ import Sync
                 "the eject runs inline on whatever actor called it")
     }
 
-    /// **The volume walk is off the render path.** It was inline in the sidebar's arguments for one
-    /// build, which put a `mountedVolumeURLs` call plus a resource read per volume into every body
-    /// evaluation — and that body re-evaluates on hover and on every drag frame.
+    /// The volume walk stays off the render path. Inline in the sidebar's arguments it would put a
+    /// `mountedVolumeURLs` call and a resource read per volume into every body evaluation, which
+    /// runs on hover and every drag frame.
     @Test func theEjectableSetIsResolvedWithTheRowsNotInTheBody() throws {
         let host = try Self.appSource("ContentView+FolderSidebar.swift")
         #expect(host.contains("ejectablePaths: folderSidebarEjectablePaths"),
@@ -75,19 +68,17 @@ import Sync
                 "the ejectable set is not resolved on the row-refresh pass")
     }
 
-    /// The unmount has to refresh the column **whatever it decided**: the volume's own Locations
-    /// row comes from the mounted-volume walk, so it is stale the moment the notification arrives,
-    /// even for a card that was never a source.
+    /// The unmount refreshes the column whatever it decided: the volume's own Locations row comes
+    /// from the mounted-volume walk, so it is stale once the notification arrives, even for a card
+    /// that was never a source.
     @Test func anUnmountAlwaysRefreshesTheColumn() throws {
         let host = try Self.appSource("ContentView+FolderSidebar.swift")
         let handler = try #require(Self.body(of: "func forgetFolderSidebarSourcesOnUnmount", in: host),
                                    "the unmount handler was renamed — this scan now reads nothing")
-        // **In the `defer`, which is the mechanism and not merely where the line happens to sit.**
-        // The handler returns early twice below it — an unrecognised volume, and one with nothing
-        // on it — and a plain call at the end reaches neither. Asserting on the ORDER of the two
-        // strings would pass for a `defer` and for a first-line call alike, and fail for a correct
-        // handler whose first guard (the malformed notification) precedes the defer, which is
-        // exactly what it did.
+        // In the `defer`: the handler returns early twice below it (an unrecognised volume, and one
+        // with nothing on it), and a plain call at the end reaches neither. Checking the order of
+        // the strings instead would wrongly fail a correct handler whose first guard precedes the
+        // defer.
         let deferBlock = try #require(
             handler.range(of: "defer {").flatMap { start in
                 handler.range(of: "\n        }", range: start.upperBound..<handler.endIndex)
@@ -109,10 +100,9 @@ import Sync
                 "the context menu offers no Eject, or its item no longer says it will ask first")
     }
 
-    /// **Ejecting is confirmed, and the confirmation has to name the part that is not about this
-    /// app.** Unmounting reaches past SyncCloud — the volume leaves Finder and every other app at
-    /// the same moment — and a dialog that only mentioned the source would be describing the
-    /// smaller half of what the click does.
+    /// Ejecting is confirmed, and the confirmation names the part beyond this app: the volume
+    /// leaves Finder and every other app at once, so mentioning only the source would describe the
+    /// smaller half of the click.
     @Test func theEjectConfirmationSaysItUnmountsFromMacOS() throws {
         let sidebar = try Self.source("Sources/Dashboard/FolderSidebar.swift")
         let message = try #require(Self.between("var message: String {", "var verb: String {", in: sidebar),
@@ -121,14 +111,13 @@ import Sync
                 "the eject confirmation does not say the unmount is system-wide")
         #expect(message.contains("leaves Finder and every other app"),
                 "the eject confirmation does not name who else loses the volume")
-        // Ejecting changes nothing ON the card, and that is the reassurance a person actually wants.
+        // Ejecting changes nothing on the card, the reassurance a person actually wants.
         #expect(message.contains("Nothing on it is changed."),
                 "the eject confirmation no longer says the card's contents are untouched")
     }
 
-    /// The menu arms a confirmation rather than acting, for BOTH verbs — an `onEjectSource` called
-    /// straight from the button is the shape this replaced, and it looks identical from a scan that
-    /// only checks the handler exists.
+    /// The menu arms a confirmation rather than acting, for both verbs. An `onEjectSource` called
+    /// straight from the button would pass a scan that only checks the handler exists.
     @Test func bothConsequentialVerbsGoThroughTheConfirmation() throws {
         let sidebar = try Self.source("Sources/Dashboard/FolderSidebar.swift")
         #expect(sidebar.contains("arm(.eject(source, losesItsSource:"),
@@ -139,10 +128,9 @@ import Sync
                 "the Eject button calls the handler directly, bypassing the dialog")
     }
 
-    /// **Red means "cannot be got back".** Removing a source loses the name, the landing folder and
-    /// the enabled flag, and so does ejecting a card that IS one — while ejecting a card that is not
-    /// costs only the mount, which plugging it in returns. Dressing that as destructive would teach
-    /// the colour to mean nothing.
+    /// Red means "can't be got back". Removing a source loses its name, landing folder and enabled
+    /// flag, as does ejecting a card that is one; ejecting any other card costs only the mount,
+    /// which plugging it in returns. Making that red would teach the colour to mean nothing.
     @Test func onlyTheIrreversibleConfirmationsAreDestructive() throws {
         let sidebar = try Self.source("Sources/Dashboard/FolderSidebar.swift")
         let rule = try #require(Self.between("var isDestructive: Bool {", "\n    }", in: sidebar),
@@ -152,21 +140,19 @@ import Sync
                 "ejecting a card that keeps its source is dressed as destructive, or one that loses it is not")
     }
 
-    /// **One dialog, one state.** Two `confirmationDialog` modifiers on a view SwiftUI can arm at
-    /// once is a shape it presents unreliably, and both can be armed here — a right-click on a
-    /// second row while the first dialog is up.
+    /// One dialog, one state. SwiftUI presents two `confirmationDialog` modifiers armed at once
+    /// unreliably, and both could be armed here by right-clicking a second row while the first
+    /// dialog is up.
     @Test func thereIsOneConfirmationDialogForBothVerbs() throws {
         let sidebar = try Self.source("Sources/Dashboard/FolderSidebar.swift")
         #expect(sidebar.components(separatedBy: ".confirmationDialog(").count - 1 == 1,
                 "the column now has more than one confirmation dialog")
     }
 
-    /// **The dialog may not promise a source removal that will not happen.**
-    ///
-    /// Eject is offered on anything Finder would eject, which includes a network share — Finder
-    /// draws one an eject arrow. But a share is not local, so unmounting it leaves its sources
-    /// alone (`Volume.losesItsSourcesOnUnmount`). Asking only whether the row is a source, which
-    /// is what this did, told a user with a share as a source that they were about to lose it.
+    /// The dialog must not promise a source removal that won't happen. Eject is offered on anything
+    /// Finder would eject, network shares included, but unmounting a share leaves its sources alone
+    /// (`Volume.losesItsSourcesOnUnmount`). Asking only whether the row is a source would warn a
+    /// share's user of a loss that never comes.
     @Test func theEjectDialogAsksWhetherTheSourceWillActuallyGo() throws {
         let sidebar = try Self.source("Sources/Dashboard/FolderSidebar.swift")
         #expect(sidebar.contains("removableSourceIds.contains(source.id)")
@@ -176,17 +162,16 @@ import Sync
                 "the payload is named for the row's status rather than for the consequence")
     }
 
-    /// **The two sets are different sets, and the narrower one is the model's own rule.** If the
-    /// host built `detachablePaths` from its own predicate, that predicate and the one
-    /// `MountedVolumeMemory` applies could drift — which is how the dialog came to be wrong in the
-    /// first place.
+    /// The two sets differ, and the narrower one comes from the model's own rule. A host predicate
+    /// for `detachablePaths` could drift from the one `MountedVolumeMemory` applies and make the
+    /// dialog wrong.
     @Test func theDetachableSetComesFromTheModelsOwnRule() throws {
         let host = try Self.appSource("ContentView+FolderSidebar.swift")
         #expect(host.contains("volumes.filter(\\.losesItsSourcesOnUnmount)"),
                 "the host re-derives which volumes lose their sources instead of asking the model")
         #expect(host.contains("detachablePaths: folderSidebarDetachablePaths"),
                 "the sidebar is not told which volumes actually lose their sources")
-        // The rule itself, so a green scan cannot sit over a predicate that says the wrong thing.
+        // The rule itself, so a green scan can't sit over a predicate that says the wrong thing.
         let card = SidebarSourceModel.Volume(name: "CARD", path: "/Volumes/CARD",
                                              isRemovable: true, isInternal: false)
         let share = SidebarSourceModel.Volume(name: "Archive", path: "/Volumes/Archive",
@@ -195,10 +180,9 @@ import Sync
         #expect(!share.losesItsSourcesOnUnmount, "a network share is ejectable but does not lose its sources")
     }
 
-    /// **One mounted-volume walk per refresh, not two.** `mountedVolumeURLs` plus a resource read
-    /// per volume is not free, and under an unreachable network mount each read can block — the
-    /// same reason the refresh's `reachable` call answers both its lists in one pass. Recording the
-    /// volumes and building the rows both need the walk, and asking twice doubled that exposure.
+    /// One mounted-volume walk per refresh, not two. `mountedVolumeURLs` plus a resource read per
+    /// volume can block on an unreachable network mount, so recording the volumes and building the
+    /// rows share one walk (as the refresh's `reachable` call answers both its lists in one pass).
     @Test func theRefreshWalksTheVolumesOnce() throws {
         let host = try Self.appSource("ContentView+FolderSidebar.swift")
         let refresh = try #require(Self.body(of: "func refreshFolderSidebarRows", in: host),
@@ -209,10 +193,9 @@ import Sync
                 "deviceEntries makes its own walk again, so the refresh pays for two")
     }
 
-    /// **The dialog's title is latched.** It is a plain parameter rather than part of the
-    /// `presenting:` mechanism, so it is re-read on every render — including the ones during the
-    /// dismissal animation, when the action has gone back to nil and a title derived from it would
-    /// render as an empty heading on the way out.
+    /// The dialog's title is latched. It is a plain parameter, not part of `presenting:`, so it is
+    /// re-read on every render, including during the dismissal animation, when the action is nil
+    /// again and a derived title would render as an empty heading.
     @Test func theDialogTitleCannotGoEmptyWhileItDismisses() throws {
         let sidebar = try Self.source("Sources/Dashboard/FolderSidebar.swift")
         #expect(sidebar.contains(".confirmationDialog(pendingRowTitle,"),
@@ -221,9 +204,8 @@ import Sync
                 "the title and the action are set separately and can drift")
     }
 
-    /// **The two sides of `ejectablePaths` must key the same way**, or the set never matches and
-    /// the item silently never appears — which is exactly what a `Set<String>` mismatch looks like
-    /// from the outside.
+    /// Both sides of `ejectablePaths` must key the same way, or the set never matches and the item
+    /// silently never appears.
     @Test func bothSidesOfTheEjectableSetNormaliseTheSameWay() throws {
         let host = try Self.appSource("ContentView+FolderSidebar.swift")
         #expect(host.contains("FolderSidebarView.mountKey($0.path)"),
@@ -232,9 +214,8 @@ import Sync
                 "the shared key does not fold a trailing slash")
     }
 
-    /// Eject is `NSWorkspace`'s, and a refusal — a file on the card still open — has to reach the
-    /// user. A menu item that silently does nothing is the failure mode this area has now been
-    /// reported for twice.
+    /// Eject goes through `NSWorkspace`, and a refusal (a file on the card still open) must reach
+    /// the user, not leave a menu item that silently does nothing.
     @Test func ejectingGoesThroughNSWorkspaceAndReportsARefusal() throws {
         let host = try Self.appSource("ContentView+FolderSidebar.swift")
         #expect(host.contains("NSWorkspace.shared.unmountAndEjectDevice"),
@@ -245,10 +226,9 @@ import Sync
 
     // MARK: The three subscriptions that make an unmount actionable
 
-    /// **All three, because the unmount alone cannot answer its own question.** `didUnmount` says a
-    /// volume went; only a record taken while it was mounted says whether it was a card or a share.
-    /// Dropping any one of these leaves the feature working for some cards and not others, which is
-    /// the worst of the available failures.
+    /// All three subscriptions, because `didUnmount` only says a volume went; only a record taken
+    /// while it was mounted says whether it was a card or a share. Dropping any one leaves the
+    /// feature working for some cards and not others.
     @Test func contentViewRecordsMountsAndActsOnUnmounts() throws {
         let content = try Self.appSource("ContentView.swift")
         for name in ["didMountNotification", "willUnmountNotification", "didUnmountNotification"] {
@@ -257,31 +237,24 @@ import Sync
         #expect(content.contains("forgetFolderSidebarSourcesOnUnmount"),
                 "the unmount notification is subscribed to but not acted on")
         // The launch walk. `refreshFolderSidebarRows` returns early wherever the column is hidden,
-        // so a card already in the reader would otherwise never be recorded at all.
+        // so a card already in the reader would otherwise never be recorded.
         //
-        // **Through `mountedVolumesAsLastSeen`, which is the walk and its cache in one.** It was a
-        // bare `mountedVolumes()` here, and the refresh on the very next line walked the same
-        // unchanged set again — two `mountedVolumeURLs` calls plus two `resourceValues` reads per
-        // volume at launch, either of which can block on a network mount. Asserted on the accessor
-        // rather than on the walk so that a future edit reaching past the cache fails here.
+        // Through `mountedVolumesAsLastSeen`, the walk and its cache in one, so launch and the
+        // refresh after it walk once; each walk can block on a network mount. Asserted on the
+        // accessor so an edit reaching past the cache fails here.
         #expect(content.contains("Self.rememberMountedVolumes(Self.mountedVolumesAsLastSeen())"),
                 "nothing records the volumes already mounted at launch")
         #expect(!content.contains("Self.rememberMountedVolumes(Self.mountedVolumes())"),
                 "a recorder walks the volumes directly again, so launch and each mount pay for two walks")
     }
 
-    /// **Every notification that changes what is mounted drops the cached walk**, and `willUnmount`
-    /// deliberately does not.
+    /// Every notification that changes what is mounted drops the cached walk; `willUnmount` must
+    /// not. The cache is invalidated only by the events that can change its answer, so a handler
+    /// that forgot would leave the column showing a gone volume or missing a new one, silently.
     ///
-    /// The walk is no longer made per refresh — it belongs to the four events that can change its
-    /// answer. A handler that forgot to invalidate would leave the column drawing a volume that has
-    /// gone, or missing one that arrived, until something else happened to invalidate; nothing
-    /// would fail to compile and no other test would notice.
-    ///
-    /// `willUnmount` is the exception and it is the sharp one: the volume has NOT gone yet, and
-    /// dropping the cache there sends the very next reader — this handler's own record — back to a
-    /// filesystem that is being torn down. That is the walk most likely to block, which is the
-    /// whole reason the cache exists.
+    /// `willUnmount` is the trap: the volume hasn't gone yet, and dropping the cache there sends
+    /// this handler's own record back to a filesystem being torn down, the walk most likely to
+    /// block.
     @Test func everyMountEventDropsTheCachedWalkExceptTheOneThatMustNot() throws {
         let content = try Self.appSource("ContentView.swift")
         let host = try Self.appSource("ContentView+FolderSidebar.swift")
@@ -323,9 +296,8 @@ import Sync
                 "the record is never dropped — the map grows for the life of the process")
     }
 
-    /// **The pins are deliberately NOT cleared**, and that is worth a guard: they are keyed by
-    /// path, so a card plugged back in and added again finds them where they were. A later edit
-    /// "tidying up after" an unmount would throw away something nothing gains from losing.
+    /// An unmount leaves the pins alone: they are keyed by path, so a card plugged back in and added
+    /// again finds them where they were. Tidying them up on unmount gains nothing and loses them.
     @Test func anUnmountDoesNotClearThePinnedFolders() throws {
         let host = try Self.appSource("ContentView+FolderSidebar.swift")
         let handler = try #require(Self.body(of: "func forgetFolderSidebarSourcesOnUnmount", in: host),
@@ -334,13 +306,9 @@ import Sync
                 "the unmount handler now touches the jump store; the pins were meant to survive it")
     }
 
-    /// **The reader every scan above goes through**, so none of them is bounded by a character
-    /// count guessed at the time it was written. A fixed `prefix(n)` reads less than the function
-    /// the moment the function grows, and a scan that reads less is a scan that quietly stops
-    /// covering the end of what it was pointed at.
-    /// The text between two markers — for a scan that has to read one member of a type rather than
-    /// a whole function. Nil when either marker has moved, so a rename fails the test loudly
-    /// instead of quietly scanning an empty string.
+    /// The text between two markers, for a scan that reads one member of a type rather than a whole
+    /// function. Nil when either marker has moved, so a rename fails loudly instead of scanning an
+    /// empty string.
     private static func between(_ start: String, _ end: String, in source: String) -> String? {
         guard let from = source.range(of: start),
               let to = source.range(of: end, range: from.upperBound..<source.endIndex)
@@ -348,11 +316,13 @@ import Sync
         return String(source[from.upperBound..<to.lowerBound])
     }
 
+    /// The reader most scans above go through: one member's body, up to the next member, rather
+    /// than a fixed `prefix(n)` that would stop covering the end of a function once it grows.
     private static func body(of declaration: String, in source: String) -> String? {
         guard let start = source.range(of: declaration) else { return nil }
         let rest = source[start.upperBound...]
-        // The next member's own declaration line, at the same indentation — every member of this
-        // extension is declared at four spaces, so this is the file's real boundary.
+        // The next member's declaration line at the same indentation: every member of this
+        // extension is declared at four spaces, so this is the real boundary.
         guard let end = rest.range(of: "\n    /// ") ?? rest.range(of: "\n    func ")
                         ?? rest.range(of: "\n    nonisolated ") else { return String(rest) }
         return String(rest[..<end.lowerBound])

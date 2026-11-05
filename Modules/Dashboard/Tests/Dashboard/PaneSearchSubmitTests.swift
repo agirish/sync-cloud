@@ -6,10 +6,8 @@ import AppKit
 @Suite struct PaneSearchSubmitTests {
 
     @Test func theOfferNeverStealsEitherPlainDirection() {
-        // **The regression this table exists for.** The offer used to take ↩, which meant that on
-        // any query naming someone, forward advance was unreachable — ⇧↩ is *previous*, not "the
-        // plain search". The field's placeholder promises "↩ next, ⇧↩ previous", and both have to
-        // keep working whether or not the query happens to be a name.
+        // If the person offer took ↩, forward advance would be unreachable on any query naming
+        // someone. The placeholder promises "↩ next, ⇧↩ previous" whatever the query is.
         #expect(PaneSearchSubmit.action(modifiers: [], hasOffer: true) == .advance(reverse: false))
         #expect(PaneSearchSubmit.action(modifiers: .shift, hasOffer: true) == .advance(reverse: true))
     }
@@ -27,7 +25,7 @@ import AppKit
     }
 
     @Test func plainSubmitIsUnchangedWithNoOffer() {
-        // The behaviour every existing user has: exactly what it was before any of this.
+        // With no offer, ↩ and ⇧↩ just walk the hits.
         #expect(PaneSearchSubmit.action(modifiers: [], hasOffer: false) == .advance(reverse: false))
         #expect(PaneSearchSubmit.action(modifiers: .shift, hasOffer: false) == .advance(reverse: true))
     }

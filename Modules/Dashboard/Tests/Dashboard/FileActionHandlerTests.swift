@@ -45,11 +45,10 @@ import Settings
         
         handler.pasteItems([node], toPath: dstDir.path, isCut: true)
 
-        // pasteItems spawns a Task. `waitForOperationsToFinish` alone is racy here: it polls a
-        // counter whose 0 means both "not started yet" and "finished", so when the main actor is
-        // contended (e.g. the snapshot suite rendering offscreen in a parallel test run) the
-        // spawned Task can start only after the counter-wait has already returned. Wait for the
-        // operation's observable outcome first — the same pattern the moveItems test uses.
+        // pasteItems spawns a Task. `waitForOperationsToFinish` alone races: its counter reads 0
+        // both before the Task starts and after it ends, so on a contended main actor the wait can
+        // return before the Task starts. Wait for the observable outcome first, as the moveItems
+        // test does.
         let movedFile = dstDir.appendingPathComponent(node.name)
         for _ in 0..<200 where !(FileManager.default.fileExists(atPath: movedFile.path)
                                  && manager.clipboardNodes.isEmpty) {
@@ -80,10 +79,9 @@ import Settings
         #expect(manager.clipboardIsCut == true)
     }
     
-    /// The drag-drop move route runs headless end-to-end: confirmation is the sync layer's
-    /// `transferConfirmer` seam (asked exactly once), NOT a Design-level modal — re-adding
-    /// the old NativeAlerts.confirmMove guard here would double-prompt every move and hang
-    /// this test on its alert.
+    /// The drag-drop move route runs headless end to end: confirmation is the sync layer's
+    /// `transferConfirmer` seam, asked exactly once, not a Design-level modal. A second confirm in
+    /// the handler would double-prompt every move and hang this test on its alert.
     @MainActor
     @Test func testMoveItemsToPathMovesViaSyncLayerWithOneConfirmation() async throws {
         let manager = FileSyncManager()
@@ -132,10 +130,10 @@ import Settings
         }
     }
 
-    /// Settings for the clipboard and move tests, on a scratch suite and with no discovery pass. A
-    /// bare `SettingsManager()` discovered the real `~/Library/CloudStorage` and wrote it to
-    /// `lastKnownAccountFolders` in the standard domain, which under `swift test` is the
-    /// `swiftpm-testing-helper` plist every test process on the machine shares.
+    /// Settings for the clipboard and move tests, on a scratch suite with no discovery pass. A bare
+    /// `SettingsManager()` discovers the real `~/Library/CloudStorage` and writes it to
+    /// `lastKnownAccountFolders` in the standard domain, which under `swift test` is a plist every
+    /// test process on the machine shares.
     @MainActor
     private func scratchSettings() -> SettingsManager {
         SettingsManager(autoDiscover: false, userDefaults: ScratchDefaults("FileActionHandlerTests"))
@@ -166,7 +164,7 @@ import Settings
 
     /// A provider id that vanished from settings resolves to an empty root ("" from
     /// `settings.rootPath(for:)`). The copy must abort with an error before reaching the sync
-    /// layer — previously the empty root sent files to a CWD-relative destination.
+    /// layer, or the empty root sends files to a CWD-relative destination.
     @MainActor
     @Test func testCopyItemsWithUnknownProviderPresentsErrorAndCopiesNothing() async throws {
         let manager = FileSyncManager()
@@ -247,9 +245,8 @@ import Settings
         #expect(manager.leftRelativePath == "")
     }
 
-    /// beginCreateFolder with an empty pane path (vanished provider) must present an error
-    /// before ever prompting for a name — the sync layer would refuse the empty root anyway,
-    /// and without the guard the folder used to be created at the process CWD.
+    /// beginCreateFolder with an empty pane path (vanished provider) presents an error before
+    /// prompting for a name, rather than asking for a name the empty root can't take.
     @MainActor
     @Test func testBeginCreateFolderWithEmptyPathPresentsErrorWithoutPrompting() async throws {
         let manager = FileSyncManager()
@@ -257,14 +254,13 @@ import Settings
 
         handler.beginCreateFolder(in: "")
 
-        // The guard is synchronous; reaching these expectations at all proves no name prompt
-        // (a modal alert, which would stall the suite) was shown.
+        // The guard is synchronous; reaching these expectations proves no name prompt (a modal
+        // alert, which would stall the suite) was shown.
         #expect(manager.currentError?.title == "Folder Unavailable")
         #expect(manager.activeFileOperationsCount == 0)
     }
 
-    /// Happy-path regression guard: a folder genuinely under the root still focuses, with the
-    /// same relative path as before the boundary fix.
+    /// The happy path: a folder genuinely under the root still focuses, with its relative path.
     @MainActor
     @Test func testFocusFolderUnderRootStillNavigates() async throws {
         let manager = FileSyncManager()
@@ -310,16 +306,15 @@ import Settings
         return found
     }
 
-    /// **A folder two levels below a folder symlink focuses.** The walk lists it where the link
-    /// leads (`T/sub/deeper`), so stripping the root off its id refused a folder the pane was
-    /// showing with "Can't Focus Folder", and no rescan could change that. Then the round trip: the
-    /// walk at the new focus lists that folder's own contents.
+    /// A folder two levels below a folder symlink focuses. The walk lists it where the link leads
+    /// (`T/sub/deeper`), so stripping the root off its id would refuse a folder the pane shows.
+    /// Then the round trip: the walk at the new focus lists that folder's own contents.
     @MainActor
     @Test func testFocusFolderBelowAFolderLinkNavigates() async throws {
         let raw = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("FAH-focus-link-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: raw, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: raw) }
-        // Canonical, so the root is spelled as the walk spells ids — the `/var` spelling is the next test's.
+        // Canonical, so the root is spelled as the walk spells ids; the `/var` spelling is the next test's.
         let base = URL(fileURLWithPath: try raw.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath ?? raw.path)
         let (root, otherRoot) = try makeLinkedTree(under: base)
         let pane = CloudProvider(id: "p", displayName: "P", imageName: "folder", rootPath: root.path, type: .localFolder)
@@ -338,9 +333,9 @@ import Settings
         #expect(manager.leftTree.map(\.name) == ["deepest"], "the focus walked \(manager.leftTree.map(\.id))")
     }
 
-    /// **Under a root spelled through a link, every folder focuses.** A `/var/…` root — which is
-    /// where `NSTemporaryDirectory()` is — lists `/private/var/…` from its first level down, so even
-    /// a plain child was refused.
+    /// Under a root spelled through a link, every folder focuses. A `/var/…` root, where
+    /// `NSTemporaryDirectory()` is, lists `/private/var/…` from its first level down, so even a
+    /// plain child's id isn't spelled under the root.
     @MainActor
     @Test func testFocusFolderUnderARootSpelledThroughALinkNavigates() async throws {
         let base = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("FAH-focus-var-\(UUID().uuidString)")

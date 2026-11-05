@@ -4,12 +4,10 @@ import SwiftUI
 import Testing
 @testable import Dashboard
 
-/// **The Info card's labels take their widest label's width, at every text size (BR17).**
-///
-/// They sat in a fixed 80pt column, and "Where it lives:" is 85.3pt at the default 13pt — so it
-/// wrapped onto two lines at the default size. Measured as heights: a fact whose label is the
-/// longest must lay out exactly as tall as one whose label is short, given the same one-line value.
-/// A label that wrapped adds a line.
+/// The Info card's label column takes its widest label's width, at every text size, so no label
+/// wraps ("Where it lives:" is wider than a fixed 80pt column at the default 13pt). Measured as
+/// heights: given the same one-line value, the longest label lays out as tall as a short one; a
+/// wrapped label adds a line.
 @MainActor
 @Suite struct DetailsMetadataGridTests {
 
@@ -26,11 +24,10 @@ import Testing
         return host.fittingSize.height
     }
 
-    /// **Too narrow for both columns, each label goes above its value.** The inspector's minimum
-    /// width is 200pt, and the card's padding leaves this table 140pt of it; at the largest text
-    /// size the label column took all but ~17pt and the values wrapped a few letters to a line.
-    /// Measured against both branches drawn alone: the card must lay out as the stacked branch at
-    /// that width and as the side-by-side one at the default inspector width and size.
+    /// Too narrow for both columns, each label goes above its value. At the inspector's 200pt
+    /// minimum the card leaves this table 140pt, and at the largest text side by side would leave
+    /// the values a few letters a line. The card must lay out as the stacked branch there and as
+    /// the side-by-side one at the default width and size.
     @Test func aNarrowLargeCardStacksAndADefaultOneDoesNot() {
         let lines: [DetailsMetadataLine] = [.fact("Where it lives:", "In iCloud Drive, downloaded"),
                                             .divider, .fact("Kind:", "PDF document")]
@@ -69,8 +66,8 @@ import Testing
                 at text scale \(scale), "Where it lives:" laid out \(longest)pt tall against \
                 \(short)pt for "Kind:" — the label wrapped
                 """)
-        // The control: a value too long for its column DOES wrap, so the measurement can see a
-        // second line when there is one.
+        // The control: a value too long for its column does wrap, so the measurement can see a
+        // second line.
         let wrapped = Self.height([.fact("Kind:", String(repeating: "Portable Document ", count: 6))],
                                   scale: scale)
         #expect(wrapped > short, "a long value did not wrap — the heights above prove nothing")

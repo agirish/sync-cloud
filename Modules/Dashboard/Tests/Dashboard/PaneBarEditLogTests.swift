@@ -4,55 +4,43 @@ import Events
 import EventsTestSupport
 @testable import Dashboard
 
-/// What a pane-bar edit leaves behind in `~/sync-cloud.log`.
+/// What a pane-bar edit leaves in `~/sync-cloud.log`. A control taken off the bar is gone, not
+/// moved to ⋯, so "my Delete button disappeared" needs a line to read.
 ///
-/// The bar wrote **nothing at all** before this: `PaneBarArrangement`, the 700-line customize sheet
-/// and the bar half of `DashboardViews` held zero `Logger` calls between them, in a module that logs
-/// from five other files. That was survivable while a removal cost a pill and never an ability —
-/// whatever left the bar was still in ⋯ — and `9db37173` ended that. A control taken off the bar is
-/// gone now, and "my Delete button disappeared" had no trace anywhere to read.
-///
-/// **What makes the log assertions here safe**, since the note that stood in this spot credited
-/// `.serialized` and that is not the mechanism: `.serialized` orders the tests *within this suite*,
-/// while `Logger.shared.entries` is a process-wide buffer every other suite in the run is writing
-/// into at the same time. Two things do the work. Every read below — presence and absence alike —
-/// comes from a `LogCapture` opened before the edit, because the buffer is capped at 1000 entries
-/// and a read of it passes for free once a sibling suite has rolled past what this test wrote ("A
-/// log assertion reading a window that has already rolled" in `docs/flaky-tests.md`). And the
-/// predicate is `[panebar] User …`, which nothing outside this file writes, so no other suite can
-/// land a line inside one of these captures. `.serialized` sits on top of both and keeps them short.
+/// `.serialized` orders only this suite, while `Logger.shared.entries` is a process-wide buffer
+/// every suite writes into at once. Two things keep these assertions safe. Every read, presence and
+/// absence alike, comes from a `LogCapture` opened before the edit, since the buffer is capped at
+/// 1000 entries and siblings can roll past this test's lines ("A log assertion reading a window that
+/// has already rolled" in `docs/flaky-tests.md`). And the predicate `[panebar] User …` is written
+/// by nothing outside this file, so no other suite can land a line in these captures.
 @MainActor
 @Suite(.serialized) struct PaneBarEditLogTests {
 
     private static let defaultEncoded =
         "viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,delete,typeFilter,search"
 
-    /// The bar as it stands after someone drags Delete off it — the state the reported complaint is
-    /// about, and the one with no record of how it got there.
+    /// The bar after someone drags Delete off it.
     private static let withoutDelete = PaneBarArrangement(
         PaneBarArrangement.default.items.filter { $0 != .delete })
 
-    /// Guards the fixture rather than assuming it: every message below is quoted as a literal, so a
-    /// default arrangement that changed would make them wrong in a way nothing else would catch.
+    /// Guards the fixtures: every message below is quoted as a literal, so a changed default would
+    /// make them wrong in a way nothing else catches.
     @Test func testTheFixturesMatchTheShippedDefault() {
         #expect(PaneBarArrangement.default.encoded == Self.defaultEncoded)
         #expect(Self.withoutDelete.encoded ==
                 "viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,typeFilter,search")
     }
 
-    /// Removing a control says what went and what is left. The second half is the point: a line
-    /// naming only the control would not answer "what does my bar look like now", which is the
-    /// question someone asks after finding a button missing.
+    /// Removing a control says what went and what is left, which answers "what does my bar look
+    /// like now" for someone who finds a button missing.
     @Test func testRemovingAControlNamesItAndTheBarItLeftBehind() {
         #expect(PaneBarEditLog.message(from: .default, to: Self.withoutDelete)
                 == "[panebar] User removed Delete from the pane bar — it is now "
                 + "viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,typeFilter,search")
     }
 
-    /// The reverse, and the one line that has to name the default: a Restore is described by what
-    /// it did plus the fact that the result *is* the shipped set. Nothing takes the sheet's word
-    /// for which gesture ran — the tail is read off the result, so an edit that happens to land on
-    /// the default arrangement is labelled the same way, truthfully.
+    /// A result that is the shipped set says so. The tail is read off the result, not the gesture,
+    /// so any edit that lands on the default is labelled the same way.
     @Test func testRestoringTheDefaultSaysSo() {
         #expect(PaneBarEditLog.message(from: Self.withoutDelete, to: .default)
                 == "[panebar] User added Delete to the pane bar — it is now "
@@ -64,8 +52,8 @@ import EventsTestSupport
                 == "[panebar] User added Search to the pane bar — it is now flexibleSpace,scan,sort,search")
     }
 
-    /// A pure reorder adds and removes nothing, so it needs its own verb — without one it would be
-    /// described as an edit that changed no items, which reads as a no-op and is not one.
+    /// A pure reorder adds and removes nothing, so it needs its own verb, or it would read as a
+    /// no-op.
     @Test func testAReorderIsNamedAsAReorder() {
         let before = PaneBarArrangement(encoded: "flexibleSpace,scan,sort")
         let after = PaneBarArrangement(encoded: "flexibleSpace,sort,scan")
@@ -73,8 +61,7 @@ import EventsTestSupport
                 == "[panebar] User reordered the pane bar — it is now flexibleSpace,sort,scan")
     }
 
-    /// A drag from the palette onto an occupied slot both adds and removes; the line has to carry
-    /// both, or half of what happened is invisible.
+    /// An edit that both adds and removes says both.
     @Test func testAnEditThatBothAddsAndRemovesSaysBoth() {
         let before = PaneBarArrangement(encoded: "flexibleSpace,scan,sort")
         let after = PaneBarArrangement(encoded: "flexibleSpace,scan,search")
@@ -83,9 +70,8 @@ import EventsTestSupport
                 + " — it is now flexibleSpace,scan,search")
     }
 
-    /// Spacers repeat, so the difference has to count rather than compare sets. A set difference
-    /// answers "nothing changed" for a bar that gained its second Space, and the line would then
-    /// call a genuine add a reorder.
+    /// Spacers repeat, so the difference must count, not compare sets: a set difference would call
+    /// a second Space a reorder.
     @Test func testGainingASecondSpacerCountsAsAnAdd() {
         let before = PaneBarArrangement(encoded: "flexibleSpace,scan,space")
         let after = PaneBarArrangement(encoded: "flexibleSpace,scan,space,space")
@@ -94,18 +80,15 @@ import EventsTestSupport
                 == "[panebar] User added Space to the pane bar — it is now flexibleSpace,scan,space,space")
     }
 
-    /// **A no-op writes no line.** The sheet reaches this on every Move Left at index 0, every
-    /// Remove on Scan, and every drag abandoned onto the pill it started from — the most ordinary
-    /// gestures in the surface, and exactly the shape of the strip defect that logged a click on
-    /// the already-active chip.
+    /// A no-op writes no line. The sheet reaches one on every Move Left at index 0, every Remove on
+    /// Scan, and every drag dropped back where it started.
     @Test func testAnEditThatChangesNothingIsNotLogged() async {
         let log = LogCapture()
 
         let bar = PaneBarArrangement(encoded: "flexibleSpace,scan,sort")
         #expect(PaneBarEditLog.message(from: bar, to: bar) == nil)
         #expect(!PaneBarEditLog.record(from: bar, to: bar), "record claimed it wrote a line")
-        // A remove that the arrangement refuses (Scan is pinned) reaches the same place from the
-        // direction the sheet actually takes.
+        // A remove the arrangement refuses (Scan is pinned), the way the sheet reaches a no-op.
         var refused = bar
         refused.remove(at: 1)
         #expect(refused == bar, "the fixture must actually be refused, or this proves nothing")
@@ -121,15 +104,14 @@ import EventsTestSupport
                 "an edit that changed nothing was written to the log anyway")
     }
 
-    /// And the other half: a real edit does reach the log, at `info`, through `record` — the pure
-    /// message function being right is worth nothing if nothing calls it.
+    /// A real edit reaches the log at `info` through `record`, not just the pure message function.
     @Test func testARealEditReachesTheLog() async {
         let log = LogCapture()
 
         #expect(PaneBarEditLog.record(from: .default, to: Self.withoutDelete))
 
-        // From the capture, not across the whole buffer: an identical line left by an earlier run
-        // of this same test would otherwise stand in for the one this run wrote.
+        // From the capture, not the whole buffer, where an earlier run's identical line could
+        // stand in for this one.
         let written = await log.entries.last { $0.message.hasPrefix("[panebar] User removed Delete") }
         #expect(written?.message == "[panebar] User removed Delete from the pane bar — it is now "
                 + "viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,typeFilter,search")

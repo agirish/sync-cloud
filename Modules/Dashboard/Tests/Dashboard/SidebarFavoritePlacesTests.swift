@@ -2,15 +2,12 @@ import Testing
 import Foundation
 @testable import Dashboard
 
-/// **Which places sit in Favorites** — the list that replaced a constant.
+/// Which places sit in Favorites, a stored list the user can change.
 @Suite struct SidebarFavoritePlacesTests {
 
-    /// **The arrangement a first run gets, in order.**
-    ///
-    /// Pinned as a whole list rather than as four `contains` checks, because ORDER is half of what
-    /// was asked for: home first because it is where a path starts, then the three you file into. A
-    /// set-membership assertion would pass on any shuffle of the same four, and a shuffle is exactly
-    /// the regression a later edit to `favoriteShortcuts` or to the concatenation would produce.
+    /// The arrangement a first run gets, in order: home first, where a path starts, then the three
+    /// folders you file into. Pinned as a whole list, because `contains` checks would pass on any
+    /// shuffle, and a shuffle is what a later edit to `favoriteShortcuts` would produce.
     @Test func theDefaultFavoritesAreHomeAndTheThreeFolders() {
         #expect(SidebarFavoritePlaces.standard == [
             NSHomeDirectory(),
@@ -20,13 +17,9 @@ import Foundation
         ])
     }
 
-    /// **The startup disk is NOT a default favorite**, which is the 2026-09-07 move stated as the
-    /// one thing that decides it: a place's section is membership of this list, so the disk being
-    /// absent from it IS the disk being drawn in Locations' device band.
-    ///
-    /// Asserted separately from the list above rather than folded into it, because the two fail for
-    /// different reasons — that one catches a reorder, this one catches the entry coming back — and
-    /// a reader hitting this name knows immediately which question was answered.
+    /// The startup disk is not a default favorite. A place's section is membership of this list,
+    /// so leaving the disk out is what draws it in Locations' device band. Separate from the test
+    /// above, which catches a reorder; this one catches the entry coming back.
     @Test func theStartupDiskIsNotAFavoriteByDefault() {
         #expect(!SidebarFavoritePlaces.standard.contains(SidebarSourceModel.startupDiskPath),
                 "the startup disk is back in the default Favorites — it belongs in Locations' device band, above any card and the Trash")
@@ -34,16 +27,15 @@ import Foundation
                 "Restore Standard Places would be offered forever on an untouched install")
     }
 
-    /// Every default entry is an absolute path — the list is matched against a row's
-    /// `absolutePath` through `resolved`, and a relative one would resolve against the working
-    /// directory and silently favorite nothing.
+    /// Every default entry is absolute: the list is matched against a row's `absolutePath` through
+    /// `resolved`, and a relative one would resolve against the working directory and match nothing.
     @Test func everyDefaultPlaceIsAbsolute() {
         #expect(SidebarFavoritePlaces.standard.allSatisfy { $0.hasPrefix("/") })
         #expect(Set(SidebarFavoritePlaces.standard).count == SidebarFavoritePlaces.standard.count,
                 "a duplicate default would draw one row and leave a dead entry behind it")
     }
 
-    /// The whole reason the encoding is JSON and not a joined string: three states, not two.
+    /// Why the encoding is JSON, not a joined string: an untouched key and an emptied list differ.
     @Test func anUntouchedKeyIsNotAnEmptyList() {
         #expect(SidebarFavoritePlaces.places(from: "") == SidebarFavoritePlaces.standard,
                 "a first run has to get the standard places")
@@ -51,15 +43,14 @@ import Foundation
                 "someone who removed every one must not be handed them back on the next launch")
     }
 
-    /// A path containing the separator any plain join would pick. Not hypothetical enough to matter
-    /// often, and cheap enough to be safe from.
+    /// A path containing the separator any plain join would pick. Rare, and cheap to be safe from.
     @Test func aPathHoldingASeparatorSurvivesARoundTrip() {
         let odd = ["/Volumes/Backup, 2026", "/Users/x/Notes\nDrafts"]
         #expect(SidebarFavoritePlaces.places(from: SidebarFavoritePlaces.encoded(odd)) == odd)
     }
 
-    /// Unreadable falls back to the standard three — the same answer a first run gets, which is a
-    /// state the user recognises. A column that has silently lost its Favorites is worse.
+    /// Unreadable falls back to the standard places, the answer a first run gets and a state the
+    /// user recognises. A column that has silently lost its Favorites is worse.
     @Test func anUnreadableValueFallsBackRatherThanEmptying() {
         #expect(SidebarFavoritePlaces.places(from: "{not json") == SidebarFavoritePlaces.standard)
         #expect(SidebarFavoritePlaces.places(from: "[1,2,3]") == SidebarFavoritePlaces.standard)
@@ -82,13 +73,9 @@ import Foundation
                 "a standard folder already present must not be added twice")
     }
 
-    /// **Restoring only the missing ones is not restoring the standard order.** With one of them
-    /// kept and the rest removed, prepending the missing ones put the kept one last — the standard
-    /// places back, in an order the item's own name does not promise. They are placed as a block
-    /// for that reason.
-    ///
-    /// Asserted for EACH position rather than one, so the block-placement holds wherever the kept
-    /// entry sat: keeping the first would pass a prepend-the-missing implementation by accident.
+    /// Restore puts the standard places back as a block, in standard order. Prepending only the
+    /// missing ones would leave a kept one out of place. Checked for each kept position, since
+    /// keeping the first would let a prepend pass by accident.
     @Test func theStandardPlacesComeBackInTheirStandardOrder() {
         for kept in SidebarFavoritePlaces.standard {
             #expect(SidebarFavoritePlaces.restoring([kept]) == SidebarFavoritePlaces.standard,
@@ -96,7 +83,7 @@ import Foundation
         }
     }
 
-    /// And they come back ABOVE what the user added, which is where they started.
+    /// And they come back above what the user added, which is where they started.
     @Test func whatTheUserAddedStaysBelowThem() {
         let mixed = ["/Volumes/Work", SidebarFavoritePlaces.standard[2], "/Volumes/Archive"]
         #expect(SidebarFavoritePlaces.restoring(mixed)
@@ -124,8 +111,8 @@ import Foundation
         #expect(SidebarSourceModel.favoriteVerb(for: row("/s", band: .shortcut)) == "Remove from Favorites")
     }
 
-    /// Favoriting MOVES a place. Two rows for one place, one under each heading, is worse than
-    /// either — and it would make "which one do I remove?" a question.
+    /// Favoriting moves a place. Two rows for one place, one under each heading, is worse than
+    /// either, and leaves the user asking which one to remove.
     @Test func changingBandKeepsEverythingElseAboutTheRow() {
         let original = row("/Dropbox", band: .cloud)
         let moved = original.inBand(.shortcut)
@@ -136,12 +123,12 @@ import Foundation
     }
 }
 
-/// **Favorites is two lists drawn as one**, and the drag index spans both. This is the arithmetic
-/// that was missing — see `SidebarReorder.favoritesMove` for what it cost.
+/// Favorites is two lists drawn as one, and the drag index spans both;
+/// `SidebarReorder.favoritesMove` maps a combined index into the right list.
 @Suite struct FavoritesCombinedIndexTests {
 
-    /// The exact shape of the shipped defect: three standard folders present, and the FIRST
-    /// remembered folder is at combined index 3.
+    /// With three place rows above, the first remembered folder is at combined index 3 and must
+    /// map to index 0 of the folder list.
     @Test func theFirstRememberedFolderIsIndexZeroInItsOwnList() {
         let move = SidebarReorder.favoritesMove(from: 3, to: 4, places: 3)
         #expect(!move.isPlace)
@@ -161,15 +148,14 @@ import Foundation
         #expect(SidebarReorder.favoritesMove(from: 4, to: 0, places: 3).to == 0)
     }
 
-    /// With no place rows the combined space IS the folder list, which is the state the old
-    /// arithmetic was right for — and the only one.
+    /// With no place rows the combined space is the folder list, so the index passes through.
     @Test func withNoPlacesTheIndexIsUnchanged() {
         let move = SidebarReorder.favoritesMove(from: 2, to: 5, places: 0)
         #expect(!move.isPlace && move.from == 2 && move.to == 5)
     }
 }
 
-/// **What a folded Favorites heading says is behind it.**
+/// What a folded Favorites heading says is behind it.
 @Suite struct FavoritesRowCountTests {
 
     private func favorite(_ path: String) -> FolderSidebarRow {
@@ -177,8 +163,8 @@ import Foundation
                          name: (path as NSString).lastPathComponent, detail: nil, isAvailable: true)
     }
 
-    /// **The first-run state, which is the whole finding.** Three standard places and no remembered
-    /// folder yet: the badge read `0` over three rows, and VoiceOver said "0 items".
+    /// The first-run state: standard places and no remembered folder yet. The place rows must be
+    /// counted, or the badge and VoiceOver say "0 items" over visible rows.
     @Test func placesAloneAreStillRows() {
         #expect(FolderSidebarModel.favoritesCount(folderRows: [], places: 3) == 3)
     }
@@ -188,25 +174,25 @@ import Foundation
         #expect(FolderSidebarModel.favoritesCount(folderRows: rows, places: 3) == 5)
     }
 
-    /// Recents share the array and must not be counted into Favorites — the filter is load-bearing.
+    /// Recents share the array and must not be counted into Favorites.
     @Test func aRecentIsNotAFavorite() {
         let recent = FolderSidebarRow(group: .recents, root: "/r", sourceName: "R",
                                       relativePath: "C", name: "C", detail: nil, isAvailable: true)
         #expect(FolderSidebarModel.favoritesCount(folderRows: [favorite("A"), recent], places: 0) == 1)
     }
 
-    /// The empty section is the one that draws its invitation instead of nothing, so zero has to be
-    /// reachable — a count that could never be zero would hide the first-run copy.
+    /// An empty section draws its invitation, so zero must be reachable, or the invitation would
+    /// never show.
     @Test func anEmptySectionCountsZero() {
         #expect(FolderSidebarModel.favoritesCount(folderRows: [], places: 0) == 0)
     }
 }
 
-/// **A reorder of what was on screen, written back into a list that holds more.**
+/// A reorder of what was on screen, written back into a list that holds more.
 @Suite struct FavoritePlaceResplicingTests {
 
-    /// The defect: an unplugged volume favorited first was appended after the visible rows, so a
-    /// drag among the visible ones sent it to the end of a list nothing on screen described.
+    /// A hidden entry, such as an unplugged volume, keeps its slot. Appending it after the visible
+    /// rows would move it to the end of a list nothing on screen describes.
     @Test func anInvisibleEntryKeepsItsSlot() {
         let stored = ["/Volumes/Off", "/Desktop", "/Documents"]
         let moved = ["/Documents", "/Desktop"]
@@ -214,7 +200,7 @@ import Foundation
                 == ["/Volumes/Off", "/Documents", "/Desktop"])
     }
 
-    /// An invisible entry BETWEEN two visible ones is the case an append cannot even approximate.
+    /// An invisible entry between two visible ones, which an append can't even approximate.
     @Test func anInvisibleEntryInTheMiddleStaysInTheMiddle() {
         let stored = ["/Desktop", "/Volumes/Off", "/Documents"]
         #expect(SidebarReorder.resplicing(stored, visibleInNewOrder: ["/Documents", "/Desktop"])
@@ -233,11 +219,9 @@ import Foundation
 
     // MARK: - Absent, empty and unreadable are three states
 
-    /// **The state `places(from:)` cannot express, and the write that destroys it.**
-    ///
-    /// An unreadable value reads as the standard three, which is the right thing to SHOW. What must
-    /// not follow is encoding those three back over the key — the loss happens on the write, not on
-    /// the read, which is what let the same shape sit in six stores until v4.3 went looking.
+    /// The state `places(from:)` can't express, and the write that would destroy it. An unreadable
+    /// value reads as the standard places, which is right to show, but encoding them back over the
+    /// key would lose the user's bytes: the loss happens on the write, not the read.
     @Test func unreadableBytesAreNotMistakenForAnUntouchedKey() {
         #expect(SidebarFavoritePlaces.isUnreadable("{not json"))
         #expect(SidebarFavoritePlaces.isUnreadable("[1, 2, 3]"),
@@ -246,7 +230,7 @@ import Foundation
                 "a bare string is not the list this key holds")
     }
 
-    /// The two states that are NOT unreadable, and the ones a salvage must never fire for.
+    /// The two states that are not unreadable, which a salvage must never fire for.
     @Test func absentAndEmptyAreBothReadable() {
         #expect(!SidebarFavoritePlaces.isUnreadable(""), "an untouched key has nothing to salvage")
         #expect(!SidebarFavoritePlaces.isUnreadable("[]"),
@@ -254,9 +238,8 @@ import Foundation
         #expect(!SidebarFavoritePlaces.isUnreadable(SidebarFavoritePlaces.encoded(["/Desktop"])))
     }
 
-    /// `isUnreadable` and `places(from:)` must agree about which values they are each talking
-    /// about: everything the first calls unreadable is a value the second answers `standard` for,
-    /// which is precisely the overlap that makes the write dangerous.
+    /// Everything `isUnreadable` flags is a value `places(from:)` answers `standard` for, the
+    /// overlap that makes writing back dangerous.
     @Test func everyUnreadableValueReadsAsTheStandardThree() {
         for raw in ["{not json", "[1, 2, 3]", "\"/Desktop\""] {
             #expect(SidebarFavoritePlaces.isUnreadable(raw))
@@ -272,18 +255,16 @@ import Foundation
     }
 }
 
-/// **Bringing a Favorites list someone already has forward** — see
-/// `SidebarFavoritePlaces.migrate(defaults:)`.
+/// Bringing a stored Favorites list forward: `SidebarFavoritePlaces.migrate(defaults:)`.
 ///
-/// The suite exists because the change it carries is invisible without it. `standard` is consulted
-/// only when the key has no value, and every install that has ever drawn the sidebar has one — so
-/// moving the startup disk out of the default reaches a first run for free and reaches nobody else
-/// at all. Each test below is one way a stored list can arrive.
+/// `standard` is consulted only when the key has no value, and every install that has drawn the
+/// sidebar has one, so a change to the default reaches only first runs unless the migration carries
+/// it. Each test is one way a stored list can arrive.
 @Suite struct SidebarFavoritePlacesMigrationTests {
 
     private static let disk = SidebarSourceModel.startupDiskPath
 
-    /// The case every existing install is in: the old default, stored verbatim.
+    /// The common case: the old default, which listed the startup disk, stored verbatim.
     @Test func theStartupDiskIsTakenOutOfAStoredList() {
         let defaults = ScratchDefaults("SidebarFavoritePlacesMigration-stored")
         let old = [NSHomeDirectory(), NSHomeDirectory() + "/Desktop", NSHomeDirectory() + "/Documents",
@@ -299,9 +280,8 @@ import Foundation
                 == SidebarFavoritePlaces.currentVersion)
     }
 
-    /// **Everything the user put there stays, in the order they put it.** A migration that
-    /// reordered the rest would be indistinguishable, from the column, from a drag they did not
-    /// make.
+    /// Everything the user put there stays, in their order. A migration that reordered the rest
+    /// would look like a drag they didn't make.
     @Test func nothingElseInTheListMoves() {
         let defaults = ScratchDefaults("SidebarFavoritePlacesMigration-keeps")
         let stored = ["/Volumes/Work", Self.disk, NSHomeDirectory(), "/Volumes/Archive"]
@@ -313,9 +293,9 @@ import Foundation
                 == ["/Volumes/Work", NSHomeDirectory(), "/Volumes/Archive"])
     }
 
-    /// **An untouched key is left untouched**, not written with `standard`. A first run already
-    /// gets the new default from `places(from:)`, and writing one here would turn "never decided"
-    /// into "decided" — the third state the JSON encoding exists to keep separate.
+    /// An untouched key is left untouched, not written with `standard`. A first run already gets
+    /// the default from `places(from:)`, and writing it here would turn "never decided" into
+    /// "decided".
     @Test func aFirstRunIsStampedWithoutBeingWritten() {
         let defaults = ScratchDefaults("SidebarFavoritePlacesMigration-fresh")
         #expect(SidebarFavoritePlaces.migrate(defaults: defaults) == .unchanged)
@@ -326,8 +306,8 @@ import Foundation
                 "an unstamped first run would migrate the user's FIRST edit on the next launch")
     }
 
-    /// Someone who had already taken the disk out is a no-op, and must not be reported as a change:
-    /// the log line names a move that did not happen.
+    /// A list without the disk is a no-op, and must not be reported as a change: the log line would
+    /// name a move that didn't happen.
     @Test func aListWithoutTheDiskIsNotRewritten() {
         let defaults = ScratchDefaults("SidebarFavoritePlacesMigration-absent")
         let stored = SidebarFavoritePlaces.encoded([NSHomeDirectory(), "/Volumes/Work"])
@@ -336,10 +316,9 @@ import Foundation
         #expect(defaults.string(forKey: SidebarFavoritePlaces.storageKey) == stored)
     }
 
-    /// **Unreadable bytes are left exactly as they are.** `places(from:)` answers `standard` for
-    /// them, which is right for a read and catastrophic for the write that would follow — the
-    /// user's real list encoded over by the standard set, at the migration rather than at the read
-    /// that caused it. Same line `writeFolderSidebarFavoritePlaces` draws.
+    /// Unreadable bytes are left as they are. `places(from:)` answers `standard` for them, which is
+    /// right for a read, but writing that back would encode over the user's real list. Same line
+    /// `writeFolderSidebarFavoritePlaces` draws.
     @Test func unreadableBytesAreNotMigratedOver() {
         for raw in ["{not json", "[1,2,3]"] {
             let defaults = ScratchDefaults("SidebarFavoritePlacesMigration-unreadable")
@@ -350,9 +329,8 @@ import Foundation
         }
     }
 
-    /// **It runs once.** Adding the disk back after the migration must stick — a favorite that
-    /// grows back is worse than one that never moved, because the user can see they are being
-    /// overruled. This is the whole reason the version is stamped rather than the list checked.
+    /// It runs once: adding the disk back afterwards must stick, or the user sees their choice
+    /// overruled. That is why the version is stamped rather than the list checked.
     @Test func aDiskPutBackAfterwardsStays() {
         let defaults = ScratchDefaults("SidebarFavoritePlacesMigration-putback")
         defaults.set(SidebarFavoritePlaces.encoded(SidebarFavoritePlaces.standard + [Self.disk]),
@@ -366,8 +344,8 @@ import Foundation
                 "the migration ran twice and took the disk back out")
     }
 
-    /// Only a rewrite says anything in the log. A line on every launch about a list nobody has is
-    /// the noise `PaneBarMigration` shipped and then had to remove.
+    /// Only a rewrite or an unreadable value says anything in the log; a line on every launch would
+    /// be noise.
     @Test func onlyARewriteProducesALogLine() {
         #expect(SidebarFavoritePlaces.Outcome.unchanged.logLine == nil)
         #expect(SidebarFavoritePlaces.Outcome.rewritten(removed: ["/"]).logLine?.contains("Locations") == true)

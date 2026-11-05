@@ -7,18 +7,14 @@ import Testing
 @testable import Dashboard
 import FileExplorerTestSupport
 
-/// The Info inspector's door into Edit — the decision, and the button that carries it.
-///
-/// **The survey that preceded this change found no test at all of this action row**: not its count,
-/// not its titles, not its order. So the rule is pinned as a value (it is one), and the row itself
-/// is pinned by mounting it — the pure half alone would pass just as happily with the button never
-/// added to the `HStack`.
+/// The Info inspector's door into Edit: the decision, and the button that carries it. The rule is
+/// pinned as a value, and the row by mounting it, since the pure half alone would pass with the
+/// button never added to the `HStack`.
 @MainActor
 @Suite struct DetailsEditorDoorTests {
 
-    /// The inspector's own default width — `compareInspectorWidth`, 360 since it carries the preview
-    /// (270 before). Every measurement here is taken at the width people actually have, because
-    /// that is where the row once went wrong.
+    /// The inspector's default width, `compareInspectorWidth`. Measurements are taken at the width
+    /// people actually have, where a squeezed row would show.
     static let inspectorWidth: CGFloat = 360
 
     private static func metadata(path: String, isDirectory: Bool = false) -> DetailsSidebar.FileMetadata {
@@ -40,16 +36,16 @@ import FileExplorerTestSupport
 
     // MARK: - The rule
 
-    /// No hand-off is the resting state of the package: Dashboard knows nothing about an editor,
-    /// and a host that has none gets exactly the row it always got.
+    /// No hand-off is the package's resting state: Dashboard knows nothing about an editor, and a
+    /// host without one gets the plain row.
     @Test func withNoHandOffTheRowIsUnchanged() {
         #expect(!DetailsSidebar.offersEditor(handOff: nil,
                                              data: Self.metadata(path: "/a/notes.md")))
     }
 
-    /// **A folder never offers it**, even where the host says yes. This card renders for
-    /// focused-FOLDER selections as well as single items, and a folder named `notes.md` would
-    /// otherwise be handed to a text editor — `isOffered` reads a path and has no disk to ask.
+    /// A folder never offers it, even where the host says yes. The card renders for focused
+    /// folders too, and `isOffered` reads only a path, so a folder named `notes.md` would
+    /// otherwise go to a text editor.
     @Test func aFolderNeverOffersItEvenWhenTheHostSaysYes() {
         let asked = Asked()
         #expect(!DetailsSidebar.offersEditor(handOff: asked.handOff(),
@@ -66,9 +62,9 @@ import FileExplorerTestSupport
                                              data: Self.metadata(path: "/a/photo.jpg")))
     }
 
-    /// **And it is asked about the PATH.** `data.name` would compile, read plausibly, and ask about
-    /// "notes.md" for every file of that name anywhere — and about the wrong thing entirely for a
-    /// host whose predicate resolves a path.
+    /// The host is asked about the path. `data.name` would compile and read plausibly, but ask the
+    /// same question for every "notes.md" anywhere, and the wrong one for a host that resolves
+    /// paths.
     @Test func theHostIsAskedAboutThePathAndNothingElse() {
         let asked = Asked()
         _ = DetailsSidebar.offersEditor(handOff: asked.handOff(),
@@ -78,16 +74,14 @@ import FileExplorerTestSupport
 
     // MARK: - The button
 
-    /// Every focus-ring view — one per drawn `Button` — in the root's coordinate space, in READING
+    /// Every focus-ring view (one per drawn `Button`) in the root's coordinate space, in reading
     /// order: by line, then by x.
     private static func focusRings(_ root: NSView) -> [CGRect] {
         FocusRings.frames(in: root).sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
     }
 
-    /// Mounts the inspector over a real path and pumps until its action row has drawn.
-    ///
-    /// A real file, because the row renders from a real `stat` — this is the one part of the card
-    /// that cannot be faked from here. The wait is bounded on the row appearing AT ALL (three
+    /// Mounts the inspector over a real path and pumps until its action row has drawn. A real file,
+    /// because the row renders from a real `stat`. The wait is on the row appearing at all (three
     /// buttons draw whatever the hand-off says), never on the button under test.
     private func rings(over path: String, handOff: EditorHandOff?,
                        width: CGFloat = Self.inspectorWidth) async -> [CGRect] {
@@ -109,9 +103,8 @@ import FileExplorerTestSupport
         return found
     }
 
-    /// **The button leads the row** — the order as a value, since the buttons are icons of one
-    /// width and a rendered row cannot tell them apart: Open in Edit first where it is offered, as
-    /// the row menu leads with it, and otherwise the same three in the same order.
+    /// Open in Edit leads the row where offered, as it leads the row menu; otherwise the same three
+    /// in the same order. Pinned as a value, since same-width icons can't be told apart rendered.
     @Test func openInEditLeadsTheRow() {
         typealias Action = DetailsSidebar.InspectorAction
         #expect(DetailsSidebar.inspectorActionRow(offersEditor: true)
@@ -120,9 +113,8 @@ import FileExplorerTestSupport
                 == [.quickLook, .revealInFinder, .copyPath])
     }
 
-    /// **The button is drawn, and only with a hand-off** — counted against the very same mount
-    /// without one, so the claim is about this button rather than about how many controls the
-    /// panel happens to carry. The order above is a value; this is that the view consults it.
+    /// The button is drawn only with a hand-off, counted against the same mount without one so the
+    /// claim is about this button, not the panel's control count. Shows the view consults the rule.
     @Test func aTextFileGainsOneButtonInTheRow() async throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("details-editor-\(UUID().uuidString)")
@@ -140,9 +132,8 @@ import FileExplorerTestSupport
         #expect(asked.offered.contains(file.path), "the row never asked the host about this file")
     }
 
-    /// **The row fits on one line at the width people have, without squeezing.** The card's row of
-    /// titled buttons squeezed to "Reve… / Cop… / Quic…" at 270pt and had to wrap; the inspector's
-    /// is icons, and at its 360pt default every button keeps the width it has at 700.
+    /// The row fits on one line at the inspector's default width without squeezing: every icon
+    /// button keeps the width it has at 700pt.
     @Test func theRowFitsOnOneLineAtTheInspectorsWidth() async throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("details-editor-\(UUID().uuidString)")
@@ -165,9 +156,8 @@ import FileExplorerTestSupport
                 "the row wrapped at \(Self.inspectorWidth)pt: centres \(centres)")
     }
 
-    /// **A folder draws the row it always drew.** The negative half of the count above, mounted
-    /// rather than reasoned: `offersEditor` refusing a directory is only worth something if the
-    /// view consults it.
+    /// A folder draws the same row with or without a hand-off: the mounted negative half of the
+    /// count above, since `offersEditor` refusing a directory matters only if the view consults it.
     @Test func aFolderDrawsTheSameRowWithOrWithoutAHandOff() async throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("details-editor-\(UUID().uuidString)")

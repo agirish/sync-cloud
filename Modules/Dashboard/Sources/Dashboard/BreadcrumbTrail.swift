@@ -53,25 +53,22 @@ public enum BreadcrumbTrail {
         ]
     }
 
-    /// **The compact trail: every folder above the current one behind the ellipsis, the current one
-    /// spelled out** — what a pane too narrow for its whole trail shows (asked 2026-10-17, of Edit's
-    /// one-column pane, where the full trail came out as "C…6 › 2…0"). The name you are in is the
-    /// one worth reading; the rest are a click away in the menu, in order.
+    /// The compact trail: every folder above the current one behind the ellipsis, the current one
+    /// spelled out. For a pane too narrow for its whole trail, where every crumb would truncate to
+    /// nothing readable. The name you are in is the one worth reading; the rest are a click away in
+    /// the menu, in order.
     public static func compactItems(for crumbs: [Crumb]) -> [Item] {
         guard let last = crumbs.last else { return [] }
         return crumbs.count == 1 ? [.crumb(last)] : [.collapsed(Array(crumbs.dropLast())), .crumb(last)]
     }
 
-    /// Display name for a pane's root crumb: **the source's own name** — "iCloud", "OneDrive
-    /// (EMP)", whatever the user renamed it to — falling back to the root folder's last component,
-    /// and to `"Root"` for a path with no usable component.
+    /// Display name for a pane's root crumb: the source's own name ("iCloud", "OneDrive (EMP)", or
+    /// whatever the user renamed it to), falling back to the root folder's last component, and to
+    /// `"Root"` for a path with no usable component.
     ///
-    /// Naming the crumb after the folder was right only while a source *was* a folder. Once roots
-    /// widened to the account itself, the last component became `OneDrive-AcmeCorporationWorldwide`
-    /// — an id, not a name — and before that it was `Documents` for every source on the machine,
-    /// so the one crumb that identifies which cloud you are looking at said the same word in every
-    /// pane. The source's display name is the thing the user recognises, it is what the source
-    /// picker and the tab strip already call it, and it honours a rename.
+    /// Not the folder's name: a root's last component can be an id like
+    /// `OneDrive-AcmeCorporationWorldwide`, or `Documents` for every source. The display name is
+    /// what the source picker and tab strip already show, and it honours a rename.
     ///
     /// The fallback is not dead code: `PaneBreadcrumb.providerName` is optional for callers that
     /// have no source in hand, and an unresolved source must still produce a crumb.

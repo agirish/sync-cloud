@@ -7,13 +7,12 @@ import Sync
 /// The Info inspector's *Where it lives* rows: the supporting "On this Mac" fact and the verdict
 /// beneath it.
 ///
-/// Two layers, because they fail differently. The wording is a pure function and is pinned
-/// exhaustively — including the states a real filesystem cannot be made to produce. What the card
-/// actually LAYS OUT is pinned by mounting it over real files, so the plumbing between the stat,
-/// the state and the row has to work.
-/// `.serialized` because the layout cases order a real window in — off every display, but really
-/// rendering — to make SwiftUI commit their async-loaded state (see `mount`). Two suites driving
-/// window renders at once repaint each other, which no amount of settling can wait out.
+/// Two layers, because they fail differently. The wording is a pure function, pinned exhaustively,
+/// including states a real filesystem can't produce. What the card lays out is pinned by mounting
+/// it over real files, so the plumbing from stat to state to row has to work.
+/// `.serialized` because the layout cases order a real window in (off every display, but really
+/// rendering) so SwiftUI commits their async-loaded state; see `mount`. Two suites rendering
+/// windows at once repaint each other, which no settling can wait out.
 @MainActor
 @Suite(.serialized) struct DetailsWhereItLivesTests {
 
@@ -25,35 +24,32 @@ import Sync
                                              hasAnswer: true) == "Yes — downloaded")
     }
 
-    /// A dataless placeholder says so — and says it as a fact about the content, not a warning.
+    /// A dataless placeholder says so, as a fact about the content, not a warning.
     @Test func aPlaceholderSaysTheContentIsNotHere() {
         #expect(DetailsSidebar.onThisMacText(isDirectory: false, isCloudOnly: true,
                                              hasAnswer: true) == "No — placeholder only")
     }
 
-    /// **Until the `lstat` lands the row is a placeholder, not an answer.** The stat runs off the
-    /// main actor precisely because it can block for seconds against a wedged file provider; a row
-    /// that guessed "Yes — downloaded" while waiting would be right most of the time and silently
-    /// wrong exactly when the answer mattered.
+    /// Until the `lstat` lands the row is a placeholder, not an answer. The stat runs off the main
+    /// actor because it can block for seconds on a wedged provider, and a guessed "Yes —
+    /// downloaded" would be wrong exactly when the answer mattered.
     @Test func anUnresolvedRowSaysItIsStillChecking() {
         #expect(DetailsSidebar.onThisMacText(isDirectory: false, isCloudOnly: nil,
                                              hasAnswer: false) == "Checking…")
     }
 
-    /// **A stat that could not answer draws nothing at all.** `isCloudOnlyIfKnown` says nil when
-    /// the path cannot be statted — deleted mid-download, or never there — and "not dataless" and
-    /// "not there" are opposite facts reported through the same failure. A row reading "Unknown"
-    /// would invite the reading that SyncCloud looked and found nothing, when it did not look.
-    ///
-    /// Distinct from the case above: `hasAnswer` is true here. The stat ran and came back empty.
+    /// A stat that couldn't answer draws no row. `isCloudOnlyIfKnown` is nil when the path can't be
+    /// statted (deleted mid-download, or never there), and "Unknown" would suggest SyncCloud looked
+    /// and found nothing. Unlike the case above, `hasAnswer` is true: the stat ran and came back
+    /// empty.
     @Test func anUnanswerableStatDrawsNoRowAtAll() {
         #expect(DetailsSidebar.onThisMacText(isDirectory: false, isCloudOnly: nil,
                                              hasAnswer: true) == nil)
     }
 
-    /// A folder has no content of its own to be downloaded or not — its children each answer
-    /// differently — so it is never told it is "downloaded". Asserted across every materialization
-    /// state, so the rule cannot hold for one of them by accident.
+    /// A folder has no content of its own to be downloaded (its children each answer differently),
+    /// so it never gets the row. Asserted across every materialization state, so the rule can't hold
+    /// by accident.
     @Test func aFolderIsNeverToldItsContentIsOrIsNotHere() {
         for answer: Bool? in [true, false, nil] {
             for hasAnswer in [true, false] {
@@ -66,11 +62,10 @@ import Sync
 
     // MARK: What the card lays out
 
-    /// Tall on purpose. The inspector is a `ScrollView`, so anything past the bottom of the frame
-    /// is simply not painted — and the *Where it lives* rows sit below the Path row, whose value
-    /// is a full absolute path that wraps over several lines at this width. At 560pt the new rows
-    /// fell off the canvas and every pixel comparison here read zero difference: a test measuring
-    /// the wrong part of the card, not a feature that was missing.
+    /// Tall on purpose. The inspector is a `ScrollView`, so nothing past the frame's bottom is
+    /// painted, and the *Where it lives* rows sit below the Path row, which wraps over several
+    /// lines at this width. A shorter canvas would cut them off and every comparison would read
+    /// zero difference.
     private static let canvas = CGSize(width: 320, height: 1400)
 
     private func fixture(_ prefix: String) throws -> URL {
@@ -82,18 +77,11 @@ import Sync
 
     /// One mounted inspector, kept alive with the window it paints into.
     ///
-    /// **The coverage is swapped ON this host rather than compared across two of them**, and that
-    /// is the whole design of these cases. Two separate mounts each spend their first frames
-    /// loading, off their own clocks; comparing them measures whatever stage each happened to
-    /// reach as much as it measures the rows. Both failure directions were observed here — a
-    /// "poll until it differs from the other host" form passed with the rows deleted outright, and
-    /// a settle-then-compare form later reported a difference between two cards that should have
-    /// been identical. One host, loaded once, with only `cloudCoverage` changing afterwards, has
-    /// neither problem: the delta can only be the rows.
-    ///
-    /// Assigning `rootView` is an update to the same view, not a new one — the structural identity
-    /// is unchanged, so `@State` (and with it the landed metadata and materialization answers)
-    /// survives the swap.
+    /// The coverage is swapped on this one host rather than compared across two. Two mounts load
+    /// on their own clocks, so comparing them measures how far each got as much as the rows, and
+    /// can both pass with the rows deleted and differ when they should match. One host loaded once,
+    /// with only `cloudCoverage` changing, leaves the rows as the only possible delta. Assigning
+    /// `rootView` keeps the structural identity, so `@State` and the landed answers survive.
     private final class Inspector {
         let host: NSHostingView<AnyView>
         let window: NSWindow
@@ -114,13 +102,9 @@ import Sync
             .environment(\.colorScheme, .light))
     }
 
-    /// Everything the card must stay clear of: the union of every attached display.
-    ///
-    /// **Never empty, and that is deliberate.** With no displays attached `NSScreen.screens` is
-    /// itself empty, and a guard written only as "intersects no screen" would then be true of every
-    /// frame including one sitting at the origin — an assertion that cannot fail is not a guard.
-    /// The fallback rectangle keeps the check honest on such a host: it still contains the origin,
-    /// so a mount that forgot to park its window is still caught.
+    /// Everything the card must stay clear of: the union of every attached display. Never empty:
+    /// with no displays, "intersects no screen" is true of any frame, so the fallback rectangle,
+    /// which contains the origin, still catches a mount that forgot to park its window.
     static func displayBounds() -> CGRect {
         let union = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
         return union.isNull ? CGRect(x: 0, y: 0, width: 4000, height: 4000) : union
@@ -141,25 +125,11 @@ import Sync
         window.appearance = NSAppearance(named: .aqua)
         window.colorSpace = .sRGB
         window.contentView = host
-        // Ordered in, but parked past the edge of every display.
-        //
-        // This card fills itself from two `.task`s that land after the first render, and ordering
-        // the window in was the original remedy for those never reaching the backing store — a real
-        // file's card came back pixel-identical to a nonexistent path's empty state.
-        //
-        // **Being ON A DISPLAY is no part of that, measured.** How much lands between the first
-        // frame and the settled one is the same three ways: 19,863 differing sampled pixels with
-        // the window ordered in on screen, 19,620 ordered in off screen, 19,719 never ordered in at
-        // all — one number's worth of run-to-run noise, not three behaviours. What actually gets the
-        // tasks committed is `settled`'s pump, which yields to the runloop on every pass; the
-        // ordering that was measured to matter predates it.
-        //
-        // So the window keeps the `orderBack` — it costs nothing and the fixture was built around
-        // it — and stops being somewhere the user can see. On screen this was a 320×1400 inspector
-        // card standing over an uncovered desktop for the length of the suite, which it has no
-        // business doing; off screen the same suite is also ~3× faster, with nothing to composite.
-        // `theCardFillsItselfWithTheWindowOffScreen` guards both halves: that the card still fills,
-        // and that the frame is still off every display.
+        // Ordered in, but parked past the edge of every display. The card fills itself from two
+        // `.task`s that land after the first render; `settled`'s pump, which yields to the runloop
+        // each pass, is what commits them, and being on a display makes no measurable difference.
+        // Off screen the card doesn't cover the user's desktop for the whole suite, and the suite
+        // runs about 3× faster. `theCardFillsItselfWithTheWindowOffScreen` guards both halves.
         window.setFrameOrigin(Self.offscreenOrigin())
         window.orderBack(nil)
         host.layoutSubtreeIfNeeded()
@@ -174,13 +144,9 @@ import Sync
         return rep
     }
 
-    /// How many sampled pixels differ.
-    ///
-    /// Reads `bitmapData` directly rather than calling `colorAt(x:y:)`. That convenience allocates
-    /// an `NSColor` per pixel, and this suite compares a 320×1400 card dozens of times per case —
-    /// it took the suite from a few seconds to three minutes on its own. The raw form is the same
-    /// comparison at a fraction of the cost, which is what lets the settle loop poll often enough
-    /// to be trustworthy.
+    /// How many sampled pixels differ. Reads `bitmapData` directly: `colorAt(x:y:)` allocates an
+    /// `NSColor` per pixel, and comparing a 320×1400 card dozens of times per case would stretch the
+    /// suite to minutes and keep the settle loop from polling often enough.
     private func pixelsDiffering(_ lhs: NSBitmapImageRep, _ rhs: NSBitmapImageRep) -> Int {
         guard let a = lhs.bitmapData, let b = rhs.bitmapData,
               lhs.bytesPerRow == rhs.bytesPerRow,
@@ -189,8 +155,8 @@ import Sync
         else { return Int.max }   // shapes disagree: not comparable, never silently "identical"
         let samples = lhs.samplesPerPixel
         let rowBytes = lhs.bytesPerRow
-        // 5/255 ≈ the 0.02 float threshold the earlier form used — enough to ignore compositing
-        // noise, far below any glyph.
+        // 5/255, about a 0.02 float threshold: enough to ignore compositing noise, far below any
+        // glyph.
         let tolerance = 5
         var differing = 0
         for y in stride(from: 0, to: lhs.pixelsHigh, by: 2) {
@@ -207,16 +173,14 @@ import Sync
         return differing
     }
 
-    /// Waits for the card to stop changing, then returns what it paints.
-    ///
-    /// **Bounded by `LayoutPumpWait`, which floors on PASSES rather than seconds**, and it reports
-    /// the pass count on failure. Both of this card's `.task`s land on main-actor turns, and under
-    /// full-suite congestion a wall-clock deadline buys fewer of those exactly when more are
-    /// needed — see `docs/flaky-tests.md`, mechanism 2.
+    /// Waits for the card to stop changing, then returns what it paints. Bounded by
+    /// `LayoutPumpWait`, which floors on passes, not seconds, and reports the pass count on failure:
+    /// the card's `.task`s land on main-actor turns, which a wall-clock deadline starves under load
+    /// (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
     ///
     /// Quiet means `stableFrames` consecutive identical frames, not one matching pair: the card
-    /// lands in stages (metadata and icon, then the materialization stat, then a folder's size
-    /// walk), and two matching frames fall inside a gap between two of them easily.
+    /// lands in stages (metadata and icon, the materialization stat, a folder's size walk), and two
+    /// matching frames easily fall in a gap between stages.
     @discardableResult
     private func settled(_ inspector: Inspector, stableFrames: Int = 4,
                          within timeout: TimeInterval = 15,
@@ -246,20 +210,15 @@ import Sync
         return await settled(inspector, what, sourceLocation: sourceLocation)
     }
 
-    /// **The card still fills itself with its window off every display — and the window stays off
-    /// them.** The premise the other three cases rest on, asserted rather than assumed.
+    /// The card still fills itself with its window off every display, and the window stays off
+    /// them: the premise the other layout cases rest on.
     ///
-    /// Every case here needs SwiftUI to commit state that lands *after* the first render, and
-    /// `mount` says why that survives being off screen. This is the half that keeps saying so: the
-    /// first frame is the empty, still-loading card, so anything standing between it and the
-    /// settled one arrived through the `.task`s. A card that had stopped rendering reads zero —
-    /// verified by mutation, with `LayoutPumpWait.pump` returning without pumping.
+    /// The first frame is the empty, still-loading card, so any difference from the settled one
+    /// came through the `.task`s. `LayoutPumpWait.pump` returning without pumping must fail it.
     ///
-    /// The second half is the other direction, and it is the one a well-meant edit trips: it would
-    /// be easy to read "the window must be ordered in" as "the window must be visible" and put the
-    /// card back over the user's desktop. A frame that intersects any display — parked wrongly, or
-    /// pulled back by AppKit — fails here rather than quietly painting a 320×1400 inspector over
-    /// whatever the user is doing. Also mutation-verified, by restoring the plain `orderBack`.
+    /// The second half stops "ordered in" being read as "visible": a frame that intersects any
+    /// display, parked wrongly or pulled back by AppKit, fails here instead of painting over the
+    /// user's screen. A plain `orderBack` without parking must fail it.
     @Test(.machinePinned(.pixelSampling)) func theCardFillsItselfWithTheWindowOffScreen() async throws {
         let root = try fixture("WhereItLivesOffScreen")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -275,17 +234,15 @@ import Sync
         let frame = inspector.window.frame
         #expect(NSScreen.screens.allSatisfy { !$0.frame.intersects(frame) },
                 "the card's window is sitting on a display at \(frame) — it would cover the user's screen")
-        // The half that still bites on a host with no displays, where `allSatisfy` above is true of
-        // anything at all. `displayBounds()` is never empty, so this cannot pass vacuously.
+        // For a host with no displays, where `allSatisfy` above is true of anything.
+        // `displayBounds()` is never empty, so this can't pass vacuously.
         #expect(!Self.displayBounds().intersects(frame),
                 "the card's window at \(frame) is inside \(Self.displayBounds()) — it was not parked off the displays")
     }
 
-    /// **A file inside a cloud folder and one outside it lay out differently.** One card, one file,
-    /// one load — only the coverage changes, so the delta is the verdict row and nothing else.
-    ///
-    /// The file is real, so the materialization half is the real `lstat` answering `false`: this is
-    /// `This Mac · <provider>` against `This Mac only`.
+    /// A file inside a cloud folder and one outside lay out differently. One card, one load; only
+    /// the coverage changes, so the delta is the verdict row. The file is real, so the real `lstat`
+    /// answers `false`: `This Mac · <provider>` against `This Mac only`.
     @Test(.machinePinned(.pixelSampling)) func theVerdictChangesWithTheCoverage() async throws {
         let root = try fixture("WhereItLives")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -305,14 +262,12 @@ import Sync
                 "the same file laid out identically inside and outside a cloud folder — the verdict is not being drawn")
     }
 
-    /// **An unknown coverage draws no verdict — it does not fall back to "This Mac only".**
+    /// An unknown coverage draws no verdict rather than falling back to "This Mac only". That is
+    /// why the parameter is Optional: `.empty` claims no cloud folder contains anything, so
+    /// defaulting to it would place every iCloud file on this Mac only.
     ///
-    /// This is the difference between `nil` and `.empty`, and the reason the parameter is Optional.
-    /// An empty coverage is a positive claim that no cloud folder contains anything, so defaulting
-    /// to it would report every file in iCloud as being in one place. Absent must be absent.
-    ///
-    /// (`.empty`, not `.none`: `Coverage.none` written at an Optional call site resolves to
-    /// `Optional.none` and silently becomes `nil` — which is exactly the confusion under test.)
+    /// `.empty`, not `.none`: `Coverage.none` at an Optional call site resolves to `Optional.none`
+    /// and silently becomes `nil`, the very confusion under test.
     @Test(.machinePinned(.pixelSampling)) func anUnknownCoverageDrawsNoVerdictRatherThanTheWrongOne() async throws {
         let root = try fixture("WhereItLivesUnknown")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -327,14 +282,10 @@ import Sync
                 "an unknown coverage laid out the same as a proven-empty one — one of them is claiming something it cannot")
     }
 
-    /// **A folder's card says where it is — and nothing about its content.** Moved from outside
-    /// every cloud folder to inside one, the card changes: *Where it lives* answers for a folder by
-    /// containment alone ("In iCloud", "This Mac only"), which is sound for one and is what the ⌂
-    /// row badge said until it was removed from the rows. The content claim — *On this Mac* — never
-    /// appears for a folder; `aFolderIsNeverToldItsContentIsOrIsNotHere` pins that.
-    ///
-    /// This test used to assert the opposite — no change at all — while the ⌂ badge carried a
-    /// folder's containment on its row.
+    /// A folder's card says where it is, and nothing about its content. Moved inside a cloud
+    /// folder, the card changes: *Where it lives* answers for a folder by containment alone ("In
+    /// iCloud", "This Mac only"). *On this Mac* never appears for a folder;
+    /// `aFolderIsNeverToldItsContentIsOrIsNotHere` pins that.
     @Test(.machinePinned(.pixelSampling)) func aFoldersCardSaysWhereItIsFromCoverageAlone() async throws {
         let root = try fixture("WhereItLivesFolder")
         defer { try? FileManager.default.removeItem(at: root) }

@@ -5,8 +5,8 @@ import Settings
 import Sync
 @testable import Dashboard
 
-/// TE290 step 5: settings changed from the chat are listed in History among the sync records, by
-/// time, in plain words, and History's filters reach them.
+/// Settings changed from the chat are listed in History among the sync records, by time, in plain
+/// words, and History's filters reach them.
 @MainActor
 @Suite struct HistorySettingsChangesTests {
 
@@ -62,7 +62,7 @@ import Sync
     }
 
     /// Revert's "Show to Claude again?" asks as Settings' Remove and the card do, with Cancel the
-    /// default (decision IP); a Revert that only raises asks as a change, Return confirming.
+    /// default; a Revert that only raises asks as a change, Return confirming.
     @Test func showingAFolderToClaudeAgainAsksAsSettingsDoes() {
         let name = "HistorySettingsChangesTests.\(#function).\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!

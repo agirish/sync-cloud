@@ -4,21 +4,19 @@ import Design
 import Events
 import FileExplorer
 
-/// **One Activity window: Now · History · Log** (Run Room TE232, decision CR). What were three
-/// windows answering "what did SyncCloud just do?" — the capsule's runs and messages, Sync History,
-/// and the Activity Log — are three tabs of one, each at its own depth: a message is one sentence,
-/// a run has its Sync History records, and it wrote its own lines to the log as it went. A Recent
-/// row links down a level, to its run's records or to its minutes in the log (R13).
+/// One Activity window with three tabs, Now · History · Log, each answering "what did SyncCloud
+/// just do?" at its own depth: a message is one sentence, a run has its Sync History records, and
+/// it wrote its own lines to the log. A Recent row links down a level, to its run's records or to
+/// its minutes in the log.
 ///
-/// History and Log are the two windows' own views, unchanged but for their title rows, which the
-/// tab replaces. A row's Undo here acts on the main window's undo stack (R12); ⌘Z pressed in this
-/// window has a stack of its own, as Sync History's always had.
+/// History and Log are their own views, without their title rows, which the tab replaces. A row's
+/// Undo acts on the main window's undo stack; ⌘Z pressed in this window has a stack of its own.
 public struct ActivityWindow<History: View>: View {
     @ObservedObject var center: ActivityCenter
     let activeProgress: Progress?
     let activeProgressStartedAt: Date?
     let runWriteLock: String?
-    /// The long scans, under the runs (TE228).
+    /// The long scans, listed under the runs.
     let scans: [ProgressCapsuleListedRun]
     let history: History
     /// The window's hue for the tab picker's selection — the app's, never the system's.
@@ -48,8 +46,8 @@ public struct ActivityWindow<History: View>: View {
             .labelsHidden()
             .accentedSegments(LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
             .fixedSize()
-            // In the title bar's row, level with the traffic lights — the window's title is hidden,
-            // and a band of its height above the tabs was dead space (seen on screen 2026-10-27).
+            // In the title bar's row, level with the traffic lights: the window's title is hidden,
+            // so a band of its height above the tabs would be dead space.
             .frame(height: LogViewer.titleBarInset + 6)
             .accessibilityLabel("Activity")
             Divider().opacity(0.6)
@@ -68,20 +66,19 @@ public struct ActivityWindow<History: View>: View {
                 LogViewer(span: $center.logSpan, showsTitle: false)
             }
         }
-        // From the top: Now is only as tall as its rows, and a window taller than them centred the
-        // whole stack — tabs included — in it (seen on screen 2026-10-27).
+        // Pinned to the top: Now is only as tall as its rows, and a taller window would centre the
+        // whole stack, tabs included.
         .frame(minWidth: 420, maxWidth: .infinity, minHeight: 360, maxHeight: .infinity, alignment: .top)
-        // At Clear, the ground Settings' card gives its text, between the content and the glass
-        // below, so the two read alike (TE316).
+        // At Clear, the same ground Settings' card gives its text, between the content and the
+        // glass below, so the two read alike.
         .clearWindowGround(level: GlassLevel(rawValue: glassLevelRaw) ?? .frosted)
-        // One ground for all three tabs — the main window's glass, at its level and hue. Only the
-        // Log tab carried one when it was its own window, so at Clear the tabs and Now showed the
-        // window behind straight through (seen on screen 2026-10-27).
+        // One ground for all three tabs: the main window's glass, at its level and hue. Without
+        // it, at Clear the tabs and Now show the window behind straight through.
         .liquidGlassAppBackground(level: GlassLevel(rawValue: glassLevelRaw) ?? .frosted,
                                   hue: LiquidGlassHue(rawValue: glassHueRaw) ?? .blue, tint: surfaceTint)
         // Keep the glass from greying out when this window isn't key, as the main window does.
         .environment(\.controlActiveState, .active)
-        // Opening Activity is seeing it: the toolbar's dot goes (CS).
+        // Opening Activity is seeing it: the toolbar's dot goes.
         .onAppear { center.markSeen() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
             guard (note.object as? NSWindow)?.identifier?.rawValue.hasPrefix(ActivityCenter.windowID) == true

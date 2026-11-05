@@ -2,13 +2,12 @@ import Testing
 import Foundation
 @testable import Dashboard
 
-/// The rules behind the sidebar's **Revisited** and **Frequent** lists (decided 2026-10-19).
+/// The rules behind the sidebar's Revisited and Frequent lists.
 ///
-/// A stay is a visit the pane stayed in for a few seconds (SQ4); a return inside five minutes
-/// continues the stay before it (SQ8). Revisited is stays on 2+ different calendar days (SQ1),
-/// Frequent is 2+ stays (SQ8), and both need a faded weight of 1 (SQ7) inside 90 days (SQ2).
-/// Revisited is newest first; Frequent is by weight (SQ6). Favorites and landing folders are
-/// subtracted as Recents subtracts them, at most eight rows.
+/// A stay is a visit the pane stayed in for a few seconds; a return inside five minutes continues
+/// the stay before it. Revisited is stays on 2+ different calendar days, Frequent is 2+ stays, and
+/// both need a faded weight of 1 inside 90 days. Revisited is newest first; Frequent is by weight.
+/// Favorites and landing folders are subtracted as Recents subtracts them, at most eight rows.
 @MainActor
 @Suite struct RevisitedFoldersTests {
 
@@ -60,7 +59,7 @@ import Foundation
         #expect(listed(.revisited, map, now: t()) == ["Taxes"])
     }
 
-    /// Calendar days, not 24 hours apart: 23:55 and 00:05 are two days (the mockup's own example).
+    /// Calendar days, not 24 hours apart: 23:55 and 00:05 are two days.
     @Test func midnightSplitsTwoDays() {
         let lateNight = t(hours: 11, minutes: 55)     // 23:55
         let justAfter = t(hours: 12, minutes: 5)      // 00:05 the next day
@@ -126,7 +125,7 @@ import Foundation
         #expect(abs(FolderJumpStore.fadedWeight(of: halfLife, now: t()) - 0.5) < 1e-12)
     }
 
-    /// Revisited weighs DAYS, not stays: many stays on two old days must not buy their way in.
+    /// Revisited weighs days, not stays: many stays on two old days must not buy their way in.
     @Test func revisitedWeighsDaysNotStays() {
         var old: [Date] = []
         for hour in 0..<6 { old.append(t(days: -60, hours: Double(hour))); old.append(t(days: -59, hours: Double(hour))) }
@@ -154,8 +153,7 @@ import Foundation
         #expect(pruned[root]?["Mixed"]?.stays == [t(days: -1)])
     }
 
-    /// The record is not capped at eight — that is the point of it — but it is bounded, and the
-    /// least recently stayed go first.
+    /// The record is not capped at eight, but it is bounded, and the least recently stayed go first.
     @Test func pruningPastTheCapDropsTheLeastRecentlyStayed() {
         let map = [root: ["a": stays(t(days: -3)), "b": stays(t(days: -1)), "c": stays(t(days: -2))]]
         let pruned = FolderJumpStore.pruned(map, now: t(), cap: 2)
@@ -202,7 +200,7 @@ import Foundation
         #expect(store.visitsAcrossRoots(.frequent, now: t(minutes: 10)).isEmpty)
     }
 
-    /// Measured from LEAVING, not from arriving: a long stay, a minute away, then back, is one stay.
+    /// Measured from leaving, not from arriving: a long stay, a minute away, then back, is one stay.
     @Test func theGapIsTimeAwayNotTimeSinceArriving() {
         let store = FolderJumpStore(defaults: ScratchDefaults("revisited-return-long"))
         visit(store, "Taxes", at: t(), for: 20 * 60)
@@ -237,7 +235,7 @@ import Foundation
                 "A was skimmed; Taxes and B were stayed in")
     }
 
-    /// Stays never touch Recents, and visits never make stays: Recents is unchanged (SQ4).
+    /// Stays never touch Recents, and visits never make stays.
     @Test func visitsAndStaysAreSeparateRecords() {
         let store = FolderJumpStore(defaults: ScratchDefaults("revisited-separate"))
         store.recordVisit(root: root, relativePath: "Skim", name: "Skim", at: t())

@@ -4,12 +4,12 @@ import Sync
 import FileExplorerTestSupport
 @testable import Dashboard
 
-/// **The Details sidebar's folder size does not walk into a folder whose cloud app never answers**
-/// — see `DetailsSidebar.computeDirectorySizeString(path:fileManager:)`.
+/// The Details sidebar's folder size doesn't walk into a folder whose cloud app never answers (see
+/// `DetailsSidebar.computeDirectorySizeString(path:fileManager:)`).
 ///
 /// The real disk, behind `UnansweredRealDisk`: one folder in the tree is dataless and listing it
 /// parks until the test lets the provider answer. Paths are canonical (`/private/var/…`), because
-/// that is how the real enumerator spells what it yields, and the double knows its folder by path.
+/// the real enumerator yields them that way and the double knows its folder by path.
 @Suite struct DetailsSidebarUnansweredTests {
 
     /// `<scratch>/folder` holding `a.bin` (4,000 bytes) and `Archive/old.bin` (6,000 bytes), with
@@ -31,13 +31,13 @@ import FileExplorerTestSupport
         return (disk, folder, archive, scratch)
     }
 
-    /// **The total skips the folder and says it is a floor** — "+", as for a locked subfolder.
+    /// The total skips the folder and says it is a floor: "+", as for a locked subfolder.
     @Test func aFolderInsideThatNeverAnswersLeavesTheTotalAFloor() async throws {
         let f = try Self.fixture()
         defer { f.disk.finish(removing: f.archive.path); try? FileManager.default.removeItem(at: f.scratch) }
 
         let size = await DetailsSidebar.computeDirectorySizeString(path: f.folder.path, fileManager: f.disk)
-        // "In time" as "while the provider is still parked", never against a clock — see
+        // "In time" means "while the provider is still parked", never against a clock; see
         // `UnansweredFolderListingTests.offThePool`.
         #expect(f.disk.isParked, "it came back only once the provider answered")
         let text = try #require(size)

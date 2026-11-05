@@ -2,25 +2,20 @@ import Testing
 import Foundation
 @testable import Dashboard
 
-/// The write half of the tolerant decode that `PaneBarArrangementTests` covers the read half of.
-///
-/// `init(encoded:)`'s doc claims dropping unknown tokens "is what makes a bar arranged on a newer
-/// build survive a downgrade instead of resetting to the default" — but until `unknownTokens`
-/// existed it survived only the READING. `PaneBarCustomizeSheet.commit` writes `next.encoded` back
-/// to the same key, so the first time the user touched the customize sheet on the older build,
-/// whatever the decode dropped was gone permanently: downgrade → edit → re-upgrade lost the newer
-/// build's control. These pin the carry-through that makes the doc's claim true.
+/// The write half of the tolerant decode whose read half `PaneBarArrangementTests` covers. A bar
+/// from a newer build survives a downgrade only if its unknown tokens survive the writes too:
+/// `PaneBarCustomizeSheet.commit` writes `next.encoded` back to the same key, so without
+/// `unknownTokens` a downgrade, an edit and a re-upgrade would lose the newer build's control.
 @Suite struct PaneBarArrangementWriteBackTests {
 
     @Test func aNewerBuildsTokenSurvivesTheDecodeEncodeRoundTrip() {
         let stored = "scan,search,futureControl"
         let arrangement = PaneBarArrangement(encoded: stored)
 
-        // The read half (already pinned elsewhere): the unknown token doesn't reject the bar and
-        // never reaches the items the bar draws.
+        // The read half: the unknown token doesn't reject the bar and never reaches its items.
         #expect(arrangement.items == [.scan, .search])
 
-        // The write half — what the customize sheet persists after ANY edit.
+        // The write half: what the customize sheet persists after any edit.
         #expect(arrangement.encoded.contains("futureControl"),
                 "an unknown token must be carried back to disk, or the sheet's write destroys the newer build's control — got \"\(arrangement.encoded)\"")
     }
@@ -38,9 +33,8 @@ import Foundation
                 "the first edit after a downgrade is exactly when the stored token used to be lost")
     }
 
-    /// The OTHER production writer: `PaneBarMigration.apply` re-encodes a stored arrangement to
-    /// add a shipped control. A stored bar carrying a foreign token must not have the migration's
-    /// rewrite strip it.
+    /// The other production writer: `PaneBarMigration.apply` re-encodes a stored bar to add a
+    /// shipped control, and must not strip a foreign token while it does.
     @Test func theMigrationRewriteCarriesTheTokenToo() {
         let suite = "panebar-writeback-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -55,8 +49,8 @@ import Foundation
                 "the migration's rewrite is a write like any other — it must not strip what it cannot name")
     }
 
-    /// Tolerance is not an invitation: a corrupt or hand-edited value does not get to smuggle an
-    /// unbounded payload that every later write faithfully re-persists. Bounded like `items`.
+    /// Carried tokens are capped like `items`, so a corrupt or hand-edited value can't make every
+    /// later write re-persist an unbounded payload.
     @Test func aFloodOfJunkTokensIsBounded() {
         let junk = (0..<100).map { "junk\($0)" }.joined(separator: ",")
         let arrangement = PaneBarArrangement(encoded: "scan," + junk)
@@ -65,8 +59,8 @@ import Foundation
                 "carried unknown tokens must be capped, not unbounded — got \(carried.count)")
     }
 
-    /// An arrangement built in code — the default, or any test fixture — carries nothing and
-    /// encodes exactly as it always did. The carry is a property of decoding, never of building.
+    /// An arrangement built in code (the default, or a test fixture) carries nothing and encodes
+    /// exactly its items: only decoding carries tokens.
     @Test func anArrangementBuiltInCodeEncodesExactlyItsItems() {
         #expect(PaneBarArrangement.default.encoded
                 == PaneBarArrangement.default.items.map(\.rawValue).joined(separator: ","))

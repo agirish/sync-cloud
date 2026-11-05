@@ -4,18 +4,16 @@ import Sync
 import Settings
 @testable import Dashboard
 
-/// **A write reached by a key during a long run is refused and told why** (decision BZ).
-///
-/// The window greys every write control while `activeProgress` is set, but ⌫ in a list, ⌘V, ↩ to
-/// rename and the palette's New Folder are keys, not controls, and land straight on these methods.
-/// Each must refuse before it asks anything or touches a file, and put the run's own reason in the
-/// banner — the same words the greyed controls carry as their tooltip.
+/// A write reached by a key during a long run is refused and says why. The window greys every
+/// write control while `activeProgress` is set, but ⌫ in a list, ⌘V, ↩ to rename and the palette's
+/// New Folder land straight on these methods. Each must refuse before it asks anything or touches a
+/// file, and put the run's reason in the banner, the same words as the greyed controls' tooltip.
 @MainActor
 @Suite struct FileActionHandlerRunLockTests {
 
     private final class Asked { var count = 0 }
 
-    /// No discovery, isolated defaults — `FileActionHandlerTests.scratchSettings`' reason.
+    /// No discovery, isolated defaults, for `FileActionHandlerTests.scratchSettings`' reason.
     private func scratchSettings() -> SettingsManager {
         SettingsManager(autoDiscover: false, userDefaults: ScratchDefaults("FileActionHandlerRunLockTests"))
     }
@@ -66,7 +64,7 @@ import Settings
         #expect(manager.activeFileOperationsCount == 0, "a refused write still queued an operation")
     }
 
-    /// With nothing running, the same calls go ahead — so the refusals above are the lock's.
+    /// With nothing running, the same calls go ahead, so the refusals above are the lock's.
     @Test func withNoRunTheyGoAhead() {
         let manager = FileSyncManager()
         let asked = Asked()

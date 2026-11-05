@@ -3,9 +3,9 @@ import Testing
 import Events
 @testable import Dashboard
 
-/// **Sync History calls a move to the Trash "Move to Trash"** (FD2) — its Action filter and its
-/// rows. The rule that tells a trash move from a permanent delete is `SyncHistoryRecord.actionLabel`
-/// (pinned in Events); this pins that the window uses it.
+/// Sync History calls a move to the Trash "Move to Trash", in its Action filter and its rows. The
+/// rule that tells a trash move from a permanent delete is `SyncHistoryRecord.actionLabel` (pinned
+/// in Events); this pins that the window uses it.
 @Suite struct SyncHistoryTrashLabelTests {
 
     @Test func theActionFilterNamesTrashMoves() {

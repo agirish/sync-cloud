@@ -6,27 +6,20 @@ import Design
 @testable import Dashboard
 import FileExplorerTestSupport
 
-/// Whether a rung that supplies its own `ink:` is still legible in BOTH appearances.
+/// Whether a rung that supplies its own `ink:` stays legible in both appearances. `PaneNavChrome`
+/// normally routes its glyph through `ChromeInk.label`, which flattens to full white in dark for
+/// contrast. A supplied `ink` bypasses that on purpose, so a destructive control stays red in dark,
+/// and the bypass gives up that contrast rule, so it is measured here instead.
 ///
-/// `PaneNavChrome` normally routes its glyph through `ChromeInk.label`, which flattens to
-/// full-strength white in dark — deliberately, because "an accent glyph on an accent wash has
-/// nothing to shift against". A supplied `ink` bypasses that on purpose (a destructive control that
-/// stopped being red in dark would lose its one distinguishing cue), so the bypass has to be
-/// measured rather than assumed: the same decision that keeps the red also opts out of the rule
-/// that was protecting contrast.
-///
-/// Measured against the pill's own fill, which is what the glyph actually sits on.
-/// `.machinePinned(.pixelSampling)` — and this is the suite in the package that most needs it.
-/// It does not merely read pixels back out of a live renderer: it computes a WCAG contrast ratio
-/// from the darkest sampled glyph pixel against the modal sampled fill and holds it to absolute
-/// numbers (3.0, and 4.0 for the control). Anti-aliasing decides how dark that darkest pixel gets,
-/// so a different renderer moves the measurement itself — the doc above records 4.84:1 and 2.87:1
-/// from this Mac, and the margin over the floor is what those numbers are.
+/// Measured against the pill's own fill, which the glyph sits on. Machine-pinned: it holds a WCAG
+/// ratio from the darkest sampled glyph pixel against the modal fill to absolute numbers (3.0, and
+/// 4.0 for the control), and anti-aliasing decides how dark that pixel gets, so another renderer
+/// moves the measurement itself.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneBarInkContrastTests {
 
-    /// The floor for a non-text glyph carrying meaning. 3:1 is WCAG's non-text contrast minimum and
-    /// the number the rest of this codebase's chrome is held to.
+    /// The floor for a non-text glyph carrying meaning: WCAG's non-text minimum, which the rest of
+    /// the app's chrome is held to.
     static let floor = 3.0
 
     @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
@@ -36,16 +29,10 @@ import FileExplorerTestSupport
                 "the trash glyph measures \(String(format: "%.2f", measured)):1 against its pill in \(appearance.rawValue) — below the \(Self.floor):1 a non-text control carrying meaning needs")
     }
 
-    /// **The control on the measurement itself, and the number the tinted rung is judged against.**
-    ///
-    /// An absolute floor alone would be easy to argue with — anti-aliasing can starve a glyph's
-    /// core and make any method pessimistic. So the same method measures an UNTINTED rung on the
-    /// same surface in the same render: 4.84:1. That is comfortably above this fixture's own
-    /// baseline expectation and above the app's documented ~3.4:1 on its hue-washed surface, which
-    /// is expected — this fixture renders over `windowBackgroundColor` with no wash.
-    ///
-    /// What it establishes is that the method is not the pessimist: when the tinted rung measured
-    /// 2.87:1 beside this, the gap was the tint's, not the measurement's.
+    /// The control on the measurement itself. Anti-aliasing can starve a glyph's core and make any
+    /// method pessimistic, so the same method measures an untinted rung in the same render (about
+    /// 4.8:1 here, over `windowBackgroundColor` with no hue wash). If the tinted rung fails beside
+    /// a passing control, the gap is the tint's, not the method's.
     @Test func testTheMethodIsNotThePessimist() throws {
         let measured = try Self.standardGlyphContrast()
         #expect(measured > Self.floor + 1.0,
@@ -54,43 +41,27 @@ import FileExplorerTestSupport
 
     // MARK: - Measurement
 
-    /// The bitmap rows the bar's **controls** occupy, taken from the drawn pills rather than from a
-    /// fraction of the header.
-    ///
-    /// Both searches below used to bound themselves to the trailing *half*, on the grounds that the
-    /// bar's controls were there and the provider capsule's brand colour and the breadcrumb's text
-    /// were not. Half of that stopped being true twice over: the capsule is retired, and the bar
-    /// packs against the leading edge now, so a trailing-half search found bare header —
-    /// `#require(best)` came back nil and both tests failed for want of a glyph rather than for want
-    /// of contrast.
-    ///
-    /// The replacement was the top half, and that was nearly right and quietly not: measured, the
-    /// pills sit at 11.0-30.5pt while a rung's **titles** sit at 35.0-43.0pt, and half of an 81pt
-    /// header is 40.5 — so the window took the top 5.5pt of the title words and left their bottoms
-    /// out. Both searches here pick an extreme pixel (the darkest non-red, the reddest), so a title
-    /// stroke could win and be measured as "a plain chrome glyph". The bound stayed defensible only
-    /// because the breadcrumb starts at 45.0pt; nothing in it said so.
-    ///
-    /// So ask the view. A pill is a `Button` with a custom style and no `NSControl` behind it, but
-    /// AppKit still gives each one a `_FocusRingView` at exactly its frame — the same oracle
-    /// `PaneBarOverflowMenuTests` and `PaneBarLadderTests` use to locate controls. A title hangs on a
-    /// baseline BELOW its control and is outside that frame, so this window is the pills and nothing
-    /// else, by construction rather than by a margin that happens to hold.
+    /// The bitmap rows the bar's controls occupy, taken from the drawn pills, not a fraction of the
+    /// header. Both searches pick an extreme pixel (the darkest non-red, the reddest), so a window
+    /// that caught a rung's title, which hangs below its pill, could measure a title stroke as a
+    /// glyph. Each pill gets a `_FocusRingView` at exactly its frame (the oracle
+    /// `PaneBarOverflowMenuTests` and `PaneBarLadderTests` use too), so this window is the pills and
+    /// nothing else.
     private static func barRows(_ measured: RenderedHeader) -> Range<Int> { measured.barRows }
 
-    /// A rendered header plus the rows its bar's controls occupy — the two things every scan here
-    /// needs, produced from one layout pass so they cannot describe different renders.
+    /// A rendered header plus the rows its bar's controls occupy, from one layout pass so they
+    /// can't describe different renders.
     struct RenderedHeader {
         let rep: NSBitmapImageRep
         let barRows: Range<Int>
     }
 
-    /// Contrast of an UNTINTED rung's glyph (Sort, which takes the standard chrome ink) against its
-    /// pill, by the same method.
+    /// Contrast of an untinted rung's glyph (one in the standard chrome ink) against its pill, by
+    /// the same method.
     private static func standardGlyphContrast() throws -> Double {
         let measured = try rendered(appearance: .aqua)
         let rep = measured.rep
-        // The darkest pixel on the BAR'S ROW that is NOT red — i.e. a plain chrome glyph.
+        // The darkest non-red pixel on the bar's row: a plain chrome glyph.
         var best: (x: Int, y: Int, lum: Double)? = nil
         for x in 0..<rep.pixelsWide {
             for y in barRows(measured) {
@@ -117,11 +88,9 @@ import FileExplorerTestSupport
         return try #require(counts.values.max(by: { $0.0 < $1.0 })?.1)
     }
 
-    /// Contrast between the darkest glyph pixel in the Delete cell and the pill fill behind it.
-    ///
-    /// The fill is sampled from the pill's own corner rather than assumed: it is
-    /// `.primary.opacity(0.075)` over whatever the header is over, so a constant here would be a
-    /// second opinion about a colour the view composes.
+    /// Contrast between the reddest glyph pixel in the Delete cell and the pill fill behind it. The
+    /// fill is sampled, not assumed: it is `.primary.opacity(0.075)` over whatever the header is
+    /// over, so a constant would second-guess a colour the view composes.
     private static func glyphContrast(appearance: NSAppearance.Name) throws -> Double {
         let measured = try rendered(appearance: appearance)
         let rep = measured.rep
@@ -136,8 +105,8 @@ import FileExplorerTestSupport
         }
         let glyph = try #require(best.map { rep.colorAt(x: $0.x, y: $0.y)!.usingColorSpace(.sRGB)! },
                                  "no red glyph pixel found in \(appearance.rawValue) — the Delete rung is not painting its ink")
-        // The pill behind it: sample just inside the cell but clear of the glyph strokes, taken as
-        // the most common colour in the cell's top-left quadrant.
+        // The pill behind it: the most common colour in a square around the glyph pixel, which the
+        // fill outnumbers the strokes in.
         let cx = best!.x, cy = best!.y
         var counts: [String: (Int, NSColor)] = [:]
         for x in max(0, cx - 18)...min(rep.pixelsWide - 1, cx + 18) {
@@ -196,13 +165,12 @@ import FileExplorerTestSupport
         let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)
 
-        // The bar's own band, from the drawn controls — see `barRows`. Rings are in points and the
-        // bitmap is in pixels (2x on this display), so the conversion is measured off the two rather
-        // than assumed; a hard-coded 2 would silently halve the window on a 1x display.
+        // The bar's own band, from the drawn controls (see `barRows`). Rings are in points and the
+        // bitmap in pixels, so the scale is measured off the two: a hard-coded 2 would halve the
+        // window on a 1x display.
         let rings = FocusRings.frames(in: host)
         let top = try #require(rings.map(\.minY).min(), "no controls found — the ring oracle broke")
-        // The bar is the topmost band of rings; the breadcrumb's own controls sit below it, so take
-        // only the rings that start with the first one.
+        // The bar is the topmost band of rings, above the breadcrumb's controls.
         let bar = rings.filter { $0.minY < top + 5 }
         let scale = Double(rep.pixelsHigh) / Double(host.bounds.height)
         let low = Int((bar.map(\.minY).min() ?? 0) * scale)

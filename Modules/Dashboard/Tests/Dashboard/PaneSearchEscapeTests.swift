@@ -4,26 +4,20 @@ import Design
 import SwiftUI
 @testable import Dashboard
 
-/// Escape closes the search field **and nothing else**.
+/// Escape closes the search field and nothing else, keeping the selection.
 ///
-/// This is the “close, keep selection” half of the design, and it is not a property of any code in
-/// this repo — it is a property of how SwiftUI routes Escape, which had to be MEASURED rather than
-/// reasoned about. The pane column that hosts this header carries its own `.onKeyPress(.escape)`
-/// that CLEARS the pane's selection (`ContentView.paneColumn`), so if both handlers ran, dismissing
-/// the field would also throw away the hit the walk had just selected.
-///
-/// Measured on macOS 26: with the field focused, its `onExitCommand` consumes the key outright and
-/// the ancestor's `.onKeyPress(.escape)` is never invoked at all. So no guard is needed in
-/// `paneColumn` — and this test is what will say so if that ever stops being true, because the
-/// symptom otherwise is a selection that quietly disappears when you dismiss a search.
+/// That rests on how SwiftUI routes Escape, not on code here. The pane column has its own
+/// `.onKeyPress(.escape)` that clears the selection (`ContentView.paneColumn`), so if both ran,
+/// dismissing the field would drop the hit the walk just selected. With the field focused, its
+/// `onExitCommand` consumes the key and the ancestor's handler never runs, so `paneColumn` needs
+/// no guard. This test says so if SwiftUI's routing ever changes.
 @MainActor
 @Suite struct PaneSearchEscapeTests {
 
     final class Box: ObservableObject {
         @Published var query = "tax"
         @Published var isExpanded = true
-        /// Whether the ancestor's Escape handler — the stand-in for the pane's selection clear —
-        /// ever ran.
+        /// Whether the ancestor's Escape handler, standing in for the pane's selection clear, ran.
         @Published var ancestorSawEscape = false
     }
 

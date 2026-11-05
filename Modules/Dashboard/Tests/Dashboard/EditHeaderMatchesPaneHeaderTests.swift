@@ -7,18 +7,14 @@ import Design
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// **Edit's document header against the pane's toolbar card, both real, side by side** (TE43).
+/// Edit's document header against the pane's toolbar card, both real, side by side. The header
+/// card must be the toolbar card's height, and the text card must start where the list card does,
+/// at every text size. Each view's own suite can only compare itself to the constant
+/// `LiquidGlass.headerHeight`; this one lays both out in one window and compares the results.
 ///
-/// The request was that the document's header card be the file pane's toolbar card's height, and
-/// that the text card start where the list card does — at every text size. Each view's own suite
-/// can only compare itself to `LiquidGlass.headerHeight`, which is a constant agreeing with itself;
-/// this suite is the one place both views can be laid out in one window, so it compares the two
-/// LAID-OUT results against each other.
-///
-/// The pane half is `PaneHeader` over a `List`, carded exactly as `ContentView.paneColumn` cards
-/// them — `.paneCardIfNeeded` on each in `.cards`, one `.panesRegionFrame` round the pair in
-/// `.unified` (what `editorLayout`'s expanded arm applies). The app's `paneColumn` itself cannot be
-/// built outside the app target; the pieces it is made of can.
+/// The pane half is `PaneHeader` over a `List`, carded as `ContentView.paneColumn` cards them:
+/// `.paneCardIfNeeded` on each in `.cards`, one `.panesRegionFrame` round the pair in `.unified`.
+/// `paneColumn` itself can't be built outside the app target; its pieces can.
 @MainActor
 @Suite(.serialized) struct EditHeaderMatchesPaneHeaderTests {
 
@@ -121,8 +117,8 @@ import FileExplorerTestSupport
         return host
     }
 
-    /// The top of the pane's list and of the document's text, in the window's coordinates — each is
-    /// the first thing in its card, so its top IS the card's content top.
+    /// The top of the pane's list and of the document's text, in window coordinates. Each is the
+    /// first thing in its card, so its top is the card's content top.
     static func tops(in host: NSView) -> (list: CGFloat?, text: CGFloat?) {
         var list: CGFloat?
         var text: CGFloat?
@@ -141,9 +137,8 @@ import FileExplorerTestSupport
         return (list, text)
     }
 
-    /// **The format bar off unless asked for** (TE52). With it on, the text card's first content is
-    /// the bar rather than the text, so "the text starts where the list does" stops being the
-    /// claim's own words; ``theFormatBarIsTheTextCardsFirstContent`` measures that case.
+    /// The format bar is off unless asked for: with it on, the text card's first content is the bar,
+    /// not the text. ``theFormatBarIsTheTextCardsFirstContent`` measures that case.
     static func defaults(_ style: SurfaceStyle, formatBar: Bool = false) -> ScratchDefaults {
         let defaults = ScratchDefaults("EditHeaderMatchesPaneHeaderTests")
         defaults.set(style.rawValue, forKey: LiquidGlass.surfaceStyleKey)
@@ -153,9 +148,9 @@ import FileExplorerTestSupport
         return defaults
     }
 
-    /// **The text card starts where the list card does**, in both surface styles, at every text
-    /// size, for Markdown and plain text. Mutation: drop the header card's pinned height and every
-    /// case fails; give `.unified` two cards and its half fails by a gutter.
+    /// The text card starts where the list card does, in both surface styles, at every text size,
+    /// for Markdown and plain text. Dropping the header card's pinned height must fail every case;
+    /// giving `.unified` two cards must fail its half by a gutter.
     @Test func theTextStartsWhereTheListDoesAtEveryTextSize() throws {
         let markdown = try Self.document("Budget.md")
         let plain = try Self.document("Budget.txt")
@@ -174,13 +169,11 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **With the pane's tab strip up, the text still starts where the list does.** Two tabs, or
-    /// View ▸ Tab Bar, put the strip above the pane's toolbar card and push it — and the list — down
-    /// by the strip's slot: its 34pt, plus the gutter under its card in `.cards`. The document
-    /// column has no strip, and until it was told about the pane's its header card and its text
-    /// stayed where they were, one strip-and-a-gutter above the pane's. Both styles, every text
-    /// size. Mutation: the slot without the gutter fails `.cards`; not passing the strip's
-    /// presence fails both.
+    /// With the pane's tab strip up, the text still starts where the list does. The strip pushes
+    /// the pane's toolbar card and list down by its slot (34pt, plus the gutter under its card in
+    /// `.cards`); the document column has no strip, so it must be told about the pane's. Both
+    /// styles, every text size. Leaving out the gutter must fail `.cards`; not passing the strip's
+    /// presence must fail both.
     @Test func theTextStartsWhereTheListDoesUnderThePanesTabStrip() throws {
         let markdown = try Self.document("Budget.md")
         for style in [SurfaceStyle.cards, .unified] {
@@ -197,18 +190,11 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **The header card is the toolbar card's height**, each measured as the card it is drawn as,
-    /// at every text size. This is the claim in the request's words; the test above is the same
-    /// claim seen where it shows.
-    ///
-    /// **And on the empty page** — no document open, the header card is still drawn and still this
-    /// height, so the toolbar card and the header card go on sharing an edge after a close.
-    ///
-    /// **And with Expand lit** (TE48): the button left the ＋ / Find capsule for the end of the row
-    /// and wears a word there — "Expand", then "Files" — and on the empty page it is drawn only lit.
-    /// Neither the word nor the lit state may grow the card, so both states are measured, on a
-    /// document and on the empty page, plain text included. Mutation: give the worded pill vertical
-    /// padding and the lit cases fail.
+    /// The header card is the toolbar card's height, each measured as drawn, at every text size.
+    /// Also on the empty page, where the header card is still drawn, so the two cards keep sharing
+    /// an edge after a close. Also with Expand lit: its button at the end of the row wears a word
+    /// ("Expand", then "Files"), and on the empty page is drawn only lit; neither may grow the card.
+    /// Giving the worded pill vertical padding must fail the lit cases.
     @Test func theHeaderCardIsTheToolbarCardsHeightAtEveryTextSize() throws {
         let doc = try Self.document("Budget.md")
         let plain = try Self.document("Budget.txt")
@@ -225,9 +211,9 @@ import FileExplorerTestSupport
                                 .environment(\.appFontScale, size.scale))
                         #expect(abs(toolbar - header) < 0.51,
                                 "\(size.percent)% \(style) \(document.path == nil ? "empty page" : document.name), Expand \(railIsHidden ? "lit" : "off"): toolbar card \(toolbar)pt, header card \(header)pt")
-                        // The card is pinned, so its frame alone proves little: the rows inside it
-                        // must fit as well, or the pin is clipping a header that grew — the rows the
-                        // app DRAWS, which on the empty page are its own, not a document's.
+                        // The card is pinned, so its frame proves little: the rows the app draws
+                        // must fit too, or the pin is clipping a header that grew. On the empty
+                        // page those are its own rows, not a document's.
                         let ws = Self.workspace(document, style: style, railIsHidden: railIsHidden)
                         let content = document.path == nil ? AnyView(ws.emptyHeaderContent) : AnyView(ws.headerContent)
                         let rows = Self.laidOutHeight(
@@ -242,11 +228,10 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **With the format bar on (TE52), the bar is the text card's first content** — it starts where
-    /// the pane's list does, less only its own inset, and the text starts under it. The header is
-    /// untouched: the bar went into the text card precisely so the header could stay pinned. Both
-    /// styles, every text size. Mutation: draw the bar in the header and the header test above
-    /// fails (its rows are measured with the bar ON); pad the bar from below and this one does.
+    /// With the format bar on, the bar is the text card's first content: it starts where the pane's
+    /// list does, less its inset, and the text starts under it. The bar lives in the text card so
+    /// the header stays pinned. Drawing the bar in the header must fail the header test above (its
+    /// rows are measured with the bar on); padding the bar from below must fail this one.
     @Test func theFormatBarIsTheTextCardsFirstContent() throws {
         let markdown = try Self.document("Budget.md")
         for style in [SurfaceStyle.cards, .unified] {
@@ -270,7 +255,7 @@ import FileExplorerTestSupport
     }
 
     private static func laidOutHeight<V: View>(_ view: V) -> CGFloat {
-        // The bar ON: a bar moved into the header would then grow the rows this measures.
+        // The bar on, so a bar moved into the header would grow the rows this measures.
         let defaults = defaults(.cards, formatBar: true)
         let host = NSHostingView(rootView: AnyView(view.frame(width: editorWidth)
                                                     .defaultAppStorage(defaults)))

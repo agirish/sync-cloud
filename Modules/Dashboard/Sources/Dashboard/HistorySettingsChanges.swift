@@ -4,9 +4,9 @@ import Settings
 import SwiftUI
 import Sync
 
-/// **Settings changes in History** (TE290 step 5): every setting changed from Ask Claude's chat,
-/// listed in Activity ▸ History among the sync records, by time, with Revert while the setting
-/// still holds what was set there. What History needs to list them, filter them and put one back.
+/// Settings changes in History: every setting changed from Ask Claude's chat, listed in Activity ▸
+/// History among the sync records by time, with Revert while the setting still holds what was set
+/// there. What History needs to list them, filter them and put one back.
 @MainActor
 public struct HistorySettingsChanges {
     let log: SettingsChangeLog
@@ -15,9 +15,9 @@ public struct HistorySettingsChanges {
     let writer: () -> SettingsWriter
     /// The names hidden from Claude, whose changes are listed without their words.
     let hiddenNames: () -> [String]
-    /// The lists a list edit's Revert puts an item back in or takes it out of (TE290 step 8).
+    /// The lists a list edit's Revert puts an item back in or takes it out of.
     let lists: () -> SettingsLists?
-    /// People, for a person edit's Revert (TE290 review).
+    /// People, for a person edit's Revert.
     let people: () -> SettingsPeople?
     /// A Revert that raises Claude's spending or access asks once more.
     let confirmRaising: @MainActor (RemovalPrompt) -> Bool
@@ -72,7 +72,7 @@ public struct HistorySettingsChanges {
 
     /// Asks before a Revert that raises Claude's spending or access, in the question's own words:
     /// a change, not a deletion. Showing a folder to Claude again asks as Settings' Remove does,
-    /// with Cancel the default (decision IP).
+    /// with Cancel the default.
     public static func ask(_ prompt: RemovalPrompt) -> Bool {
         if asksAsSettings(prompt) { return prompt.ask() }
         return NativeAlerts.confirmChange(messageText: prompt.messageText, informativeText: prompt.informativeText,

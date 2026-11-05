@@ -3,12 +3,9 @@ import Foundation
 import Sync
 @testable import Dashboard
 
-/// The Info inspector and Space must name the SAME file.
-///
-/// They did not. `activePath` hand-derived the pane selection under a comment claiming it matched
-/// `PaneLogic.primarySelectionPath`, while Space resolved whatever surface happened to hold key
-/// focus — so the inspector showed the pane's file and Space previewed the Differences row. These
-/// pin the agreement rather than each side's arithmetic, because the disagreement WAS the bug.
+/// The Info inspector and Space must name the same file. These pin the agreement between
+/// `activePath` and `CurrentSelection.primaryPanePath`, not each side's arithmetic, since two
+/// rules that each look right can still name different files.
 ///
 /// Constructed, never rendered: `DetailsSidebar` stats synchronously on appear and wedges a test
 /// host. `activePath` is a pure read over `syncManager`, so it needs no mount.
@@ -25,8 +22,8 @@ import Sync
                        singleSource: singleSource)
     }
 
-    /// The reported case: a multi-item left-pane selection. Both sides must land on the same file,
-    /// and specifically on the alphabetically first one rather than an arbitrary `Set` element.
+    /// A multi-item left-pane selection: both sides land on the alphabetically first file, not an
+    /// arbitrary `Set` element.
     @Test func inspectorAndResolverAgreeOnAMultiItemPaneSelection() {
         let manager = FileSyncManager()
         manager.selectedLeftPaths = ["/left/mike.txt", "/left/alpha.txt", "/left/zulu.txt"]
@@ -51,8 +48,7 @@ import Sync
         #expect(sidebar(manager).activePath == resolved)
     }
 
-    /// The rail's hidden right pane, agreed by both — this is the rule that used to be written out
-    /// three separate times (here, the rail's Space handler, and the resolver).
+    /// Single-source ignores the rail's hidden right pane, agreed by both.
     @Test func inspectorAndResolverAgreeThatSingleSourceIgnoresTheRightPane() {
         let manager = FileSyncManager()
         manager.selectedRightPaths = ["/right/leftover.txt"]
@@ -61,14 +57,14 @@ import Sync
             left: manager.selectedLeftPaths,
             right: manager.selectedRightPaths,
             singleSource: true) == nil)
-        // With no pane selection to show, the inspector falls back to the navigated folder — it
-        // must NOT surface the hidden pane's leftover.
+        // With no pane selection, the inspector falls back to the navigated folder and must not
+        // surface the hidden pane's leftover.
         #expect(sidebar(manager, singleSource: true).activePath == "/left/root")
     }
 
-    /// Following the right pane (TE317·5): with both panes holding something, the right pane's
-    /// item and the right pane's summary — the left-first rule described the left pane right after a
-    /// click on the right. An empty right pane still falls through to the left.
+    /// Following the right pane: with both panes holding something, the inspector describes the
+    /// right pane's item, not the left one the left-first rule would pick. An empty right pane
+    /// still falls through to the left.
     @Test func followingTheRightPaneDescribesItFirst() {
         let manager = FileSyncManager()
         manager.selectedLeftPaths = ["/left/zeta.txt"]
@@ -103,8 +99,8 @@ import Sync
     }
 
     /// Nothing selected: the inspector falls back to the navigated folder while the resolver says
-    /// nil. They do not disagree — nil is "no selected file", which is exactly the state the
-    /// fallback exists to describe, and Space returns `.ignored` for it.
+    /// nil. That is agreement: nil means "no selected file", the state the fallback describes, and
+    /// Space returns `.ignored` for it.
     @Test func emptySelectionFallsBackToTheNavigatedFolder() {
         let manager = FileSyncManager()
         #expect(CurrentSelection.primaryPanePath(
@@ -115,10 +111,9 @@ import Sync
 
     // MARK: The caption must answer for the same branches activePath takes
 
-    /// "Get Info" on a differences row sets the override precisely when no pane holds a selection,
-    /// so the caption's hand-derived "nothing is selected" test called that a focused-folder
-    /// fallback — captioning a file the user explicitly asked about "— focused folder", which is
-    /// wrong twice: it is not the focused folder, and it IS an item they chose.
+    /// "Get Info" on a differences row sets the override when no pane holds a selection. A caption
+    /// keyed on "nothing is selected" would call that file "— focused folder", which is wrong
+    /// twice: it isn't the focused folder, and the user chose it.
     @Test func aGetInfoTargetIsNotAFocusedFolderFallback() {
         let manager = FileSyncManager()
         let view = sidebar(manager, overridePath: "/diff/target.txt")
@@ -126,13 +121,10 @@ import Sync
         #expect(view.isShowingFocusedFolderFallback == false)
     }
 
-    /// The caption and `activePath` must agree in every combination, not just the reported one.
-    ///
-    /// The expectation is deliberately NOT a restatement of the caption's own condition — that
-    /// would pass against any implementation that matched itself. It ties the caption to the
-    /// observable outcome instead: the caption claims a focused-folder fallback exactly when
-    /// `activePath` actually returned the navigated folder. No fixture selection or override
-    /// equals `/left/root`, so that comparison can only be true by falling back.
+    /// The caption and `activePath` agree in every combination. The expectation ties the caption to
+    /// the outcome, not to its own condition (which would always match itself): it claims a
+    /// fallback exactly when `activePath` returned the navigated folder. No fixture equals
+    /// `/left/root`, so that can only be true by falling back.
     @Test func theCaptionAgreesWithActivePathAcrossEveryBranch() {
         for override in [nil, "", "/diff/target.txt"] {
             for left in [Set<String>(), ["/left/a.txt"]] {
@@ -150,9 +142,8 @@ import Sync
         }
     }
 
-    /// A Get Info target wins over a pane's multi-selection too: the summary used to, so Get Info on
-    /// a differences row with three files selected in a pane showed "3 items" and seemed to do
-    /// nothing.
+    /// A Get Info target beats a pane's multi-selection summary too; otherwise Get Info with three
+    /// files selected in a pane shows "3 items" and seems to do nothing.
     @Test func getInfoBeatsAMultiSelectionSummary() {
         let manager = FileSyncManager()
         manager.selectedLeftPaths = ["/left/a.txt", "/left/b.txt", "/left/c.txt"]
@@ -164,8 +155,8 @@ import Sync
         #expect(info.activePath == "/diff/target.txt")
     }
 
-    /// Following the right pane with nothing selected anywhere: the right pane's folder, which is the
-    /// pane the caption names.
+    /// Following the right pane with nothing selected: the right pane's folder, the pane the caption
+    /// names.
     @Test func followingTheRightPaneWithNothingSelectedShowsItsFolder() {
         let manager = FileSyncManager()
         let following = DetailsSidebar(syncManager: manager, leftPath: "/left/root", rightPath: "/right/root",

@@ -3,9 +3,9 @@ import Foundation
 import Sync
 @testable import Dashboard
 
-/// Pins DetailsSelectionSummary — the pure multi-select rollup behind the Details sidebar:
-/// when it engages (2+ selected), the files/folders breakdown, the files-only byte total
-/// (folders are never walked), and the display strings.
+/// Pins DetailsSelectionSummary, the pure multi-select rollup behind the Details sidebar: when it
+/// engages (2+ selected), the files/folders breakdown, the files-only byte total (folders are never
+/// walked), and the display strings.
 @Suite struct DetailsSelectionSummaryTests {
 
     private func file(_ path: String, size: Int?) -> FileNode {
@@ -26,13 +26,9 @@ import Sync
         #expect(DetailsSelectionSummary.make(selectedPaths: ["/vault/a.txt"], in: tree) == nil)
     }
 
-    /// The sidebar reads this from `body`, so what it costs per render is a property worth
-    /// pinning, not an implementation detail: the resolver runs ONCE for a multi-selection and
-    /// NOT AT ALL below the threshold.
-    ///
-    /// The zero case is the one that matters. `make` guards on the count before resolving, which
-    /// is what keeps a single selection from paying anything — reordering those two lines is free
-    /// to write and invisible without this.
+    /// The sidebar reads this from `body`, so its per-render cost is pinned: the resolver runs once
+    /// for a multi-selection and not at all below the threshold. The zero case matters most:
+    /// resolving before `make`'s count guard would make every single selection pay.
     @Test func theResolverRunsOnceAndOnlyForAMultiSelection() {
         var calls = 0
         let resolve: (Set<String>) -> [FileNode] = { paths in
@@ -50,10 +46,9 @@ import Sync
         #expect(summary?.fileCount == 2)
     }
 
-    /// The two spellings must agree. The sidebar moved onto the resolver form so it could go
-    /// through the manager's cached path→node index instead of walking the tree per render; that
-    /// substitution is only safe if nothing here depends on `findNodes`' pre-order, which the
-    /// index does not promise.
+    /// The two forms must agree. The sidebar uses the resolver form to go through the manager's
+    /// cached path→node index instead of walking the tree per render, which is safe only if nothing
+    /// here depends on `findNodes`' pre-order; the index doesn't promise it.
     @Test func theResolverFormMatchesTheTreeForm() {
         let tree = [
             folder("/vault/docs", children: [file("/vault/docs/deep.txt", size: 900)]),
@@ -63,8 +58,7 @@ import Sync
         let paths: Set<String> = ["/vault/a.txt", "/vault/b.txt", "/vault/docs"]
 
         let viaTree = DetailsSelectionSummary.make(selectedPaths: paths, in: tree)
-        // Deliberately REVERSED against the tree's pre-order, which is the difference the index
-        // is allowed to have.
+        // Reversed against the tree's pre-order, the difference the index is allowed to have.
         let viaResolver = DetailsSelectionSummary.make(selectedPaths: paths) { requested in
             tree.findNodes(at: requested).reversed()
         }
@@ -76,7 +70,7 @@ import Sync
     }
 
     @Test func countsFilesAndFoldersAndSumsOnlyFileBytes() {
-        // The folder's own children must not leak into the byte total — the summary is
+        // The folder's own children must not leak into the byte total: the summary is
         // metadata-only, never a directory walk.
         let tree = [
             file("/vault/a.txt", size: 1_000),

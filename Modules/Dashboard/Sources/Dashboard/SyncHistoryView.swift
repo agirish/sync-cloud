@@ -5,40 +5,37 @@ import Design
 import Events
 import Sync
 
-/// The Sync History window (X2): the durable, exportable, reversible counterpart to the Activity
-/// Log. Where `LogViewer` shows the in-memory event stream that forgets on quit, this shows the
-/// persisted `SyncHistoryStore` — every copy/move/delete/date match with time, action, direction, paths, and
-/// size — filterable by action, date range, and path, exportable to CSV/JSON, with a one-click
-/// "Undo last sync run" that reverses the most recent run through the app's existing undo stack.
+/// The Sync History window: the durable, exportable, reversible counterpart to the Activity Log.
+/// `LogViewer` shows the in-memory event stream that forgets on quit; this shows the persisted
+/// `SyncHistoryStore`, every copy, move, delete and date match with time, action, direction, paths
+/// and size, filterable by action, date range and path, exportable to CSV/JSON, with an "Undo last
+/// sync run" through the app's undo stack. Built in `LogViewer`'s shape so the two read as one
+/// system.
 ///
-/// Built deliberately in the same shape as `LogViewer` (pure `SyncHistoryFilter`, a toolbar of
-/// controls, a lazy list, an empty state) so the two read as one system.
-///
-/// Settings changed from Ask Claude's chat are listed among the records, by time, when `settings`
-/// is given (TE290 step 5): the path, date and action filters reach them; Undo Last Run and Export
-/// are the records' only.
+/// When `settings` is given, settings changed from Ask Claude's chat are listed among the records
+/// by time. The path, date and action filters reach them; Undo Last Run and Export don't.
 public struct SyncHistoryView: View {
     @ObservedObject public var store = SyncHistoryStore.shared
     /// The settings changes listed among the records, or nil for records alone.
     private let settings: HistorySettingsChanges?
     @ObservedObject private var settingsLog: SettingsChangeLog
 
-    /// Reverses the most recent sync run. Injected so the (data-touching) NSAlert confirmation
-    /// lives at the app boundary, keeping this view free of the manager and of Sync's types.
+    /// Reverses the most recent sync run. Injected so the data-touching NSAlert confirmation lives
+    /// at the app boundary, keeping this view free of the manager and of Sync's types.
     ///
-    /// Returns why it refused, or nil when it asked. A refusal is shown HERE, as an alert on this
-    /// window: after a relaunch the undo stack is empty while this list still has records, and the
-    /// reason used to go to the main window's banner, so the click here looked like it did nothing.
+    /// Returns why it refused, or nil when it asked. A refusal is shown as an alert on this window:
+    /// after a relaunch the undo stack is empty while this list still has records, and a reason
+    /// shown elsewhere would make the click look like it did nothing.
     private let onUndoLastSyncRun: @MainActor () -> String?
 
     /// The reason the last "Undo Last Run" click refused, while its alert is up.
     @State private var undoRefusal: String?
 
-    /// Confirms the history wipe. Injected for the same reason as `onUndoLastSyncRun` — and so
-    /// both answers are drivable without a modal. The default is the standard destructive alert.
+    /// Confirms the history wipe. Injected for the same reason as `onUndoLastSyncRun`, and so both
+    /// answers can be driven without a modal. The default is the standard destructive alert.
     private let confirmClearHistory: @MainActor () -> Bool
 
-    /// One run's records only — set by a Recent row's Show in History (R13), cleared by its chip.
+    /// One run's records only: set by a Recent row's Show in History, cleared by its chip.
     @Binding private var runFilter: UUID?
     /// The window's own title row; Activity's tab names it instead.
     private let showsTitle: Bool
@@ -59,24 +56,22 @@ public struct SyncHistoryView: View {
     }
 
     /// The clear gesture as one step: ask, and only then wipe. Static and confirmer-taking so the
-    /// decision is reachable without mounting the view (a button's closure is not), and so no call
-    /// site can reintroduce the unprompted wipe by simply forgetting to ask.
+    /// decision is reachable without mounting the view, and no call site can wipe without asking.
     /// - Returns: Whether the history was cleared.
     @discardableResult
     public static func clearIfConfirmed(store: SyncHistoryStore, confirm: @MainActor () -> Bool) -> Bool {
         guard confirm() else { return false }
-        // The one destructive clear in the app: a history that is suddenly empty should be
-        // attributable to this confirmed action, not read as the store failing to load. Logged
-        // here rather than in `store.clear()` so test fixtures' cleanup stays out of the shared
-        // log — Logger's own exact-count suite lives in the same package as the store.
+        // Logged so a suddenly empty history is attributable to this confirmed clear, not read as
+        // the store failing to load. Here rather than in `store.clear()` so test fixtures' cleanup
+        // stays out of the shared log, which Logger's exact-count suite in this package reads.
         Logger.shared.info("Sync history cleared — \(store.records.count) record(s) removed")
         store.clear()
         return true
     }
 
-    /// Cancel is the DEFAULT button and the destructive one takes no Return key, matching
+    /// Cancel is the default button and the destructive one takes no Return key, matching
     /// Settings' "Reset All Settings…": this empties the durable record on disk, and unlike the
-    /// Activity Log — which rotates on its own and forgets on quit — nothing else keeps a copy.
+    /// Activity Log nothing else keeps a copy.
     @MainActor public static func defaultClearConfirmation() -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -104,16 +99,15 @@ public struct SyncHistoryView: View {
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
     private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
-    /// List-density setting (H7): comfortable renders exactly the pre-setting look; compact
-    /// tightens the row spacing so more history records fit on screen.
+    /// List-density setting: compact tightens the row spacing so more records fit on screen.
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
 
     private var density: ListDensity { ListDensity(rawValue: listDensityRaw) ?? .comfortable }
 
     private var densityMetrics: ListDensityMetrics { density.metrics }
 
-    /// A coarse relative date window — enough for "what did I do recently" without a full date
-    /// picker. Resolves to a lower bound at render time (upper bound is always "now").
+    /// A coarse relative date window, enough for "what did I do recently" without a date picker.
+    /// Resolves to a lower bound at render time; the upper bound is always now.
     private enum DateRange: String, CaseIterable, Identifiable {
         case all = "All time"
         case lastHour = "Last hour"
@@ -142,9 +136,9 @@ public struct SyncHistoryView: View {
         case settings
     }
 
-    /// The Action filter's record choices. `.delete` is "Moves to Trash & Deletes" (FD2, RD7): its
-    /// rows say Move to Trash, except the rare permanent delete, whose row says Delete and is listed
-    /// too. Settings Changes follows them, under a line, when settings changes are listed.
+    /// The Action filter's record choices. `.delete` is "Moves to Trash & Deletes": its rows say
+    /// Move to Trash, except a rare permanent delete, whose row says Delete and is listed too.
+    /// Settings Changes follows, under a line, when settings changes are listed.
     static let actionOptions: [(label: String, action: ActionChoice)] = [
         ("All Actions", .all),
         ("Copies", .action(.copy)),
@@ -291,7 +285,7 @@ public struct SyncHistoryView: View {
             .controlSize(.small)
             .chromeHover()
             .disabled(store.records.isEmpty)
-            // Waits while a long run is going, as the main window's undo does (CF).
+            // Waits while a long run is going, as the main window's undo does.
             .lockedDuringRun()
             .help("Reverse the most recent sync run")
 
@@ -323,7 +317,7 @@ public struct SyncHistoryView: View {
     }
 
     /// The trash: Clear Sync History…, and Clear Settings Changes… beside it when settings changes
-    /// are listed — two records, each cleared on its own, each asking first.
+    /// are listed. Two records, each cleared on its own, each asking first.
     @ViewBuilder
     private func clearControl(hasChanges: Bool) -> some View {
         if let settings {
@@ -336,7 +330,7 @@ public struct SyncHistoryView: View {
                 Image(systemName: "trash")
             }
             .menuStyle(.button)
-            // The trash it was, with no arrow to crowd Export's beside it.
+            // No menu arrow, so it doesn't crowd Export's beside it.
             .menuIndicator(.hidden)
             .chromeGlassBorderedButtonStyle()
             .controlSize(.small)
@@ -355,9 +349,9 @@ public struct SyncHistoryView: View {
             .chromeHover()
             .disabled(store.records.isEmpty)
             .accessibilityLabel("Clear the history")
-            // Ellipsis: this asks first. It sits 34pt from the Export menu and empties the durable
-            // record irreversibly, so it gets the same confirmation its siblings get — "Undo Last
-            // Run" here, "Reset All Settings…" in Settings.
+            // Ellipsis: this asks first. It sits beside Export and irreversibly empties the durable
+            // record, so it gets the confirmation its siblings get ("Undo Last Run" here, "Reset All
+            // Settings…" in Settings).
             .help("Clear all history…")
         }
     }
@@ -430,7 +424,7 @@ public struct SyncHistoryView: View {
                         message: "The current \(runFilter == nil ? "" : "run, ")action, date range, and search hide all \(total) \(total == 1 ? "record" : "records").",
                         primary: .init("Clear Filters", systemImage: "xmark.circle",
                                        help: "Show every record — clears the \(runFilter == nil ? "" : "run, ")action, date range, and search filters") {
-                            // The run a Recent row's Show in History picked too: its records may
+                            // Also the run a Recent row's Show in History picked: its records may
                             // have been trimmed from the history since.
                             runFilter = nil
                             selectedAction = .all
@@ -471,18 +465,15 @@ public struct SyncHistoryView: View {
     }
 }
 
-/// One row rendering a single `SyncHistoryRecord`: an action glyph, the action + direction +
-/// time, the source→destination paths, and the size — kept honest and readable.
-///
-/// Internal rather than private — the same visibility `LogEntryRow` carries, and for the same
-/// reason: `timeFormatter` below is a seam a test has to be able to reach.
+/// One row for a single `SyncHistoryRecord`: an action glyph, the action, direction and time, the
+/// source→destination paths, and the size. Internal, like `LogEntryRow`, so a test can reach
+/// `timeFormatter`.
 struct SyncHistoryRow: View {
     let record: SyncHistoryRecord
-    /// List-density setting (H7), passed down by SyncHistoryView (which already reads the
-    /// defaults key) instead of a per-row `@AppStorage` — one storage observer per window, not
-    /// per row. Comfortable keeps the two-line pill/meta-over-path layout exactly; compact
-    /// collapses to a single baseline row where the path middle-truncates (it stays visible —
-    /// the path IS the record).
+    /// List-density setting, passed down by `SyncHistoryView`, which already reads the key, so
+    /// there is one storage observer per window rather than per row. Comfortable is the two-line
+    /// pill/meta-over-path layout; compact is one baseline row where the path middle-truncates but
+    /// stays visible, since the path is the record.
     let density: ListDensity
 
     private var densityMetrics: ListDensityMetrics { density.metrics }
@@ -565,7 +556,7 @@ struct SyncHistoryRow: View {
     }
 
     private var actionPill: some View {
-        // The record's own label, so a permanent delete still says "Delete" (FD2).
+        // The record's own label, so a permanent delete still says "Delete".
         Pill(.mini, tint: actionColor, text: record.actionLabel)
     }
 
@@ -597,8 +588,8 @@ struct SyncHistoryRow: View {
     }
 
     private var actionColor: Color {
-        // From the shared semantic table (C3): copy = success-green (accent collided with the
-        // app accent), move = its own purple (orange collided with warning), delete = error.
+        // From the shared semantic table: copy is success green and move its own purple, so
+        // neither clashes with the app accent or the warning colour; delete is error.
         switch record.action {
         case .copy: return SemanticColor.success
         case .move: return SemanticColor.move
@@ -618,29 +609,25 @@ struct SyncHistoryRow: View {
         ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 
-    /// The one formatter this column stamps with — `fixed`, so locale and calendar are pinned.
-    ///
-    /// The pins are not about the zone: an unpinned fixed-format `DateFormatter` follows the system
-    /// region, so a Buddhist-calendar region rendered years like 2569 — disagreeing with the same
-    /// window's ISO-8601 CSV/JSON export. The zone stays local rather than UTC because this column
-    /// is display, not interchange, and it is re-checked on every use rather than captured; see
-    /// `ZoneRefreshedFormatter`.
-    ///
-    /// Internal, not private, so `SyncHistoryRowTimeZoneTests` can drive the refresh directly.
+    /// The one formatter this column stamps with: `fixed`, so locale and calendar are pinned.
+    /// Unpinned, a fixed-format `DateFormatter` follows the system region, and a Buddhist-calendar
+    /// region would show years like 2569, disagreeing with the ISO-8601 export. The zone stays
+    /// local, since this is display, not interchange, and is re-checked on every use (see
+    /// `ZoneRefreshedFormatter`). Internal so `SyncHistoryRowTimeZoneTests` can drive the refresh.
     static let timeFormatter = ZoneRefreshedFormatter.fixed("yyyy-MM-dd HH:mm:ss")
 
     static func timeString(_ date: Date) -> String {
         timeFormatter.string(from: date)
     }
 
-    /// What a date match replaced, in the row's own time format — "was 2025-01-01 09:00:00" — or
-    /// nil (review E11). Comfortable rows only: compact keeps its one line for the path.
+    /// What a date match replaced, in the row's own time format ("was 2025-01-01 09:00:00"), or
+    /// nil. Comfortable rows only: compact keeps its one line for the path.
     static func previousDateText(_ record: SyncHistoryRecord) -> String? {
         record.previousModificationDate.map { "was \(timeString($0))" }
     }
 }
 
-/// The history window's toolbar bar — off in Activity's History tab.
+/// The history window's toolbar bar, off in Activity's History tab.
 private struct HistoryToolbarBar: ViewModifier {
     let applies: Bool
     let level: GlassLevel

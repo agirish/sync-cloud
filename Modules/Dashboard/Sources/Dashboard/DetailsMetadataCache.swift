@@ -1,29 +1,26 @@
 import AppKit
 import Events
 
-/// Memoizes the metadata stat and NSWorkspace icon for the details sidebar's current path,
-/// plus the two invalidation decisions, extracted from DetailsSidebar's view body so the
-/// rules are unit-testable.
+/// Memoizes the metadata stat and NSWorkspace icon for the details sidebar's current path, plus
+/// the two invalidation decisions, kept out of DetailsSidebar's view body so the rules are
+/// unit-testable.
 ///
-/// Both loads hit the filesystem, and on a cloud path "slow" understates it: they can block
-/// *forever*. So the lookup is split in two, and the split is the whole point —
-/// `cached(for:)` is pure memory and safe to call from anywhere, while `load(for:)` is `async`
-/// and does the filesystem work on a private queue. Nothing on the main thread ever waits on a
-/// syscall. See `ioQueue` and `DetailsSidebar.loadMetadata(for:fileManager:)` for the measured
-/// hang that forced this.
+/// Both loads hit the filesystem, and on a cloud path they can block forever. So the lookup is
+/// split: `cached(for:)` is pure memory and safe to call from anywhere, while `load(for:)` is
+/// `async` and does the filesystem work on a private queue (see `ioQueue`). Nothing on the main
+/// thread ever waits on a syscall.
 ///
-/// It also rate-limits the stat's failure WARNING per path — see `warnedPaths`. The memo alone
-/// cannot: every invalidation drops it, and invalidations are driven by file operations.
+/// It also rate-limits the stat's failure warning per path (see `warnedPaths`). The memo alone
+/// cannot: every invalidation drops it, and file operations drive invalidations.
 @MainActor
 final class DetailsMetadataCache {
     /// The stat. `@Sendable`, and it returns its failure reason rather than logging it, because it
-    /// runs on `ioQueue` and not on the main actor — see `load(for:)`. This cache is the one object
-    /// that knows a re-stat is a re-stat of the SAME path, so it owns the reporting; see
-    /// `reportOnce(_:for:)`.
+    /// runs on `ioQueue`, not the main actor. This cache is the one object that knows a re-stat is
+    /// of the same path, so it owns the reporting (`reportOnce(_:for:)`).
     private let loadMetadata: @Sendable (String) -> DetailsSidebar.MetadataLoad
-    /// Also `@Sendable` and also run on `ioQueue`: a custom icon lives in the item's resource fork,
-    /// so `NSWorkspace.icon(forFile:)` reads extended attributes too and wedges on exactly the
-    /// paths the stat does. Leaving it on the main actor would have left half the hang in place.
+    /// Also `@Sendable` and run on `ioQueue`: a custom icon lives in the item's resource fork, so
+    /// `NSWorkspace.icon(forFile:)` reads extended attributes too and wedges on exactly the paths
+    /// the stat does. On the main actor it would hang the app.
     private let loadIcon: @Sendable (String) -> NSImage
     /// Where a surviving (non-suppressed) failure report goes. Injected so the rate limit is
     /// testable without reading `Logger.shared`'s asynchronous in-memory buffer.
@@ -33,52 +30,41 @@ final class DetailsMetadataCache {
     private var metadata: DetailsSidebar.FileMetadata?
     private var icon: NSImage?
 
-    /// The path of the most recent `load(for:)` REQUEST, which is not the same as the most recent
-    /// load to finish. Loads are started in the order the sidebar's selection changes, so this is
-    /// the path the UI currently wants; a load that comes back to find it changed is stale by
-    /// definition and must not claim the memo. See the guard in `load(for:)`.
+    /// The path of the most recent `load(for:)` request, not the most recent load to finish. Loads
+    /// start in the order the selection changes, so this is the path the UI wants; a load that
+    /// comes back to find it changed is stale and must not claim the memo.
     private var requestedPath: String?
 
     /// Paths whose stat failure has already been reported, so a re-stat of the same unreadable
-    /// item stays quiet.
+    /// item stays quiet. The memo can't do this: `refreshOccurred()` drops it after every file
+    /// operation, so a bulk run with an unreadable item selected would log one warning per
+    /// operation, each a disk write.
     ///
-    /// The warning's doc used to claim "once per path" and rest that claim on the memo — but the
-    /// memo is dropped by `refreshOccurred()`, which fires after EVERY file operation. A bulk run
-    /// of N operations with an unreadable item selected therefore wrote N identical warnings, each
-    /// costing a real disk write in the log writer. The set makes the claim true: the failure is
-    /// news once, and the invalidations that follow are not.
-    ///
-    /// A path is FORGOTTEN once it stats successfully, so an item that becomes unreadable again
-    /// later (a volume that came back and went away again) is reported again — that is a genuine
-    /// state change, not the same news repeated.
+    /// A path is forgotten once it stats successfully, so an item that becomes unreadable again
+    /// later (a volume that came back and went away) is reported again: a real state change.
     private var warnedPaths: Set<String> = []
 
     /// Bound on `warnedPaths` so a session that browses through many unreadable items cannot grow
     /// it without limit. Clearing wholesale (rather than evicting one entry) keeps this O(1) and
-    /// costs at most one repeated warning per path afterwards — the same trade the log writer's
+    /// costs at most one repeated warning per path afterwards, the same trade the log writer's
     /// one-shot failure signal makes.
     private static let maxWarnedPaths = 64
 
     /// Monotonic count of invalidation events (refresh, scan completing). The sidebar keys its
-    /// computed-directory-size task on this so the same events that drop the memoized metadata
-    /// also clear the computed folder total and trigger a recompute — otherwise a copy/delete
-    /// inside the selected folder would leave the pre-operation size on screen until the
-    /// selection changed.
+    /// folder-size task on this, so the events that drop the memo also recompute the folder total;
+    /// otherwise a copy or delete inside the selected folder would leave the old size on screen.
     private(set) var generation = 0
 
-    /// Where the filesystem work runs. **Not** the Swift cooperative pool (`Task.detached`, or a
-    /// `nonisolated async` function): the calls it makes — `attributesOfItem`, which reaches
-    /// `getxattr`, and `NSWorkspace.icon(forFile:)` — can block *indefinitely* on a wedged file
-    /// provider, and blocking a cooperative thread is unsafe. That pool is only core-count wide, so
-    /// a handful of stuck loads would deadlock every `Task` in the process, SwiftUI's own included
-    /// — trading a frozen inspector for a frozen app, which is the bug we are here to fix.
+    /// Where the filesystem work runs. **Never** the Swift cooperative pool (`Task.detached`, or a
+    /// `nonisolated async` function): `attributesOfItem` (via `getxattr`) and
+    /// `NSWorkspace.icon(forFile:)` can block indefinitely on a wedged file provider. That pool is
+    /// only core-count wide, so a handful of stuck loads would deadlock every `Task` in the
+    /// process, SwiftUI's own included.
     ///
-    /// A private queue caps the damage at one permanently-stuck thread per wedged path, and
-    /// requires a deliberate selection to reach each one. It is `.concurrent` rather than serial on
-    /// purpose: serial would be cheaper (one stuck thread, ever) but the first wedged path would
-    /// sit at the head of the line forever and every later selection — including files on healthy
-    /// providers — would queue behind it and never render. GCD's own per-QoS thread ceiling is the
-    /// backstop, and it degrades to exactly that serial behaviour rather than to a crash.
+    /// A private queue caps the damage at one stuck thread per wedged path, each reached only by a
+    /// deliberate selection. `.concurrent`, not serial: on a serial queue the first wedged path
+    /// would block every later selection, healthy providers included. GCD's per-QoS thread
+    /// ceiling is the backstop, and it degrades to that serial behaviour rather than to a crash.
     private static let ioQueue = DispatchQueue(
         label: "com.synccloud.details-metadata", qos: .userInitiated, attributes: .concurrent)
 
@@ -104,10 +90,9 @@ final class DetailsMetadataCache {
 
     /// The memoized entry for `path`, or nil if this path is not the one memoized.
     ///
-    /// **The only lookup a render pass may make.** It is pure memory: a miss returns nil rather
-    /// than reaching for the filesystem, so no caller of this can be made to block by a wedged
-    /// provider no matter how slow the underlying item is. Filling a miss is `load(for:)`'s job,
-    /// and that one suspends.
+    /// The only lookup a render pass may make. Pure memory: a miss returns nil rather than reaching
+    /// for the filesystem, so a wedged provider can never block a caller. Filling a miss is
+    /// `load(for:)`'s job, and that one suspends.
     func cached(for path: String) -> Entry? {
         guard self.path == path else { return nil }
         return Entry(metadata: metadata, icon: icon)
@@ -119,9 +104,9 @@ final class DetailsMetadataCache {
     /// An empty result (missing path) is memoized too, so an unavailable item doesn't get
     /// re-statted on every render.
     ///
-    /// If the load never comes back — the wedged-provider case — this simply never resumes. The
-    /// awaiting task stays suspended, holding no thread and blocking nothing; the card keeps
-    /// rendering whatever the caller already had. That is the intended degradation.
+    /// If the load never comes back (a wedged provider), this never resumes. The awaiting task
+    /// stays suspended, holding no thread and blocking nothing, and the card keeps rendering what
+    /// the caller already had. That is the intended degradation.
     ///
     /// The caller always gets the result of *its own* load. What is conditional is whether that
     /// result is adopted into the memo — see `requestedPath`.
@@ -146,18 +131,16 @@ final class DetailsMetadataCache {
         }
 
         // Reported whether or not the memo adopts this result: the stat really did fail, and
-        // `reportOnce` already collapses repeats per path. Same for clearing the warned mark —
-        // a successful read is news about the path regardless of which load observed it.
+        // `reportOnce` collapses repeats per path.
         if let failure = result.failure { reportOnce(failure, for: path) }
-        // A successful read clears the path's warned mark: whatever made it unreadable is
-        // over, so the NEXT failure is news again rather than a suppressed repeat.
+        // A successful read, from any load, clears the path's warned mark, so the next failure is
+        // news again rather than a suppressed repeat.
         if result.entry.metadata != nil { warnedPaths.remove(path) }
 
-        // Last REQUESTED wins, not last to come back. A superseded load still runs to completion
-        // (its Task is cancelled, but the queue block behind the continuation is not), and on a
-        // `.concurrent` queue it can land after the load that replaced it. Committing it here
-        // would memoize the previously-selected path while the inspector shows the current one,
-        // and would resurrect a pre-invalidation entry that `refreshOccurred()` had just dropped.
+        // Last requested wins, not last to come back. A superseded load still runs to completion
+        // (cancelling its Task doesn't stop the queue block), and on a `.concurrent` queue it can
+        // land after its replacement. Committing it would memoize the previous selection while the
+        // inspector shows the current one, or resurrect an entry `refreshOccurred()` just dropped.
         guard requestedPath == path, generation == startGeneration else { return result.entry }
 
         metadata = result.entry.metadata
@@ -182,10 +165,9 @@ final class DetailsMetadataCache {
         generation += 1
     }
 
-    /// A completed scan is the "pick up external changes" gesture: the panes rebuild from
-    /// fresh stats, so the memoized metadata must not survive it — the sidebar would keep
-    /// showing pre-scan size/dates and contradict the trees. Only `isScanning == false`
-    /// invalidates; a scan *starting* keeps the cache.
+    /// A completed scan is the "pick up external changes" gesture: the panes rebuild from fresh
+    /// stats, so the memo must not survive it, or the sidebar would show pre-scan sizes and dates
+    /// that contradict the trees. Only a scan finishing invalidates; one starting keeps the cache.
     func scanningChanged(_ isScanning: Bool) {
         if !isScanning {
             path = nil

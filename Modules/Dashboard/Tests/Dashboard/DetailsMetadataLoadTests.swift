@@ -2,24 +2,18 @@ import Testing
 import Foundation
 @testable import Dashboard
 
-/// Pins that the Details inspector's stat distinguishes "there is nothing to show" from "I was not
-/// allowed to look".
+/// Pins that the Details inspector's stat tells "nothing to show" from "not allowed to look". Both
+/// render as an empty card, so the failure must leave a breadcrumb, or a permissions or IO failure
+/// on a cloud path looks like an empty selection. Follows `FolderJump.siblings`, which surfaces
+/// the same class of failure.
 ///
-/// `loadMetadata` answers both with an empty `metadata`, and the inspector renders both as an empty
-/// card — so the failure case has to leave a breadcrumb, or a permissions/IO failure on a cloud path
-/// is indistinguishable from an empty selection with nothing recorded anywhere. Follows
-/// `FolderJump.siblings`, which surfaces the same class of failure to its caller.
-///
-/// This suite is deliberately **not** `@MainActor`. It used to have to be — `loadMetadata` was a
-/// static on a SwiftUI `View`, which isolates the whole type, so calling it off the main actor
-/// trapped at runtime. That isolation is exactly what froze the app: a `.task` closure inherits it,
-/// so the stat ran on the main thread and a wedged `getxattr` took the UI down with it. The loader
-/// is now `nonisolated`, and these tests running off the main actor is what holds that open — put
-/// the isolation back and this file stops compiling.
+/// **Not** `@MainActor`, on purpose: the loader must stay `nonisolated`. A `.task` closure inherits
+/// a `View`'s main-actor isolation, so an isolated loader would stat on the main thread and a
+/// wedged `getxattr` would freeze the UI. Put the isolation back and this file stops compiling.
 @Suite struct DetailsMetadataLoadTests {
 
-    /// An item that exists but whose attributes cannot be read — a locked folder, a cloud
-    /// placeholder that won't materialize, a volume that went away mid-read.
+    /// An item that exists but whose attributes can't be read: a locked folder, a cloud placeholder
+    /// that won't materialize, a volume that went away mid-read.
     private final class UnreadableAttributesFileManager: FileManager, @unchecked Sendable {
         override func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
             isDirectory?.pointee = ObjCBool(false)
@@ -39,10 +33,9 @@ import Foundation
             for: path,
             fileManager: UnreadableAttributesFileManager())
 
-        // The inspector still falls silent — the card has nothing to render and this is not worth
-        // failing a UI over — but the reason is no longer lost. It comes back in the return value
-        // rather than going to a log sink, because the loader now runs where no `@MainActor` sink
-        // can be reached; `DetailsMetadataCache` logs it, rate-limited per path.
+        // The card stays empty, but the reason comes back in the return value rather than going to
+        // a log sink, since the loader runs where no `@MainActor` sink can be reached.
+        // `DetailsMetadataCache` logs it, rate-limited per path.
         #expect(load.metadata == nil)
         // The two things a breadcrumb has to carry: which item, and why.
         #expect(load.failure?.contains(path) == true)
@@ -50,8 +43,8 @@ import Foundation
     }
 
     @Test func aPathThatIsSimplyNotThereIsNotReportedAsAFailure() {
-        // The common case by far: the selection cleared, or the item was just moved/deleted. That
-        // is not a failure and must not put a warning in the log every time it happens.
+        // The common case: the selection cleared, or the item was just moved or deleted. Not a
+        // failure, so no warning in the log.
         let load = DetailsSidebar.loadMetadata(for: "/no/such/path-\(UUID().uuidString)")
 
         #expect(load.metadata == nil)

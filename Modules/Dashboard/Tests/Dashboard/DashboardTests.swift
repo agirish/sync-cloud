@@ -5,19 +5,15 @@ import Foundation
 
 @Suite struct DashboardTests {
 
-    // testDetailsSidebarActivePathPriority and testSingleSourceInspectorIgnoresTheHiddenRightPane
-    // were removed 2026-08-22. `activePath` now DELEGATES the pane-selection rule to
-    // `CurrentSelection.primaryPanePath` (the fix DetailsActivePathAgreementTests exists for), so
-    // each branch those two walked is pinned at the resolver (CurrentSelectionTests, in Sync:
-    // left-wins, right-only, single-source, empty→nil) and the delegation plus fallback is pinned
-    // by the agreement suite. Of the tests below, the leftPath-empty fallback and `pruneSelection`
-    // have no other coverage; the multi-selection walk overlaps the same resolver pins and is kept
-    // only as an end-to-end read through the sidebar.
+    // `activePath` delegates the pane-selection rule to `CurrentSelection.primaryPanePath`, whose
+    // branches CurrentSelectionTests (in Sync) pins; DetailsActivePathAgreementTests pins the
+    // delegation. Below, the leftPath-empty fallback and `pruneSelection` have no other coverage;
+    // the multi-selection walk is an end-to-end read through the sidebar.
 
     @MainActor
     @Test func testDetailsSidebarFallbackToDestIfSourceEmpty() async throws {
         let manager = FileSyncManager()
-        // If source path is empty string for some reason (not likely in normal app use but testable)
+        // An empty source path, unlikely in the app but possible.
         let sidebar = DetailsSidebar(syncManager: manager, leftPath: "", rightPath: "/dst/fallback")
         
         #expect(sidebar.activePath == "/dst/fallback")
@@ -28,15 +24,13 @@ import Foundation
         let manager = FileSyncManager()
         let sidebar = DetailsSidebar(syncManager: manager, leftPath: "/src", rightPath: "/dst")
         
-        // Select multiple in Source
         manager.selectedLeftPaths = ["/src/a.txt", "/src/b.txt"]
-        // Select one in Dest
         manager.selectedRightPaths = ["/dst/c.txt"]
         
-        // activePath should favor the first element of Source selection
+        // activePath favours the alphabetically first Source item.
         #expect(sidebar.activePath == "/src/a.txt")
         
-        // Clear Source -> should favor Dest
+        // Source cleared: Dest wins.
         manager.selectedLeftPaths = []
         #expect(sidebar.activePath == "/dst/c.txt")
     }
@@ -49,14 +43,12 @@ import Foundation
         let folder = FileNode(id: "/src/folder", name: "folder", isDirectory: true, children: [file1])
         manager.leftTree = [folder]
         
-        // Select both folder and its child
         manager.selectedLeftPaths = ["/src/folder", "/src/folder/file1.txt"]
         
-        // Simulate "Move" or "Delete" that removes the folder
+        // A Move or Delete that removes the folder.
         manager.leftTree = []
         manager.pruneSelection()
         
-        // Both should be gone
         #expect(manager.selectedLeftPaths.isEmpty)
     }
 }

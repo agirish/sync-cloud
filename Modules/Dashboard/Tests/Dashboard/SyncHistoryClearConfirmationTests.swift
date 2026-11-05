@@ -6,10 +6,10 @@ import Events
 
 /// Pins that clearing the durable sync history asks first, and honours the answer.
 ///
-/// The trash button sat 34pt from the Export menu and wiped `~/sync-cloud-history.jsonl` on a
-/// single click — no alert, no undo. Its own siblings all confirm ("Undo Last Run" in this very
-/// toolbar, "Reset All Settings…" in Settings), and unlike the Activity Log, which rotates on its
-/// own and forgets on quit, this file is the only copy of the record.
+/// The trash button sits near the Export menu, and `~/sync-cloud-history.jsonl` is the only copy of
+/// the record (the Activity Log rotates and forgets on quit), so one click must not wipe it with
+/// no alert and no undo. Its siblings confirm too: "Undo Last Run" here, "Reset All Settings…" in
+/// Settings.
 @MainActor
 @Suite(.serialized) struct SyncHistoryClearConfirmationTests {
 
@@ -67,8 +67,8 @@ import Events
     }
 
     @Test func theViewTakesTheConfirmerAsASeam() {
-        // The initializer must keep accepting an injected answer — the property that makes the
-        // two tests above cover what the shipping button does, rather than a parallel code path.
+        // The initializer must keep accepting an injected answer, so the tests above cover what
+        // the shipping button does rather than a parallel code path.
         let (store, url) = makeStore()
         defer { try? FileManager.default.removeItem(at: url) }
         let view = SyncHistoryView(store: store, onUndoLastSyncRun: { nil }, confirmClearHistory: { false })

@@ -4,8 +4,8 @@ import SwiftUI
 import Design
 @testable import Dashboard
 
-/// RD46.9 — the folder sidebar hosts two selection lenses, one for the current place and one for
-/// the current folder: in Frosted and Clear each lands exactly where Solid draws that row's wash.
+/// The folder sidebar hosts two selection lenses, one for the current place and one for the current
+/// folder: in Frosted and Clear each lands exactly where Solid draws that row's wash.
 ///
 /// Two, because two rows can be current at once, and this suite pins that too: with both a place
 /// and a folder current, the probe covers both rows. Rendered with the lens probe (glass draws
@@ -111,11 +111,10 @@ import Design
         Self.expectSame(markers, Self.boxes(Self.render(view, appearance: Self.probe), Pixel.lensProbe))
     }
 
-    /// **A dimmed current row's lens dims with it.** A place that stopped answering is drawn at
-    /// 0.45; today's wash sits inside the row and fades with it, but the lens is drawn by the host,
-    /// outside the row, and was full strength over a faded label until the host was told. Read as
-    /// the probe's face: full magenta on an available place, faded toward white on an unavailable
-    /// one — at the row's own place.
+    /// A dimmed current row's lens dims with it. A place that stopped answering is drawn at 0.45;
+    /// the wash sits inside the row and fades with it, but the lens is drawn by the host outside the
+    /// row, so the host must be told. Read as the probe's face at the row's place: full magenta when
+    /// available, faded toward white when not.
     @Test(.machinePinned(.pixelSampling))
     func aDimmedPlacesLensDimsWithIt() throws {
         let live = Self.render(Self.sidebar(folder: "", source: "loc1"), appearance: Self.probe)
@@ -142,9 +141,8 @@ import Design
                 "the unopenable folder's lens reads \(face), not the probe at 0.4")
     }
 
-    /// **A favourited place dims its lens too.** A cloud account or a disk the user has put in
-    /// Favorites is drawn there, not in Locations — and the lens's dimming looked in Locations only,
-    /// so a favourited place that stopped answering wore a full-strength lens over its faded row.
+    /// A favourited place dims its lens too. A cloud account or disk in Favorites is drawn there,
+    /// not in Locations, so the lens's dimming must look in Favorites as well.
     @Test(.machinePinned(.pixelSampling))
     func aFavouritedPlaceThatStoppedAnsweringDimsItsLens() throws {
         let live = Self.render(Self.sidebar(folder: "", source: "fav", shortcuts: Self.favouritePlace(available: true)),

@@ -4,13 +4,11 @@ import SwiftUI
 
 /// One thing that can sit on a pane's bar.
 ///
-/// The bar used to be a hard-coded `HStack` welded to the trailing edge by `margin-left: auto`'s
-/// SwiftUI equivalent (a `Spacer` outside it), which meant no control could ever move left. It is now
-/// a *track* running the full width of the pane, and this is its alphabet:
-/// an arrangement is an ordered list of these, and the trailing-edge look is produced by a
-/// `flexibleSpace` at the head of the list rather than by the layout being incapable of anything else.
+/// The bar is a track running the full width of the pane, and this is its alphabet: an arrangement
+/// is an ordered list of these, and a `flexibleSpace` pushes what follows it toward the trailing
+/// edge.
 ///
-/// Raw values are persisted — **append new cases, never renumber or rename**, or every stored
+/// Raw values are persisted: **append new cases, never renumber or rename**, or every stored
 /// arrangement silently drops the item that changed.
 public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
     case viewMode
@@ -20,32 +18,24 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
     case newFolder
     case sort
     case hiddenFiles
-    // `preview` was here: the pane's own preview toggle, retired when the preview moved into the
-    // Info inspector (TE317 C). Its raw value stays out of use. A stored arrangement that still
-    // lists it reads it as an unknown token — off the bar, carried through `encoded` — so a
-    // maintenance-line build sharing these defaults keeps its button.
+    // The raw value `preview` is retired (the pane's old preview toggle) and must not be reused. A
+    // stored arrangement that lists it reads it as an unknown token, off the bar but carried
+    // through `encoded`, so a maintenance-line build sharing these defaults keeps its button.
     case space
     case flexibleSpace
-    /// Appended LAST, per the rule above — the raw values are persisted, so an existing bar keeps
-    /// every item it had. A stored arrangement predates this case and therefore does not carry it,
-    /// which is what `PaneBarMigration` exists to correct; ⋯ does not, because ⋯ carries only what
-    /// this rung folded. ⌘F opens the field either way, so a bar without it is a bar missing a
-    /// button, not an ability.
+    /// Appended last, per the rule above. A stored arrangement older than this case lacks it, which
+    /// `PaneBarMigration` corrects; ⋯ doesn't, since it carries only what a rung folded. ⌘F opens
+    /// the field either way, so a bar without it is missing a button, not an ability.
     case search
-    /// Appended last, per the rule above, and deliberately NOT added to `PaneBarMigration`.
-    ///
-    /// Search's migration exists because a discoverable affordance was landing invisible for
-    /// everyone who had ever opened the customize sheet. That reasoning does not transfer to a
-    /// destructive control: pushing Delete onto a bar someone arranged is the thing that mechanism
-    /// makes possible, not the thing it exists to do. So a bar arranged before this case simply
-    /// does not carry it — and does not offer it in ⋯ either, since ⋯ stopped standing in for a
-    /// bar someone had not opted into. The row menu's Delete and ⌘⌫ were reaching the same act all
-    /// along, which is why this control can afford to wait to be added deliberately.
+    /// Appended last, per the rule above, and deliberately not added to `PaneBarMigration`: pushing
+    /// a destructive control onto a bar someone arranged is not what migration is for. A bar
+    /// arranged before this case lacks it, and ⋯ doesn't offer it. The row menu's Delete and ⌘⌫
+    /// reach the same act, so this control can wait to be added deliberately.
     case delete
-    /// Appended last, per the rule above. **Filter by Type** (RD70): the pane shows only the file
-    /// types ticked in its list, keeping every folder that holds one. Unlike Delete it IS migrated
-    /// onto bars arranged before it existed (`PaneBarMigration` v2, decision FK), for Search's
-    /// reason: it is a harmless way of looking, and a customized bar would otherwise never see it.
+    /// Appended last, per the rule above. Filter by Type: the pane shows only the file types ticked
+    /// in its list, keeping every folder that holds one. Unlike Delete it is migrated onto older
+    /// bars (`PaneBarMigration` step 2), for Search's reason: it is a harmless way of looking, and a
+    /// customized bar would otherwise never see it.
     case typeFilter
 
     public var id: String { rawValue }
@@ -54,11 +44,8 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
     /// as duplicates, and (for `flexibleSpace`) cost no width to keep.
     public var isSpacer: Bool { self == .space || self == .flexibleSpace }
 
-    /// The one item that can be neither removed nor folded.
-    ///
-    /// Scan is the pane's only scan control — the freshness badge that used to carry it became a
-    /// toggle, so it cannot also be the scan button. A bar without this is a pane that can never be
-    /// scanned, which is a broken pane rather than a customized one.
+    /// The one item that can be neither removed nor folded. Scan is the pane's only scan control,
+    /// so a bar without it is a pane that can never be scanned: broken, not customized.
     public static let pinned: PaneBarItem = .scan
 
     public var isRemovable: Bool { self != Self.pinned }
@@ -84,15 +71,13 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
     /// The word drawn under this item's pill in `PaneBarLabelMode.iconAndText`.
     ///
     /// Separate from `displayName`, which the palette and the ⋯ menu keep, because a menu row has
-    /// the width for "Collapse Pane" (43pt of text) and a 33pt pill does not. The two describe the
-    /// same control at two lengths; neither is a translation of the other.
+    /// room for "Collapse Pane" and a 33pt pill doesn't. The same control at two lengths.
     ///
-    /// **A title says what the control IS, not what state it is in.** Hidden Files keeps one word
-    /// while its eye swaps open and slashed, because the glyph is what carries the state and a word
-    /// that changed with it would say the same thing twice — and, being measured type, would move
-    /// every item to its left on each click. Scan is the exception that proves the rule: mid-scan
-    /// the control is a different *act*, not the same act in a different state, so `ScanRungMode`
-    /// supplies "Stop" in place of this. See `titleVariants`.
+    /// A title says what the control is, not its state. Hidden Files keeps one word while its eye
+    /// swaps open and slashed: the glyph carries the state, and a word that changed with it would
+    /// say it twice and, being measured type, shift every item to its left on each click. Scan is
+    /// the exception, because mid-scan it does a different act, so `ScanRungMode` supplies "Stop".
+    /// See `titleVariants`.
     public var barTitle: String {
         switch self {
         case .viewMode: return "View"
@@ -111,27 +96,17 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
 
     /// Every title this item can ever draw, so the ladder can reserve the widest of them.
     ///
-    /// A bar item is as wide as the wider of its pill and its word, so an item whose word changes
-    /// could change width under the cursor and shift everything to its left. Today it cannot —
-    /// "Scan" is 24.5pt and "Stop" 23pt, both inside the 33pt pill, so the reservation costs
-    /// nothing. It exists so that a longer pair chosen later is absorbed by the layout instead of
-    /// introducing that movement silently.
+    /// An item is as wide as the wider of its pill and its word, so a word that changes could change
+    /// width under the cursor and shift everything to its left. "Scan" and "Stop" both fit inside
+    /// the 33pt pill today, so this costs nothing; it absorbs a longer pair chosen later.
     public var titleVariants: [String] {
         self == .scan ? [barTitle, ScanRungMode.stopTitle] : [barTitle]
     }
 
-    /// **The pane-collapse glyph, in one place because it was in three and had to stop being
-    /// `sidebar.left`.**
-    ///
-    /// That is the glyph the window's own sidebar toggle wears (`ContentView+Toolbar`'s Sidebar
-    /// item), and once the folder sidebar shipped the two sat about forty points apart down the
-    /// same edge, wearing the same mark for two different acts: one shows the folder column, the
-    /// other folds this pane back into the spine. Reported 2026-08-29 as exactly that confusion.
-    ///
-    /// **Not a plain `chevron.left`**, which is what a "<" would be — the Back button is `chevron.left`
-    /// and it is the pill immediately to the right of this one, so that trade swaps a collision at
-    /// forty points for one at eight. `arrow.left.to.line` keeps the leftward reading, says which
-    /// edge the pane folds into, and shares its silhouette with neither neighbour.
+    /// The pane-collapse glyph, in one place. Not `sidebar.left`, which the window's sidebar toggle
+    /// (`ContentView+Toolbar`) wears a short way down the same edge for a different act, and not
+    /// `chevron.left`, which Back wears on the pill right beside it. `arrow.left.to.line` reads
+    /// leftward, says which edge the pane folds into, and matches neither neighbour.
     public static let collapseSymbol = "arrow.left.to.line"
 
     /// The Filter button's glyph; filled while a filter is on, so the state rides in the glyph the
@@ -157,12 +132,8 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         }
     }
 
-    // `pillCount` was here — 2 for the paired items, 0 for a flexible space — written for a fold
-    // arithmetic that in the end never needed it: `ViewThatFits` measures the real views, so nothing
-    // ever asked this type how wide it thinks it is. It went for the same reason
-    // `PaneNavMetrics.clusterWidth` did in the commit that introduced this file: a number describing
-    // layout that no layout reads is a claim nothing checks, and the first time it disagreed with the
-    // pills on screen there would be no test to notice.
+    // No width lives on the item: `PaneBarLayout.width(of:pill:compactsViewMode:)` prices each one
+    // from the constants the drawing code uses, so a layout number can't drift from the pills.
 }
 
 /// The persisted order of a pane bar: which items are on it, and where.
@@ -174,68 +145,37 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
 public struct PaneBarArrangement: Equatable, Sendable {
     public private(set) var items: [PaneBarItem]
 
-    /// Tokens in the stored string that no case of THIS build's `PaneBarItem` names — a newer
-    /// build's controls, seen after a downgrade, or a retired one (`preview`) an older build wrote.
-    /// Never drawn, never offered, never counted against
-    /// `maxItems`; their whole job is to ride through `encoded` so that the customize sheet's
-    /// write-back does not destroy them. Without this, `init(encoded:)`'s downgrade-survival
-    /// promise held only until the first edit: `PaneBarCustomizeSheet.commit` writes the re-encoded
-    /// arrangement over the stored one, so downgrade → edit → re-upgrade silently lost whatever the
-    /// older build could not name. Carried at the tail rather than in place — the known items get
-    /// inserted, removed and reordered, so original positions stop meaning anything the moment the
-    /// sheet is used. A NEWER build's control is re-placed by that build's own normalizer on its
-    /// next read. A RETIRED one is not: the older build that still has it draws it where it now
-    /// sits, at the end of its bar — and a bar first written by this build (one never customized
-    /// before) carries no `preview` at all, so an older build sharing these defaults shows its
-    /// Preview button only if its own migration puts it back. Neither is a loss this build can see.
+    /// Tokens in the stored string that no case of this build's `PaneBarItem` names: a newer build's
+    /// controls seen after a downgrade, or a retired one (`preview`) an older build wrote. Never
+    /// drawn, offered or counted against `maxItems`; they ride through `encoded` so the customize
+    /// sheet's write-back (`PaneBarCustomizeSheet.commit`) doesn't destroy them. Without this, a
+    /// downgrade, an edit and a re-upgrade would lose whatever the older build couldn't name.
     ///
-    /// Not part of what the bar IS for this build: `==` still compares them (two stored strings
-    /// that differ are different values), but "is this the shipped bar" is `drawsTheDefault`, which
-    /// reads the items alone — see `restoredToDefault`.
+    /// Carried at the tail, since edits make original positions meaningless. A newer build re-places
+    /// its own control on its next read. A retired one is drawn by the older build at the end of its
+    /// bar, and a bar this build wrote from scratch carries no `preview` at all.
     ///
-    /// Bounded like `items`: a corrupt or hand-edited value does not get to smuggle an unbounded
-    /// payload that every later write faithfully re-persists.
+    /// `==` still compares them (two stored strings that differ are different values), but "is this
+    /// the shipped bar" is `drawsTheDefault`, which reads the items alone (see `restoredToDefault`).
+    /// Bounded like `items`, so a corrupt value can't smuggle in a payload every write re-persists.
     private var unknownTokens: [String] = []
 
-    /// A ceiling on how long a bar can get. Not a UI limit anyone will hit with the palette — it
-    /// bounds what a corrupt or hand-edited defaults value can do to the layout ladder.
-    ///
-    /// Load-bearing beyond that: the ladder's depth is bounded BY this number.
-    ///
-    /// It used to be load-bearing in a sharper way — `PaneHeader` searched its ladder with a
-    /// `ViewThatFits`, which needs one *literal* child per rung, so a `searchedSlotCount` derived
-    /// from this constant had to match the view's literal count or the ladder was silently short a
-    /// rung. Both are gone: the header computes its rung at every width now, and a computed rung has
-    /// no count to keep in step.
+    /// A ceiling on how long a bar can get. Not a limit the palette will hit: it bounds what a
+    /// corrupt or hand-edited defaults value can do, and with it the ladder's depth.
     public static let maxItems = 16
 
-    /// The controls in the order they have always been drawn, with Search at the trailing end,
-    /// **packed against the leading edge**.
+    /// The controls in their standard order, packed against the leading edge, so the bar starts
+    /// where the breadcrumb below it starts.
     ///
-    /// It opened with a `flexibleSpace`, and that space was the whole of what pinned the bar to the
-    /// trailing edge. It existed because the provider capsule held the leading one. With the capsule
-    /// retired the bar has the row to itself, and a leading space would park every control against
-    /// the far edge of an otherwise empty track — so it goes, and the bar starts where the
-    /// breadcrumb below it starts.
+    /// Only the default: a stored arrangement is read back verbatim, spaces and all, and
+    /// `PaneBarMigrationTests` checks that a change to the default doesn't rewrite a customized bar.
+    /// An item reaches the bar only if the host offers it (`resolved(available:)`), so a header with
+    /// no search bindings or delete handler builds its bar without Search or Delete.
     ///
-    /// **Only the default.** A stored arrangement is read back verbatim, space and all: that list is
-    /// the user's answer to this question, not this one, and `PaneBarMigrationTests` pins that a
-    /// customized bar is not rewritten by a change to the shipped default.
-    ///
-    /// Search joining the list does not disturb them, and the reason is worth stating: an item only
-    /// reaches the bar if the HOST offers it (`resolved(available:)`), and a header with no search
-    /// bindings does not. Every existing caller — the two header tests, the snapshots, the ladder
-    /// suite — therefore builds precisely the bar it built before. Only the app's own panes, which
-    /// do pass bindings, gain the pill.
-    ///
-    /// Trailing end, and deliberately: it is where `ExpandingSearchToggle` sits on every other
-    /// surface in the app, and the shedding order is right-to-left — so the narrowest pane gives up
-    /// the magnifier first, which is the one control here that has a keyboard equivalent.
-    /// Delete joins on the same terms Search did, and the same sentence above covers it: a header
-    /// that passes no delete handler does not offer it, so every existing caller still builds
-    /// precisely the bar it built before. It sits before Search rather than after because the
-    /// shedding order is right-to-left and the magnifier is the one control here with a keyboard
-    /// equivalent — Delete's own chord (⌘⌫) is Compare-only, so it is not the cheapest to lose.
+    /// Search is last, where `ExpandingSearchToggle` sits on every other surface, and shedding runs
+    /// right to left, so the narrowest pane gives up the magnifier first: it is the one control
+    /// here with a keyboard equivalent everywhere. Delete sits before it, since its ⌘⌫ is
+    /// Compare-only.
     public static let `default` = PaneBarArrangement([
         .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
         .delete, .typeFilter, .search
@@ -273,20 +213,17 @@ public struct PaneBarArrangement: Equatable, Sendable {
     /// after the items, so a downgrade's edits round-trip them back to disk.
     public var encoded: String { (items.map(\.rawValue) + unknownTokens).joined(separator: ",") }
 
-    /// Unknown tokens are dropped from the BAR, not rejected — and carried through `encoded`, not
-    /// discarded: both halves are what make a bar arranged on a newer build survive a downgrade
-    /// instead of resetting to the default. Dropping them from the bar alone only survived the
-    /// *reading*; the first edit on the older build wrote the pruned list back, and the newer
-    /// build's control was gone for good.
+    /// Unknown tokens are dropped from the bar, not rejected, and carried through `encoded`, not
+    /// discarded. Both halves are needed for a bar arranged on a newer build to survive a downgrade
+    /// and an edit on the older build.
     public init(encoded: String) {
         let tokens = encoded.split(separator: ",").map(String.init)
         self.init(tokens.compactMap { PaneBarItem(rawValue: $0) })
         unknownTokens = Array(tokens.filter { PaneBarItem(rawValue: $0) == nil }.prefix(Self.maxItems))
     }
 
-    /// Whether this draws the shipped bar. The items alone: a bar carrying a token for another
-    /// build looks exactly like the default here, and Restore offered against it changed nothing on
-    /// screen and logged "reordered" while it silently dropped the token.
+    /// Whether this draws the shipped bar. The items alone: a bar carrying another build's tokens
+    /// draws exactly the default, and a Restore against it would change nothing on screen.
     public var drawsTheDefault: Bool { items == Self.default.items }
 
     /// The shipped bar, still carrying this one's tokens for other builds. Restore resets what this
@@ -308,8 +245,8 @@ public struct PaneBarArrangement: Equatable, Sendable {
         items.remove(at: index)
     }
 
-    /// Inserts at `index`, clamped. A non-spacer already on the bar MOVES rather than duplicating —
-    /// dragging Sort from the palette onto a bar that already has Sort should not give you two.
+    /// Inserts at `index`, clamped. A non-spacer already on the bar moves rather than duplicating:
+    /// dragging Sort from the palette onto a bar that has Sort shouldn't give you two.
     public mutating func insert(_ item: PaneBarItem, at index: Int) {
         var target = min(max(index, 0), items.count)
         if !item.isSpacer, let existing = items.firstIndex(of: item) {
@@ -331,8 +268,8 @@ public struct PaneBarArrangement: Equatable, Sendable {
         items.insert(item, at: clamped > index ? clamped - 1 : clamped)
     }
 
-    /// One step left or right, for the keyboard path. Drag is the expected gesture, but it cannot be
-    /// the only one — VoiceOver and keyboard users get the same reach through the sheet's buttons.
+    /// One step left or right, for the keyboard path. Drag is the expected gesture but can't be the
+    /// only one: VoiceOver and keyboard users get the same reach through the sheet's buttons.
     public mutating func nudge(_ index: Int, by offset: Int) {
         let destination = index + offset
         guard items.indices.contains(index), items.indices.contains(destination) else { return }
@@ -341,14 +278,11 @@ public struct PaneBarArrangement: Equatable, Sendable {
 
     // MARK: Queries
 
-    // `absent(from:)` used to live here: the available items this bar does not carry, appended to
-    // every ⋯ so that "a removal costs a pill and never an ability". It is gone, and with it that
-    // rule — see `PaneBarLayout.plan`. Nothing replaced it, because nothing needs to: the customize
-    // sheet's palette offers every removable control from `PaneBarCustomizeSheet.palette`, which is
-    // where a control you took off is got back from.
+    // A control taken off the bar comes back from the customize sheet's palette
+    // (`PaneBarCustomizeSheet.palette`), not from ⋯, which holds only what a rung folded.
 
-    /// The arrangement restricted to what this host can actually offer — a header with no view-mode
-    /// binding has no View control to place.
+    /// The arrangement restricted to what this host can offer: a header with no view-mode binding
+    /// has no View control to place.
     public func resolved(available: [PaneBarItem]) -> [PaneBarItem] {
         items.filter { $0.isSpacer || available.contains($0) }
     }
@@ -358,53 +292,37 @@ public struct PaneBarArrangement: Equatable, Sendable {
 public struct PaneBarLayoutPlan: Equatable, Sendable {
     /// Left to right, spacers included.
     public let visible: [PaneBarItem]
-    /// Controls that folded away at this rung, plus anything removed from the bar entirely. This is
-    /// the ⋯ menu's contents; empty means no ⋯ pill at all.
+    /// Controls that folded away at this rung: the ⋯ menu's contents. Empty means no ⋯ pill at all.
     public let overflow: [PaneBarItem]
     /// At the last rung the Tree|Columns switch stops being a two-segment control and becomes one
-    /// pill whose menu holds the alternatives — the same compaction the hard-coded ladder did at its
-    /// `.all` fold. It compacts rather than folding because that is what makes the deepest rung
-    /// exactly as wide as it was before the bar became arrangeable, which is what keeps the 250pt
-    /// pane picking the same rung and showing the same number of provider-name characters.
+    /// pill whose menu holds the alternatives. It compacts rather than folding, so the switch
+    /// stays on the bar at the narrowest rung, one pill wide.
     public let compactsViewMode: Bool
 }
 
 public enum PaneBarLayout {
     /// Items the ladder will not take away, however narrow the pane gets.
     ///
-    /// Scan is the pane's only scan control; Back/Forward is the pane's only in-place navigation.
-    /// A pane that can move and rescan is still a pane — one that can do neither is a dead end, and
-    /// no amount of narrowness justifies producing one. Everything else is negotiable and goes to ⋯.
+    /// Scan is the pane's only scan control, and Back/Forward its only in-place navigation. A pane
+    /// that can do neither is a dead end, however narrow. Everything else may go to ⋯.
     static let floor: Set<PaneBarItem> = [.scan, .backForward]
 
-    /// Sheds `depth` items from the bar and reports what is left.
+    /// Sheds `depth` items from the bar and reports what is left. The order follows the user's own
+    /// arrangement:
     ///
-    /// Shedding order is the whole point of the ladder, and it now follows the user's own arrangement
-    /// instead of a hard-coded "sort and hidden files first":
+    /// 1. Fixed spaces first, right to left. They are pure air.
+    /// 2. Then controls, right to left, skipping the floor and the view switch. Whatever you put
+    ///    last is what a cramped pane gives up first, so the arrangement is a priority list.
+    /// 3. Then the view switch compacts to a single menu pill, as the last thing tried.
+    /// 4. Flexible spaces never shed: they cost nothing, and dropping one would move everything
+    ///    else on the bar.
     ///
-    /// 1. **Fixed spaces go first**, right to left. They are pure air; giving one up costs no ability.
-    /// 2. **Then controls, right to left**, skipping the floor and the view switch. Whatever you put
-    ///    last is what a cramped pane gives up first — which makes the arrangement a priority list
-    ///    without anyone having to say so.
-    /// 3. **Then the view switch compacts** to a single menu pill, as the last thing tried.
-    /// 4. **Flexible spaces never shed** — they already cost nothing, and dropping one would move
-    ///    everything else on the bar just as the pane got too small to absorb it.
+    /// A `depth` past the end sheds everything sheddable, which the ladder's last rung asks for.
     ///
-    /// A `depth` past the end simply sheds everything sheddable, which is what the ladder's last rung
-    /// asks for.
-    ///
-    /// **The overflow is what this rung folded, and nothing else.** It used to also carry every
-    /// available control the arrangement did not place — "a removal costs a pill and never an
-    /// ability" — and that made ⋯ two menus wearing one glyph: controls the pane is too narrow to
-    /// draw, and controls you had deliberately taken off the bar. The second half handed back what
-    /// the customize sheet had just been used to remove, so removing a control did not remove it;
-    /// it only moved it somewhere less convenient than where it had been.
-    ///
-    /// The cost of dropping it, stated plainly: a control that ships in a later release is absent
-    /// from every stored arrangement and now lands **nowhere** rather than in ⋯. `PaneBarMigration`
-    /// is what puts it on the bar, and it is no longer a special measure for a headline affordance —
-    /// it is the only route a new control has to a bar someone has customized. See `PaneBarItem`'s
-    /// `delete` for the one case that deliberately declines it, and why it can afford to.
+    /// The overflow is what this rung folded and nothing else, never controls the user took off
+    /// the bar, or removing a control would only move it into ⋯. So a control that ships later
+    /// reaches a customized bar only through `PaneBarMigration` (see `PaneBarItem.delete` for the
+    /// one that declines).
     public static func plan(arrangement: PaneBarArrangement,
                             available: [PaneBarItem],
                             depth: Int) -> PaneBarLayoutPlan {
@@ -419,8 +337,8 @@ public enum PaneBarLayout {
         }
         let requested = max(depth, 0)
         let shed = Set(sheddable.prefix(requested))
-        // The view switch compacts only once everything sheddable has already gone — it is the last
-        // rung, not an early economy.
+        // The view switch compacts only once everything sheddable has gone: it is the last rung,
+        // not an early economy.
         let compacts = requested > sheddable.count && placed.contains(.viewMode)
 
         var visible: [PaneBarItem] = []
@@ -437,9 +355,8 @@ public enum PaneBarLayout {
                                  compactsViewMode: compacts)
     }
 
-    /// The deepest rung that changes anything for this arrangement. Past it, `plan` is idempotent —
-    /// which is why the header can declare a fixed number of `ViewThatFits` variants and let the
-    /// surplus ones be duplicates.
+    /// The deepest rung that changes anything for this arrangement. Past it `plan` is idempotent,
+    /// and `PaneBarLadder` ends its ladder there.
     public static func maxDepth(arrangement: PaneBarArrangement, available: [PaneBarItem]) -> Int {
         let placed = arrangement.resolved(available: available)
         let sheddable = placed.filter { $0 == .space || (!$0.isSpacer && $0 != .viewMode && !floor.contains($0)) }
@@ -449,12 +366,11 @@ public enum PaneBarLayout {
     // MARK: The ladder
 
     /// Whether a 6pt gap belongs before `index`. Not before the first item, and never on either side
-    /// of a flexible space — the space is already the separation, and charging for a gap next to it
-    /// is what made the bar wider than the one it replaced.
+    /// of a flexible space, which is already the separation.
     ///
-    /// Lives here, beside `width(of:controlSize:)`, rather than next to the `HStack` that draws it:
-    /// the drawn bar and the measured bar must place gaps by the *same* rule or the arithmetic that
-    /// picks a rung is quietly describing a different bar than the one on screen.
+    /// Here, beside `width(of:controlSize:)`, rather than next to the `HStack` that draws it: the
+    /// drawn bar and the measured bar must place gaps by the same rule, or the arithmetic that picks
+    /// a rung describes a different bar than the one on screen.
     static func needsGap(before index: Int, in items: [PaneBarItem]) -> Bool {
         guard index > 0 else { return false }
         return items[index] != .flexibleSpace && items[index - 1] != .flexibleSpace
@@ -462,13 +378,13 @@ public enum PaneBarLayout {
 
     /// The laid-out width of one item, at the pill size of the rung drawing it.
     ///
-    /// Every figure here is the arithmetic of the view that draws the item in `PaneHeader.barItem`,
-    /// expressed in the same `PaneNavMetrics` constants those views use — not a second opinion about
-    /// them. `PaneBarLadderTests.everyItemMeasuresWhatItDraws` pins each one against the hosted view.
+    /// Every figure is the arithmetic of the view that draws the item in `PaneHeader.barItem`, in
+    /// the same `PaneNavMetrics` constants. `PaneBarLadderTests.everyItemMeasuresWhatItDraws` pins
+    /// each one against the hosted view.
     static func width(of item: PaneBarItem, pill: CGSize, compactsViewMode: Bool) -> CGFloat {
         switch item {
-        // A `Spacer(minLength: 0)`. It is what pins the bar to the trailing edge, and it costs the
-        // bar's *minimum* width nothing — which is exactly the width a rung is chosen by.
+        // A `Spacer(minLength: 0)`: it costs the bar's minimum width nothing, and the minimum width
+        // is what a rung is chosen by.
         case .flexibleSpace:
             return 0
         case .space:
@@ -482,10 +398,9 @@ public enum PaneBarLayout {
         // One item, two pills — they move and fold together, so they measure together.
         case .backForward:
             return 2 * pill.width + PaneNavMetrics.pairSpacing
-        // Search draws the same plain nav pill as its neighbours rather than Design's
-        // `ExpandingSearchToggle`, which sizes itself from a bare 13pt glyph. A pill among pills is
-        // what the bar looks like, and it keeps this arithmetic one line instead of a second opinion
-        // about a glyph's intrinsic width.
+        // Search draws the same plain nav pill as its neighbours, not Design's
+        // `ExpandingSearchToggle`, which sizes itself from a bare 13pt glyph, so it measures as one
+        // pill.
         case .collapse, .scan, .newFolder, .sort, .hiddenFiles, .search, .delete, .typeFilter:
             return pill.width
         }
@@ -493,12 +408,9 @@ public enum PaneBarLayout {
 
     /// The width of one item once its title is taken into account.
     ///
-    /// An item is as wide as **the wider of its pill and its word** — most words are narrower than
-    /// the 33pt pill and cost nothing at all ("Sort" is 21pt, "Delete" 32pt); only New Folder,
-    /// Search, Hidden and the Back/Forward pair are ever the binding half.
-    ///
-    /// The widest of `titleVariants`, not the current title: see there for why an item whose word
-    /// can change reserves room for the longest of them.
+    /// An item is as wide as the wider of its pill and its word. Most words are narrower than the
+    /// 33pt pill and cost nothing; only New Folder, Search, Hidden and the Back/Forward pair are
+    /// ever the binding half. Uses the widest of `titleVariants` (see there).
     @MainActor
     static func titledWidth(of item: PaneBarItem, pill: CGSize, compactsViewMode: Bool,
                             scale: CGFloat) -> CGFloat {
@@ -512,20 +424,15 @@ public enum PaneBarLayout {
 
     /// The laid-out width of a whole rung, gaps and ⋯ included.
     ///
-    /// This is the number `ViewThatFits` used to discover by building the rung and measuring it. It
-    /// is arithmetic now because building ten candidate bars per layout pass, twice per window, was
-    /// the pane header's dominant main-thread cost.
+    /// Arithmetic rather than building candidate bars and measuring them, which was the pane
+    /// header's dominant main-thread cost.
     ///
-    /// `titled` prices the same rung with a word under every pill. The ⋯ is deliberately *not*
-    /// widened by it: it takes no title (Finder labels its Action menu, but our analogue is
+    /// `titled` prices the same rung with a word under every pill. The ⋯ takes no title (like
     /// Finder's unlabelled `»` overflow), so it stays a pill wide in both modes.
     @MainActor
-    /// `titled` has **no default**, deliberately. It used to, and while the gap was one constant
-    /// that was harmless — every rung was priced identically. Now that the gap depends on it, a
-    /// caller that forgets the argument prices a titled bar's 8pt gaps at 6 with no type error and
-    /// no loud symptom (the bar over-compacts, or overruns its trailing edge). One production
-    /// caller exists, `PaneBarLadder.width(forRung:)`; requiring the argument turns the whole class
-    /// of mistake into a compile error rather than a layout that is quietly a few points wrong.
+    /// `titled` has **no default**: the gap depends on it, so a caller that forgot it would price a
+    /// titled bar's 8pt gaps at 6 with no type error, and the bar would quietly over-compact or
+    /// overrun its trailing edge. The one production caller is `PaneBarLadder.width(forRung:)`.
     public static func width(of plan: PaneBarLayoutPlan, controlSize: ControlSize,
                              titled: Bool, scale: CGFloat = 1) -> CGFloat {
         let pill = PaneNavMetrics.pill(controlSize)
@@ -546,27 +453,15 @@ public enum PaneBarLayout {
 
     /// The tallest thing on a rung.
     ///
-    /// Every control is exactly a pill tall, the view switch included. It used to be 6pt taller —
-    /// its two segments sat on a ground with `segmentPadding` on *all four* edges — and nothing
-    /// showed it, because a 34pt provider capsule stood beside the bar and set the header's row
-    /// height while a resting pill is barely tinted. Titles are what made it matter: a title hangs on
-    /// a baseline below its control, so a 26pt switch put its word 6pt below every other word and
-    /// took the row to 40pt, over the 34pt budget. The capsule is retired and the bar is alone on
-    /// its row now — which means this arithmetic is no longer merely tidy, it is what the row's own
-    /// reservation is computed from (`PaneHeader.tallestRungHeight`).
+    /// Every control is exactly a pill tall, the view switch included: its ground has no vertical
+    /// padding (see `PaneHeader.viewModeSwitch`), as Finder's segmented controls are no taller than
+    /// its plain ones. A titled switch that stood taller would hang its word below every other word
+    /// and push the row over budget. The row's reservation is computed from this
+    /// (`PaneHeader.tallestRungHeight`).
     ///
-    /// The ground stays; its *vertical* padding is what went (see `PaneHeader.viewModeSwitch`).
-    /// Finder's toolbar is the precedent — its segmented controls are not taller than its plain
-    /// ones, every ground is one height and every title sits on one baseline. Applied in both
-    /// modes, because the switch out-topping its neighbours is an inconsistency that predates
-    /// titles rather than one they introduce.
-    ///
-    /// `titled` has **no default**, for the reason `width(of:)` lost its own: a caller that forgets
-    /// the argument prices a titled row at bare pill height — no type error and no loud symptom,
-    /// just a row measured short of the words it is drawing, which is a clipped title or a header
-    /// that thinks it has room it does not. One production caller exists,
-    /// `PaneBarLadder.height(forRung:)`; requiring the argument turns the whole class of mistake
-    /// into a compile error rather than a layout that is quietly wrong.
+    /// `titled` has **no default**, for `width(of:)`'s reason: forgotten, it would price a titled
+    /// row at bare pill height with no type error, clipping the words or claiming room the header
+    /// lacks. The one production caller is `PaneBarLadder.height(forRung:)`.
     @MainActor
     public static func height(of plan: PaneBarLayoutPlan, controlSize: ControlSize,
                               titled: Bool, scale: CGFloat = 1) -> CGFloat {
@@ -580,47 +475,30 @@ public enum PaneBarLayout {
 /// The pane bar's narrow-pane ladder: every layout the bar can step down through, widest first, and
 /// the arithmetic that says which one a given width gets.
 ///
-/// The header used to hand every rung to `ViewThatFits` and let it search. That works, but
-/// `ViewThatFits` *builds every child to measure it* — ten full bars of up to eight hover-affordance
-/// controls each, twice over for two panes, on every layout pass. Measured with
-/// `MainThreadHitchMonitor` while opening and closing Settings three times, that search cost 4,805 ms
-/// of main-thread work and an 831 ms worst-case stall; cutting the ladder to a single rung took the
-/// same interaction to 1,002 ms and 175 ms.
-///
-/// The provider-less header kept searching for a while after that, on the reasoning that it had no
-/// computed rung to hand over: with no provider capsule to be the taller thing in the row, the bar
-/// was the row's own height authority, and a container pinned to one rung's height would report the
-/// wrong height for every other rung. Reserving the TALLEST rung instead of the narrowest removed
-/// that, and the branch went with it — measured first, across 250-900pt at three text sizes: the
-/// two paths pick the same rung in all 81 cases, and the computed one holds the bar's top edge
-/// steady where the searched one let it walk 9pt as the pane widened.
-///
-/// So the rung is computed instead of searched. Each rung's width is the sum of the widths of the
-/// views that draw it (`PaneBarLayout.width(of:controlSize:)`), which makes "which rung fits" plain
-/// arithmetic over `PaneNavMetrics`.
+/// The rung is computed, not searched. `ViewThatFits` builds every child to measure it, ten full
+/// bars twice over for two panes on every layout pass, and with `MainThreadHitchMonitor` that cost
+/// seconds of main-thread work over a few Settings opens. Each rung's width is the sum of the views
+/// that draw it (`PaneBarLayout.width(of:controlSize:)`), plain arithmetic over `PaneNavMetrics`.
+/// The header reserves the tallest rung's height, so the bar's top edge holds steady as the pane
+/// widens.
 ///
 /// The header still hands the result to `ViewThatFits`, with the narrowest rung behind it as a
-/// fallback. That is deliberate: if this arithmetic ever disagrees with the real fit, the layout
-/// engine gets the final say and the bar steps down rather than overflowing the pane's trailing
-/// edge — which has no loud failure mode and would not be noticed.
+/// fallback, on purpose: if this arithmetic ever disagrees with the real fit, the layout engine
+/// steps the bar down rather than letting it silently overflow the pane's trailing edge.
 @MainActor
 struct PaneBarLadder {
     let arrangement: PaneBarArrangement
     let available: [PaneBarItem]
-    /// The largest control size the ladder may start from — the icon-size preference is a ceiling,
+    /// The largest control size the ladder may start from. The icon-size preference is a ceiling,
     /// not a pin, because a bar that overflows the pane is worse than small glyphs.
     let ceiling: ControlSize
-    /// The app's text scale, which prices the titled rung. Constant arithmetic priced every rung
-    /// before titles existed, because a glyph pill is a published constant; a word is measured type
-    /// and the app scales its own.
+    /// The app's text scale, which prices the titled rung: a glyph pill is a published constant,
+    /// but a word is measured type and the app scales its own.
     let scale: CGFloat
 
     /// How many rungs at the head of the ladder draw titles: 1 when the preference asks for them
-    /// *and* the row fits this text size, 0 otherwise.
-    ///
-    /// Zero restores exactly the ladder that shipped before titles — same rungs, same widths, same
-    /// arithmetic — which is what makes `iconOnly` and Large text free of regression risk rather
-    /// than merely tested for it.
+    /// and the row fits this text size, 0 otherwise. Zero leaves the untitled ladder exactly as it
+    /// is, so `iconOnly` and large text pay nothing for titles.
     let titledRungs: Int
 
     /// The narrowest rung: `.mini` with everything sheddable shed and the view switch compacted.
@@ -633,8 +511,8 @@ struct PaneBarLadder {
         self.available = available
         self.ceiling = ceiling
         self.scale = scale
-        // The gate. `iconAndText` is a ceiling, not a pin: it asks for titles, and they appear only
-        // if the row they need fits the header the bar lives in.
+        // The gate. `iconAndText` is a ceiling, not a pin: titles appear only if the row they need
+        // fits the header.
         self.titledRungs = (labelMode == .iconAndText
                             && PaneBarTitleMetrics.rowFits(pillHeight: PaneNavMetrics.pill(ceiling).height,
                                                            scale: scale)) ? 1 : 0
@@ -645,10 +523,9 @@ struct PaneBarLadder {
             + 1 + titledRungs
     }
 
-    /// Whether this rung draws a word under each pill. Only the head of the ladder does: titles
-    /// shed **all together as one rung**, ahead of the step down to `.mini`, because a bar where
-    /// some items are words and others are glyphs reads as two controls — the rule
-    /// `WorkspaceBarMetrics` already applies for the same reason.
+    /// Whether this rung draws a word under each pill. Only the head of the ladder does: titles shed
+    /// all together as one rung, ahead of the step down to `.mini`, because a bar of some words and
+    /// some glyphs reads as two controls (`WorkspaceBarMetrics` applies the same rule).
     func isTitled(forRung rung: Int) -> Bool { rung < titledRungs }
 
     /// Rung 0 is the chosen icon size unfolded; every rung after the untitled one at the ceiling is
@@ -673,14 +550,12 @@ struct PaneBarLadder {
                              titled: isTitled(forRung: rung), scale: scale)
     }
 
-    /// The rung an offer of `width` gets — the first one that fits, mirroring `ViewThatFits`'s own
-    /// rule, and the narrowest rung when nothing does.
+    /// The rung an offer of `width` gets: the first one that fits, mirroring `ViewThatFits`, and the
+    /// narrowest rung when nothing does.
     ///
-    /// *First*, not *narrowest-that-fits*: the ladder is not guaranteed monotonic. Shedding a control
-    /// narrower than the ⋯ pill it brings in (a full pill, plus its gap) makes the bar **wider** —
-    /// the Preview toggle, a segment wide, did exactly that until it was retired — so such a rung
-    /// can never be chosen, and a search that reordered the rungs by width would pick a different
-    /// bar than the one this replaces.
+    /// First, not narrowest-that-fits, because the ladder isn't guaranteed monotonic: shedding a
+    /// control narrower than the ⋯ pill it brings in (a full pill plus its gap) makes the bar
+    /// wider, so that rung must never be chosen.
     func rung(fitting width: CGFloat) -> Int {
         for rung in 0...terminal where self.width(forRung: rung) <= width { return rung }
         return terminal
@@ -689,14 +564,13 @@ struct PaneBarLadder {
 
 /// The drag payloads the customize sheet moves items with, and the rules for applying them.
 ///
-/// This lives in the model rather than in the sheet for one reason: it is the part of drag-and-drop
-/// that can be tested. The gestures need a real event loop, so the sheet's own behaviour is only ever
-/// verifiable by hand — which makes it exactly the wrong place to also hide index arithmetic and
-/// string parsing. Here, every payload shape has a test.
+/// In the model rather than the sheet because it is the testable part of drag and drop: the
+/// gestures need a real event loop, so the sheet's behaviour is only checkable by hand, the wrong
+/// place to hide index arithmetic and string parsing.
 ///
-/// Each entry point answers with a *new arrangement or nil*, where nil means "this drop changes
-/// nothing". The sheet reports that straight back to the drag session, so an item that cannot be
-/// placed springs back instead of animating into a bar that did not move.
+/// Each entry point answers a new arrangement or nil, where nil means "this drop changes nothing".
+/// The sheet reports that to the drag session, so an item that can't be placed springs back
+/// instead of animating into a bar that didn't move.
 public enum PaneBarDrop {
     static let barPrefix = "bar:"
     static let palettePrefix = "palette:"
@@ -714,10 +588,8 @@ public enum PaneBarDrop {
         guard let payload = payloads.first else { return nil }
         var next = arrangement
         if let from = barIndex(payload) {
-            // No range check here on purpose: `move` refuses an index it does not have, so a stale
-            // payload — the bar changed under a drag in flight — falls out as "changed nothing" and
-            // is refused below. An explicit guard here was measured to be unreachable: removing it
-            // failed no test, because the one underneath it was already doing the work.
+            // No range check: `move` refuses an index it doesn't have, so a stale payload (the bar
+            // changed under a drag in flight) falls out as "changed nothing" and is refused below.
             next.move(from: from, to: index)
         } else if let item = paletteItem(payload) {
             next.insert(item, at: index)
@@ -747,22 +619,14 @@ public enum PaneBarDrop {
     }
 }
 
-/// Whether the bar draws a word under each pill — the second preference in its right-click menu.
+/// Whether the bar draws a word under each pill, the second preference in its right-click menu.
 ///
-/// **A ceiling, not a pin**, exactly as `PaneBarIconSize` is. Choosing `iconAndText` says "start
-/// here": the bar still drops to `iconOnly` when the pane is too narrow for the titled rung.
-/// Choosing `iconOnly` pins downward — no width ever produces a title.
+/// A ceiling, not a pin, like `PaneBarIconSize`. `iconAndText` says "start here": the bar still
+/// drops to `iconOnly` when the pane is too narrow for the titled rung, and at the top of the text
+/// sizes (see `PaneBarTitleMetrics.rowBudget`). `iconOnly` never produces a title.
 ///
-/// Text size sheds them too, at the top of the range — see `PaneBarTitleMetrics.rowBudget`, which
-/// is the *second* budget this gate has had. The first was the retired provider capsule's 34pt,
-/// which put the cliff at 110% text: the first step up from the default, six of the ten
-/// percentages the size slider reaches, and nowhere near the "Large and Larger" its own doc
-/// claimed. Reported as "icon + text mode isn't showing text any more" by someone sitting at 110%.
-///
-/// Two cases, where Finder has three. Text Only is deliberately absent: with the glyph gone the
-/// word becomes the only carrier of state, which forces Hidden Files' title to swap with its eye
-/// and makes an item's width change on click. The two modes here keep the glyph as the state
-/// carrier in every case, and the mode is additive if a third is ever wanted.
+/// Two cases where Finder has three. Text Only is left out: with no glyph the word must carry the
+/// state, so Hidden Files' title would swap with its eye and the item's width would change on click.
 public enum PaneBarLabelMode: String, CaseIterable, Sendable {
     case iconAndText
     case iconOnly
@@ -777,79 +641,46 @@ public enum PaneBarTitleMetrics {
     /// The title's base point size.
     ///
     /// 10pt, so the word reads as a caption under its pill rather than competing with the
-    /// breadcrumb below it — the same relation `WorkspaceBarMetrics` gives its own labels.
+    /// breadcrumb below it, as `WorkspaceBarMetrics` treats its own labels.
     public static let pointSize: CGFloat = 10
     /// Between the pill's bottom edge and the title's line box.
     public static let gap: CGFloat = 2
 
     /// The tallest titled row the pinned 81pt pane header can carry and still keep its content 6pt
-    /// clear of both card edges — the floor `PaneBarLadderTests.theHeaderIsBalancedTopToBottom`
-    /// has always held the header to.
+    /// clear of both card edges, the floor `PaneBarLadderTests.theHeaderIsBalancedTopToBottom`
+    /// holds the header to.
     ///
-    /// **Calibrated against the rendered header, not derived from it, and the difference is the
-    /// whole history of this number.** It was 34, inherited from the provider capsule that used to
-    /// set the row height, and it was never what the header had left; nobody noticed because both
-    /// sides of the `<=` were wrong at once. Deriving it properly is still not available, and that
-    /// part of the reasoning survives unchanged: `rowHeight` is the row's *box*, the header's floor
-    /// is about where its *ink* lands, and no sum of these constants gets from one to the other.
-    ///
-    /// **The other side was wrong too, in the opposite direction to what this doc used to claim.**
-    /// It said `pill + gap + NSLayoutManager.defaultLineHeight` "over-reports the drawn row by up
-    /// to 3pt". It under-reported it: `defaultLineHeight` is 1pt SHORT of the box SwiftUI gives a
-    /// `Text` at 9.5–11.5pt, which is this 10pt title at 95% through 115% text, so the reservation
-    /// was a point smaller than the words it was reserving for at five of the six sizes that draw
-    /// them. `LabelMetrics.lineHeight` measures the drawn box now, and `rowHeight` equals the drawn
-    /// rung at all ten sizes — see
-    /// `PaneBarLadderTests.everyRungIsReservedAsTallAsTheBarItDraws`, which is the check that did
-    /// not exist.
-    ///
-    /// So it is calibrated. `rowHeight` takes six values across the slider's whole range, and the
-    /// tightest clearance measured at each — gate lifted, so every size drew words — is:
+    /// Calibrated against the rendered header, not derived: `rowHeight` is the row's box, the floor
+    /// is about where ink lands, and no sum of these constants gets from one to the other.
+    /// `rowHeight` takes six values across the slider's range, and the tightest clearance at each,
+    /// with the gate lifted so every size drew words, is:
     ///
     /// | row | 33pt | 34pt | 35pt | 36pt | 37pt | 38pt |
     /// |---|---|---|---|---|---|---|
     /// | text size | 90% | 95% | 100–105% | 110–115% | 120–125% | 130–135% |
     /// | clearance | 9.0 | 8.0 | 7.0 | 6.5 | **5.0** | **4.0** |
     ///
-    /// Re-run in full when the line height was corrected, rather than carried over: the first four
-    /// columns moved, because those are the sizes `defaultLineHeight` was short at. The last two did
-    /// not move by a hundredth — `defaultLineHeight` and the drawn box agree from 12pt up, so the
-    /// reservation there is the number it always was, and the two columns agreeing with the older
-    /// run is what says so rather than an argument that they should.
+    /// The floor is crossed between the 36pt and 37pt rows, so 36.5 leaves half a point of margin
+    /// on each side, the widest any value can. Re-measure the table if `LabelMetrics.lineHeight`
+    /// changes. `PaneBarTitleTests.theGateHasBothDirectionsWithMarginOnEach` fails if this lands on
+    /// a producible row.
     ///
-    /// The floor is crossed between the 36pt row and the 37pt one, and **36.5** is the value
-    /// between them. Half a point of margin on each side, where this used to have a whole one —
-    /// and the point that went was never real: the rows only looked 2pt apart because
-    /// `defaultLineHeight` stepped more coarsely than the type does. Six true values spanning
-    /// 33–38 leave no integer with a point to spare, so half is the widest margin there is.
-    /// `PaneBarTitleTests.theGateHasBothDirectionsWithMarginOnEach` holds it, so moving this onto
-    /// 36 or 37 fails rather than quietly landing the boundary on a producible row.
-    ///
-    /// **Two tests hold this number, one per direction, and neither is sufficient alone.** Set too
-    /// high and `PaneBarLadderTests.theTitledHeaderClearsBothEdges` measures the crowding it lets
-    /// through. Set too low — the direction the original defect went — and nothing crowds, because
-    /// the header simply renders untitled; that side is held by
-    /// `PaneBarTitleTests.theTextSizesThatGetWords`, which names the percentages outright.
+    /// Two tests hold it, one per direction. Too high, and
+    /// `PaneBarLadderTests.theTitledHeaderClearsBothEdges` sees the crowding. Too low, and nothing
+    /// crowds because the header renders untitled, so `PaneBarTitleTests.theTextSizesThatGetWords`
+    /// names the percentages outright.
     public static let rowBudget: CGFloat = 36.5
 
     public static let font: ScaledFont = .system(size: pointSize, weight: .regular)
 
-    /// The height a titled row occupies at this text size — and it is exactly that, at every one of
-    /// the ten sizes, which `PaneBarLadderTests.everyRungIsReservedAsTallAsTheBarItDraws` measures
-    /// against the drawn rung.
+    /// The height a titled row occupies at this text size, exactly, at all ten sizes:
+    /// `PaneBarLadderTests.everyRungIsReservedAsTallAsTheBarItDraws` measures it against the drawn
+    /// rung. `LabelMetrics.lineHeight` must measure the box SwiftUI gives the `Text`, not
+    /// `NSLayoutManager.defaultLineHeight`, which runs a point short at small sizes; a SwiftUI child
+    /// isn't clipped by `maxHeight`, so a short reservation would go unseen.
     ///
-    /// **It used to claim to be a generous reservation and was a short one.** The doc here said
-    /// `LabelMetrics.lineHeight` "reports the type-setting line box, which runs taller than the row
-    /// the header actually paints", and called that the safe direction. Both halves were wrong:
-    /// `lineHeight` was returning `NSLayoutManager.defaultLineHeight`, which runs 1pt *under* the
-    /// box SwiftUI gives a `Text` at 9.5–11.5pt, so this row was a point smaller than the words it
-    /// reserves for at 95% through 115% text. Nothing showed it — a SwiftUI child is not clipped by
-    /// a `maxHeight`, so the word simply hung a point below its own box into the 10pt rule
-    /// `PaneBarLadderTests.theBarAndTheTrailKeepTheirGap` measures, which had the room.
-    ///
-    /// This is a *box*, not a prediction of where ink lands: the words sit inside it with their own
-    /// leading around them. That is why `rowBudget` beside it is still calibrated against the drawn
-    /// header rather than computed from these constants.
+    /// This is a box, not a prediction of where ink lands, which is why `rowBudget` is calibrated
+    /// against the drawn header rather than computed from these constants.
     @MainActor
     public static func rowHeight(pillHeight: CGFloat, scale: CGFloat) -> CGFloat {
         pillHeight + gap + LabelMetrics.lineHeight(font: font, scale: scale)
@@ -857,13 +688,9 @@ public enum PaneBarTitleMetrics {
 
     /// Whether titles can be drawn at all at this text size.
     ///
-    /// **The fallback is `iconOnly`, not a smaller word.** Clamping the title so it never grows
-    /// would give the person who chose the largest text — because small text is hard for them to
-    /// read — the one label in the app that refuses to grow with the rest. They get the bar that
-    /// shipped before titles existed instead.
-    ///
-    /// See `rowBudget` for where the line sits and why it is a calibrated number rather than a
-    /// derived one.
+    /// The fallback is `iconOnly`, not a smaller word: clamping the title would give the person who
+    /// chose the largest text, because small text is hard to read, the one label that refuses to
+    /// grow. They get the untitled bar instead. See `rowBudget` for where the line sits.
     @MainActor
     public static func rowFits(pillHeight: CGFloat, scale: CGFloat) -> Bool {
         rowHeight(pillHeight: pillHeight, scale: scale) <= rowBudget
@@ -872,9 +699,9 @@ public enum PaneBarTitleMetrics {
 
 /// The icon-size preference from the bar's right-click menu.
 ///
-/// A **ceiling, not a pin**: the pane may still step below the chosen size when it genuinely cannot
-/// fit, because overflowing the trailing edge is worse than smaller glyphs. Choosing Small therefore
-/// starts the ladder one rung down rather than freezing it.
+/// A ceiling, not a pin: the pane may still step below the chosen size when it can't fit, because
+/// overflowing the trailing edge is worse than smaller glyphs. Small starts the ladder one rung
+/// down rather than freezing it.
 public enum PaneBarIconSize: String, CaseIterable, Sendable {
     case regular
     case small
@@ -885,210 +712,134 @@ public enum PaneBarIconSize: String, CaseIterable, Sendable {
     public var ceiling: ControlSize { self == .regular ? .small : .mini }
 }
 
-/// Defaults keys for the bar. One arrangement and one icon size, app-wide — see `PaneBarArrangement`.
+/// Defaults keys for the bar. One arrangement and one icon size, app-wide (see `PaneBarArrangement`).
 public enum PaneBar {
     public static let arrangementKey = "paneBarArrangement"
     public static let iconSizeKey = "paneBarIconSize"
-    /// Whether the bar draws words under its pills. App-wide, like the two above — Compare's two
-    /// panes and the rail are one instrument pointed at different providers, so a bar that read
-    /// differently on each side would be two instruments.
+    /// Whether the bar draws words under its pills. App-wide like the two above: Compare's two
+    /// panes and the rail are one instrument pointed at different providers.
     public static let labelModeKey = "paneBarLabelMode"
-    /// How far a stored arrangement has been brought forward — see `PaneBarMigration`.
+    /// How far a stored arrangement has been brought forward; see `PaneBarMigration`.
     public static let migrationKey = "paneBarArrangementMigration"
 }
 
-/// Brings a bar someone arranged on an earlier build forward when a NEW control ships.
+/// Brings a bar someone arranged on an earlier build forward when a new control ships.
 ///
-/// **Why this exists, stated as the thing it fixes.** The bar used to have a fallback: an available
-/// control the arrangement did not place was appended to ⋯, so a new control at least landed
-/// somewhere. That was right for a control someone can go and find and wrong for a headline one —
-/// Search shipped as the answer to "the trees have no search", and for everybody who had ever
-/// opened the customize sheet it landed permanently inside an overflow menu on a bar with visible
-/// empty space: the affordance was there, and invisible. Reported from a real window, which is the
-/// only reason it was caught: every test used a fresh default arrangement, where the item is
-/// present and the bug cannot occur.
+/// ⋯ carries only what a rung folded (`PaneBarLayout.plan`), so a control added to
+/// `PaneBarArrangement.default` without a step here reaches a customized bar through no route at
+/// all, and nothing says so. Adding the step is the default; declining is the judgement call, and
+/// `PaneBarItem.delete` is the one control that declines, since two other routes reach its act.
 ///
-/// **That fallback is now gone** — ⋯ carries only what the rung folded, see `PaneBarLayout.plan` —
-/// which makes this mechanism load-bearing rather than corrective. A control added to
-/// `PaneBarArrangement.default` without a step below reaches a customized bar through **no route at
-/// all** until its owner opens the customize sheet and drags it on, and nothing anywhere will say
-/// so. Adding the step is not a judgement call about how discoverable the control deserves to be;
-/// declining it is, and `PaneBarItem.delete` is the one case that declined deliberately, on the
-/// strength of having two other routes to the same act.
-///
-/// **Why it is not just "always restore Search like `scan`".** `PaneBarArrangement.init` re-adds
-/// `scan` unconditionally, which is right for the one control that must never be missing. Doing that
-/// here would make Search unremovable — a bar item that grows back is worse than one that never
-/// appeared, because the user can see they are being overruled.
-///
-/// So it runs ONCE per added control, recorded by a stored version. Remove Search after the
-/// migration and it stays removed; that is the whole point of stamping rather than checking.
+/// Not "always restore it, like `scan`": `PaneBarArrangement.init` re-adds `scan` because it must
+/// never be missing, but doing that here would make the control unremovable, and a bar item that
+/// grows back overrules the user visibly. So each step runs once, recorded by a stored version:
+/// remove Search after the migration and it stays removed.
 public enum PaneBarMigration {
-    /// Bump this — and add a step below — whenever a control joins `PaneBarArrangement.default`.
+    /// Bump this, and add a step below, whenever a control joins `PaneBarArrangement.default`.
     public static let currentVersion = 2
 
     // MARK: The routes a shipped control has onto a customized bar
     //
-    // Three sets, and between them they must account for **every non-spacer control in
-    // `PaneBarArrangement.default`**. That accounting is the thing nothing used to do: the hazard
-    // this type's own doc states — a control added to the default bar with no step here reaching a
-    // customized bar through no route at all — was written down and bound to nothing, so the next
-    // control to ship could reproduce Search's bug in silence. `PaneBarMigrationTests` derives the
-    // expected set from `PaneBarArrangement.default` and names any control that belongs to none of
-    // them; `everyControlTheMigrationClaimsToPlaceActuallyLands` keeps `migratedControls` honest by
-    // running the migration rather than trusting the list.
+    // Between them these three sets must account for every non-spacer control in
+    // `PaneBarArrangement.default`, or a new control could reach no customized bar in silence.
+    // `PaneBarMigrationTests` derives the expected set from the default and names any control in
+    // none of them; `everyControlTheMigrationClaimsToPlaceActuallyLands` keeps `migratedControls`
+    // honest by running the migration rather than trusting the list.
 
-    /// Controls that shipped on the bar **before this mechanism existed**.
+    /// Controls that shipped on the bar before this mechanism existed. Every stored arrangement
+    /// was written by a build that offered these, so a bar without one was arranged that way.
     ///
-    /// Every stored arrangement was written by a build that already offered these, so a bar without
-    /// one of them is a bar someone arranged that way — not an affordance that never had a route.
-    /// That is the whole difference between this set and the two below.
-    ///
-    /// **A frozen historical record, and it must never grow.** A control that ships from now on
-    /// takes a migration step or declines one deliberately; parking it here would be claiming a
-    /// route it never had, which is why the test pins these by name rather than reading them. It
-    /// can only shrink, when a control is retired from the bar altogether: Preview was the eighth
-    /// (TE317 C), and is no longer a case to list.
+    /// Frozen, and it must never grow: a new control takes a migration step or declines one, and
+    /// listing it here would claim a route it never had, which is why the test pins these by name.
+    /// It only shrinks when a control is retired from the bar altogether.
     public static let baselineControls: Set<PaneBarItem> = [
         .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles
     ]
 
-    /// Controls a step in `apply` puts onto a stored bar.
-    ///
-    /// A claim, not a mechanism — the steps are in `apply` and this list could disagree with them.
-    /// It is bound to them behaviourally, one migration run per control, so it cannot.
+    /// Controls a step in `apply` puts onto a stored bar. A claim, not a mechanism, so the tests
+    /// bind it to the steps by running the migration once per control.
     public static let migratedControls: Set<PaneBarItem> = [.search, .typeFilter]
 
-    /// Controls that ship on the default bar and **deliberately decline** a step.
+    /// Controls that ship on the default bar and deliberately decline a step.
     ///
-    /// Declining is the judgement call (adding a step is the default), so the members are named
-    /// here and named again in the test — a new control cannot join this list by accident, only by
-    /// someone editing both places and saying why. `delete` is the one member and the reasoning is
-    /// on the case itself: the row menu's Delete and ⌘⌫ reach the same act, so it can afford to
-    /// wait to be added deliberately.
+    /// Declining is the judgement call, so the members are named here and again in the test: a
+    /// control can join only by someone editing both places and saying why. `delete` is the one
+    /// member; its reasoning is on the case.
     public static let declinedControls: Set<PaneBarItem> = [.delete]
 
-    /// The three routes taken together — the set a shipped control must belong to.
+    /// The three routes together: the set a shipped control must belong to.
     ///
-    /// Named because two things read it and one of them is a test: `PaneBarMigrationTests` asserts
-    /// this is *exactly* the default bar's non-spacer controls, which is the whole accounting in one
-    /// comparison. Both directions matter — a control on the bar and on no route is the hazard, and
-    /// a control on a route but not on the bar is a claim about something that does not ship.
+    /// `PaneBarMigrationTests` asserts this is exactly the default bar's non-spacer controls. Both
+    /// directions matter: a control on the bar and on no route is the hazard, and one on a route
+    /// but not on the bar is a claim about something that doesn't ship.
     static var routedControls: Set<PaneBarItem> {
         baselineControls.union(migratedControls).union(declinedControls)
     }
 
-    /// Controls that ship on the default bar and reach a customized bar through **no route at all**.
-    ///
-    /// Empty in a correct build. Non-empty means someone added a case to `PaneBarArrangement.default`
-    /// and stopped there, and the symptom is a control nobody who has ever opened the customize
-    /// sheet will see — the exact shape of Search's original bug, minus the ⋯ consolation that made
-    /// it recoverable.
+    /// Controls that ship on the default bar and reach a customized bar through no route at all.
+    /// Empty in a correct build. Non-empty means a case was added to `PaneBarArrangement.default`
+    /// and nothing else, so nobody who ever opened the customize sheet will see it.
     public static var controlsWithoutARoute: [PaneBarItem] {
         controlsWithoutARoute(shipping: .default, routed: routedControls)
     }
 
     /// The same derivation with both inputs handed in, which is the only way to prove it derives
-    /// anything.
-    ///
-    /// In a correct build every shipped control is on a route, so the property above can only ever
-    /// be checked against empty — and a version of it that had been mutated to `return []` would
-    /// answer every such check correctly while leaving the runtime warning permanently dead. Feed
-    /// this an empty `routed` and it must name the whole bar; that is what says it is computing.
-    /// The spacer exemption is exercised by the same call: spacers are layout, and a bar without one
-    /// is not missing an ability anybody could go looking for.
+    /// anything: the property above is empty in a correct build, so a mutation to `return []` would
+    /// pass every check of it. Fed an empty `routed`, this must name the whole bar. The same call
+    /// exercises the spacer exemption: spacers are layout, not an ability anyone looks for.
     static func controlsWithoutARoute(shipping arrangement: PaneBarArrangement,
                                       routed: Set<PaneBarItem>) -> [PaneBarItem] {
         arrangement.items.filter { !$0.isSpacer && !routed.contains($0) }
     }
 
-    /// Applies every migration a stored arrangement has not had yet, and records how far it got.
+    /// Applies every migration a stored arrangement hasn't had yet, and records how far it got.
     ///
-    /// A pane bar that was never customized has no stored arrangement at all and reads the default,
-    /// which already carries every control; it is stamped anyway, so this never runs again for it
-    /// and a later deliberate removal is not undone by the next launch.
+    /// A bar that was never customized has no stored arrangement and reads the default, which
+    /// carries every control; it is stamped anyway, so this never runs again for it and a later
+    /// deliberate removal isn't undone by the next launch.
     ///
-    /// The version stamp is written in a `defer`, so it lands on **every** path out — including the
-    /// early return for a bar that needed nothing. Written before the work (as it first was) it
-    /// would record a migration that a crash could still prevent; written only on the success path
-    /// it would re-run forever for the bars it correctly left alone.
+    /// The version stamp is written in a `defer`, so it lands on every path out, the early return
+    /// included. Written before the work it would record a migration a crash could still prevent;
+    /// written only on success it would re-run forever for the bars it rightly left alone.
     ///
-    /// **What the resulting bar cannot show is reported elsewhere** — see
-    /// `reportStoredArrangementReach`, which the app delegate calls once per launch. It used to be
-    /// a `defer` on this function, and that was wrong for the reason stated three lines from the
-    /// call site in `SyncCloudApp`: `App.init` can be re-run by SwiftUI, and this function's one
-    /// production caller is inside it. Every other migration in that `init` is annotated "the
-    /// repeat App.init calls noted above are harmless" precisely because a repeat WRITES NOTHING;
-    /// this one wrote its whole report again each time. So a user who took Preview off two
-    /// releases ago collected the same line however many times SwiftUI felt like rebuilding the
-    /// scene — a per-launch fact logged per-init, which is the "never log a no-op" rule this file
-    /// states and was breaking.
+    /// What the resulting bar can't show is reported by `reportStoredArrangementReach`, once per
+    /// launch from the app delegate, not from here: this function's caller is `App.init`, which
+    /// SwiftUI may re-run, and a repeat must write nothing, log lines included.
     ///
-    /// Nothing about the report's content wanted to be here. It reads the stored arrangement and
-    /// the shipped default, both of which are just as available from the delegate, and it runs
-    /// AFTER this function rather than inside it, so it still reads the bar the user actually gets.
+    /// - Returns: `.unchanged` when no stored arrangement was written, and `.rewritten`, carrying
+    ///   whatever this run can name about the change, when one was. A caller must be able to tell
+    ///   "had nothing to do" from "moved someone's bar", and only the first may go unlogged.
     ///
-    /// - Returns: `.unchanged` when no stored arrangement was written, and `.rewritten` — carrying
-    ///   whatever this run can NAME about the change — when one was. The distinction is the whole
-    ///   return value: a caller has to be able to tell "had nothing to do" from "moved someone's
-    ///   bar", and only the first of those may go unlogged.
-    ///
-    ///   **An enum, not a list, and not a `Bool` beside one.** This returned `[PaneBarItem]` —
-    ///   the controls it had put onto the bar — and the doc claimed that was "empty when nothing was
-    ///   rewritten". It was not. The list is derived by comparing the migrated items against
-    ///   `before`, so it is empty for any **removal**, any **reorder**, and any **repeatable**
-    ///   insertion (spacers are repeatable, which this file says two comments up). Each of those
-    ///   rewrites and SAVES the arrangement and then answers `[]`, so `migrationMessage` answered
-    ///   `nil` and the launch log said nothing at all about a bar that had just been rewritten
-    ///   underneath its owner. Not reachable while `migratedControls == [.search]` — one
-    ///   non-repeatable pure addition — but the entire point of returning something richer than a
-    ///   `Bool` was the day a second step ships, and three of the four shapes such a step can take
-    ///   land in that hole.
-    ///
-    ///   A struct or a `Bool`-plus-names would carry the same two facts and admit a third state
-    ///   that cannot happen — `rewritten == false` with a non-empty `added` — leaving every reader
-    ///   to decide which field to trust. The enum makes "was it rewritten" and "what changed"
-    ///   one indivisible answer, and makes `.rewritten(added: [], removed: [])` a **named case the
-    ///   message builder must handle** rather than a value indistinguishable from doing nothing.
-    ///   That case is precisely the defect, so the type is what forces it to be answered.
-    ///
-    ///   `added` and `removed` are still DERIVED by comparison rather than flagged beside the
-    ///   steps, for the reason the rewrite itself is: `insert` is allowed to refuse.
+    ///   An enum, not a list or a `Bool` beside one. A rewrite that names no distinct control (a
+    ///   reorder, or a repeatable item inserted again) is `.rewritten(added: [], removed: [])`, a
+    ///   case the message builder must handle, rather than an empty list that reads as doing
+    ///   nothing. `added` and `removed` are derived by comparison, because `insert` may refuse.
     @discardableResult
     public static func apply(defaults: UserDefaults) -> Outcome {
         let from = defaults.integer(forKey: PaneBar.migrationKey)   // 0 when never stamped
         guard from < currentVersion else { return .unchanged }
         defer { defaults.set(currentVersion, forKey: PaneBar.migrationKey) }
 
-        // `.unchanged`, not a rewrite: there is no stored arrangement, so nothing was written.
-        // Reporting a migration here made the app log "added Search to a stored pane-bar
-        // arrangement" on the first launch of EVERY install that had never customized its bar —
-        // the common case — about an arrangement that does not exist, in the log file a launch is
-        // verified through.
+        // `.unchanged`, not a rewrite: with no stored arrangement nothing was written, and
+        // reporting one would log a migration on the first launch of every uncustomized install.
         guard let stored = defaults.string(forKey: PaneBar.arrangementKey) else { return .unchanged }
         var arrangement = PaneBarArrangement(encoded: stored)
         let before = arrangement.items
-        // v1 — Search. Appended at the trailing end, where the default carries it and where the
-        // ladder gives it up first.
+        // Step 1: Search, at the trailing end, where the default carries it and where the ladder
+        // gives it up first.
         if from < 1, !arrangement.items.contains(.search) {
             arrangement.insert(.search, at: arrangement.items.count)
         }
-        // v2 — Filter by Type (RD70, FK). Just before Search, where the default carries it, or at
-        // the trailing end on a bar that has dropped Search.
+        // Step 2: Filter by Type, just before Search, where the default carries it, or at the
+        // trailing end on a bar that has dropped Search.
         if from < 2, !arrangement.items.contains(.typeFilter) {
             let at = arrangement.items.firstIndex(of: .search) ?? arrangement.items.count
             arrangement.insert(.typeFilter, at: at)
         }
-        // **Compared, not assumed.** This used to set a `changed` flag beside the `insert` call, and
-        // `PaneBarArrangement.insert` is allowed to refuse: a bar already at `maxItems` — reachable,
-        // because spacers are repeatable — gets nothing, silently. The flag then reported a
-        // migration that had not happened and wrote the arrangement back unchanged. Reading the
-        // items is the only thing that knows.
-        // **One write path, one derivation.** Every step above this line does nothing but mutate
-        // `arrangement`, so whatever a future step does — insert, remove, reorder — reaches the
-        // defaults through this single `set` and is described by this single `outcome` call. That
-        // is what makes "a rewrite always returns `.rewritten`" a property of the code's shape
-        // rather than of anyone remembering to update a flag beside their new step.
+        // Compared, not flagged: `PaneBarArrangement.insert` may refuse (a bar at `maxItems`,
+        // reachable because spacers repeat), so only the items know whether anything changed.
+        // Every step above only mutates `arrangement`, so whatever a future step does reaches the
+        // defaults through this one `set` and is described by this one `outcome` call.
         guard case .rewritten(let added, let removed) =
                 outcome(before: before, after: arrangement.items) else { return .unchanged }
         defaults.set(arrangement.encoded, forKey: PaneBar.arrangementKey)
@@ -1097,18 +848,13 @@ public enum PaneBarMigration {
 
     /// What changed between the bar as stored and the bar the steps produced.
     ///
-    /// Split out from `apply` because it is the part with shapes worth testing and `apply` is the
-    /// part that cannot produce them: the only step that ships is one non-repeatable pure addition,
-    /// so a removal, a reorder and a repeatable insertion are unreachable through `apply` today
-    /// and are exactly the shapes the old `[PaneBarItem]` return answered `[]` for. Fed directly,
-    /// each of them is one line to state.
+    /// Split out from `apply` so the shapes `apply` can't produce today (a removal, a reorder, a
+    /// repeatable insertion) can each be tested directly. `.unchanged` is decided here, so `apply`
+    /// can't write a bar this considers untouched.
     ///
-    /// `.unchanged` is decided HERE, by comparing the items, so `apply` cannot write a bar this
-    /// function considers untouched — the two answers are one answer.
-    ///
-    /// Both lists are de-duplicated: a step may insert a repeatable item, and "added Space, Space"
-    /// is not a sentence. Order is the migrated bar's for `added` and the stored bar's for
-    /// `removed`, so a reader sees them where they were.
+    /// Both lists are de-duplicated, since a step may insert a repeatable item and "added Space,
+    /// Space" is no sentence. `added` follows the migrated bar's order and `removed` the stored
+    /// bar's, so a reader sees them where they were.
     static func outcome(before: [PaneBarItem], after: [PaneBarItem]) -> Outcome {
         guard after != before else { return .unchanged }
         var seenAdded: Set<PaneBarItem> = []
@@ -1118,74 +864,54 @@ public enum PaneBarMigration {
             removed: before.filter { !after.contains($0) && seenRemoved.insert($0).inserted })
     }
 
-    /// What a run of `apply` did to the stored arrangement.
-    ///
-    /// Two cases rather than one list, because the caller's question is "is there anything to say",
-    /// and a list cannot answer it: an empty list used to mean both "nothing happened" and
-    /// "something happened that I cannot name". See `apply`'s `- Returns:` for why that mattered.
+    /// What a run of `apply` did to the stored arrangement. Two cases rather than a list, because
+    /// the caller asks "is there anything to say", and an empty list can't tell "nothing happened"
+    /// from "something happened that can't be named". See `apply`'s `- Returns:`.
     public enum Outcome: Equatable, Sendable {
-        /// No stored arrangement was written — an install that never customized its bar, a bar
-        /// already stamped at `currentVersion`, or a bar too full to take what a step offered it.
+        /// No stored arrangement was written: an install that never customized its bar, a bar
+        /// already stamped at `currentVersion`, or a bar too full to take what a step offered.
         /// The only case that may be logged as nothing.
         case unchanged
-        /// The stored arrangement was rewritten and saved.
-        ///
-        /// **Both lists may be empty and that is a real state**, not a degenerate one: a step that
-        /// reorders, or that inserts a repeatable item the bar already carries, changes the stored
-        /// string while adding and removing no distinct control. The rewrite still happened, and
-        /// `migrationMessage` still has to say so.
+        /// The stored arrangement was rewritten and saved. Both lists may be empty, a real state:
+        /// a step that reorders, or inserts a repeatable item the bar already carries, changes the
+        /// stored string while adding and removing no distinct control, and `migrationMessage`
+        /// still has to say so.
         case rewritten(added: [PaneBarItem], removed: [PaneBarItem])
     }
 
-    /// The line a launch writes about the migration — **`nil` for `.unchanged` and non-`nil` for
-    /// every rewrite**, which is the contract the whole `Outcome` type exists to make expressible.
+    /// The line a launch writes about the migration: `nil` for `.unchanged` and non-`nil` for every
+    /// rewrite. Every rewrite line opens with the same stem, so "this launch rewrote somebody's
+    /// bar" is one grep of `~/sync-cloud.log` even when the run can't name what it did.
     ///
-    /// Every rewrite line opens with the same stem, so "this launch rewrote somebody's bar" is one
-    /// grep of `~/sync-cloud.log` whether or not the run could name what it did. The naming is the
-    /// part that can come up empty; the fact must not.
-    ///
-    /// Pure, and it is handed what `apply` answered rather than reading `migratedControls`, for two
-    /// separate reasons. A run adds only what that particular bar was missing, so a bar that already
-    /// carried Search and gained only the next control must not be told it gained both. And a
-    /// version that consulted the claim list would be a line agreeing with a list instead of with
-    /// the migration — the shape the literal it replaces already had.
+    /// Pure, and handed what `apply` answered rather than reading `migratedControls`: a run adds
+    /// only what that bar was missing, so a bar that already had Search and gained only the next
+    /// control must not be told it gained both.
     public static func migrationMessage(for outcome: Outcome) -> String? {
         guard case .rewritten(let added, let removed) = outcome else { return nil }
         let stem = "[panebar] rewrote a stored pane-bar arrangement"
         var clauses: [String] = []
         if !added.isEmpty { clauses.append("added \(names(added))") }
         if !removed.isEmpty { clauses.append("removed \(names(removed))") }
-        // The rewrite it could not name — a reorder, or a repeatable item inserted again. The stem
-        // alone is the honest sentence; saying nothing was the defect.
+        // The rewrite it can't name (a reorder, or a repeatable item inserted again): the stem
+        // alone is the honest sentence.
         guard !clauses.isEmpty else { return stem }
         return "\(stem): \(clauses.joined(separator: ", "))"
     }
 
     // MARK: What the resulting bar cannot show
 
-    /// One line — at most two — saying which shipped controls the stored arrangement does not carry.
+    /// One line, at most two, saying which shipped controls the stored arrangement doesn't carry.
     ///
-    /// The bar logged **nothing at all** before this. That was survivable while a removal cost a
-    /// pill and never an ability: whatever was missing from the bar was still in ⋯. Since
-    /// `9db37173` a removal is permanent, so "my Delete button is gone" and "the control this
-    /// release shipped never appeared" are both states with no trace anywhere — and the second one
-    /// is not even the user's doing.
+    /// A removal is permanent, so without this a control the user took off and a control this
+    /// release shipped that never appeared would both leave no trace. Nothing is written for a bar
+    /// that carries every shipped control, which includes every uncustomized install.
     ///
-    /// Proportional by construction: nothing is written for an install whose bar carries every
-    /// shipped control, which is every uncustomized one (no stored arrangement at all) and every
-    /// customized one that kept the lot.
+    /// Called once per launch from `SyncCloudAppDelegate.applicationDidFinishLaunching`, which
+    /// fires once per process, unlike `App.init`, which SwiftUI may re-run.
     ///
-    /// **It runs once per launch, from `SyncCloudAppDelegate.applicationDidFinishLaunching`** —
-    /// which is a statement about the call site and true because of it. It used to say the same
-    /// sentence about `apply`, where it was false: `apply`'s one production caller is `App.init`,
-    /// which SwiftUI may re-run, so the report repeated with it. The delegate method fires exactly
-    /// once per process, which is why the launch breadcrumb and the display-cycle guard's state
-    /// already live there.
-    ///
-    /// - Parameter withoutARoute: the stranded list, defaulted to the real one. A parameter for the
-    ///   same reason `unreachableMessage` takes one — in a correct build it is empty, so the branch
-    ///   that matters is the branch no honest fixture can reach, and a test has to be able to hand
-    ///   in a stranded control to prove this function warns about one at all.
+    /// - Parameter withoutARoute: the stranded list, defaulted to the real one. A parameter, as in
+    ///   `unreachableMessage`, because it is empty in a correct build, and a test has to hand in a
+    ///   stranded control to prove this warns about one.
     public static func reportStoredArrangementReach(defaults: UserDefaults,
                                                     withoutARoute: [PaneBarItem] = controlsWithoutARoute) {
         // No stored arrangement means the default bar, which carries every control by construction.
@@ -1197,24 +923,16 @@ public enum PaneBarMigration {
         if let line = omissionMessage(for: arrangement) { Logger.shared.info(line) }
     }
 
-    /// Shipped controls this arrangement does not carry **and could have carried**, or nil.
+    /// Shipped controls this arrangement doesn't carry and could have carried, or nil.
     ///
-    /// Spacers are excluded: they are layout, not ability, and a bar without one is not missing
-    /// anything a person could go looking for.
+    /// Spacers are excluded: they are layout, not ability. `declinedControls` are excluded too: a
+    /// declined control has no migration step by decision, so every bar customized before it
+    /// shipped omits it by design, and naming it would nag most users every launch about a state
+    /// that isn't a defect. A control the user really took off is recorded by `PaneBarEditLog`.
     ///
-    /// **`declinedControls` are excluded too, and that is the point of the line rather than a
-    /// detail.** A declined control has no migration step *by decision* — Delete's whole rationale
-    /// is that it should wait to be added deliberately — so every bar customized before it shipped
-    /// omits it, permanently and by design. Naming it here told those users, every launch and
-    /// forever, to put back something the design had chosen not to push at them: advice about a
-    /// state that is not a defect, cannot change on its own, and is the majority state. That is the
-    /// nag this file's own "nothing is written for a bar that carries the lot" rule exists to
-    /// prevent, one level up. A control the user really did take off is recorded by `PaneBarEditLog`
-    /// at the moment they took it off, which is a better record than a standing complaint.
-    ///
-    /// The advice clause is dropped for a bar at `maxItems`, because there it is false:
-    /// `PaneBarArrangement.insert` refuses on a full bar and refuses silently, so "put it back from
-    /// Customize Pane Bar…" describes a gesture that does nothing until something else comes off.
+    /// The advice clause is dropped for a bar at `maxItems`, where it would be false:
+    /// `PaneBarArrangement.insert` silently refuses on a full bar, so "put it back from Customize
+    /// Pane Bar…" would describe a gesture that does nothing.
     static func omissionMessage(for arrangement: PaneBarArrangement) -> String? {
         let omitted = omissions(from: arrangement).filter { !declinedControls.contains($0) }
         guard !omitted.isEmpty else { return nil }
@@ -1225,23 +943,19 @@ public enum PaneBarMigration {
         return "[panebar] The stored pane-bar arrangement omits \(names(omitted))" + advice
     }
 
-    /// The subset of those omissions that has no route back onto a bar of its own accord, or nil.
+    /// The subset of those omissions with no route back onto a bar, or nil.
     ///
-    /// A **warning**, and a different line from the one above, because it is a different fact: the
-    /// controls above are missing because someone took them off or declined them, and these are
-    /// missing because the build shipped them with nowhere to land.
-    ///
-    /// `withoutARoute` is a parameter, with **no default**, rather than a read of
-    /// `controlsWithoutARoute` from inside. In a correct build that property is empty, so a version
-    /// of this that consulted it directly could only ever be tested against nil — the branch that
-    /// matters would be the one branch no fixture could reach. The one production caller passes it.
+    /// A warning, and a separate line, because it is a different fact: the controls above are
+    /// missing because someone took them off or declined them, these because the build shipped
+    /// them with nowhere to land. `withoutARoute` is a parameter with **no default**: in a correct
+    /// build `controlsWithoutARoute` is empty, so reading it inside could only be tested against
+    /// nil. The one production caller passes it.
     static func unreachableMessage(for arrangement: PaneBarArrangement,
                                    withoutARoute: [PaneBarItem]) -> String? {
         let stranded = omissions(from: arrangement).filter { withoutARoute.contains($0) }
         guard !stranded.isEmpty else { return nil }
-        // Agreed rather than hedged. "ship(s) … can never show it" read as a parenthesis for one
-        // control and as a grammatical error for two, in a line whose job is to be read by someone
-        // who has just been handed a bug report.
+        // Verb and pronoun agree with the count, since this line is read by someone handling a bug
+        // report.
         let ship = stranded.count == 1 ? "ships" : "ship"
         let them = stranded.count == 1 ? "it" : "them"
         return "[panebar] \(names(stranded)) \(ship) on the default pane bar with no migration step,"
@@ -1258,22 +972,16 @@ public enum PaneBarMigration {
     }
 }
 
-/// The one place a user's own edit to the pane bar is written down.
+/// The one place a user's own edit to the pane bar is written down, so a control that
+/// "disappeared" leaves a trace in `~/sync-cloud.log`.
 ///
-/// The bar had no logging of any kind, which mattered the moment `9db37173` made a removal
-/// permanent: taking Delete off the bar used to demote it into ⋯ and now deletes it outright, and
-/// neither the act nor its result left a trace in `~/sync-cloud.log`. A support question about a
-/// control that "disappeared" had literally nothing to read.
-///
-/// **Decisions and outcomes only.** One line per edit that actually changed the bar, naming what
-/// moved and what the bar now is; nothing at all for an edit that changed nothing — a drag that
-/// springs back, a Move Left on the leftmost pill, a Remove on Scan. That rule is the whole reason
-/// `message(from:to:)` returns an Optional rather than a String: a no-op has no line to write, and
-/// the last thing this file needs is the strip-chip defect where the most ordinary gesture in a
-/// surface became its loudest log entry.
+/// Decisions and outcomes only: one line per edit that changed the bar, naming what moved and what
+/// the bar now is, and nothing for an edit that changed nothing (a drag that springs back, a Move
+/// Left on the leftmost pill, a Remove on Scan). That is why `message(from:to:)` returns an
+/// Optional: the most ordinary gesture must not become the loudest log entry.
 public enum PaneBarEditLog {
 
-    /// What changed, as one line — or **nil when nothing did**.
+    /// What changed, as one line, or nil when nothing did.
     ///
     /// Pure, so the wording is testable without a hosted sheet: the sheet's own gestures need a
     /// real event loop, so a message built inside a `Button` action would be unverifiable.
@@ -1301,8 +1009,8 @@ public enum PaneBarEditLog {
 
     /// Writes that line, if there is one.
     ///
-    /// - Returns: whether anything was logged, so the no-op path is assertable. A test cannot prove
-    ///   an absence from `Logger.shared.entries` alone — the buffer is capped and a sibling suite
+    /// - Returns: whether anything was logged, so the no-op path is assertable. A test can't prove
+    ///   an absence from `Logger.shared.entries` alone: the buffer is capped and a sibling suite
     ///   can evict what it is looking for.
     @discardableResult
     public static func record(from before: PaneBarArrangement, to after: PaneBarArrangement) -> Bool {

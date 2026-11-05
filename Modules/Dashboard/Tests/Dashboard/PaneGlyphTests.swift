@@ -2,10 +2,9 @@ import Testing
 import AppKit
 import Design
 
-/// UX 1.2: three unrelated features used to share the ⇄ arrows. Now the link-panes toggle is a
-/// chain, the pre-scan empty state reuses the toolbar Compare glyph, and ⇄ is swap-panes only.
-/// These pins read the `PaneGlyph` constants the views actually render, so a typo'd or drifted
-/// symbol name fails here instead of drawing a blank icon at runtime.
+/// Each pane glyph means one thing: the link-panes toggle is a chain, the pre-scan empty state
+/// reuses the toolbar Compare glyph, and ⇄ is swap-panes only. These read the `PaneGlyph` constants
+/// the views render, so a misspelled symbol name fails here instead of drawing a blank icon.
 @Suite struct PaneGlyphTests {
 
     @Test func testLinkPanesGlyphIsAChainAndExistsInSFSymbols() {
@@ -23,7 +22,7 @@ import Design
     }
 
     @Test func testSwapPanesKeepsTheReservedArrows() {
-        // ProviderSidebar's swap button owns the ⇄ arrows the other two glyphs moved away from.
+        // ProviderSidebar's swap button owns the ⇄ arrows.
         #expect(PaneGlyph.swapPanes == "arrow.left.arrow.right.circle")
         #expect(NSImage(systemSymbolName: PaneGlyph.swapPanes, accessibilityDescription: nil) != nil,
                 "missing SF Symbol \(PaneGlyph.swapPanes)")

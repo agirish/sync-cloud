@@ -48,10 +48,9 @@ import Sync
 
     // MARK: - The header's rung
 
-    /// **The constraint this feature had to live inside.** `PaneHeaderHeightTests` pins the header to
-    /// `LiquidGlass.headerHeight`, because that is what puts the pane's header↔list boundary on the
-    /// same 83.5 as the lens header card. The field takes the BAR's row rather than adding one, so the number
-    /// cannot move — open or closed, and at the narrow width where the bar is already stepping down.
+    /// `PaneHeaderHeightTests` pins the header to `LiquidGlass.headerHeight`, which lines the pane's
+    /// header↔list boundary up with the lens header card. The field takes the bar's row rather than
+    /// adding one, so the height holds open or closed, and at the narrow width too.
     @Test("The header keeps its rung with the field closed", .machinePinned(.layoutMetrics))
     func theClosedHeaderKeepsItsHeight() {
         let box = Box()
@@ -69,13 +68,10 @@ import Sync
 
     // MARK: - The way out
 
-    /// **The field must not take the whole bar.** It did, and the result was reported as "NO way to
-    /// exit": the pane bar is replaced while the field is open, the field's own clear button only
-    /// exists once there is text to clear, and once focus moves to the file list Escape goes with
-    /// it — so an empty search field on a wide pane offered no target of any kind.
-    ///
-    /// The cap is what leaves a stretch of bar to click. Measured against the LAID-OUT field, not
-    /// the constant: a `.frame(maxWidth:)` that failed to apply would still read 460 in the source.
+    /// The field must not take the whole bar. The pane bar is replaced while the field is open, and
+    /// once focus moves to the file list Escape goes with it, so the cap is what leaves a stretch of
+    /// bar to click away on. Measured on the laid-out field, not the constant, so a
+    /// `.frame(maxWidth:)` that failed to apply is caught.
     @Test("The field is capped, so there is bar left to click away on", .machinePinned(.layoutMetrics))
     func theFieldLeavesSomewhereToClick() async {
         let box = Box()
@@ -106,9 +102,8 @@ import Sync
         #expect(field.bounds.width > 60, "the field collapsed to \(field.bounds.width)pt")
     }
 
-    /// A header in a real window. The revealed field is an AppKit-backed text view and does not
-    /// materialize in a bare `NSHostingView` — without the window these tests find nothing and would
-    /// have to pass vacuously.
+    /// A header in a real window. The revealed field is an AppKit-backed text view that doesn't
+    /// materialize in a bare `NSHostingView`, so without the window these tests would find nothing.
     private static func mount(_ view: some View, width: CGFloat) -> NSWindow {
         let host = NSHostingView(rootView: view.frame(width: width))
         host.frame = NSRect(x: 0, y: 0, width: width, height: 120)
@@ -121,15 +116,12 @@ import Sync
 
     // MARK: - There is always something to click
 
-    /// **The reported defect, stated as an assertion: an EMPTY search field drew no control at
-    /// all.** `ExpandingSearchField`'s clear button is conditional on there being text, this row
-    /// replaces the pane bar while it is open, and Escape only reaches the field while the caret is
-    /// in it — so a field with nothing typed, on a pane whose focus had moved to the file list, had
-    /// no exit by any means. That is what "NO way to exit" was.
+    /// An empty search field must still draw a way out. `ExpandingSearchField`'s clear button needs
+    /// text, the row replaces the pane bar, and Escape only reaches the field while the caret is in
+    /// it, so without a ✕ an empty field with focus elsewhere has no exit.
     ///
-    /// Counted in painted pixels, and it has to be: SwiftUI's `Button` is not an `NSControl` and
-    /// leaves nothing in the AppKit tree to find, so a structural search cannot see it. Measured in
-    /// the band just past the text, inside the field's own surface, where the ✕ sits.
+    /// Counted in painted pixels because SwiftUI's `Button` is not an `NSControl` and leaves nothing
+    /// in the AppKit tree to find.
     @Test("The revealed field always offers a control, even with nothing typed", .machinePinned(.pixelSampling))
     func anEmptyFieldStillHasAWayOut() async {
         let box = Box()
@@ -140,10 +132,9 @@ import Sync
         #expect(shown.held, "the field should be revealed (\(shown.pumps) pumps)")
         guard let editor = Self.fieldEditor(window), let host = window.contentView else { return }
 
-        // The band just past the text, still inside the field's surface — where the ✕ sits. Located
-        // from the LAID-OUT field rather than guessed: the field is capped at 460pt and left-aligned,
-        // so most of a 900pt header is dead zone, and the first version of this test measured
-        // exactly that and read zero for entirely the wrong reason.
+        // The band just past the text, inside the field's surface, where the ✕ sits. Located from
+        // the laid-out field: the field is capped and left-aligned, so most of a 900pt header is
+        // dead zone, and a guessed band would read zero for the wrong reason.
         let text = editor.convert(editor.bounds, to: host)
         let controls = NSRect(x: text.maxX, y: 0, width: 44, height: host.bounds.height / 2)
         #expect(Self.ink(in: controls, of: host) > 0,
@@ -201,9 +192,9 @@ import Sync
 
     // MARK: - What the bar offers
 
-    /// A header with no search bindings offers no magnifier — which is why every existing header
-    /// test, snapshot and ladder measurement is untouched by this feature. If this ever answered
-    /// true, those would all be measuring a bar one pill wider than the one they were written for.
+    /// A header with no search bindings offers no magnifier, which keeps the other header tests,
+    /// snapshots and ladder measurements valid. If it did, they would all measure a bar one pill
+    /// wider than the one they were written for.
     @Test("A header with no search bindings has no Search item to place")
     func aHeaderWithoutSearchOffersNoMagnifier() {
         let box = Box()
@@ -228,21 +219,16 @@ import Sync
             searchIsExpanded: Binding(get: { box.isExpanded }, set: { box.isExpanded = $0 }))
     }
 
-    /// The shipped bar carries it, at the trailing end — where the ladder gives it up first, which is
-    /// right for the one control here that has a keyboard equivalent.
+    /// The shipped bar carries Search at the trailing end, where the ladder gives it up first: it is
+    /// the one control here with a keyboard equivalent.
     @Test("The shipped arrangement carries Search last")
     func theDefaultBarCarriesSearchLast() {
         #expect(PaneBarArrangement.default.items.last == .search)
     }
 
-    /// A bar someone arranged on an earlier build predates this case, so it does not carry the
-    /// magnifier — and the customize sheet's palette has to be able to give it back. Shipping
-    /// without this would make removing Search a one-way door for everyone who ever opened the
-    /// sheet.
-    ///
-    /// It is the palette that carries this now, not ⋯: the overflow stopped offering controls the
-    /// bar does not place, so the sheet is the only way back. `PaneBarMigration` is what stops a
-    /// stored bar needing that trip in the first place.
+    /// A stored arrangement may lack the magnifier, and ⋯ offers only controls the bar places, so
+    /// the customize sheet's palette must be able to give it back. Otherwise removing Search would
+    /// be a one-way door. `PaneBarMigration` keeps most stored bars from needing that trip.
     @Test("A stored arrangement without Search does not hide it in ⋯, and the palette can add it")
     func searchIsRecoverableFromAStoredBar() {
         let box = Box()
@@ -289,15 +275,12 @@ import Sync
 
     // MARK: - Walking with the mouse
 
-    /// **The reported defect: "searching doesn't show NEXT / PREV".** The field drew the count and
-    /// nothing to move it. ↩/⇧↩ were advertised only in the placeholder — which the query replaces
-    /// the moment there is anything to count — so the two chords were documented exclusively in the
-    /// state where they are useless, and from the screen the search genuinely had no walk at all.
+    /// The match count must come with buttons to walk it. ↩/⇧↩ appear only in the placeholder, which
+    /// the query replaces, so without buttons the screen shows no way to walk.
     ///
-    /// Counted in painted pixels against a control that differs by the arrows and nothing else:
-    /// same summary string, same ✕, same width, `onSearchAdvance` withheld. An unconditional ink
-    /// threshold here would be measuring the counter and the dismiss button and would pass with no
-    /// arrows drawn — which is precisely the state being fixed.
+    /// Counted in painted pixels against a control that differs only by the arrows (same summary,
+    /// same ✕, `onSearchAdvance` withheld). A fixed ink threshold would count the counter and ✕ and
+    /// pass with no arrows drawn.
     @Test("The counter comes with buttons to move it", .machinePinned(.pixelSampling))
     func theFieldDrawsWalkButtons() async {
         let width: CGFloat = 900
@@ -310,9 +293,8 @@ import Sync
             let shown = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
             guard shown.held, let editor = Self.fieldEditor(window), let host = window.contentView
             else { return (0, false) }
-            // The controls band: from the end of the text editor to the field's cap. Located from
-            // the laid-out editor for the reason `anEmptyFieldStillHasAWayOut` spells out — most of
-            // a 900pt header is dead zone, and a guessed band measures it.
+            // The controls band, from the end of the text editor, located from the laid-out editor
+            // as in `anEmptyFieldStillHasAWayOut`.
             let text = editor.convert(editor.bounds, to: host)
             let band = NSRect(x: text.maxX, y: 0, width: 130, height: host.bounds.height)
             return (Self.ink(in: band, of: host), true)
@@ -326,10 +308,9 @@ import Sync
                 "the walk buttons paint nothing: \(with.ink) vs \(without.ink) with them withheld")
     }
 
-    /// …and they go dim when there is nowhere to walk. Same summary string in both arms, so the
-    /// text's own pixels are held constant and the only thing that can move the count is the pair
-    /// of arrows changing state. "No matches" with two live-looking arrows says there is somewhere
-    /// to go and this merely is not it.
+    /// …and they go dim when there is nowhere to walk; live-looking arrows on "No matches" promise
+    /// somewhere to go. Both arms use the same summary string, so only the arrows' state can move
+    /// the count.
     @Test("With no hits the buttons are visibly disabled", .machinePinned(.pixelSampling))
     func theButtonsDimWithNothingToWalk() async {
         let width: CGFloat = 900
@@ -353,8 +334,8 @@ import Sync
         #expect(dead < live, "the buttons look identical with 0 hits and with 7: \(dead) vs \(live)")
     }
 
-    /// The two buttons differ only in a Bool, and the wrong one is invisible on screen — a ▲ that
-    /// walks forward draws exactly like a ▲ that walks back.
+    /// The two buttons differ only in a Bool, and a swap is invisible on screen: a ▲ that walks
+    /// forward draws like one that walks back.
     @Test("Previous walks back, next walks forward, and they say so")
     func theStepsPointOppositeWays() {
         #expect(PaneSearchStep.previous.reverse)
@@ -366,9 +347,9 @@ import Sync
         #expect(PaneSearchStep.next.label.contains("Next"))
     }
 
-    /// A tooltip that names a chord the field does not honour teaches a shortcut that does nothing.
-    /// So each button's advertised chord is checked against `PaneSearchSubmit` — the table that
-    /// actually routes ↩ and ⇧↩ — rather than against a second copy of the intent.
+    /// A tooltip naming a chord the field doesn't honour teaches a dead shortcut. Each button's
+    /// chord is checked against `PaneSearchSubmit`, the table that routes ↩ and ⇧↩, not a second
+    /// copy of the intent.
     @Test("The button chords match what submitting actually does")
     func theButtonChordsMatchWhatSubmitActuallyDoes() {
         for step in PaneSearchStep.allCases {

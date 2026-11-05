@@ -13,9 +13,8 @@ import Design
         #expect(ScanRungMode.resolve(isRefreshing: false, canCancel: false) == .scan)
     }
 
-    /// The regression guard for every caller outside the app. `PaneHeader` gained `onCancelScan`
-    /// with a `nil` default, and a header that was not given one must keep the disabled spinner it
-    /// has always had — otherwise adding the parameter silently changed everyone else's rung.
+    /// Guards callers outside the app: `onCancelScan` defaults to `nil`, and a header not given one
+    /// keeps the disabled spinner, so callers that never opt in see no change.
     @Test func testAHostThatOffersNoCancelKeepsTheOldDisabledSpinner() {
         let mode = ScanRungMode.resolve(isRefreshing: true, canCancel: false)
         #expect(mode == .busy)
@@ -32,10 +31,9 @@ import Design
 
     // MARK: What each mode presents
 
-    /// Scan and Stop are two different actions on one control, so every fact the user reads has to
-    /// distinguish them — a rung showing a stop sign while its tooltip offers ⌘R is the mismatch
-    /// this type exists to prevent. They agree on the two facts that are about *availability*
-    /// rather than identity: both are live, and neither spins (only `.busy` does).
+    /// Scan and Stop are two actions on one control, so every fact the user reads must tell them
+    /// apart; a stop sign whose tooltip offers ⌘R is the mismatch to prevent. They agree only on
+    /// availability: both are live, and neither spins (only `.busy` does).
     @Test func testScanAndStopDifferInEveryFactTheUserReads() {
         let scan = ScanRungMode.scan
         let stop = ScanRungMode.stop
@@ -53,7 +51,7 @@ import Design
         #expect(ScanRungMode.scan.keycap == AppChord.rescan.display)
         #expect(ScanRungMode.busy.keycap == AppChord.rescan.display)
         #expect(ScanRungMode.stop.keycap == nil)
-        // ...and the tooltip agrees with the badge, which is the pair that used to be hand-copied.
+        // ...and the tooltip agrees with the badge.
         #expect(ScanRungMode.scan.help.contains(AppChord.rescan.display))
         #expect(!ScanRungMode.stop.help.contains(AppChord.rescan.display))
     }

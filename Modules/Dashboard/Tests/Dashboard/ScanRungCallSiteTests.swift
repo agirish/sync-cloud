@@ -5,16 +5,12 @@ import Testing
 import Design
 import Sync
 
-/// That the pane header's rung actually **behaves** the way `ScanRungMode` says.
+/// That the pane header's rung behaves the way `ScanRungMode` says.
 ///
-/// `ScanRungModeTests` holds the rule; nothing there says `PaneHeader` consults it. That gap has
-/// bitten this change set twice already — a rule extracted for testability, tested, and then not
-/// wired up, with every test still green. This closes it from the other end: it renders the real
-/// header and asserts the pixels differ exactly where the mode says they should, so a revert to
-/// inline ternaries that *behaves* the same still passes and one that behaves differently cannot.
-///
-/// Pixels, not the accessibility tree: there is no accessibility tree without an assistive client,
-/// so label assertions here would pass vacuously.
+/// `ScanRungModeTests` holds the rule but can't see whether `PaneHeader` consults it; a rule
+/// tested but never wired up stays green there. This renders the real header and asserts the
+/// pixels differ where the mode says they should, so only the behaviour is pinned, not the code
+/// shape. Pixels, because there is no accessibility tree without an assistive client.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct ScanRungCallSiteTests {
 
@@ -69,9 +65,8 @@ import Sync
         return differing
     }
 
-    /// Mid-scan, a header that was given a cancel handler must RENDER differently from one that was
-    /// not — `.stop`'s glyph against `.busy`'s. This is the assertion that fails if the rung stops
-    /// consulting the mode.
+    /// Mid-scan, a header given a cancel handler must render differently from one without:
+    /// `.stop`'s glyph against `.busy`'s. Fails if the rung stops consulting the mode.
     @Test func aHeaderGivenACancelHandlerDrawsADifferentRungMidScan() throws {
         let busy = try #require(bitmap(Self.header(isRefreshing: true, canCancel: false)))
         let stop = try #require(bitmap(Self.header(isRefreshing: true, canCancel: true)))
@@ -79,9 +74,8 @@ import Sync
                 "the rung rendered identically with and without a cancel handler — PaneHeader is not reading ScanRungMode")
     }
 
-    /// ...and the control: **idle**, the handler must change nothing at all. A header that differed
-    /// here would be drawing Stop over a pane with no scan running, and it would also make the test
-    /// above pass for the wrong reason — any difference anywhere would satisfy it.
+    /// ...and the control: idle, the handler must change nothing. A difference here would mean Stop
+    /// over a pane with no scan running, and would let the test above pass for the wrong reason.
     @Test func theCancelHandlerChangesNothingWhileIdle() throws {
         let without = try #require(bitmap(Self.header(isRefreshing: false, canCancel: false)))
         let with = try #require(bitmap(Self.header(isRefreshing: false, canCancel: true)))
@@ -89,15 +83,11 @@ import Sync
                 "an idle rung changed appearance just because a cancel handler was supplied")
     }
 
-    /// The regression guard for every caller outside the app, from the rendered side: mid-scan and
-    /// with no cancel handler, the rung still goes **disabled** — the behaviour every non-app
-    /// caller has always had — while the one with a handler stays live and only swaps its glyph.
+    /// Guards callers outside the app, from the rendered side: mid-scan with no cancel handler the
+    /// rung goes disabled, while one with a handler stays live and only swaps its glyph.
     ///
-    /// Measured as a comparison rather than an absolute because the numbers are the point:
-    /// disabling dims the whole pill (2,264 px against the idle render here), where a glyph swap on
-    /// a live control touches only the glyph (356 px). That is a **6× gap in the direction that
-    /// says which one is disabled**, and the first cut of this test asserted it backwards — the
-    /// fixture is what corrected it. It fails if `.busy` stops being disabled, or if `.stop`
+    /// A comparison, not an absolute: disabling dims the whole pill, while a glyph swap touches only
+    /// the glyph (about 6× fewer pixels here). Fails if `.busy` stops being disabled or `.stop`
     /// starts being.
     @Test func onlyTheRungWithNoCancelHandlerGoesDisabledMidScan() throws {
         let idle = try #require(bitmap(Self.header(isRefreshing: false, canCancel: false)))

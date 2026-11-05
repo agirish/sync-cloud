@@ -3,9 +3,9 @@ import AppKit
 import Design
 import Events
 
-/// Dashboard's rendering tint for a log level, drawn from the shared semantic table (C3) — and the
-/// only place severity is turned into colour. It lives here rather than in Events because Events is
-/// a leaf module that must not depend on Design.
+/// Dashboard's tint for a log level, from the shared semantic table, and the only place severity
+/// becomes colour. It lives here, not in Events, because Events is a leaf module that must not
+/// depend on Design.
 extension LogLevel {
     var semanticColor: Color {
         switch self {
@@ -20,17 +20,15 @@ extension LogLevel {
 /// Pure filtering for the Activity Log, kept out of the `LogViewer` View so the level filter,
 /// case-insensitive search, and newest-first ordering are unit-testable without `@State`.
 enum LogEntryFilter {
-    /// Filters to entries at or above `minimumLevel` (a severity *threshold*, not exact-match), then
-    /// by case-insensitive message search — preserving the input order. Shared by both the live
-    /// session list and the loaded history so one Level/Search setting governs the whole window.
+    /// Filters to entries at or above `minimumLevel`, then by the search query, keeping input order.
+    /// Shared by the session list and the loaded history so one Level/Search setting governs the
+    /// whole window.
     ///
-    /// Threshold rather than equality is the whole point: someone opening the log after a failure
-    /// wants "warnings and errors", which exact-match could never express — picking WARN used to
-    /// hide the ERROR they came to see. `nil` shows every level.
+    /// A threshold, not an exact match: someone opening the log after a failure wants "warnings and
+    /// errors", and picking WARN must not hide the ERROR they came to see. `nil` shows every level.
     static func matches(_ entries: [LogEntry], minimumLevel: LogLevel?, search: String, now: Date = Date()) -> [LogEntry] {
-        // The search string may carry `level:`/`since:` tokens (parsed once here); a token-free
-        // string is exactly the legacy case-insensitive message substring. The `minimumLevel`
-        // threshold from the severity chips still applies independently, ANDed with the query.
+        // The search may carry `level:`/`since:` tokens; a token-free string is a plain
+        // case-insensitive message substring. The chips' `minimumLevel` threshold applies too, ANDed.
         let query = LogSearch.parse(search)
         return entries.filter { entry in
             if let minimumLevel, entry.level.severity < minimumLevel.severity { return false }
@@ -38,56 +36,50 @@ enum LogEntryFilter {
         }
     }
 
-    /// ``matches(_:minimumLevel:search:)`` newest-first — the session list's order (its entries are
+    /// ``matches(_:minimumLevel:search:)`` newest-first, the session list's order (its entries are
     /// stored oldest-first, as logged).
     static func apply(_ entries: [LogEntry], minimumLevel: LogLevel?, search: String) -> [LogEntry] {
         matches(entries, minimumLevel: minimumLevel, search: search).reversed()
     }
 }
 
-/// The outcome of one history read, which is NOT just "the entries".
+/// The outcome of one history read, which is not just "the entries".
 ///
-/// A read failure and "there is nothing older" are opposite facts and used to be the same empty
-/// array. Swallowing a failure left the window saying "No earlier activity in the log", forever and
-/// falsely, with nothing recorded anywhere: this loader runs off the main actor with no error
-/// channel, so it is the one path in the app that cannot present its failure through
+/// A failed read and "there is nothing older" are opposite facts and must not share an empty
+/// array, or the window says "No earlier activity in the log" falsely, with nothing recorded. This
+/// loader runs off the main actor with no error channel, so it can't present a failure through
 /// `FileSyncManager.present(_:)`.
 ///
-/// **Torn BYTES are no longer one of the ways to fail.** The log file is appended to by a second
-/// process as well as this one, so a crash mid-write can leave a sequence that isn't valid UTF-8,
-/// and `String(contentsOf:)` threw on it — one bad byte cost the entire history. Those bytes are
-/// now repaired by ``LogHistoryLoader/repairingUTF8(_:)`` and everything around them loads, which
-/// leaves this case to mean what its name says: the file could not be READ.
+/// Torn bytes are not a failure: the log has a second writer, so a crash mid-write can leave
+/// invalid UTF-8, and ``LogHistoryLoader/repairingUTF8(_:)`` repairs it so everything around it
+/// loads. This case means only that the file could not be read.
 enum LogHistoryRead: Sendable {
-    /// The file was read and parsed. The array may legitimately be EMPTY — the log genuinely holds
-    /// nothing older than this session.
+    /// The file was read and parsed. The array may be empty: the log holds nothing older than this
+    /// session.
     case loaded([LogEntry])
-    /// The file could not be read — no permission, the volume gone, the path not a file. `reason`
-    /// is the underlying error's description, for the log line the caller writes. **Not** a
-    /// decoding failure: bytes that are not valid UTF-8 are repaired, not refused.
+    /// The file could not be read: no permission, the volume gone, the path not a file. `reason` is
+    /// the error's description, for the log line the caller writes. Not a decoding failure: invalid
+    /// UTF-8 is repaired, not refused.
     case unreadable(reason: String)
 
-    /// The parsed entries, or nil when the read FAILED. The optional is the point: nil is not an
-    /// empty array, so a caller taking this shortcut still cannot mistake a failure for an empty
-    /// history — which is the whole bug this type exists to prevent.
+    /// The parsed entries, or nil when the read failed. Nil is not an empty array, so a caller
+    /// taking this shortcut still can't mistake a failure for an empty history.
     var loadedEntries: [LogEntry]? {
         if case .loaded(let entries) = self { return entries }
         return nil
     }
 }
 
-/// Loads previous-session history from the on-disk log so the Activity Log window can show entries
-/// that predate the current launch — pure and nonisolated so the read/parse runs off the main actor
-/// (the file is capped at ~5MB, so a full read per invocation is cheap) and stays unit-testable.
+/// Loads previous-session history from the on-disk log, so the Activity Log can show entries from
+/// before this launch. Pure and nonisolated, so the read runs off the main actor (the file is capped
+/// at ~5MB, so a full read is cheap) and stays unit-testable.
 enum LogHistoryLoader {
-    /// Every entry in `fileURL` strictly older than `sessionStart` — i.e. everything from earlier
-    /// sessions, excluding the current session's lines (which the window already shows live from
-    /// memory) — newest-first. Lines that don't parse are skipped.
+    /// Every entry in `fileURL` older than `sessionStart`, newest-first: earlier sessions only, since
+    /// the window already shows this session live. Lines that don't parse are skipped.
     ///
-    /// A read that THROWS comes back as `.unreadable` rather than as an empty history; see
-    /// ``LogHistoryRead``. A missing file is the exception: no log file yet is a true "nothing
-    /// older", not a failure, so it stays `.loaded([])` — reporting it as an error would put a
-    /// scary note under a first launch that has simply never written the file.
+    /// A read that throws comes back as `.unreadable`, not an empty history (see
+    /// ``LogHistoryRead``). A missing file is the exception: no log yet really is "nothing older",
+    /// so it stays `.loaded([])` rather than putting an error note under a first launch.
     static func loadOlderThan(_ sessionStart: Date, fileURL: URL) -> LogHistoryRead {
         do {
             let data = try Data(contentsOf: fileURL)
@@ -101,22 +93,17 @@ enum LogHistoryLoader {
         }
     }
 
-    /// The log's bytes as text, with every byte sequence that is not valid UTF-8 replaced by
-    /// U+FFFD rather than the file being refused.
+    /// The log's bytes as text, with every invalid UTF-8 sequence replaced by U+FFFD rather than the
+    /// file refused.
     ///
-    /// **One torn byte used to cost the whole history.** A crash partway through an append — or
-    /// the CLI writing this same file — can leave a multi-byte character cut in half, and the log
-    /// carries file PATHS, so non-ASCII bytes are routinely in flight. `String(contentsOf:)` threw
-    /// on that and the window showed an error note instead of the thousands of lines either side
-    /// of it. Rotation is not a source: `trimTailIfOversized` cuts at a newline, which is always a
-    /// character boundary.
+    /// A crash mid-append, or the CLI writing the same file, can cut a multi-byte character in half,
+    /// and the log carries file paths, so non-ASCII bytes are common. One torn byte must not cost the
+    /// whole history. Rotation is not a source: `trimTailIfOversized` cuts at a newline.
     ///
-    /// `String(decoding:as:)` is the standard library's REPAIRING initializer, and it is the whole
-    /// implementation: one U+FFFD per malformed sequence, everything on both sides kept.
-    /// Foundation's `String(data:encoding:)` is not a substitute — measured on this fixture, it
-    /// answers `nil` for a UTF-8 character cut short, which is the refusal this function exists to
-    /// stop. (On UTF-16 it does something worse and quieter: a partial code unit comes back as a
-    /// clean string with the tail silently gone. Neither behaviour is a repair.)
+    /// `String(decoding:as:)` is the standard library's repairing initializer: one U+FFFD per
+    /// malformed sequence, everything around it kept. **Don't** swap in Foundation's
+    /// `String(data:encoding:)`: it answers nil for a UTF-8 character cut short (and on UTF-16 it
+    /// silently drops the tail).
     ///
     /// Internal rather than private so the repair can be asserted on bytes, without a file.
     static func repairingUTF8(_ data: Data) -> String {
@@ -125,16 +112,14 @@ enum LogHistoryLoader {
 
     /// ``loadOlderThan(_:fileURL:)`` ordered behind the log writer's pending disk work.
     ///
-    /// The ordering is the whole point of this function, which is why it exists instead of two
-    /// statements at the call site. Clear Log truncates the file on the writer's own
-    /// **background-qos** queue, so a history load that starts right after a clear can still read
-    /// the pre-clear bytes — and it does so holding a perfectly valid token, because the token
-    /// guard only defends loads that were already in flight AT the clear. The just-deleted rows
-    /// then come back as loaded history and stay for the window's lifetime. Draining the writer
+    /// The ordering is why this exists. Clear Log truncates the file on the writer's own
+    /// background-QoS queue, so a load that starts right after a clear could read the pre-clear
+    /// bytes, and with a valid token, since the token guard only covers loads already in flight at
+    /// the clear. The deleted rows would come back for the window's lifetime. Draining the writer
     /// first puts this read behind any enqueued truncate.
     ///
-    /// `drainWriter` is injected rather than reached for so a test can supply the pending write
-    /// itself and prove the read happens after it, not before.
+    /// `drainWriter` is injected so a test can supply the pending write and prove the read comes
+    /// after it.
     static func loadOlderThanDrainingWriter(
         _ sessionStart: Date,
         fileURL: URL,
@@ -144,8 +129,8 @@ enum LogHistoryLoader {
         return loadOlderThan(sessionStart, fileURL: fileURL)
     }
 
-    /// The pure core of ``loadOlderThan(_:fileURL:)``, split out so the parse/boundary/order logic is
-    /// testable without touching disk.
+    /// The pure core of ``loadOlderThan(_:fileURL:)``, so the parse, boundary and order are testable
+    /// without disk.
     static func parseOlderThan(_ sessionStart: Date, text: String) -> [LogEntry] {
         text.split(separator: "\n", omittingEmptySubsequences: true)
             .compactMap { LogEntry.parse(String($0)) }
@@ -154,26 +139,22 @@ enum LogHistoryLoader {
     }
 }
 
-/// Which empty state the log list shows — pure so the distinctions stay unit-testable. Each dead end
-/// needs different words: "No matching entries" names the filters as the cause and offers to clear
-/// them; "No activity yet" explains the surface and points at the loadable history; "No earlier
-/// activity" is the honest end state once history is loaded and the log holds nothing older; and
-/// the same quiet session over an UNREADABLE log says so instead of offering a load that just
-/// failed.
+/// Which empty state the log list shows, pure so it stays unit-testable. Each dead end needs its
+/// own words: "No matching entries" blames the filters and offers to clear them; "No activity yet"
+/// points at the loadable history; "No earlier activity" is the end state once history is loaded
+/// and empty; and a quiet session over an unreadable log says so instead of offering a load that
+/// just failed.
 enum LogEmptyState: Equatable {
     /// Rows are visible; no empty state.
     case none
-    /// Nothing logged this session and history hasn't been loaded — offer to load it.
+    /// Nothing logged this session and history hasn't been loaded: offer to load it.
     case noActivity
     /// History was loaded and the log holds nothing before this session.
     case noEarlierActivity
-    /// Nothing logged this session AND the history read failed, so there is nothing to offer.
+    /// Nothing logged this session and the history read failed, so there is nothing to offer.
     ///
-    /// Split out of `.noActivity` because the two say opposite things about the same file. A quiet
-    /// session over a failed read classified as `.noActivity`, whose message ends "use 'Show older
-    /// history' below to load what earlier sessions recorded" — directly above the footer's
-    /// "Couldn't read the log file — earlier activity is unavailable". The window promised the
-    /// history and denied it in the same breath, in two adjacent paragraphs.
+    /// Separate from `.noActivity`, whose message offers "Show older history": over a failed read it
+    /// would sit right above the footer's "Couldn't read the log file" and contradict it.
     case historyUnavailable
     /// Entries exist (this session and/or loaded history), but the level filter and/or search hide
     /// them all.
@@ -183,10 +164,9 @@ enum LogEmptyState: Equatable {
     ///   - hasVisibleRows: any session or history rows are currently shown.
     ///   - hasRawEntries: any session entries, or already-loaded history entries, exist before filtering.
     ///   - historyLoaded: the user has loaded history at least once this session.
-    ///   - historyReadFailed: the last history read failed (`LogHistoryState.failed`). Deliberately
-    ///     has NO default: it is the difference between "there is history to load" and "the file
-    ///     couldn't be read", and a caller that omitted it would silently re-print the contradiction
-    ///     `.historyUnavailable` exists to end.
+    ///   - historyReadFailed: the last history read failed (`LogHistoryState.failed`). No default
+    ///     on purpose: a caller that omitted it would bring back the contradiction
+    ///     `.historyUnavailable` exists to prevent.
     static func classify(hasVisibleRows: Bool,
                          hasRawEntries: Bool,
                          historyLoaded: Bool,
@@ -197,61 +177,43 @@ enum LogEmptyState: Equatable {
         return historyReadFailed ? .historyUnavailable : .noActivity
     }
 
-    /// Whether the history FOOTER should add its own "No earlier activity in the log" note.
+    /// Whether the history footer should add its own "No earlier activity in the log" note.
     ///
-    /// The footer and the in-flow empty state are independent views that reached the same
-    /// conclusion by different routes, so a quiet session over an empty history rendered the fact
-    /// twice on one screen — `.noEarlierActivity`'s "the log holds nothing from earlier sessions"
-    /// directly above "No earlier activity in the log". The empty state is the fuller of the two
-    /// (it also explains what the window records), so it keeps the floor and the footer yields.
-    ///
-    /// It still speaks in every other loaded-and-empty case — most importantly when the session
-    /// DID log something, where the empty state isn't rendered at all and this note is the only
-    /// word on the subject.
+    /// The footer and the in-flow empty state are independent views, so over an empty history in a
+    /// quiet session both would say it. The empty state is the fuller of the two, so the footer
+    /// yields. It still speaks when the session did log something, where no empty state renders and
+    /// this note is the only word on the subject.
     static func footerNotesNoEarlierActivity(historyIsEmpty: Bool, emptyState: LogEmptyState) -> Bool {
         historyIsEmpty && emptyState != .noEarlierActivity
     }
 
-    /// Whether the history FOOTER should add its own "Couldn't read the log file" note.
+    /// Whether the history footer should add its own "Couldn't read the log file" note.
     ///
-    /// The same yield rule as ``footerNotesNoEarlierActivity(historyIsEmpty:emptyState:)`` and for
-    /// the same reason: once `.historyUnavailable` renders, the failed read is already stated —
-    /// more fully, and in the place the eye lands first — so repeating it in the footer is the
-    /// double-render again. The retry BUTTON is unaffected; it is an action, not a second telling,
-    /// and the empty state's message points at it by name.
-    ///
-    /// It still speaks whenever the empty state is saying something else — most importantly when
-    /// the session DID log something, where no empty state renders at all and this note is the only
-    /// word on why the earlier history isn't there.
+    /// The same yield rule as ``footerNotesNoEarlierActivity(historyIsEmpty:emptyState:)``: once
+    /// `.historyUnavailable` renders, the failed read is already stated where the eye lands first.
+    /// The retry button is unaffected; it is an action, and the empty state's message names it. The
+    /// note still speaks whenever the empty state says something else, such as when the session did
+    /// log something and no empty state renders.
     static func footerNotesUnreadableHistory(emptyState: LogEmptyState) -> Bool {
         emptyState != .historyUnavailable
     }
 }
 
 /// Everything the Activity Log's list and chip row derive from the session entries plus the history
-/// STATE — computed in one pure pass so the parts cannot disagree with each other.
+/// state, computed in one pure pass so the parts can't disagree.
 ///
-/// The bug this exists to prevent is a disagreement, not a miscount: the severity chips set a
-/// threshold that filters the session rows AND the loaded history, but the counts were tallied from
-/// the session alone, so an "Errors 0" chip sat above a screenful of history error rows. Fixing the
-/// tally at the call site left the hole open — `history: []` is a one-line edit, and every test
-/// passed either way because they all called `thresholdCounts` directly.
+/// The severity chips set a threshold that filters the session rows and the loaded history, so
+/// their counts must cover both, or an "Errors 0" chip sits above a screenful of history error rows.
+/// The history state enters here once and feeds both the counts and the rows: there is one
+/// `history` parameter, so counting a different history than the rows show doesn't fit the API.
 ///
-/// So the history state enters here ONCE and feeds both the counts and the rows. Reverting the
-/// counts now means handing this a different history than the rows are drawn from, which no longer
-/// fits through the API: there is one `history` parameter, and emptying it empties the visible rows
-/// too — a change that is loud on screen instead of silent.
-///
-/// It really is a pure value — nonisolated, constructible from anywhere. That is not free: every
-/// helper it reaches has to be nonisolated too, and `LogViewer.thresholdCounts` is a static on a
-/// SwiftUI `View`, which SwiftUI isolates to the main actor along with the rest of the type.
-/// Calling one of those from off-actor SIGTRAPs at runtime while compiling with only a warning, so
-/// constructing this inside a `Task.detached` crashed. The counting is `nonisolated` for that
-/// reason; keep any future helper this init reaches the same way, or move the work behind the
-/// actor and mark the whole type `@MainActor` — what must not happen again is a nonisolated init
-/// over main-actor-isolated work.
+/// **Keep it nonisolated all the way down.** It is a pure value, constructible from anywhere, so
+/// every helper its init reaches must be nonisolated too. `LogViewer.thresholdCounts` is a static on
+/// a SwiftUI `View`, which is main-actor isolated; reaching one of those off the actor (from a
+/// `Task.detached`, say) compiles with only a warning and SIGTRAPs at runtime. Mark any new helper
+/// `nonisolated`, or move the work behind the actor and make the whole type `@MainActor`.
 struct LogViewerContents {
-    /// Session entries after the level/search filter, newest-first — the main list.
+    /// Session entries after the level/search filter, newest-first: the main list.
     let sessionRows: [LogEntry]
     /// Per-threshold tallies for the chip row, keyed by `LogLevel?` (nil is the "All" total).
     let levelCounts: [LogLevel?: Int]
@@ -264,10 +226,9 @@ struct LogViewerContents {
 
     /// - Parameters:
     ///   - session: the live in-memory entries, oldest-first as logged.
-    ///   - history: the on-demand history's state — the same value that decides what the footer
-    ///     renders. Deliberately the STATE and not an array: "not loaded", "loading", "failed" and
-    ///     "loaded but empty" contribute nothing to the tally for different reasons, and passing
-    ///     entries would let a caller quietly substitute a different set for the counts.
+    ///   - history: the on-demand history's state, the same value that decides the footer. The
+    ///     state, not an array: "not loaded", "loading", "failed" and "loaded but empty" each add
+    ///     nothing for different reasons, and an array would let a caller count a different set.
     ///   - now: clock for `since:` search tokens, taken once so the session rows, the history rows
     ///     and the counts are all filtered against the same instant.
     init(session: [LogEntry],
@@ -277,16 +238,15 @@ struct LogViewerContents {
          pageSize: Int,
          span: ClosedRange<Date>? = nil,
          now: Date = Date()) {
-        // Activity's Show in Log: the minutes around one message (R13), before every other filter,
-        // so the chips count what the narrowed list holds.
+        // Activity's Show in Log: the minutes around one message, applied before every other
+        // filter so the chips count what the narrowed list holds.
         let session = span.map { span in session.filter { span.contains($0.timestamp) } } ?? session
         let loadedHistory = history.entries.map { entries in
             span.map { span in entries.filter { span.contains($0.timestamp) } } ?? entries
         }
         sessionRows = LogEntryFilter.matches(session, minimumLevel: minimumLevel, search: search, now: now).reversed()
-        // The chips count what the threshold filters: the session AND all LOADED history — not the
-        // revealed page. "Show more" reveals further into this same set, so a count that grew as
-        // you paged would describe the scroll position rather than what the window holds.
+        // The chips count what the threshold filters: the session and all loaded history, not the
+        // revealed page. "Show more" pages into this same set, so the counts must not grow with it.
         levelCounts = LogViewer.thresholdCounts(session: session, history: loadedHistory ?? [])
         // History respects the same Level/Search filters as the session; it is already newest-first.
         let historyMatches = loadedHistory.map {
@@ -304,10 +264,11 @@ struct LogViewerContents {
     }
 }
 
-/// An interactive slide-over or floating inspector pane that filters and displays historical LogEntry traces.
+/// The Activity Log: this session's entries and, on demand, earlier history, filtered by level
+/// and search.
 public struct LogViewer: View {
     @ObservedObject public var logger = Logger.shared
-    /// The minutes around one Activity message — set by its Show in Log (R13), cleared by its chip.
+    /// The minutes around one Activity message, set by its Show in Log and cleared by its chip.
     @Binding private var span: ClosedRange<Date>?
     /// The window's own title row; Activity's tab names it instead.
     private let showsTitle: Bool
@@ -323,74 +284,64 @@ public struct LogViewer: View {
         return "\(span.lowerBound.formatted(style)) – \(span.upperBound.formatted(style))"
     }
     
-    // The minimum severity to show (a threshold, not exact-match). Defaults to All Levels (nil)
-    // so a user opening the log sees everything recorded; picking "Warnings & above" keeps errors
-    // in view, which the old exact-match filter couldn't do.
+    // The minimum severity to show (a threshold, not an exact match). Defaults to All Levels (nil)
+    // so a user opening the log sees everything; "Warnings & above" keeps errors in view.
     @State private var selectedLevel: LogLevel? = nil
     @State private var searchText: String = ""
     /// Whether the search field is revealed. Collapsed by default and toggled by the header's
-    /// magnifier — Design's `ExpandingSearch` mechanism, the same one Compare and the Organize lenses
-    /// drive, so the log's search expands, focuses, escapes and clears exactly like theirs
-    /// instead of being this window's own always-visible field.
+    /// magnifier, Design's `ExpandingSearch` mechanism, so the log's search expands, focuses,
+    /// escapes and clears exactly like Compare's and the Organize lenses'.
     @State private var isSearchExpanded = false
     /// The part of the severity row on screen, for its lens — see `SelectionLensVisibleRegion`.
     @State private var visibleLevels = SelectionLensVisibleRegion()
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
     private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
-    /// The glass hue, so the accent-tinted chrome (token chips, the selected severity chip)
-    /// matches the hue every other window passes to the same components — the lens workspace hands this exact
-    /// tint to `TokenChipsRow`; the Log window used to hardcode `Color.accentColor` instead.
+    /// The glass hue, so the accent-tinted chrome (token chips, the selected severity chip) matches
+    /// the hue every other window hands the same components.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
-    /// The Tint slider. Read here for the same reason the level and hue are: this window paints the
-    /// main window's background, so it has to scale its accent by the same amount or the Activity
-    /// Log comes up at full strength beside a faintly-tinted app.
+    /// The Tint slider. This window paints the main window's background, so it must scale its
+    /// accent by the same amount or the Activity Log comes up at full strength beside a faintly
+    /// tinted app.
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
-    /// List-density setting (H7): comfortable renders exactly the pre-setting look; compact
-    /// tightens the row spacing so more log lines fit on screen.
+    /// List density: compact tightens the row spacing so more log lines fit on screen.
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
 
     private var hueAccent: Color { glassHue.accentColor }
 
-    /// What the SELECTED level chip fills with: the deepened accent, since it carries a white
-    /// label. Everything else here (hover washes, token-chip tints, hairlines) keeps `hueAccent` —
-    /// no white label to carry, and deepening a wash only muddies it.
+    /// What the selected level chip fills with: the deepened accent, since it carries a white label.
+    /// Everything else here (hover washes, token chips, hairlines) keeps `hueAccent`; deepening a
+    /// wash only muddies it.
     private var hueAccentFill: Color { glassHue.accentFillColor }
 
-    /// Text/glyph color on a `hueAccentFill` fill — white for every hue, because that fill is
-    /// deepened until white clears 4.5:1 on it. See `LiquidGlassHue.onAccentLabelColor` for why the
-    /// app moved the fill instead of flipping the label per-hue.
+    /// Text and glyph colour on a `hueAccentFill` fill: white for every hue, because that fill is
+    /// deepened until white clears 4.5:1 on it (`LiquidGlassHue.onAccentLabelColor`).
     private var onHueAccent: Color { glassHue.onAccentLabelColor }
 
     private var density: ListDensity { ListDensity(rawValue: listDensityRaw) ?? .comfortable }
 
     private var densityMetrics: ListDensityMetrics { density.metrics }
 
-    /// Previous-session entries pulled from `~/sync-cloud.log` on demand (newest-first), and the
-    /// state of that fetch. The window shows the live in-memory session by default; this backfills
-    /// the record that predates the current launch, in-window, without opening the file externally.
-    /// Whether that history has been asked for, is being read, or is loaded — and, once loaded, how
-    /// much of it is revealed. See ``LogHistoryState``: this replaced four separate `@State` vars
-    /// that every path had to move in lockstep, two of whose combinations were meaningless.
+    /// The on-demand history from `~/sync-cloud.log`: entries from before this launch, shown
+    /// in-window. Whether it has been asked for, is being read, failed or is loaded, and how much
+    /// of it is revealed, in one value (``LogHistoryState``).
     @State private var history: LogHistoryState = .notLoaded
 
-    /// Page size for the on-demand history: the first "Show older history" reveals this many, and each
-    /// "Show more" reveals another page.
+    /// Page size for the on-demand history: the first "Show older history" reveals this many, and
+    /// each "Show more" another page.
     private static let historyPageSize = 25
 
-    /// Height of the standard macOS title bar the header must clear. The window hides its title
-    /// bar so the glass reaches the top edge (no white slab, matching Settings), which leaves the
-    /// traffic lights floating over the content's first rows.
+    /// Height of the standard title bar the header must clear. The window hides its title bar so the
+    /// glass reaches the top edge (matching Settings), which leaves the traffic lights over the
+    /// content's first rows.
     static let titleBarInset: CGFloat = 28
 
-    /// Menu options for the severity threshold. Debug is omitted as its own row because
-    /// "Debug & above" is identical to "All Levels".
+    /// Menu options for the severity threshold. No Debug row: "Debug & above" is "All Levels".
     ///
-    /// `nonisolated` for the same reason `thresholdCounts` is: the tally walks this list, and a
-    /// main-actor-isolated static read from a nonisolated context is exactly the trap that function
-    /// exists to stay out of. The value is an immutable `Sendable` table, so nothing is given up.
+    /// `nonisolated` for `thresholdCounts`'s reason: the tally walks this list, and a main-actor
+    /// static read from a nonisolated context traps. It is an immutable `Sendable` table.
     private nonisolated static let levelOptions: [(label: String, level: LogLevel?)] = [
         ("All Levels", nil),
         ("Info & above", .info),
@@ -398,8 +349,8 @@ public struct LogViewer: View {
         ("Errors", .error),
     ]
 
-    /// Short labels for the severity filter chips — same thresholds as `levelOptions`, trimmed so four
-    /// pills fit the narrow log window. Counts are looked up from the shared `thresholdCounts`.
+    /// Short labels for the severity chips: the thresholds of `levelOptions`, trimmed so four pills
+    /// fit the narrow log window. Counts come from `thresholdCounts`.
     private static let chipOptions: [(label: String, level: LogLevel?)] = [
         ("All", nil),
         ("Info", .info),
@@ -407,27 +358,19 @@ public struct LogViewer: View {
         ("Errors", .error),
     ]
 
-    /// One O(N) pass tallying how many entries sit at or above each menu threshold (plus the total
-    /// under the `nil`/"All Levels" key). Computed once per body render and read by the picker
-    /// labels, instead of a full `entries` reduce per option on every render.
+    /// One O(N) pass tallying the entries at or above each menu threshold, plus the total under
+    /// the `nil` ("All Levels") key. Computed once per render and read by every chip.
     ///
-    /// Counts the session AND any revealed history, because the threshold these chips set filters
-    /// both. Tallying the session alone put an "Errors 0" chip directly above a screenful of
-    /// history error rows — which happens whenever a quiet session sits under a raised threshold,
-    /// the exact situation someone opens the history for. The two arrays are walked in place rather
-    /// than concatenated: this runs on every body render, and the session list alone reaches
-    /// thousands of entries.
-    // Internal, not private: `LogLevelChipCountTests` pins the session+history tally directly. It is
-    // reached from `body` only through `LogViewerContents`, which is what decides — from the history
-    // STATE — which entries are counted; this function just adds up whatever it is handed.
+    /// Counts the session and the loaded history, because the chips' threshold filters both. The two
+    /// arrays are walked in place, not concatenated: this runs on every render, and the session list
+    /// alone reaches thousands of entries.
+    // Internal, not private: `LogLevelChipCountTests` pins the tally directly. `body` reaches it
+    // only through `LogViewerContents`, which decides from the history state what is counted.
     //
-    // `nonisolated` is load-bearing, not tidiness. `LogViewer` is a `View`, so SwiftUI isolates the
-    // whole type — including its statics — to the main actor, and a static on a `View` called from
-    // off-actor SIGTRAPs at runtime with nothing but a warning at compile time. `LogViewerContents`
-    // is documented as (and used as) a pure value with a nonisolated `init`, so it reaches this from
-    // exactly such a context: constructing one inside `Task.detached` trapped. Nothing here needs
-    // the actor — it is arithmetic over two arrays — so the counting is declared for what it is
-    // rather than the value being pinned to the main actor to match the arithmetic's accident.
+    // **`nonisolated` is load-bearing.** SwiftUI isolates a `View`'s statics to the main actor, and
+    // `LogViewerContents`'s nonisolated init calls this, from `Task.detached` among other places;
+    // an isolated static there compiles with a warning and SIGTRAPs at runtime. It is plain
+    // arithmetic over two arrays and needs no actor.
     nonisolated static func thresholdCounts(session: [LogEntry], history: [LogEntry]) -> [LogLevel?: Int] {
         var perLevel: [LogLevel: Int] = [:]
         for e in session { perLevel[e.level, default: 0] += 1 }
@@ -440,9 +383,9 @@ public struct LogViewer: View {
         return out
     }
 
-    /// Copies the on-screen slice (current level + search filter) to the clipboard as canonical log
-    /// lines — the fast path for pasting into a bug report. Emitted oldest-first so the paste reads
-    /// chronologically and matches the on-disk file's order (the list itself shows newest-first).
+    /// Copies the on-screen slice (level and search filter applied) as canonical log lines, for
+    /// pasting into a bug report. Oldest-first, so the paste reads chronologically and matches the
+    /// file (the list shows newest-first).
     private func copyVisibleEntries(_ entries: [LogEntry]) {
         let text = entries.reversed().map(\.formattedString).joined(separator: "\n")
         let pasteboard = NSPasteboard.general
@@ -450,35 +393,29 @@ public struct LogViewer: View {
         pasteboard.setString(text, forType: .string)
     }
 
-    /// Reads previous-session history off the main actor and reveals the first page. The boundary is
-    /// the current session's first in-memory entry (the launch breadcrumb), so nothing the window
-    /// already shows live is duplicated. Reading a ≤5MB file once per open is cheap; "Show more" then
-    /// just reveals further into the already-parsed array without re-reading.
+    /// Reads previous-session history off the main actor and reveals the first page. Reading a ≤5MB
+    /// file once per open is cheap; "Show more" reveals further into the parsed array without
+    /// re-reading.
     @MainActor
     private func loadHistory() {
         // Claiming the load IS the guard: `beginLoading` returns nil when a read is already in
         // flight or the history is loaded, so the double-fire check cannot be forgotten.
         guard let token = history.beginLoading() else { return }
-        // Everything on disk older than this app session's start is prior-session history. Use the
-        // fixed session-start timestamp, NOT `entries.first` — the memory cache is trimmed to the
-        // newest N, so after a busy session `entries.first` drifts into the current session and
-        // would pull current-session lines (and the ms-truncated launch breadcrumb) into "history".
-        // Floored to the on-disk MILLISECOND precision: the writer rounds timestamps to ms,
-        // so the session's first line (logged microseconds after sessionStart) can serialize
-        // BELOW the raw boundary on ~half of launches — classifying the launch breadcrumb as
-        // "history" and showing (and copying) it twice. Flooring keeps every line whose
-        // rounded timestamp equals the boundary's ms on the session side; genuine history is
-        // seconds older and unaffected.
+        // Prior-session history is everything on disk older than this session's fixed start, not
+        // `entries.first`: the memory cache keeps only the newest N, so after a busy session
+        // `entries.first` falls inside the current session.
+        // Floored to the millisecond, the file's precision: the writer rounds timestamps to ms, so
+        // the session's first line, logged microseconds after `sessionStart`, can serialize below a
+        // raw boundary and show (and copy) twice. Real history is seconds older and unaffected.
         let raw = logger.sessionStart.timeIntervalSinceReferenceDate
         let boundary = Date(timeIntervalSinceReferenceDate: (raw * 1000).rounded(.down) / 1000)
         let fileURL = logger.logFileURL
-        // Taken here (main actor) but RUN inside the detached read below: the barrier blocks until
-        // the writer's queue drains, which is exactly what must not happen on the main actor.
+        // Taken here on the main actor but run inside the detached read: the barrier blocks until
+        // the writer's queue drains, which must not happen on the main actor.
         let drainWriter = logger.diskWriteBarrier()
-        // Token guard: Clear Log mid-flight resets the state, and a completion parsed from the
-        // PRE-clear file must not overwrite that reset — it would resurrect deleted rows AND (by
-        // making the history non-nil again) hide the reload button for the window's lifetime.
-        // `finishLoading` applies the parse only while this token is still the one being awaited.
+        // Token guard: Clear Log mid-flight resets the state, and a parse of the pre-clear file
+        // must not overwrite that reset, or deleted rows come back and the reload button stays
+        // hidden. `finishLoading` applies the parse only while this token is still awaited.
         Task {
             let outcome = await Task.detached(priority: .userInitiated) {
                 LogHistoryLoader.loadOlderThanDrainingWriter(
@@ -491,11 +428,9 @@ public struct LogViewer: View {
             case .loaded(let parsed):
                 history.finishLoading(parsed, token: token, pageSize: Self.historyPageSize)
             case .unreadable(let reason):
-                // The failure is logged HERE, on the main actor, rather than inside the detached
-                // read: `Logger.shared` is a MainActor-isolated static, and the read is the one
-                // place in the app with no error channel of its own. Logging unconditionally (not
-                // only when the token still matches) is deliberate — the read really did fail, and
-                // a superseded load's failure is exactly as diagnostic as a current one's.
+                // Logged here on the main actor, not in the detached read: `Logger.shared` is
+                // main-actor isolated, and the read has no error channel. Logged even when the
+                // token is stale: the read really did fail, and that is just as diagnostic.
                 logger.error("Could not read \(fileURL.lastPathComponent) for the Activity Log's earlier history: \(reason)")
                 history.failLoading(token: token)
             }
@@ -503,12 +438,10 @@ public struct LogViewer: View {
     }
 
     public var body: some View {
-        // One pure pass per body evaluation, from the session entries and the history STATE: the
-        // filtered rows, the chip tallies, the revealed history page, the "Show N more" remainder
-        // and the empty state. They are derived together (see `LogViewerContents`) because they
-        // must describe the same set — the chips counting one thing while the list showed another
-        // is the bug this window shipped. It is also cheaper: the isEmpty checks and the ForEach
-        // below would otherwise each re-run the full filter pass.
+        // One pure pass per render from the session entries and the history state: the rows, the
+        // chip tallies, the revealed history page, the "Show N more" remainder and the empty state,
+        // derived together (`LogViewerContents`) so they describe the same set. It also saves the
+        // isEmpty checks and the ForEach below each re-running the filter.
         let contents = LogViewerContents(
             session: logger.entries,
             history: history,
@@ -530,17 +463,15 @@ public struct LogViewer: View {
                         .scaledFont(.headline)
                     Spacer()
                 } else {
-                    // Activity's Log tab: the tab names it, and the level chips take the title's
-                    // place rather than a row of their own under a row of three buttons.
+                    // Activity's Log tab: the tab names it, so the level chips take the title's
+                    // place instead of a row of their own.
                     levelChips(levelCounts, inHeader: true)
                 }
 
-                // Copy covers EVERYTHING on screen — session rows AND any revealed "Earlier
-                // sessions" page. Session entries are all newer than the history boundary, so
-                // the concatenation stays globally newest-first and the copier's single
-                // reversed() yields one chronological paste. It also enables on history alone:
-                // a quiet session with 25 revealed history rows used to show a disabled Copy
-                // under a help text promising "the 25 shown entries".
+                // Copy covers everything on screen: session rows and any revealed "Earlier
+                // sessions" page. Session entries are all newer than the history boundary, so the
+                // concatenation stays newest-first and the copier's one reversed() pastes in
+                // order. It enables on history alone, so a quiet session can still copy.
                 let shownCount = filtered.count + visibleHistory.count
                 Button(action: { copyVisibleEntries(filtered + visibleHistory) }) {
                     Image(systemName: "doc.on.doc")
@@ -553,14 +484,12 @@ public struct LogViewer: View {
                 .help("Copy the \(shownCount) shown \(shownCount == 1 ? "entry" : "entries") to the clipboard")
                 .accessibilityLabel("Copy the shown entries")
 
-                // The history reset rides the Logger's own notification, NOT this button:
-                // Settings has its own Clear Log door, and a reset wired to one button left
-                // the other door resurrecting deleted history rows. The on-disk file was
-                // truncated, so parsed history must drop (and the reload button reappear —
-                // it only renders while the history is unloaded); the reset also invalidates any
-                // IN-FLIGHT load's token, so its pre-clear parse is discarded instead of applied.
-                // Asks first, as Sync History's Clear does: this truncates the file on disk too,
-                // which is every earlier session's record.
+                // The history reset rides the Logger's own notification, not this button, because
+                // Settings has its own Clear Log too, and either must drop the parsed history (and
+                // bring back the reload button). The reset also invalidates any in-flight load's
+                // token, so its pre-clear parse is discarded.
+                // Asks first, as Sync History's Clear does: it truncates the file on disk, every
+                // earlier session's record.
                 Button(action: { logger.clearIfConfirmed() }) {
                     Image(systemName: "trash")
                 }
@@ -571,10 +500,9 @@ public struct LogViewer: View {
                 .chromeGlassBorderedButtonStyle()
                 .controlSize(.small)
                 .chromeHover(tint: hueAccent)
-                // Enabled while there is anything ON SCREEN to clear — session entries OR revealed
-                // history rows. Gating on `entries` alone left the button dead above a screenful of
-                // history whenever the session list was empty (a quiet session under an
-                // "Errors only" threshold is exactly that), with Settings ▸ Advanced the only way out.
+                // Enabled while there is anything to clear: session entries or loaded history. On
+                // session entries alone, a quiet session under a raised threshold would leave it
+                // dead above a screenful of history.
                 .disabled(logger.entries.isEmpty && !history.isLoaded)
                 // Ellipsis on the tooltip because it asks, like "Clear all history…".
                 .help("\(Logger.clearLogName)…")
@@ -590,9 +518,9 @@ public struct LogViewer: View {
                 .help("Open in Console/TextEdit")
                 .accessibilityLabel("Open the log file")
 
-                // Search collapses to this magnifier — last item, far right, exactly where
-                // Compare's header puts it. Clicking reveals the field on the row below, which
-                // claims focus itself; a second click (or Escape) collapses and clears.
+                // Search collapses to this magnifier, last on the right, where Compare's header
+                // puts it. A click reveals the field on the row below, which takes focus; a second
+                // click (or Escape) collapses and clears.
                 ExpandingSearchToggle(
                     text: $searchText,
                     isExpanded: $isSearchExpanded,
@@ -600,13 +528,12 @@ public struct LogViewer: View {
                     help: "Search the log by message, level, or age"
                 )
             }
-            // Plain header row directly on the window glass — the Settings pattern (its title row
-            // carries no bar background), so no white slab across the top.
+            // A plain header row on the window glass, like Settings' title row: no bar background,
+            // so no white slab across the top.
             .padding(.horizontal, 16)
             .padding(.vertical, showsTitle ? 12 : 10)
-            // The window is `.hiddenTitleBar`, so the glass runs all the way up and the content
-            // starts under the traffic lights — inset the header past them. Without this the
-            // title sits behind the close/minimize/zoom buttons.
+            // The window is `.hiddenTitleBar`, so the content starts under the traffic lights;
+            // inset the header past them.
             .padding(.top, showsTitle ? LogViewer.titleBarInset : 0)
 
             if let span {
@@ -616,31 +543,29 @@ public struct LogViewer: View {
                 }
             }
 
-            // Severity filter chips — the level threshold as tappable pills (All / Info & above /
-            // Warnings & above / Errors), each carrying its live count. Replaces the old menu so the
-            // active scope is always visible, not one click away.
-            // Horizontal scroll so four chips with large counts never compress/truncate on the
-            // narrow (380 pt) log window.
+            // Severity chips: the level threshold as pills, each with its live count, so the active
+            // scope is always visible. They scroll sideways so large counts never truncate in the
+            // narrow (380 pt) window.
             if showsTitle {
                 levelChips(levelCounts, inHeader: false)
             }
 
-            // Search Bar — revealed by the header's magnifier. The query, plus (below) the parsed
-            // filter tokens as removable chips and, while focused, one-tap suggestions. Design's
-            // `ExpandingSearchField` carries the field, its clear button, focus-on-appear and
-            // Escape, so this window's search behaves exactly like Compare's and the lens workspaces'.
+            // The search field, revealed by the header's magnifier, with the parsed tokens as
+            // removable chips and, while focused, one-tap suggestions. Design's
+            // `ExpandingSearchField` carries the field, clear button, focus and Escape, so it
+            // behaves like Compare's and the lens workspaces'.
             if isSearchExpanded {
                 searchField
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .transition(.opacity)
             }
-            // The transition above needs a driving animation or it never runs — an `if` alone
-            // inserts and removes the field instantly, which is what shipped.
+            // The transition above needs a driving animation (`designAnimation` below), or an `if`
+            // alone inserts and removes the field instantly.
 
 
-            // Log List. The empty state renders in-flow (not as an overlay) so the "Show older
-            // history" footer below it stays reachable even when this session logged nothing.
+            // The log list. The empty state renders in-flow, not as an overlay, so the "Show older
+            // history" footer below stays reachable when this session logged nothing.
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: densityMetrics.logListSpacing) {
                     if emptyState == .none {
@@ -652,26 +577,24 @@ public struct LogViewer: View {
                 }
                 .padding(16)
             }
-            // No surface of its own: the list sits directly on the window's glass background,
-            // exactly like Settings' content area.
+            // No surface of its own: the list sits on the window's glass, like Settings' content.
         }
         .frame(minWidth: 380)
-        // A new filter/search is a fresh view of history — collapse back to the first page so the
-        // list doesn't stay expanded to hundreds of now-filtered rows.
+        // A new filter or search is a fresh view of history: collapse to the first page so the
+        // list doesn't stay expanded to hundreds of filtered rows.
         .onChange(of: selectedLevel) { _, _ in history.resetRevealed(to: Self.historyPageSize) }
         .onChange(of: searchText) { _, _ in history.resetRevealed(to: Self.historyPageSize) }
         // Drives the search field's reveal/hide transition (see above).
         .designAnimation(.easeOut(duration: 0.14), value: isSearchExpanded)
-        // Match the main window's glass: same level + hue background, so the Activity Log reads as
-        // the same frosted (or, at Clear, whiter see-through) surface instead of a plain window.
-        // Not inside Activity, whose window carries one ground for all its tabs.
+        // The main window's glass, level and hue, so the Activity Log reads as the same frosted
+        // (or, at Clear, see-through) surface. Not inside Activity, whose window has one ground
+        // for all its tabs.
         .modifier(LogViewerGround(applies: showsTitle, level: glassLevel, hue: glassHue, tint: surfaceTint))
     }
 
-    /// The severity threshold as tappable pills (All / Info & above / Warnings & above / Errors),
-    /// each carrying its live count. Horizontal scroll so four chips with large counts never
-    /// compress/truncate on a narrow window. A row of its own under the title, or the header itself
-    /// inside Activity.
+    /// The severity threshold as pills (All / Info & above / Warnings & above / Errors), each with
+    /// its live count, scrolling sideways so large counts never truncate. A row of its own under
+    /// the title, or the header itself inside Activity.
     private func levelChips(_ levelCounts: [LogLevel?: Int], inHeader: Bool) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
@@ -681,9 +604,9 @@ public struct LogViewer: View {
             }
             .padding(.horizontal, inHeader ? 0 : 16)
             .padding(.top, inHeader ? 0 : 10)
-            // Frosted and Clear: the active threshold's fill as one glass lens that glides
-            // between chips (RD46) — a pick-one row like every other that wears one. On the
-            // padded row, the scroll view's content, so `visibleLevels` is in its coordinates.
+            // Frosted and Clear: the active threshold's fill is one glass lens that glides between
+            // chips, like every pick-one row. Hosted on the padded row, the scroll view's content,
+            // so `visibleLevels` is in its coordinates.
             .selectionLensHost(Self.levelLensChannel, selected: Self.levelLensID(selectedLevel),
                                style: .fill(.capsule, color: hueAccentFill), visibleRegion: visibleLevels)
         }
@@ -692,9 +615,8 @@ public struct LogViewer: View {
 
     // MARK: Search field
 
-    /// The revealed search field: Design's shared `ExpandingSearchField` (query, clear button,
-    /// focus-on-appear, Escape-to-collapse) carrying this window's own accessories — the parsed
-    /// `level:`/`since:` chips, and the one-tap suggestions while the field holds the caret.
+    /// The revealed search field: Design's shared `ExpandingSearchField` with this window's own
+    /// accessories, the parsed `level:`/`since:` chips and, while it holds the caret, suggestions.
     private var searchField: some View {
         let chips = LogSearch.chips(searchText)
         return ExpandingSearchField(
@@ -714,8 +636,8 @@ public struct LogViewer: View {
 
     // MARK: Token chips & suggestions
 
-    /// The parsed `level:`/`since:` tokens as removable chips (Design's shared `TokenChipsRow`):
-    /// a plain reading of the query, each with an ✕ that edits that word back out of the raw text.
+    /// The parsed `level:`/`since:` tokens as removable chips (Design's `TokenChipsRow`), each with
+    /// an ✕ that edits that word out of the raw text.
     private func logTokenChips(_ chips: [LogSearch.Chip]) -> some View {
         HStack(spacing: 6) {
             TokenChipsRow(
@@ -727,8 +649,8 @@ public struct LogViewer: View {
         }
     }
 
-    /// One-tap filter suggestions shown while the field is focused, omitting any family already active
-    /// (level and since are each single-valued, so a second one just replaces the first).
+    /// One-tap filter suggestions while the field is focused, omitting any family already active
+    /// (level and since are single-valued, so a second would only replace the first).
     @ViewBuilder
     private func logSuggestionRow(active: [LogSearch.Chip]) -> some View {
         let suggestions = logSuggestions(active: active)
@@ -740,8 +662,7 @@ public struct LogViewer: View {
                     .fixedSize()
                 ForEach(suggestions, id: \.raw) { suggestion in
                     Button {
-                        // Trim first so appending never leaves a double space when the field already
-                        // ends in whitespace.
+                        // Trim first so appending never leaves a double space.
                         let base = searchText.trimmingCharacters(in: .whitespaces)
                         searchText = base.isEmpty ? suggestion.raw : base + " " + suggestion.raw
                     } label: {
@@ -787,26 +708,24 @@ public struct LogViewer: View {
     /// A chip's lens identity: its level, or "all" for the chip that has none.
     static func levelLensID(_ level: LogLevel?) -> String { level?.rawValue ?? "all" }
 
-    /// One severity-threshold pill: its label, its live count, and a filled state when it's the active
-    /// threshold. Tapping sets the same `selectedLevel` the old menu did, so the filter logic is
-    /// unchanged — only its presentation.
+    /// One severity-threshold pill: its label, its live count, and a fill when it is the active
+    /// threshold. Tapping sets `selectedLevel`.
     @ViewBuilder
     private func levelChip(_ label: String, level: LogLevel?, count: Int) -> some View {
         let selected = selectedLevel == level
         Button {
             selectedLevel = level
         } label: {
-            // White on a deepened fill — which is, in the end, what AppKit's
-            // alternateSelectedControlTextColor always claimed: it returns white under every accent
-            // because it pairs with the *darkened* selection fill. The old bug was pairing it with
-            // the RAW accent (white-on-Yellow, ~1.6:1). Deepening the fill makes the claim true.
+            // White on a deepened fill: AppKit's alternateSelectedControlTextColor is white under
+            // every accent because it pairs with a darkened selection fill, and white on the raw
+            // accent fails contrast (~1.6:1 on Yellow).
             let onAccent = onHueAccent
             HStack(spacing: 5) {
                 Text(label)
                 Text(count.formatted())
                     .monospacedDigit()
-                    // Dimmed via the shared floor constant, not a local literal: 0.85 white on
-                    // the Graphite hue composited to ~2.97:1, under the 3:1 large-text minimum.
+                    // Dimmed by the shared floor constant, not a local literal: 0.85 white on
+                    // Graphite composites to ~2.97:1, under the 3:1 large-text minimum.
                     .selectionLensLabelInk(isSelected: selected,
                                            onFill: onAccent.opacity(AccentLabel.dimmedOnFillOpacity),
                                            onGlass: .secondary, unselected: .secondary)
@@ -816,10 +735,9 @@ public struct LogViewer: View {
             .padding(.vertical, 4)
             .selectionLensLabelInk(isSelected: selected, onFill: onAccent, unselected: .primary)
             .background(
-                // Selected fills with the glass hue (the accent every other window's chips use);
-                // unselected wears the canonical badge wash (`PillVariant.fillOpacity`). Under the
-                // row's lens the selected fill is the lens — one capsule either way, so Solid's
-                // change of threshold tweens as it did.
+                // Selected fills with the glass hue, the accent other windows' chips use; unselected
+                // wears the badge wash (`PillVariant.fillOpacity`). Under the row's lens the
+                // selected fill is the lens, one capsule either way, so Solid's change still tweens.
                 SelectionLensGround(Capsule(), isSelected: selected, selected: hueAccentFill,
                                     unselected: Color.secondary.opacity(PillVariant.fillOpacity))
             )
@@ -831,26 +749,21 @@ public struct LogViewer: View {
         .selectionLensChoiceButtonStyle(isSelected: selected, tint: hueAccent)
         .fixedSize()
         .help("Show \(label.lowercased())")
-        // **Exactly one of these is active, which makes it this window's primary state — and it
-        // was carried only by ink, fill and border width.** `.help` describes the ACTION ("Show
-        // errors"), never the state, and on macOS it lands on the accessibility help rather than
-        // the name. The label and count go into one spoken name so the chip does not announce as
-        // two unrelated strings, and the trait says which one is on.
-        // `.accessibilityLabel` alone, NOT `.accessibilityElement(children: .ignore)`. This is a
-        // `Button`; the container form is for views that are not already one element, and applied
-        // to a Button it replaces the element AppKit would have activated. A label on the Button
-        // does the one thing needed — replace the two concatenated child texts with one spoken
-        // name — and cannot cost the chip its action. Untestable from here either way: assertions
-        // against the live accessibility tree pass vacuously with no assistive client attached,
-        // which is exactly why the form that cannot break is the one to use.
+        // Exactly one chip is active, the window's primary state, so VoiceOver must hear it, not
+        // just see ink and fill. `.help` describes the action and lands on accessibility help, not
+        // the name; label and count go into one spoken name, and the trait says which is on.
+        // **Use `.accessibilityLabel` alone, never `.accessibilityElement(children: .ignore)`**:
+        // on a `Button` the container form replaces the element AppKit activates, and can cost the
+        // chip its action. A live-tree test passes vacuously with no assistive client attached,
+        // so use the form that can't break.
         .accessibilityLabel("\(label), \(count.formatted())")
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 
     // MARK: Day-grouped list
 
-    /// Renders `entries` (session or history) as day sections, folding per-file operation runs. Shared
-    /// by the live list and the loaded-history footer so both read identically.
+    /// Renders `entries` (session or history) as day sections, folding per-file runs. Shared by the
+    /// live list and the history footer so both read alike.
     @ViewBuilder
     private func daySections(_ entries: [LogEntry]) -> some View {
         ForEach(LogGrouping.byDay(entries)) { section in
@@ -871,9 +784,9 @@ public struct LogViewer: View {
     /// The bottom-of-list history controls: before loading, one "Show older history" button; after,
     /// a divider, the revealed history rows, and either "Show more" or an end-of-log note.
     ///
-    /// `nextReveal` is how many rows the "Show more" button would actually reveal (0 when none are
-    /// left), and `emptyState` is what the in-flow empty state above is already saying — passed in
-    /// rather than recomputed so the footer can hold its tongue when the two would agree.
+    /// `nextReveal` is how many rows "Show more" would reveal (0 when none are left), and
+    /// `emptyState` is what the empty state above already says, passed in so the footer can stay
+    /// quiet when the two would repeat each other.
     @ViewBuilder
     private func historyFooter(visibleHistory: [LogEntry], nextReveal: Int, emptyState: LogEmptyState) -> some View {
         if let loadedEntries = history.entries {
@@ -881,8 +794,7 @@ public struct LogViewer: View {
                 historyDivider
                 daySections(visibleHistory)
                 if nextReveal > 0 {
-                    // The TRUE remainder, not the page size: on the last page this used to promise
-                    // 25 and hand over 5.
+                    // The true remainder, not the page size.
                     historyActionButton("Show \(nextReveal) More", icon: "chevron.down") {
                         history.revealMore(by: Self.historyPageSize)
                     }
@@ -891,20 +803,18 @@ public struct LogViewer: View {
                 }
             } else if LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: loadedEntries.isEmpty,
                                                                 emptyState: emptyState) {
-                // Loaded, and the log holds nothing before this session — said here only when the
-                // empty state above isn't already saying it.
+                // Loaded, and nothing before this session; said here only when the empty state
+                // above isn't saying it.
                 historyEndNote("No earlier activity in the log")
             }
-            // else: history exists but the current filter hides it — the empty state / session rows
-            // already explain the emptiness; no separate note needed.
+            // else: history exists but the filter hides it; the empty state or session rows
+            // already explain that.
         } else if history.readFailed {
-            // A failed read is NOT "nothing older" (see `LogHistoryState.failed`): say what
-            // happened, and keep the same button so the user can simply try again — an unreadable
-            // log is usually a torn write that the next read gets past.
+            // A failed read is not "nothing older" (`LogHistoryState.failed`): say so, and keep the
+            // button so the user can retry; a torn write usually clears by the next read.
             //
-            // The note yields to `.historyUnavailable` when the empty state above is already
-            // carrying the same fact (a quiet session); the button is not a telling and always
-            // stays. See `footerNotesUnreadableHistory`.
+            // The note yields to `.historyUnavailable` when the empty state already says it; the
+            // button always stays (`footerNotesUnreadableHistory`).
             if LogEmptyState.footerNotesUnreadableHistory(emptyState: emptyState) {
                 historyEndNote("Couldn’t read the log file — earlier activity is unavailable")
             }
@@ -962,13 +872,11 @@ public struct LogViewer: View {
 
     // MARK: Empty state
 
-    /// The in-flow empty state: distinguishes a quiet session (offer history), a log with nothing
-    /// older (once loaded), and filters that hide everything. Mirrors the app's EmptyStateView
-    /// template used elsewhere.
+    /// The in-flow empty state: a quiet session (offer history), a log with nothing older (once
+    /// loaded), a failed read, or filters that hide everything, in the app's `EmptyStateView`.
     ///
-    /// The state is classified by `body` and passed in, not derived here: the footer needs the same
-    /// answer (so it can stay quiet when this view already speaks), and two independent derivations
-    /// are what let the window say "no earlier activity" twice in one render.
+    /// `body` classifies the state and passes it in: the footer needs the same answer to stay quiet
+    /// when this view speaks, and two separate derivations could say the same thing twice.
     @ViewBuilder
     private func emptyStateView(_ state: LogEmptyState) -> some View {
         switch state {
@@ -992,17 +900,16 @@ public struct LogViewer: View {
                 message: "This session is quiet and the log holds nothing from earlier sessions. Scans, copies, moves and deletes appear here as they happen."
             )
         case .noActivity:
-            // Quiet session, history not loaded — point at the history that lives in the file, loadable
-            // right here with the footer button below.
+            // Quiet session, history not loaded: point at the history in the file, loadable with the
+            // footer button below.
             EmptyStateView(
                 icon: "list.bullet.rectangle",
                 title: "No activity yet",
                 message: "Every scan, copy, move and delete is recorded here as it happens. This session is quiet so far — use “Show Older History” below to load what earlier sessions recorded."
             )
         case .historyUnavailable:
-            // Quiet session AND the read failed. Says the failure once, in the fuller of the two
-            // places (the footer's note yields), and names the button as a RETRY rather than as an
-            // offer to load history the app has just failed to read.
+            // Quiet session and the read failed. Says the failure once, here (the footer's note
+            // yields), and names the button as a retry, not an offer to load what just failed.
             EmptyStateView(
                 icon: "exclamationmark.triangle",
                 title: "No activity recorded",
@@ -1012,25 +919,18 @@ public struct LogViewer: View {
     }
 }
 
-/// An atomic row view rendering a single LogEntry with color-coded severity icons.
-/// Internal (not private) so the snapshot tests can pin the severity color/icon pairings.
+/// One log entry as a row, with a colour-coded severity icon. Internal (not private) so the
+/// snapshot tests can pin the severity colour and icon pairings.
 struct LogEntryRow: View {
     let entry: LogEntry
-    /// List-density setting (H7), passed down by the parent (which already reads the defaults
-    /// key) instead of a per-row `@AppStorage` — one storage observer per window, not per row.
-    /// Comfortable keeps the two-line pill/time-over-message layout exactly; compact collapses
-    /// to one baseline row and drops the Location tail. Neither truncates: a message too long
-    /// for the window wraps in both densities.
+    /// List density, passed down by the parent instead of a per-row `@AppStorage`: one storage
+    /// observer per window, not per row. Comfortable is the two-line pill/time-over-message layout;
+    /// compact is one baseline row without the Location tail. Neither truncates: a long message
+    /// wraps in both.
     var density: ListDensity = .comfortable
-    /// The zone the time column reads in — `.current` everywhere in the app, because this column
-    /// is display and should read in the viewer's own clock.
-    ///
-    /// Injectable only so the snapshot references stop baking in the recording machine's zone.
-    /// They did, and it cost a day: `logRowsAllSeverities` and its compact twin went red on a
-    /// frozen fixture with no code change behind it, because the Mac moved from Pacific to
-    /// `Asia/Kolkata` — the rendered stamp went `05:00:00.000` → `17:30:00.000`, and in compact
-    /// the wider run shoved the whole message line sideways (10% of pixels). SNAPSHOTS.md lists
-    /// timezone among the things the references bake in; these two are now the exception.
+    /// The zone the time column reads in: `.current` everywhere in the app, so the column reads in
+    /// the viewer's own clock. Injectable only so the snapshot references don't bake in the
+    /// recording machine's zone, which would turn them red when the Mac changes zone.
     var timeZone: TimeZone = .current
 
     private var densityMetrics: ListDensityMetrics { density.metrics }
@@ -1044,16 +944,12 @@ struct LogEntryRow: View {
                 .padding(.top, 2)
 
             if density == .compact {
-                // One baseline row: pill, time, then the message — the scanning eye gets a column
-                // of aligned messages instead of two-line blocks.
+                // One baseline row: pill, time, then the message, so the eye gets a column of
+                // aligned messages instead of two-line blocks.
                 //
-                // The message WRAPS rather than truncating. Compact used to clamp it to
-                // `lineLimit(1)`, which held "one row per entry" at the cost of hiding the end of
-                // every long line — and a log's long lines are its paths and failure reasons, the
-                // things this window exists to show. Narrowing the window silently ellipsised them
-                // with no way to read the rest short of widening again. Short entries (nearly all
-                // of them) still occupy exactly one line, so the density is unchanged in practice;
-                // only a line too long for the window now costs a second row instead of its tail.
+                // The message wraps rather than truncating: a log's long lines are its paths and
+                // failure reasons, the things this window exists to show. Short entries still take
+                // one line; only a line too long for the window costs a second row.
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     levelPill
                     timeText
@@ -1069,10 +965,9 @@ struct LogEntryRow: View {
 
                     messageText
 
-                    // The `Location: file:line / function` tail that warnings/errors carry is a
-                    // developer breadcrumb, not the event — show it dimmed and smaller so the row
-                    // reads as its message. Still selectable; the full line remains in the log file
-                    // and in Copy.
+                    // The `Location: file:line / function` tail on warnings and errors is a developer
+                    // breadcrumb, not the event, so it is dimmed and smaller. Still selectable; the
+                    // full line stays in the log file and in Copy.
                     if densityMetrics.showsSecondaryDetail, let location = entry.messageLocation {
                         Text(location)
                             .scaledFont(.caption2.monospaced())
@@ -1102,17 +997,14 @@ struct LogEntryRow: View {
             .textSelection(.enabled)
     }
     
-    /// The one formatter these rows stamp with — `fixed`, so locale and calendar are pinned.
+    /// The one formatter these rows stamp with, `fixed` so locale and calendar are pinned.
     ///
-    /// Both pins matter here and neither is about the zone: an unpinned fixed-format
-    /// `DateFormatter` follows the system region, which can rewrite even an explicit "HH" into a
-    /// 12-hour clock, and the row would then disagree with the line Copy puts on the clipboard and
-    /// with the on-disk log. The zone is `ZoneRefreshedFormatter`'s business, re-checked on every
-    /// use rather than captured; see that type for why.
+    /// An unpinned fixed-format `DateFormatter` follows the system region, which can turn even an
+    /// explicit "HH" into a 12-hour clock, and the row would disagree with Copy and the on-disk log.
+    /// The zone is `ZoneRefreshedFormatter`'s business, re-checked on every use.
     ///
-    /// Internal, not private, so `LogRowTimeZoneTests` can drive the refresh directly — the
-    /// alternative is moving `NSTimeZone.default`, which is process-wide and would race every
-    /// other suite in the run.
+    /// Internal, not private, so `LogRowTimeZoneTests` can drive the refresh directly; moving
+    /// `NSTimeZone.default` instead is process-wide and would race every other suite in the run.
     static let timeFormatter = ZoneRefreshedFormatter.fixed("HH:mm:ss.SSS")
 
     private func timeString(from date: Date) -> String {
@@ -1135,16 +1027,16 @@ private struct LogDayHeader: View {
     }
 }
 
-/// A folded operation run (e.g. "Synced 12 files") as an expandable disclosure row. Collapsed by
-/// default — the point is to fold a bulk action's per-file lines out of the way — but the header
-/// keeps the run's highest severity color so a failure inside a run is never hidden.
+/// A folded operation run ("Synced 12 files") as an expandable row. Collapsed by default, to fold a
+/// bulk action's per-file lines out of the way, but the header keeps the run's highest severity
+/// colour so a failure inside a run is never hidden.
 private struct LogOperationGroupRow: View {
     let group: LogGrouping.OperationGroup
-    /// Passed down by LogViewer (see `LogEntryRow.density`); also forwarded to the expanded
-    /// per-file child rows.
+    /// Passed down by `LogViewer` (see `LogEntryRow.density`) and forwarded to the expanded child
+    /// rows.
     var density: ListDensity = .comfortable
-    /// The glass hue, forwarded rather than re-read from `@AppStorage`: this row renders once
-    /// per folded run, and one storage observer per row is a lot of observers for one color.
+    /// The glass hue, forwarded rather than read from `@AppStorage`: one storage observer per folded
+    /// run is a lot of observers for one colour.
     var accent: Color = LiquidGlassHue.stored().accentColor
     @State private var expanded = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1168,8 +1060,8 @@ private struct LogOperationGroupRow: View {
                         .frame(width: 18)
                     Text(group.title)
                         .scaledFont(.subheadline.weight(.semibold))
-                    // The folded run's entry count — Design's neutral mini pill, not a
-                    // hand-rolled capsule, so the badge matches every other count badge.
+                    // The run's entry count, as Design's neutral mini pill so it matches every
+                    // other count badge.
                     Pill(.mini, tint: .secondary, text: group.count.formatted(), isNumeric: true)
                     Spacer(minLength: 8)
                     Text(Self.timeString(group.timestamp))
@@ -1187,8 +1079,8 @@ private struct LogOperationGroupRow: View {
                 .padding(.leading, 22)
             }
         }
-        // The header follows the density setting like its child rows already did (clamped so
-        // comfortable keeps the original 4pt; compact drops to the flat-row 2pt).
+        // The header follows the density setting like its child rows, capped at 4pt; compact
+        // drops to the flat-row 2pt.
         .padding(.vertical, min(4, density.metrics.flatRowVerticalPadding))
         .padding(.horizontal, 8)
         .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(Color.secondary.opacity(0.06)))
@@ -1196,13 +1088,8 @@ private struct LogOperationGroupRow: View {
         .accessibilityLabel("\(group.title), \(expanded ? "expanded" : "collapsed")")
     }
 
-    /// The run header's stamp, from `LogEntryRow`'s formatter rather than a second one.
-    ///
-    /// It WAS a second one — the same twelve lines, character for character, sitting under the
-    /// same "Timezone stays local" comment. Two copies of a shared formatter is how the zone
-    /// refresh would have been half-applied: the entry rows would follow a Date & Time change
-    /// and the folded-run headers directly above them would not, in the same list, with no
-    /// version of the code saying which is right.
+    /// The run header's stamp, from `LogEntryRow`'s formatter rather than a second one, so a zone
+    /// change reaches the entry rows and the run headers above them alike.
     private static func timeString(_ date: Date) -> String {
         LogEntryRow.timeFormatter.string(from: date)
     }

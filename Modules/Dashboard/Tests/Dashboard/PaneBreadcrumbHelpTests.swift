@@ -2,11 +2,9 @@ import Foundation
 import Testing
 @testable import Dashboard
 
-/// A crumb's tooltip offers "both panes" only where there is a second pane.
-///
-/// Every workspace but Compare shows one pane, and every crumb there promised "⌥-click to bring
-/// both panes here" — or, with the link preference left on from Compare, "panes are linked, so both
-/// move here" — about a pane that isn't on screen.
+/// A crumb's tooltip offers "both panes" only where there is a second pane. Every workspace but
+/// Compare shows one pane, and promising "⌥-click to bring both panes here" (or, with the link
+/// preference left on, "panes are linked, so both move here") there is about a pane not on screen.
 @Suite struct PaneBreadcrumbHelpTests {
 
     @Test func onePaneNamesTheDestinationAndNothingElse() {
@@ -20,8 +18,8 @@ import Testing
         }
     }
 
-    /// The control: with two panes the both-panes wording is still there, in both link states, so
-    /// the test above is not passing on a helper that never says it.
+    /// The control: with two panes the both-panes wording is there in both link states, so the test
+    /// above isn't passing on a helper that never says it.
     @Test func twoPanesKeepTheBothPanesWording() {
         #expect(PaneBreadcrumb.crumbHelp(isCurrent: false, helpPath: "Taxes", linked: false, hasSecondPane: true)
                 == "Go to Taxes — ⌥-click to bring both panes here")
@@ -29,10 +27,10 @@ import Testing
                 == "Go to Taxes — panes are linked, so both move here")
     }
 
-    /// The crumb reads the fact from the only place it lives: whether the header was handed a
-    /// both-panes action at all. A source scan, because a hosted SwiftUI tree exposes no tooltip
-    /// under `swift test` (`EditorRefusalDimTests.theRefusalIsTheRowsTooltip` measured it). Sliced
-    /// to `crumbButton` so a mention elsewhere in the file cannot stand in.
+    /// The crumb reads the fact from where it lives: whether the header was handed a both-panes
+    /// action. A source scan, because a hosted SwiftUI tree exposes no tooltip under `swift test`
+    /// (`EditorRefusalDimTests.theRefusalIsTheRowsTooltip`). Sliced to `crumbButton` so a mention
+    /// elsewhere can't stand in.
     @Test func theCrumbAsksWhetherThereIsASecondPane() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

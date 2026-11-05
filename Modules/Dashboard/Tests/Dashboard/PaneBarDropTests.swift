@@ -1,12 +1,10 @@
 import Testing
 @testable import Dashboard
 
-/// What a drop onto the customize sheet's track actually does to the arrangement.
-///
-/// The gestures need a real event loop, so the sheet's drag behaviour is only ever verifiable by
-/// hand — which is precisely why the arithmetic and the parsing underneath them do not live in the
-/// sheet. Everything the user can express with a drag funnels through these two functions, so an
-/// off-by-one or a mis-parsed payload here is a wrong bar, silently, on a path nothing else covers.
+/// What a drop onto the customize sheet's track does to the arrangement. The gestures need a real
+/// event loop and can only be checked by hand, so their arithmetic and parsing live outside the
+/// sheet. Every drag funnels through these two functions, so an off-by-one or a mis-parsed payload
+/// here silently makes a wrong bar on a path nothing else covers.
 @Suite struct PaneBarDropTests {
 
     private let bar = PaneBarArrangement([.backForward, .scan, .sort])
@@ -14,9 +12,8 @@ import Testing
     // MARK: Payload round-trip
 
     @Test func testThePayloadsTheSheetHandsOutAreTheOnesItAcceptsBack() {
-        // The two ends are written in different places — `.draggable(...)` on the pill, the parser
-        // here — and a drag that produces a string the parser shrugs at fails silently and looks
-        // exactly like "drag and drop doesn't work on this Mac".
+        // The two ends live in different places (`.draggable(...)` on the pill, the parser here),
+        // and a string the parser rejects fails silently, like drag and drop not working at all.
         #expect(PaneBarDrop.applying([PaneBarDrop.payload(forItemAt: 2)], at: 0, to: bar)?.items
                 == [.sort, .backForward, .scan])
         #expect(PaneBarDrop.applying([PaneBarDrop.payload(for: .hiddenFiles)], at: 1, to: bar)?.items
@@ -30,16 +27,15 @@ import Testing
     }
 
     @Test func testADropOnAnItemsOwnSlotsChangesNothing() {
-        // Both slots that border an item are no-ops for it. Reporting success for these would make
-        // the pill animate into place over a bar that never moved.
+        // Both slots that border an item are no-ops for it. Reporting success would animate the
+        // pill into place over a bar that never moved.
         #expect(PaneBarDrop.applying(["bar:1"], at: 1, to: bar) == nil)
         #expect(PaneBarDrop.applying(["bar:1"], at: 2, to: bar) == nil)
     }
 
     @Test func testAStaleIndexIsRefusedRatherThanClamped() {
-        // The bar can change under a drag in flight — the other pane's header renders the same
-        // arrangement, and both are live. Clamping `bar:99` to the end would silently move whatever
-        // item happens to sit last; the drag is stale, so the answer is no.
+        // The bar can change under a drag in flight, since the other pane's header renders the
+        // same live arrangement. Clamping `bar:99` would silently move whatever sits last.
         #expect(PaneBarDrop.applying(["bar:99"], at: 0, to: bar) == nil)
         #expect(PaneBarDrop.applying(["bar:-1"], at: 0, to: bar) == nil)
     }
@@ -52,8 +48,8 @@ import Testing
     }
 
     @Test func testSpacersCanBeAddedRepeatedly() throws {
-        // `#require`, not `!`. A force-unwrap here would take the whole test *host* down the day this
-        // regressed, turning one red assertion into a run with no results at all.
+        // `#require`, not `!`: a failed force-unwrap would take down the whole test host, leaving a
+        // run with no results instead of one red assertion.
         let once = try #require(PaneBarDrop.applying(["palette:flexibleSpace"], at: 0, to: bar))
         #expect(once.items == [.flexibleSpace, .backForward, .scan, .sort])
         let twice = PaneBarDrop.applying(["palette:flexibleSpace"], at: 4, to: once)
@@ -80,8 +76,8 @@ import Testing
     }
 
     @Test func testDraggingScanOffTheBarIsRefused() {
-        // Not merely ignored — refused, so the pill springs back. Appearing to accept a removal that
-        // did not happen is worse than declining it.
+        // Refused, not ignored, so the pill springs back instead of seeming to accept a removal
+        // that didn't happen.
         #expect(PaneBarDrop.removing(["bar:1"], from: bar) == nil)
     }
 

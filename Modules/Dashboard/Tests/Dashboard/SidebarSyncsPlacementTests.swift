@@ -4,13 +4,11 @@ import AppKit
 import Design
 @testable import Dashboard
 
-/// **Compare's Syncs section sits right below Favorites** (RD67 ED), measured off the render.
-///
-/// It was drawn above every section, so the first thing in Compare's sidebar was the sync rather
-/// than Favorites. Both anchors come from the same bitmap: where a render with Syncs first differs
-/// from one without is where Syncs begins; a Favorites row and a Locations row are found by the
-/// wash that appears when each is current. Favorites must end above that line and Locations start
-/// below the section.
+/// Compare's Syncs section sits right below Favorites, not above every section, measured off the
+/// render. Both anchors come from one bitmap: where a render with Syncs first differs from one
+/// without is where Syncs begins, and a Favorites row and a Locations row are found by the wash
+/// each gets when current. Favorites must end above that line and Locations start below the
+/// section.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct SidebarSyncsPlacementTests {
 

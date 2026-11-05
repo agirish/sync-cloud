@@ -7,32 +7,24 @@ import Events
 import FileExplorer
 @testable import Dashboard
 
-/// Visual snapshot net over Dashboard's composite surfaces: PaneHeader (with the freshness
-/// pill in its fresh and stale states, and the 250 pt narrow-pane truncation that burned us),
-/// and LogViewer's severity rows. Fixed sizes, frozen or bucket-safe dates, light + dark;
-/// workflow and caveats in Modules/Design/Tests/DesignTests/SNAPSHOTS.md.
+/// Visual snapshot net over Dashboard's composite surfaces: PaneHeader (including the 250 pt
+/// narrow-pane truncation), LogViewer's severity rows, the bar's customize sheet and Activity's
+/// Now. Fixed sizes, frozen or bucket-safe dates, light + dark; workflow and caveats in
+/// Modules/Design/Tests/DesignTests/SNAPSHOTS.md.
 @MainActor
 @Suite(.serialized, .machinePinned(.referenceImages)) struct DashboardSnapshotTests {
 
     // MARK: PaneHeader
 
     /// A comfortable-width header: the bar packed against the leading edge, and the breadcrumb below
-    /// it opening with the source chip. (There was a provider capsule above all of this, restating the
-    /// source's name a second time; retiring it is what let the bar have the row.) Scan freshness is
-    /// deliberately absent — it moved to the differences count pill, so this pins that the pane
-    /// header no longer draws a second copy of it.
+    /// it opening with the source chip. Scan freshness is absent on purpose: it lives on the
+    /// differences count pill, and the header must not draw a second copy.
     ///
-    /// Note when reading these references: no provider mark appears in any of them. The brand asset
-    /// lives in the app's catalog, which an SPM test target cannot see, so `Image("icloud-logo")`
-    /// resolves to nothing and the source chip's mark slot renders empty. What is pinned here is the
-    /// header's geometry — measured on this fixture, the chip's `Menu` spans x 12.0-97.0 on the
-    /// breadcrumb row at y 60.0-76.0 — not the mark, which is only ever verifiable in the running
-    /// app.
-    ///
-    /// **That blindness is not a footnote, it is how the mark broke.** A `.resizable()` image inside
-    /// a `Menu`'s AppKit-drawn label ignores its frame and draws at the asset's native 512pt, and
-    /// every reference here was re-recorded green over an SF Symbol standing in for the thing that
-    /// was wrong. `SyncCloudTests.MenuLabelMarkTests` is the half that can see it.
+    /// No provider mark appears in these references: the brand asset lives in the app's catalog,
+    /// which an SPM test target can't see, so the chip's mark slot renders empty. These pin the
+    /// header's geometry only. A `.resizable()` image in a `Menu`'s AppKit-drawn label ignores its
+    /// frame and draws at the asset's native 512pt, which nothing here can see;
+    /// `SyncCloudTests.MenuLabelMarkTests` checks the mark.
     @Test func paneHeaderComfortable() {
         assertViewSnapshot(
             of: Self.header(providerName: "iCloud Drive"),
@@ -40,15 +32,10 @@ import FileExplorer
             named: "comfortable")
     }
 
-    /// The burned edge case: a long custom provider name at the split clamp's 250 pt pane
-    /// minimum. Pins what degrades and what does not — the name middle-truncates inside the source
-    /// chip on the breadcrumb row, while the bar above it takes the rung that fits (7 controls at
-    /// this width per `PaneBarLadderTests`' golden). Every control stays fully visible and nothing is
-    /// pushed past the pane's trailing edge.
-    ///
-    /// The mark no longer drops at this width: it did while the name and mark shared a
-    /// fixed-height capsule competing with the bar for one row. They are on separate rows now, so
-    /// the chip has the width to keep both.
+    /// A long custom provider name at the split clamp's 250 pt pane minimum. The name
+    /// middle-truncates inside the source chip on the breadcrumb row, while the bar above takes the
+    /// rung that fits (7 controls, per `PaneBarLadderTests`' golden). Every control stays visible
+    /// and nothing passes the pane's trailing edge. The chip has its own row, so it keeps the mark.
     @Test func paneHeaderNarrow250LongProviderName() {
         assertViewSnapshot(
             of: Self.header(providerName: "Marketing Team Shared Archive Drive"),
@@ -68,19 +55,10 @@ import FileExplorer
 
     // MARK: LogViewer rows
 
-    /// The zone the log rows' time column is rendered in.
-    ///
-    /// **These two references used to bake in the recording machine's zone, and it cost a day.**
-    /// SNAPSHOTS.md lists timezone among the things a reference bakes in; what it does not say is
-    /// how that reads when it fires. On 2026-09-05 this Mac moved from Pacific to `Asia/Kolkata`,
-    /// and `logRowsAllSeverities` and its compact twin went red on a frozen fixture with no code
-    /// change behind them — the stamp went `05:00:00.000` → `17:30:00.000`, and in compact the
-    /// wider run shoved the whole message line sideways, so 10% of the canvas differed with a
-    /// perceptual precision of 0.46. That looks exactly like a rendering regression and is not
-    /// one. Pinning the zone costs the pin nothing (what is being held here is the row's
-    /// geometry and the severity colour pairing, not which hour the clock reads) and takes the
-    /// one machine-state input out of these two images. UTC, so the rendered stamp reads back as
-    /// the fixture comment below writes it.
+    /// The zone the log rows' time column is rendered in, pinned so the machine's zone can't leak
+    /// into the references. A zone change shifts the stamp and, in compact, the whole message line,
+    /// which reads as a rendering regression on a frozen fixture. UTC, so the stamp matches the
+    /// fixture comments below.
     private static let pinnedZone = TimeZone(identifier: "UTC")!
 
     /// One row per severity, pinning the icon/color/capsule pairing, plus the dimmed
@@ -108,11 +86,9 @@ import FileExplorer
             named: "severities")
     }
 
-    /// The compact-density twin of `logRowsAllSeverities`: the same four entries collapsed to
-    /// one baseline row each (these four all fit; a message too long for the width wraps rather
-    /// than truncating — see `LogRowWrapTests`), and — deliberately — NO dimmed `Location:` tail on
-    /// the error row (compact drops the developer breadcrumb; it survives in the log file and
-    /// in Copy). Pins the H7 single-line collapse against silent regression.
+    /// The compact twin of `logRowsAllSeverities`: the same four entries on one baseline row each
+    /// (a message too long for the width wraps, see `LogRowWrapTests`), and no `Location:` tail on
+    /// the error row; compact drops it, and it survives in the log file and in Copy.
     @Test func logRowsAllSeveritiesCompact() {
         let at = Date(timeIntervalSince1970: 1_780_315_200) // 2026-06-01 12:00:00 UTC
         assertViewSnapshot(
@@ -137,13 +113,10 @@ import FileExplorer
 
     // MARK: Fixtures
 
-    /// The Columns-era header: the same pane plus the two controls Columns adds — the Tree|Columns
-    /// switch and New Folder — at the 250 pt split clamp with a long provider name.
-    ///
-    /// This is the measurement the whole design rests on. Added inline the two controls cost 255 pt
-    /// in a 222 pt content box, overrunning it before the provider capsule gets a point; the fold
-    /// ladder is what buys them back. Pin that at the floor every control is still reachable and
-    /// the name still reads, rather than trusting the arithmetic.
+    /// The header plus the two controls Columns adds (the Tree|Columns switch and New Folder), at
+    /// the 250 pt split clamp with a long provider name. Inline they would need 255 pt of a 222 pt
+    /// content box; the fold ladder buys the room back. Pins that every control stays reachable and
+    /// the name still reads at the floor.
     @Test func paneHeaderNarrow250WithColumnsControls() {
         assertViewSnapshot(
             of: Self.header(providerName: "Marketing Team Shared Archive Drive",
@@ -163,31 +136,18 @@ import FileExplorer
 
     // MARK: Customize sheet
 
-    /// The customize sheet, whole.
+    /// The customize sheet, whole. Dimmed tiles, sections running together and a squeezed track
+    /// are all invisible to geometry assertions, so only an image catches them. `availableHere`
+    /// omits Collapse Pane so the "doesn't apply to this pane" treatment is in frame too.
     ///
-    /// It shipped once looking, in the user's words, horrible: every palette tile dimmed to 45%
-    /// (the default arrangement carries every control, so "already on the bar" greyed all of them),
-    /// the sections running together as one field of grey, and — because the track overflowed a
-    /// 560pt sheet — the provider capsule's label squeezed away to a bare cloud glyph. Not one of
-    /// those is visible to a geometry assertion: the sheet's own size was pinned, so it measured
-    /// exactly as intended while rendering nothing of the sort.
+    /// The whole default arrangement fits the 600pt track: its head is a blank drop zone over the
+    /// track's padding (`leadingEdgeZone`), so the first pill sits at the edge. The track is a
+    /// horizontal `ScrollView` (up to `maxItems`, 16), so a longer bar scrolls rather than losing
+    /// items.
     ///
-    /// This is the net for that whole class. `availableHere` deliberately omits Collapse Pane so the
-    /// "doesn't apply to this pane" treatment is in frame too.
-    ///
-    /// **The whole default arrangement fits the track again.** With the fake "iCloud" capsule at its
-    /// head, Delete joining the default pushed the trailing pill past the 600pt track's edge. The
-    /// capsule is now a blank drop zone over the track's padding (`leadingEdgeZone`), which hands
-    /// back the room and puts the first pill at the edge, as in the default set below. The
-    /// track is still a horizontal `ScrollView` (built for arrangements up to `maxItems`, 16), so a
-    /// longer bar scrolls rather than losing items.
-    ///
-    /// **At the suite's tolerance a 24pt shift of the whole row passed** (SNAP, measured
-    /// 2026-10-25): the old 18pt head zone plus its 6pt slot, put back, moved every pill 24pt and
-    /// both images stayed green at `precision: 0.99`. So these two pin `0.999` — a shifted row
-    /// differs on about 0.7–1.9% of the 1200×1090 canvas, this Mac's re-render on about 0.001%,
-    /// and `0.999` sits between: the shift is about eight times over it, the noise a hundred under.
-    /// Machine-pinned like the rest of the suite, so CI never reads it.
+    /// These two pin `precision: 0.999`, because at the suite's 0.99 a 24pt shift of the whole row
+    /// passes. A shifted row differs on about 0.7–1.9% of the canvas and a re-render on about
+    /// 0.001%, so 0.999 separates them. Machine-pinned like the rest of the suite.
     @Test func paneBarCustomizeSheet() {
         let defaults = ScratchDefaults("DashboardSnapshotTests-customize")
         defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
@@ -201,12 +161,9 @@ import FileExplorer
             precision: 0.999, perceptualPrecision: 0.98)
     }
 
-    /// The same sheet with a bar item held over the palette — the remove target, lit.
-    ///
-    /// This state lasts exactly as long as a drag, so nothing else in the suite can reach it, and
-    /// that is precisely why it is worth a picture: the first draft drew the card on
-    /// `Material.regular` and the tiles beneath it read straight through the words "Remove from
-    /// bar". Every geometry assertion passed. Only the image showed it.
+    /// The same sheet with a bar item held over the palette: the remove target, lit. The state lasts
+    /// only as long as a drag, so nothing else reaches it, and only an image shows whether the tiles
+    /// beneath read through the words "Remove from bar".
     @Test func paneBarCustomizeSheetRemoving() {
         let defaults = ScratchDefaults("DashboardSnapshotTests-customize-removing")
         defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
@@ -249,11 +206,10 @@ import FileExplorer
         .defaultAppStorage(defaults)
     }
 
-    /// **The Activity window's Now, at Solid** (Run Room TE232): the tabs in the title bar's row,
-    /// Running and Recent straight on the window, as History's rows are, a hairline between them,
-    /// from the top. Its first build centred the stack in the window
-    /// and drew no ground of its own, so the tabs floated mid-window and Clear showed straight
-    /// through (seen on screen 2026-10-27).
+    /// The Activity window's Now, at Solid: the tabs in the title bar's row, then Running and Recent
+    /// drawn straight on the window like History's rows, a hairline between them, from the top. A
+    /// stack centred with no ground of its own would float the tabs mid-window and let Clear show
+    /// through.
     @Test func activityWindowNow() {
         let defaults = UserDefaults(suiteName: "DashboardSnapshotTests.activity-\(UUID())")!
         defaults.set(GlassLevel.solid.rawValue, forKey: LiquidGlass.levelKey)

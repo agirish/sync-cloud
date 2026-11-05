@@ -7,17 +7,13 @@ import Design
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// **An Organize lens's header card against the pane's toolbar card, both real, side by side** —
-/// the lens half of what ``EditHeaderMatchesPaneHeaderTests`` does for Edit's document column.
+/// An Organize lens's header card against the pane's toolbar card, both real, side by side: the
+/// lens half of what ``EditHeaderMatchesPaneHeaderTests`` does for Edit's document column.
 ///
-/// The lens's header card is pinned to the pane's toolbar card's height so that the two share a
-/// bottom edge, the pane's header↔list line. The pane's tab strip (two tabs, or View ▸ Tab Bar)
-/// pushes its toolbar card down by ``PaneTabStripLadder/slotHeight(_:)``; until the lens was told
-/// about it, its header stayed at the top of the column, one strip slot above the pane's — in
-/// both surface styles.
-///
-/// The pane half is ``EditHeaderMatchesPaneHeaderTests/pane(_:tabStrip:)`` — `PaneHeader` over a
-/// `List`, carded as `ContentView.paneColumn` cards them.
+/// The lens header card is pinned to the toolbar card's height so the two share a bottom edge. The
+/// pane's tab strip (two tabs, or View ▸ Tab Bar) pushes the toolbar card down by
+/// ``PaneTabStripLadder/slotHeight(_:)``, so the lens must be told about it or its header sits one
+/// slot high. The pane half is ``EditHeaderMatchesPaneHeaderTests/pane(_:tabStrip:)``.
 @MainActor
 @Suite(.serialized) struct LensHeaderMatchesPaneHeaderTests {
 
@@ -56,14 +52,12 @@ import FileExplorerTestSupport
         return host
     }
 
-    /// The two header edges, in the window's (flipped) coordinates — one rule for both columns.
-    ///
-    /// Each column's content is a scroll view, the tallest in its column (the lens header's rail
-    /// is a scroll view too, one row high). **In `.cards`** each section is a card, and each card
-    /// is a layer-backed view of its own directly under the host, so the header's edge is the
-    /// bottom of the card directly above the content's. **In `.unified`** a column is one region
-    /// with its content flush under the header — the rule `columnRegionFrame` and
-    /// `panesRegionFrame` both draw — so the header's edge is where the content starts.
+    /// The two header edges, in the window's (flipped) coordinates, by one rule for both columns.
+    /// Each column's content is its tallest scroll view (the lens header's rail is a one-row scroll
+    /// view). In `.cards` each card is a layer-backed view directly under the host, so the header's
+    /// edge is the bottom of the card just above the content. In `.unified` the content sits flush
+    /// under the header (as `columnRegionFrame` and `panesRegionFrame` draw), so the edge is where
+    /// the content starts.
     static func edges(in host: NSView, style: SurfaceStyle) -> (pane: CGFloat?, lens: CGFloat?) {
         let cards = host.subviews.map { $0.convert($0.bounds, to: host) }
         var scrolls: [CGRect] = []
@@ -85,10 +79,9 @@ import FileExplorerTestSupport
         return (edge { $0.midX < paneWidth }, edge { $0.midX > paneWidth })
     }
 
-    /// **The lens header ends where the pane's toolbar card does, with one tab and with two** — both
-    /// surface styles, every text size. One tab draws no strip; two do, and push the pane's header
-    /// down by the strip's slot. Mutation: dropping the slot fails every strip case by 34pt in
-    /// `.unified` and 39pt in `.cards`; leaving the gutter out of it fails `.cards` alone.
+    /// The lens header ends where the pane's toolbar card does, with one tab and with two, in both
+    /// surface styles at every text size. Dropping the slot must fail every strip case (by 34pt in
+    /// `.unified`, 39pt in `.cards`); leaving the gutter out must fail `.cards` alone.
     @Test func theLensHeaderEndsWhereThePanesToolbarCardDoes() throws {
         for style in [SurfaceStyle.cards, .unified] {
             for tabStrip in [false, true] {
@@ -104,9 +97,8 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **The measurement can fail.** A lens not told about the strip sits one slot above the pane —
-    /// the defect this suite was written for — so the edges must disagree by exactly that slot.
-    /// Without this, a measure that found the same view on both sides would pass the test above.
+    /// The measurement can fail: a lens not told about the strip sits exactly one slot above the
+    /// pane. Otherwise a measure that found the same view on both sides would pass the test above.
     @Test func aLensNotToldAboutTheStripSitsOneSlotHigh() throws {
         for style in [SurfaceStyle.cards, .unified] {
             let host = Self.mount(style: style, scale: 1, tabStrip: true, lensIsTold: false)

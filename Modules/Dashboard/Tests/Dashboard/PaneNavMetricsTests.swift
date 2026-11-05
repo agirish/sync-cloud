@@ -6,11 +6,8 @@ import Design
 
 /// The pane header's nav cluster: one row of identical pills that visibly respond to the pointer.
 ///
-/// This suite measures **painted pixels**, not frames, and that distinction is the whole point.
-/// An earlier version asserted `fittingSize` and passed green while the sort menu still rendered
-/// a 14pt pill inside the 20pt box it had been handed — an outer `.frame(height:)` never stretched
-/// a system-drawn control, it only gave it more room to sit in. Three rounds of "fixes" shipped
-/// against that false green. Everything here reads the bitmap.
+/// Measures painted pixels, not frames: an outer `.frame(height:)` gives a system-drawn control
+/// more room without stretching it, so `fittingSize` can pass while the pill paints smaller.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneNavMetricsTests {
 
@@ -66,9 +63,8 @@ import Design
         return counted == 0 ? 0 : total / Double(counted)
     }
 
-    /// The glyphs the pane bar actually draws. **Collapse is taken from `PaneBarItem` rather than
-    /// spelled here**, so that changing it re-measures the new mark instead of leaving this suite
-    /// vouching for one the bar no longer uses.
+    /// The glyphs the pane bar draws. Collapse comes from `PaneBarItem`, not a literal, so changing
+    /// the mark re-measures the new one.
     private static let glyphs = [
         PaneBarItem.collapseSymbol, "chevron.left", "chevron.right",
         "arrow.clockwise", "arrow.up.arrow.down", "eye", "eye.slash"
@@ -116,9 +112,8 @@ import Design
 
     @Test("The sort menu paints the same pill as the buttons")
     func sortMenuMatchesItsSiblings() {
-        // The one that defeated three previous attempts. `ButtonMenuStyle` pins its own height, so
-        // while the menu drew its own chrome this was 14pt against the buttons' 20 — and an outer
-        // frame could not budge it. It matches now only because the app draws the capsule.
+        // `ButtonMenuStyle` pins its own height, which an outer frame can't change, so the menu
+        // matches only because the app draws the capsule itself.
         for controlSize in [ControlSize.small, .mini] {
             let button = paintedSize(navButton("chevron.left", controlSize))
             let menu = paintedSize(sortMenu(controlSize))
@@ -135,20 +130,14 @@ import Design
         #expect(mini.height < small.height)
     }
 
-    // Two tests lived here — `clusterMatchesTheHistoricalLadder` and `clusterWidthIsHonest` — and
-    // both asked about `PaneNavMetrics.clusterWidth`, a constant describing a bar of exactly six
-    // controls. The bar's length is now whatever the user arranged, so that constant went, and these
-    // went with it. What they were really guarding is asserted closer to the thing itself: the pill's
-    // painted size directly above, and which rung a 250pt pane picks by the narrow snapshots in
-    // `DashboardSnapshotTests`.
+    // Which rung a 250pt pane picks is pinned by the narrow snapshots in `DashboardSnapshotTests`.
 
     // MARK: - Hover
 
     @Test("Hovering visibly tints the pill")
     func hoverIsVisible() {
-        // The assertion three shipped attempts would have failed. Each depended on Liquid Glass
-        // rendering something — a halo, a saturation filter, a wash behind a translucent chrome —
-        // and none of them put a single accent pixel on screen.
+        // Counts accent pixels, so a hover effect that relies on Liquid Glass rendering a halo or
+        // wash, and paints no tint, fails.
         for controlSize in [ControlSize.small, .mini] {
             let rest = tintStrength(navButton("chevron.left", controlSize, phase: .rest))
             let hover = tintStrength(navButton("chevron.left", controlSize, phase: .hover))
@@ -184,8 +173,8 @@ import Design
 
     @Test("Disabled still reads as disabled")
     func disabledLooksDisabled() {
-        // Drawing our own chrome means the greyed-out look is ours to supply too — the system
-        // style is no longer doing it for us, and losing it would make an inert control look live.
+        // The app draws its own chrome, so the greyed-out look is ours to supply; without it an
+        // inert control looks live.
         let enabled = bitmap(navButton("chevron.left", .small, enabled: true))
         let disabled = bitmap(navButton("chevron.left", .small, enabled: false))
         var differing = 0

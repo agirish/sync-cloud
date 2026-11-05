@@ -27,8 +27,8 @@ import Sync
         }
     }
 
-    /// **Reset All Settings takes Jump's recents and stays while the app runs** and keeps its pins.
-    /// Held in memory, the removed recents went back to disk with the next folder visited.
+    /// Reset All Settings removes Jump's recents and stays while the app runs, and keeps its pins.
+    /// The store must not keep the removed recents in memory and write them back on the next visit.
     @MainActor
     @Test func removedRecentsAreNotWrittenBackAndPinsStay() throws {
         let defaults = ScratchDefaults("SettingsResetJumpStore")

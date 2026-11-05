@@ -5,25 +5,18 @@ import Sync
 import Design
 @testable import Dashboard
 
-/// **The bar's label preference, as a persisted fact.** `PaneBarLabelMode` is stored as a raw string
-/// under one `UserDefaults` key, so three literals decide whether a preference someone set survives
-/// the next launch: the key, and the two raw values. Nothing pinned any of them, and nothing asked
-/// what a *stored* value this build does not recognise does.
+/// The bar's label preference as a persisted fact. `PaneBarLabelMode` is stored as a raw string
+/// under one `UserDefaults` key, so three literals decide whether the preference survives a launch:
+/// the key and the two raw values. Also pins what an unrecognised stored value does.
 ///
-/// **Pinned end to end rather than against the constants.** Every write below uses the literal
-/// strings — `"paneBarLabelMode"`, `"iconAndText"`, `"iconOnly"` — and the claim is made about what
-/// the header then DRAWS. That is what makes it a persistence test: renaming the key or a case makes
-/// the header stop responding to the string on disk, which is exactly the regression (everyone who
-/// chose Icon Only silently gets titles back), and comparing `PaneBar.labelModeKey` against itself
-/// would not see it. The value assertions are kept as well, because they name the broken literal
-/// when a render assertion fails.
-///
-/// `.machinePinned(.pixelSampling)` — it reads pixels back out of a live renderer, like
-/// `PaneBarLadderTests`.
+/// Pinned end to end: every write uses the literal strings, and the claim is about what the header
+/// then draws. Renaming the key or a case makes the header ignore the string on disk, and everyone
+/// who chose Icon Only silently gets titles back; comparing `PaneBar.labelModeKey` with itself
+/// can't see that. Machine-pinned, because it reads pixels back from a live renderer.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneBarLabelModeKeyTests {
 
-    /// The persisted spellings. Written out rather than referenced, on purpose — see the suite note.
+    /// The persisted spellings, written out rather than referenced (see the suite note).
     private static let key = "paneBarLabelMode"
     private static let titled = "iconAndText"
     private static let plain = "iconOnly"
@@ -42,14 +35,10 @@ import Design
             viewMode: .constant(.columns), onNewFolder: {})
     }
 
-    /// Renders the header against a **throwaway defaults suite** carrying `stored` (or nothing) under
-    /// the label-mode key.
-    ///
-    /// The suite is not a nicety: `@AppStorage` reads `UserDefaults.standard` otherwise — the pane
-    /// bar preferences **on the machine running the tests**, in a domain shared with the owner's
-    /// other projects. `PaneBarCustomizeSheetTests` injects one for the same reason, and the
-    /// arrangement is seeded here for the same reason it is there: a developer who had rearranged
-    /// their own bar would otherwise render a different bar from CI's.
+    /// Renders the header against a throwaway defaults suite holding `stored` (or nothing) under the
+    /// label-mode key. Otherwise `@AppStorage` reads `UserDefaults.standard`, the preferences on the
+    /// machine running the tests; the arrangement is seeded so a rearranged local bar can't differ
+    /// from CI's.
     private func render(stored: String?, width: CGFloat = 900) -> NSBitmapImageRep {
         let defaults = ScratchDefaults("PaneBarLabelModeKeyTests")
         defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
@@ -94,48 +83,42 @@ import Design
 
     // MARK: - The literals, named
 
-    /// The three strings, so a rename fails with the spelling in the message rather than only as a
-    /// render that stopped responding.
+    /// The three strings, so a rename fails naming the spelling, not only as a render that stopped
+    /// responding.
     @Test func theStoredSpellingsAreTheOnesOnDisk() {
         #expect(PaneBar.labelModeKey == Self.key)
         #expect(PaneBarLabelMode.iconAndText.rawValue == Self.titled)
         #expect(PaneBarLabelMode.iconOnly.rawValue == Self.plain)
-        // Two cases, and the absence of a third is a decision (`PaneBarLabelMode` says why Text Only
-        // is not there). A new case is fine — it just has to be a considered one, and a persisted
-        // enum growing a case silently is how a stored value stops round-tripping.
+        // Two cases; `PaneBarLabelMode` says why there is no Text Only. A new case must be a
+        // considered one, since a persisted enum that grows silently stops round-tripping.
         #expect(PaneBarLabelMode.allCases.map(\.rawValue) == [Self.titled, Self.plain])
-        // The key is its own: sharing a string with the arrangement or the icon size would have one
-        // preference overwrite another.
+        // The keys are distinct, or one preference would overwrite another.
         #expect(Set([PaneBar.labelModeKey, PaneBar.arrangementKey, PaneBar.iconSizeKey,
                      PaneBar.migrationKey]).count == 4)
     }
 
     // MARK: - The key and the raw values, against what the header draws
 
-    /// **The literals are the ones the header actually reads.** Storing each raw value under the key
-    /// — as strings, the way a plist holds them — produces two visibly different bars.
-    ///
-    /// If the key were renamed, or either raw value were, both writes would be ignored and both
-    /// renders would be the default bar: identical, and this fails.
+    /// The literals are the ones the header reads: each raw value stored as a string under the key
+    /// gives a visibly different bar. Rename the key or a raw value and both renders fall back to
+    /// the same default, so this fails.
     @Test func theStoredStringDecidesWhetherTheBarDrawsWords() {
         let titled = render(stored: Self.titled)
         let plain = render(stored: Self.plain)
-        // The harness control: the same stored value twice is the same bar, so a difference below is
-        // the preference and not the renderer.
+        // Harness control: the same stored value twice is the same bar, so a difference below is
+        // the preference, not the renderer.
         #expect(differingPixels(titled, render(stored: Self.titled)) == 0,
                 "two identical renders differ — the harness is unstable, so the counts below mean nothing")
-        // A word under every pill is a large, unmistakable difference; the whole titled row is drawn
-        // or it is not.
+        // A word under every pill is a large difference: the titled row is drawn or it isn't.
         #expect(differingPixels(titled, plain) > 500, """
                 the bar renders the same with "\(Self.titled)" and "\(Self.plain)" stored under \
                 "\(Self.key)" — the header is not reading that key, or not those values
                 """)
     }
 
-    /// **A stored value this build does not recognise falls back to the shipped default**, which is
-    /// `iconAndText`. This is the case a hand-edited plist, a downgrade or a removed case produces,
-    /// and the alternative — an unrecognised string reading as `iconOnly` — would silently turn the
-    /// words off for someone who never asked.
+    /// An unrecognised stored value (a hand-edited plist, a downgrade, a removed case) falls back to
+    /// the shipped default, `iconAndText`. Reading it as `iconOnly` would turn the words off for
+    /// someone who never asked.
     @Test func anUnknownStoredValueFallsBackToTheShippedDefault() {
         let bogus = render(stored: "iconAndTextAndSomethingElse")
         #expect(differingPixels(bogus, render(stored: Self.titled)) == 0, """
@@ -144,17 +127,13 @@ import Design
                 """)
         #expect(differingPixels(bogus, render(stored: Self.plain)) > 500,
                 "an unknown stored value renders as Icon Only — it turned the words off by itself")
-        // The rule and its fallback answer differently, or the two lines above are one claim made
-        // twice: `PaneBarLabelMode(rawValue:)` really does refuse the string.
+        // And `PaneBarLabelMode(rawValue:)` really refuses the string, so the fallback is what ran.
         #expect(PaneBarLabelMode(rawValue: "iconAndTextAndSomethingElse") == nil)
     }
 
-    /// The fallback and the `@AppStorage` default are the **same** case, read off the header's own
-    /// source. Two places name it, and a build where they disagreed would open at one mode and fall
-    /// back to the other — a preference that changes when the stored value goes bad.
-    ///
-    /// A scan, because both are private to `PaneHeader`; the renders above are what prove the
-    /// behaviour, and this is what names the second writer if only one of them is changed.
+    /// The fallback and the `@AppStorage` default name the same case. If they disagreed, the bar
+    /// would open in one mode and switch to the other when the stored value went bad. A source scan
+    /// because both are private to `PaneHeader`; it names the second site if only one changes.
     @Test func bothWritersOfTheDefaultNameTheSameMode() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

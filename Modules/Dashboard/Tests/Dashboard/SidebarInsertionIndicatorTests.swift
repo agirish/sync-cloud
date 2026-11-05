@@ -4,32 +4,23 @@ import AppKit
 import Design
 @testable import Dashboard
 
-/// **Where the drag's insertion line actually lands, measured off the render.**
+/// Where the drag's insertion line lands, measured off the render.
 ///
-/// This suite exists because of a defect no other test in the repo could see. Every row midpoint is
-/// measured in the `sidebarDrag` coordinate space, and the line was drawn as an overlay on the
-/// *section* — offset by a whole-column y inside a view whose origin is partway down the column. The
-/// arithmetic in `SidebarReorder.insertionIndex` was right, `insertionY` was right, and
-/// `SidebarReorderTests` passed on both; the line still appeared several rows below the gap it
-/// named, and in Locations it could be pushed past the last row in the column. Reported from a
-/// running build, on 2026-08-24.
+/// Row midpoints are in the `sidebarDrag` coordinate space, so a line drawn in the wrong space (on
+/// the section, whose origin is partway down the column) lands rows below its gap even though
+/// `SidebarReorder.insertionIndex` and `insertionY` are right and `SidebarReorderTests` passes.
 ///
-/// **The one assertion that catches it compares the line against the ROWS**, not against another
-/// line. An error of "the section's own origin" is invisible to anything relative: the ladder is
-/// still monotonic, consecutive gaps are still one row pitch apart, and the line still moves when
-/// you drag. Only "is it in the gap it names" is false. So both anchors here are measured from the
-/// same bitmap: the line by its accent ink, each row by the wash that appears when it is the
-/// current one.
+/// So the line is compared against the rows, not another line: an origin error is invisible to
+/// anything relative (the ladder stays monotonic, gaps stay one pitch apart). Both anchors come
+/// from one bitmap: the line by its accent ink, each row by the wash it gets when current.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct SidebarInsertionIndicatorTests {
 
     static let accent = LiquidGlassHue.blue.accentColor
     static let canvas = CGSize(width: FolderSidebarView.defaultWidth, height: 420)
 
-    /// Four clouds, so Locations is a real ladder — and Locations is deliberately **not** the first
-    /// section, because a section at the top of the column has an origin near zero and would have
-    /// hidden the defect almost entirely. Favorites above it is what gives the error something to
-    /// be made of.
+    /// Four clouds, so Locations is a real ladder. Favorites sits above it on purpose: a section at
+    /// the top of the column has an origin near zero and would hide an origin error.
     static let locations: [SidebarSourceRow] = (0..<4).map { i in
         SidebarSourceRow(id: "loc\(i)", name: "Location \(i)", detail: nil,
                          symbol: "externaldrive", absolutePath: "/loc\(i)",
@@ -130,9 +121,8 @@ import Design
         .init(section: .locations, from: 0, to: to, translation: 20)
     }
 
-    /// **The line sits in the gap between the two rows it names.** The defect put it a whole
-    /// section's origin lower — about 90pt here, three rows — and every relative property still
-    /// held while it did.
+    /// The line sits in the gap between the two rows it names. Drawing it in the section's space
+    /// instead would put it about three rows lower here.
     @Test func theLineLandsInTheGapItNames() throws {
         for to in 1..<Self.locations.count {
             let rep = try #require(render(drag: drag(to: to)))
@@ -143,9 +133,8 @@ import Design
         }
     }
 
-    /// A drop at the top of the section goes **above** its first row, not below it — the one index
-    /// with no preceding midpoint to average against, and the case `insertionY` handles by
-    /// subtracting half a row.
+    /// A drop at the top of the section goes above its first row: the one index with no preceding
+    /// midpoint, which `insertionY` handles by subtracting half a row.
     @Test func aDropAtTheTopGoesAboveTheFirstRow() throws {
         let rep = try #require(render(drag: drag(to: 0)))
         let line = try #require(lineY(rep))
@@ -155,13 +144,12 @@ import Design
         #expect(first - line < pitch, "the line for a top drop is more than a row above it")
     }
 
-    /// **An unarmed recents drag paints no line at all.** The line is the promise that releasing
-    /// commits, and a recents drag whose pointer has not reached the Favorites band is a cancel —
-    /// `DragInFlight.willDrop` false. Drawing it anyway is how a ≥5pt slip on a recent came to read
-    /// as an honest insertion offer for a membership change the release then persisted.
+    /// An unarmed recents drag paints no line. The line promises that releasing commits, and a
+    /// recents drag that hasn't reached the Favorites band is a cancel (`DragInFlight.willDrop`
+    /// false), so a small slip on a recent must not look like an insertion offer.
     ///
-    /// The armed render of the SAME drag is the premise: a fixture that cannot paint an indicator
-    /// for this drag would report "no line" for reasons that have nothing to do with the bit.
+    /// The armed render of the same drag is the premise, so "no line" can't come from a fixture
+    /// that paints nothing.
     @Test func anUnarmedRecentsDragDrawsNoLine() throws {
         let recents = [FolderSidebarRow(group: .recents, root: "/loc0", sourceName: nil,
                                         relativePath: "Notes", name: "Notes", detail: nil,
@@ -179,10 +167,9 @@ import Design
                 "an unarmed recents drag painted an insertion line — promising a commit the release must refuse")
     }
 
-    /// **The mark is an insertion caret, not a rule.** A bare bar is the same shape as the divider
-    /// Locations draws between its clouds and its disks; the ring at the leading end is what says
-    /// "a row goes in here". Measured as ink height: tall at the leading end, two points across the
-    /// rest of the span.
+    /// The mark is an insertion caret, not a rule. A bare bar looks like the divider Locations draws
+    /// between clouds and disks; the ring at the leading end says "a row goes in here". Measured as
+    /// ink height: tall at the leading end, two points across the rest.
     @Test func theIndicatorCarriesACaretAtItsLeadingEnd() throws {
         let rep = try #require(render(drag: drag(to: 2)))
         let line = try #require(lineY(rep))

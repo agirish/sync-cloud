@@ -2,11 +2,11 @@ import AppKit
 import Testing
 import TestProcessTextChecking
 
-/// **The spell checker in this test process finds nothing and takes no lock**, because the target
-/// links `TestProcessTextChecking`, whose constructor replaces both of its checking methods before
-/// any test runs. Fails if the target stops linking it — and then every SwiftUI field a test types
-/// into checks through the real one, which can deadlock a focus move: `docs/flaky-tests.md` ▸
-/// *A spell check and a defaults change from another process deadlock a SwiftUI focus move*.
+/// The spell checker in this test process finds nothing and takes no lock, because the target
+/// links `TestProcessTextChecking`, whose constructor replaces both checking methods before any
+/// test runs. Fails if the target stops linking it; then every SwiftUI field a test types into
+/// checks through the real one, which can deadlock a focus move: `docs/flaky-tests.md`, "A spell
+/// check and a defaults change from another process deadlock a SwiftUI focus move".
 @Suite struct TestProcessTextCheckingTests {
     private let misspelt = "Thsi sentance is mispelt."
 

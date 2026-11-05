@@ -3,19 +3,15 @@ import Foundation
 import Events
 @testable import Dashboard
 
-/// Pins the ORDER of the two steps a history load performs: drain the log writer's queue, then read
-/// the file.
+/// Pins the order of a history load's two steps: drain the log writer's queue, then read the file.
 ///
-/// Clear Logs truncates the on-disk log from the writer's own background-qos serial queue, so the
-/// truncate can still be pending when the user's next click starts a history load. That load holds a
-/// perfectly valid token — the token guard only defends loads already in flight AT the clear — so a
-/// read that overtakes the truncate resurrects the rows the user just deleted, as `.loaded` history
-/// that stays for the window's lifetime.
+/// Clear Logs truncates the log on the writer's background serial queue, so the truncate can still
+/// be pending when the next click starts a history load. That load holds a valid token (the guard
+/// only covers loads in flight at the clear), so a read that overtakes the truncate would bring
+/// back the deleted rows for the window's lifetime.
 ///
-/// The pending write is supplied by the test as `drainWriter` itself, which makes the ordering
-/// observable without racing a real queue: if the read runs first it sees the pre-clear bytes, and
-/// if the drain runs first it sees the truncated file. Both directions are asserted below, so
-/// deleting the `drainWriter()` call — or moving it after the read — fails deterministically.
+/// The test supplies the pending write as `drainWriter`, so the order is observable without racing
+/// a real queue. Deleting the `drainWriter()` call, or moving it after the read, must fail.
 @Suite struct LogHistoryDrainOrderTests {
 
     private let boundary = Date(timeIntervalSince1970: 1_780_000_000)
@@ -45,14 +41,13 @@ import Events
         }
 
         #expect(drained, "the writer barrier must be run, not skipped")
-        // `loadedEntries` — not a bare count — so a READ FAILURE can never masquerade as the
-        // post-clear empty this test is asserting.
+        // `loadedEntries`, not a bare count, so a read failure can't pass as the post-clear empty.
         #expect(parsed.loadedEntries?.isEmpty == true, "a load after Clear Logs must not resurrect the cleared rows")
     }
 
     @Test func testTheSameReadWithoutDrainingWouldSeeTheStaleRows() throws {
-        // The control that gives the test above its teeth: the pre-clear file genuinely parses to a
-        // non-empty history, so `parsed.isEmpty` there is caused by the drain and nothing else.
+        // The control: the pre-clear file parses to a non-empty history, so the empty result above
+        // comes from the drain alone.
         let url = try makeLogFile()
         defer { try? FileManager.default.removeItem(at: url) }
 

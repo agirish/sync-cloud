@@ -3,8 +3,8 @@ import Foundation
 import Events
 @testable import Dashboard
 
-/// Coverage for LogEntryFilter.apply — the level filter, case-insensitive search, and newest-first
-/// ordering that back the Activity Log. Extracted from the view body so it is testable without @State.
+/// Coverage for LogEntryFilter.apply: the level filter, case-insensitive search and newest-first
+/// ordering behind the Activity Log. Outside the view body, so it is testable without @State.
 @Suite struct LogViewerTests {
 
     private let entries: [LogEntry] = [
@@ -22,8 +22,8 @@ import Events
     }
 
     @Test func testThresholdKeepsLevelAndAbove() {
-        // "Warnings & above" keeps warnings AND errors — the whole reason the filter is a
-        // threshold, not exact-match. Debug and info drop out.
+        // "Warnings & above" keeps warnings and errors: the filter is a threshold, not an exact
+        // match. Debug and info drop out.
         let result = LogEntryFilter.apply(entries, minimumLevel: .warning, search: "")
         #expect(result.map(\.message) == ["Low space", "Disk FULL"])
         #expect(result.allSatisfy { $0.level.severity >= LogLevel.warning.severity })
@@ -59,8 +59,8 @@ import Events
     }
 
     @Test func testSearchMatchesMessageTextNotLevelName() {
-        // "ERROR" appears as a level tag in the UI but not in any message body, so the
-        // search field — which filters message text only — must not match the error entry.
+        // "ERROR" appears as a level tag in the UI but in no message body, so the search field,
+        // which filters message text only, must not match the error entry.
         let result = LogEntryFilter.apply(entries, minimumLevel: nil, search: "ERROR")
         #expect(result.isEmpty)
     }
@@ -73,7 +73,7 @@ import Events
     // MARK: Empty-state classification
 
     @Test func testEmptyStateVisibleRowsWinRegardlessOfSource() {
-        // Any visible rows (session or history) → no empty state.
+        // Any visible rows (session or history): no empty state.
         #expect(LogEmptyState.classify(hasVisibleRows: true, hasRawEntries: true, historyLoaded: false,
                                        historyReadFailed: false) == .none)
         #expect(LogEmptyState.classify(hasVisibleRows: true, hasRawEntries: false, historyLoaded: true,
@@ -89,29 +89,28 @@ import Events
     }
 
     @Test func testEmptyStateQuietSessionOffersHistory() {
-        // Nothing this session and history not loaded yet → the explain-and-offer-history state.
+        // Nothing this session and history not loaded yet: the explain-and-offer-history state.
         #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: false,
                                        historyReadFailed: false) == .noActivity)
     }
 
     @Test func testEmptyStateHistoryLoadedButEmptyIsNoEarlierActivity() {
-        // History was loaded and the log holds nothing older → the honest end state, not "load it".
+        // History loaded and the log holds nothing older: the honest end state, not "load it".
         #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: true,
                                        historyReadFailed: false) == .noEarlierActivity)
     }
 
     @Test func testEmptyStateSaysTheHistoryIsUnavailableRatherThanOfferingIt() {
-        // The contradiction this case ends: a failed read classified as `.noActivity`, whose
-        // message finishes "use ‘Show older history’ below to load what earlier sessions recorded"
-        // — rendered directly above the footer's "Couldn't read the log file — earlier activity is
-        // unavailable". One quiet session, two opposite claims about the same file.
+        // A failed read is not `.noActivity`, whose message offers "Show older history" to load
+        // earlier sessions; above the footer's "Couldn't read the log file" that would make two
+        // opposite claims about the same file.
         #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: false,
                                        historyReadFailed: true) == .historyUnavailable)
     }
 
     @Test func testALoadedHistoryOutranksAStaleFailureFlag() {
-        // A retry that succeeded leaves the state loaded; the earlier failure must not still be
-        // deciding the wording. (`LogHistoryState` cannot be both, but classify takes two Bools.)
+        // A retry that succeeded leaves the state loaded; the earlier failure must not still decide
+        // the wording. (`LogHistoryState` can't be both, but classify takes two Bools.)
         #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: true,
                                        historyReadFailed: true) == .noEarlierActivity)
     }
@@ -128,16 +127,16 @@ import Events
     // MARK: The footer's "No earlier activity" note vs. the empty state
 
     @Test func testFooterStaysQuietWhenTheEmptyStateAlreadySaysNoEarlierActivity() {
-        // The double-render: an empty session over an empty loaded history put
-        // "…the log holds nothing from earlier sessions" (the empty state) directly above
-        // "No earlier activity in the log" (the footer). Exactly one of them may speak.
+        // An empty session over an empty loaded history: the empty state's "…the log holds nothing
+        // from earlier sessions" and the footer's "No earlier activity in the log" say the same
+        // thing, so only one may speak.
         #expect(LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: true, emptyState: .noEarlierActivity) == false)
     }
 
     @Test func testFooterStillSpeaksWhenTheEmptyStateIsSayingSomethingElse() {
-        // A session that DID log something renders no empty state at all (.none) — the footer note
-        // is then the only word on the subject and must survive. Same for a filtered-out session
-        // (.noMatches), whose empty state talks about filters, not about earlier sessions.
+        // A session that logged something renders no empty state (.none), so the footer note is
+        // the only word on the subject and must survive. Same for a filtered-out session
+        // (.noMatches), whose empty state talks about filters, not earlier sessions.
         #expect(LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: true, emptyState: .none))
         #expect(LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: true, emptyState: .noMatches))
     }
@@ -149,9 +148,9 @@ import Events
     }
 
     @Test func testFooterStillReportsAnUnreadableLogWhenTheEmptyStateIsSayingSomethingElse() {
-        // A session that DID log something renders no empty state, so this note is the only word
-        // on why the earlier history is missing — and a filtered-out session's empty state talks
-        // about filters, not about the file.
+        // A session that logged something renders no empty state, so this note is the only word on
+        // why earlier history is missing; a filtered-out session's empty state talks about
+        // filters, not the file.
         #expect(LogEmptyState.footerNotesUnreadableHistory(emptyState: .none))
         #expect(LogEmptyState.footerNotesUnreadableHistory(emptyState: .noMatches))
         #expect(LogEmptyState.footerNotesUnreadableHistory(emptyState: .noActivity))
@@ -211,12 +210,10 @@ import Events
             .appendingPathComponent("log-read-outcome-\(UUID().uuidString).log")
     }
 
-    /// **A torn byte costs that byte, not the history around it.**
-    ///
-    /// The log is appended to by a second process as well as this one, so a crash mid-write can
-    /// leave bytes that aren't valid UTF-8 (0xFF is not a legal lead byte anywhere in UTF-8). That
-    /// used to throw out of `String(contentsOf:)` and take every good line with it — thousands of
-    /// them, for one byte. The lines either side must survive.
+    /// A torn byte costs that byte, not the history around it. A second process appends to the log
+    /// too, so a crash mid-write can leave invalid UTF-8 (0xFF is never a legal lead byte), which
+    /// `String(contentsOf:)` would throw on, losing every good line. The lines either side must
+    /// survive.
     @Test func testATornByteDoesNotCostTheHistoryAroundIt() throws {
         let url = scratchLogURL()
         defer { try? FileManager.default.removeItem(at: url) }
@@ -230,7 +227,7 @@ import Events
         try bytes.write(to: url)
 
         let outcome = LogHistoryLoader.loadOlderThan(base.addingTimeInterval(60), fileURL: url)
-        // Newest-first, which is this loader's documented order — the window shows it that way.
+        // Newest-first, this loader's documented order, as the window shows it.
         #expect(outcome.loadedEntries?.map(\.message) == ["after the tear", "before the tear"],
                 """
                 the good lines did not survive a torn one: \(String(describing: outcome)) — one \
@@ -238,12 +235,9 @@ import Events
                 """)
     }
 
-    /// The seam, asserted on BYTES: a code unit merely cut short must come back MARKED, not
-    /// silently gone.
-    ///
-    /// This is the distinction the implementation is written around. `String(decoding:as:)`
-    /// repairs; Foundation's `String(data:encoding:)` answers a clean string with the tail
-    /// dropped, which no assertion on the surrounding text could ever catch.
+    /// Asserted on bytes: a character cut short comes back marked, not silently gone.
+    /// `String(decoding:as:)` repairs; `String(data:encoding:)` returns a clean string with the tail
+    /// dropped, which no assertion on the surrounding text could catch.
     @Test func testTheRepairMarksACutShortCharacterRatherThanDroppingIt() {
         let whole = "page 3 — café"
         let cut = Data(whole.utf8).dropLast()            // the final "é" loses its second byte
@@ -258,9 +252,8 @@ import Events
                 "the control: intact bytes must pass through untouched")
     }
 
-    /// The positive control for the case above, and the reason `.unreadable` is not now dead code:
-    /// a file that genuinely cannot be READ still reports itself as such. A directory at the path
-    /// is the failure that needs no permission games to stage.
+    /// The positive control for the case above: a file that genuinely can't be read still reports
+    /// `.unreadable`. A directory at the path stages that without permission games.
     @Test func testAFileThatCannotBeReadAtAllIsStillUnreadable() throws {
         let url = scratchLogURL()
         defer { try? FileManager.default.removeItem(at: url) }
@@ -278,8 +271,8 @@ import Events
     }
 
     @Test func testAReadableLogFileIsLoadedEvenWhenItParsesToNothing() throws {
-        // The other half of the distinction: a file that reads fine but holds nothing older is
-        // `.loaded([])` — a real answer the footer is entitled to state.
+        // The other half: a file that reads fine but holds nothing older is `.loaded([])`, a real
+        // answer the footer may state.
         let url = scratchLogURL()
         defer { try? FileManager.default.removeItem(at: url) }
         try "not a log line\n".write(to: url, atomically: true, encoding: .utf8)
@@ -288,15 +281,15 @@ import Events
     }
 
     @Test func testAMissingLogFileIsNothingOlderRatherThanAFailure() {
-        // No file yet is a true "nothing older", not a torn write — reporting it as unreadable
-        // would put an error note under a first launch that has simply never written the file.
+        // No file yet is a true "nothing older", not a failure; calling it unreadable would put an
+        // error note under a first launch that has never written the file.
         let url = scratchLogURL()   // deliberately never created
         #expect(LogHistoryLoader.loadOlderThan(Date(), fileURL: url).loadedEntries?.isEmpty == true)
     }
 
     @Test func testAGoodFileStillLoadsItsHistory() throws {
-        // The control: the read path itself still works, so the two tests above are asserting the
-        // failure/empty distinction and not a loader that returns nothing for everything.
+        // The control: the read path works, so the tests above assert the failure/empty
+        // distinction, not a loader that returns nothing for everything.
         let url = scratchLogURL()
         defer { try? FileManager.default.removeItem(at: url) }
         let base = Date(timeIntervalSince1970: 1_780_000_000)
@@ -309,13 +302,8 @@ import Events
 
     // MARK: The window's derived contents
 
-    /// The composition the `body` used to perform inline, now a value (`LogViewerContents`) so the
-    /// pieces are derived from ONE history state instead of five independent reads of it. The chip
-    /// counts have their own suite; these pin the rest of what moved, so the extraction is provably
-    /// behavior-preserving.
-    ///
-    /// `@MainActor` because `LogViewerContents` reaches `LogViewer.thresholdCounts`, a static on a
-    /// SwiftUI `View`.
+    /// `LogViewerContents`, the window's derived contents, all taken from one history state. The
+    /// chip counts have their own suite; these pin the rows, paging and empty state.
     @MainActor
     @Suite struct ContentsTests {
         private let now = Date(timeIntervalSince1970: 1_780_000_000)
@@ -344,14 +332,13 @@ import Events
             let shown = contents(history: .loaded(entries: history, revealed: 25))
             #expect(shown.visibleHistory.count == 25)
             #expect(shown.visibleHistory.first?.message == "h0")
-            // The LAST page offers the true remainder, not another full page — the footer button
-            // used to promise 25 and hand over 5.
+            // The last page offers the true remainder, not another full page.
             #expect(shown.nextReveal == 5)
             #expect(contents(history: .loaded(entries: history, revealed: 30)).nextReveal == 0)
         }
 
         @Test func theHistoryPageIsCutFromTheFilteredMatchesNotTheRawEntries() {
-            // `revealed` caps the FILTERED matches, so narrowing the filter re-pages from the top
+            // `revealed` caps the filtered matches, so narrowing the filter re-pages from the top
             // rather than revealing a window into an unfiltered list.
             let history = [entry(.info, "quiet"), entry(.error, "boom"), entry(.error, "bang")]
             let shown = contents(history: .loaded(entries: history, revealed: 2), level: .error)
@@ -373,13 +360,9 @@ import Events
         }
 
         @Test func aFailedReadIsNotAnEmptyHistory() {
-            // `.failed` must not read as "loaded, and there is nothing older" — the footer says
-            // different things, and the empty state is one of them.
-            //
-            // It used to land on `.noActivity`, which is the OTHER thing it is not: that state's
-            // message offers "Show older history" as the way to load what earlier sessions
-            // recorded, immediately above the footer saying the file couldn't be read. The state
-            // now names the failure, and the footer's duplicate note yields to it.
+            // `.failed` reads neither as "nothing older" nor as `.noActivity`, whose message offers
+            // "Show older history" right above a footer saying the file couldn't be read. The
+            // empty state names the failure, and the footer's duplicate note yields to it.
             #expect(contents(history: .failed).emptyState == .historyUnavailable)
             #expect(contents(history: .failed).visibleHistory.isEmpty)
             #expect(LogEmptyState.footerNotesUnreadableHistory(
@@ -388,7 +371,7 @@ import Events
 
         @Test func aFailedReadUnderAChattySessionLeavesTheFooterToSpeak() {
             // With rows on screen there is no empty state to carry the failure, so the footer's
-            // note must survive — the yield above must not have silenced it everywhere.
+            // note must survive: the yield above must not silence it everywhere.
             let shown = contents(session: [entry(.info, "did something")], history: .failed)
             #expect(shown.emptyState == .none)
             #expect(LogEmptyState.footerNotesUnreadableHistory(emptyState: shown.emptyState))
@@ -397,17 +380,11 @@ import Events
 
     // MARK: Isolation
 
-    /// `LogViewerContents` is documented as a pure value with a nonisolated `init`, and this pins
-    /// that the documentation is TRUE — the type is constructible from off the main actor.
-    ///
-    /// It was not. The init reached `LogViewer.thresholdCounts`, a static on a SwiftUI `View`,
-    /// which SwiftUI isolates to the main actor along with the rest of the type; calling one of
-    /// those off-actor SIGTRAPs at runtime while the compiler emits only a warning. So this test
-    /// does not fail when the guarantee breaks — it CRASHES the test host, which is the same signal
-    /// the app would give, and the reason the constraint now lives in the declaration.
-    ///
-    /// Deliberately NOT `@MainActor` (the suite it sits in is not either): a main-actor test would
-    /// hop the detached work straight back to where the bug hides.
+    /// `LogViewerContents` is a pure value with a nonisolated `init`, constructible off the main
+    /// actor. **Trap:** a `View`'s statics are main-actor isolated, and reaching one off-actor
+    /// compiles with only a warning and SIGTRAPs at runtime, so a regression crashes the test host
+    /// rather than failing. Not `@MainActor` on purpose: a main-actor test would hop the detached
+    /// work back to the main actor and hide it.
     @Test func theDerivedContentsCanBeBuiltOffTheMainActor() async {
         let session = [LogEntry(level: .error, message: "boom")]
         let history = LogHistoryState.loaded(

@@ -3,13 +3,11 @@ import Testing
 import Sync
 @testable import Dashboard
 
-/// **What the app knew about a volume while it was mounted**, which is the only way to answer the
-/// question an unmount asks after the answer has gone.
-///
-/// The rule this guards is asymmetric on purpose. Failing to remove a source leaves a dimmed row
-/// the user can remove by hand; removing one wrongly destroys a name override, a landing folder and
-/// an enabled flag that nothing can hand back. So `false` is the answer for anything unproven, and
-/// these tests pin that direction rather than only the happy path.
+/// What the app knew about a volume while it was mounted, the only way to answer what an unmount
+/// asks once the volume is gone. The rule is asymmetric on purpose: a source wrongly kept is a
+/// dimmed row the user can remove, but one wrongly removed loses a name override, a landing folder
+/// and an enabled flag for good. So anything unproven answers `false`, and these tests pin that
+/// direction as well as the happy path.
 @Suite @MainActor struct MountedVolumeMemoryTests {
 
     private func memory() -> MountedVolumeMemory { MountedVolumeMemory() }
@@ -24,9 +22,9 @@ import Sync
         #expect(m.isDetachable(volume: "/Volumes/CARD"))
     }
 
-    /// **The guard that earns the whole type.** A network share is *ejectable* — Finder draws it an
-    /// eject arrow — so a removable-or-ejectable test alone reads a Wi-Fi drop as a card being
-    /// pulled. A share comes back; the sources on it must still be there when it does.
+    /// A network share ejects (Finder gives it an eject arrow), so a removable-or-ejectable test
+    /// alone would read a Wi-Fi drop as a pulled card. A share comes back, and its sources must
+    /// still be there when it does.
     @Test func aNetworkShareIsNotDetachableEvenThoughItEjects() {
         let m = memory()
         m.record(Self.share, forVolume: "/Volumes/Archive")
@@ -39,18 +37,16 @@ import Sync
         #expect(!m.isDetachable(volume: "/"))
     }
 
-    /// **Unknown means leave it alone.** A volume that unmounted having never been seen mounted —
-    /// the app launched after it was already gone, or a path arrived that nothing recorded — is a
-    /// question this could not answer, and answering `true` would delete sources on a guess.
+    /// Unknown means leave it alone. A volume never seen mounted (the app launched after it went, or
+    /// a path nothing recorded) can't be answered, and `true` would delete sources on a guess.
     @Test func aVolumeNeverSeenIsNotDetachable() {
         let m = memory()
         #expect(m.count == 0)
         #expect(!m.isDetachable(volume: "/Volumes/CARD"))
     }
 
-    /// **A volume it knew about but has since forgotten is unknown again**, which matters because
-    /// `forget` runs on every unmount: a second unmount notification for the same path (macOS does
-    /// repeat them) must not act on a stale record naming a card that is long gone.
+    /// A forgotten volume is unknown again. `forget` runs on every unmount, and macOS can repeat the
+    /// notification for the same path, which must not act on a stale record of a card long gone.
     @Test func forgettingAVolumeMakesItUnknownAgain() {
         let m = memory()
         m.record(Self.card, forVolume: "/Volumes/CARD")
@@ -59,8 +55,8 @@ import Sync
         #expect(!m.isDetachable(volume: "/Volumes/CARD"))
     }
 
-    /// Trailing slashes and case are the two ways the same mount point arrives spelled differently
-    /// — the walk that records it and the notification that reads it back are different sources.
+    /// The walk that records a mount point and the notification that reads it back can spell it
+    /// differently, by a trailing slash or by case.
     @Test func aVolumeIsFoundWhicheverWayItsPathIsSpelled() {
         let m = memory()
         m.record(Self.card, forVolume: "/Volumes/CARD/")
@@ -68,8 +64,8 @@ import Sync
         #expect(m.count == 1, "the trailing slash made a second entry")
     }
 
-    /// Re-recording replaces rather than accumulating: the walk runs on every sidebar refresh, and
-    /// a map that grew per refresh would be a leak the size of the session.
+    /// Re-recording replaces rather than accumulates: the walk runs on every sidebar refresh, so a
+    /// growing map would leak for the whole session.
     @Test func recordingTheSameVolumeTwiceKeepsOneEntry() {
         let m = memory()
         m.record(Self.card, forVolume: "/Volumes/CARD")
@@ -87,10 +83,9 @@ import Sync
         #expect(!m.isDetachable(volume: "/Volumes/Archive"))
     }
 
-    /// The sidebar's `Volume` is what the walk produces and what feeds this, so its new flag has to
-    /// carry the two facts through. `isLocal` defaults to `true` — the safe direction, since
-    /// removability still has to agree — and a fixture that says nothing must therefore look like a
-    /// card rather than silently exempting itself.
+    /// The sidebar's `Volume` feeds this, so it must carry locality through. `isLocal` defaults to
+    /// `true`, the safe direction since removability must still agree, so a fixture that says
+    /// nothing looks like a card instead of silently exempting itself.
     @Test func theSidebarVolumeCarriesLocality() {
         let card = SidebarSourceModel.Volume(name: "CARD", path: "/Volumes/CARD",
                                              isRemovable: true, isInternal: false)

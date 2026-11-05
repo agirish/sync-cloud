@@ -2,15 +2,14 @@ import Testing
 import Foundation
 @testable import Dashboard
 
-/// **Naming the rows of Locations and of Favorites' standard folders**, and deciding what a
-/// click on each one means.
+/// Naming the rows of Locations and of Favorites' standard folders, and deciding what a click on
+/// each one means.
 @Suite struct SidebarSourceModelTests {
 
     // MARK: - Qualification
 
-    /// **The case the whole section is shaped around.** Three Google Drive accounts render one
-    /// word; without a qualifier they are three identical rows and two of them go somewhere the
-    /// user did not mean.
+    /// The case the section is shaped around: three Google Drive accounts render one word, and
+    /// without a qualifier they are three identical rows, two of which go somewhere unintended.
     @Test func rowsSharingANameAreQualifiedByTheirAccount() {
         let out = SidebarSourceModel.qualifiers(
             names: ["iCloud Drive", "Dropbox", "Drive", "Drive", "Drive"],
@@ -18,16 +17,16 @@ import Foundation
         #expect(out == [nil, nil, "personal", "preserve", "emp"])
     }
 
-    /// And the other direction, which is what keeps the column from growing a second line on every
-    /// row: a name nothing else shares is left alone even when a qualifier is available.
+    /// And the other direction, which keeps every row from growing a second line: a name nothing
+    /// else shares is left alone even when a qualifier is available.
     @Test func aNameNothingSharesIsNotQualified() {
         let out = SidebarSourceModel.qualifiers(names: ["Dropbox", "iCloud Drive"],
                                                 qualifiers: ["personal", "father"])
         #expect(out == [nil, nil])
     }
 
-    /// Two OneDrives and two Drives collide independently — qualification is per name, not a
-    /// property of the whole list.
+    /// Qualification is per name, not a property of the whole list: only the colliding name is
+    /// qualified.
     @Test func collisionsAreCountedPerNameNotAcrossTheList() {
         let out = SidebarSourceModel.qualifiers(
             names: ["Drive", "Drive", "OneDrive", "Dropbox"],
@@ -35,9 +34,8 @@ import Foundation
         #expect(out == ["emp", "personal", nil, nil])
     }
 
-    /// A collision with nothing to say about it stays unqualified rather than drawing an empty
-    /// detail — the same rule `FolderSidebarModel.rows` applies when a top-level folder has no
-    /// parent path.
+    /// A collision with no qualifier stays unqualified rather than drawing an empty detail, as
+    /// `FolderSidebarModel.rows` does for a top-level folder with no parent path.
     @Test func aCollisionWithNoQualifierAvailableIsLeftAlone() {
         let out = SidebarSourceModel.qualifiers(names: ["Drive", "Drive"], qualifiers: [nil, ""])
         #expect(out == [nil, nil])
@@ -45,9 +43,9 @@ import Foundation
 
     // MARK: - Containment, and the gap it closes
 
-    /// **The reason this rule exists.** Under macOS's Desktop & Documents syncing, `~/Desktop` is a
-    /// link into `com~apple~CloudDocs` — so a plain path comparison says it has nothing to do with
-    /// iCloud Drive, and promoting it would mint a second source over a tree iCloud already scans.
+    /// Under macOS's Desktop & Documents syncing, `~/Desktop` links into `com~apple~CloudDocs`, so a
+    /// plain path comparison misses it, and promoting it would mint a second source over a tree
+    /// iCloud already scans.
     @Test func aShortcutThatSymlinksIntoACloudRootIsClaimedByThatSource() {
         let roots = [(id: "icloud", name: "iCloud Drive", path: "/Users/u/Library/Mobile Documents/com~apple~CloudDocs")]
         let owner = SidebarSourceModel.owningSource(of: "/Users/u/Desktop", among: roots) { path in
@@ -64,25 +62,24 @@ import Foundation
         #expect(SidebarSourceModel.owningSource(of: "/Users/u/Downloads", among: roots) { $0 } == nil)
     }
 
-    /// **The longest root wins**, so a folder source nested inside a cloud account resolves to the
-    /// more specific one rather than to whichever was listed first.
+    /// The longest root wins, so a folder source nested inside a cloud account resolves to the
+    /// more specific one rather than whichever was listed first.
     @Test func theMostSpecificContainingSourceWins() {
         let roots = [(id: "icloud", name: "iCloud Drive", path: "/Users/u/iCloud"),
                      (id: "proj", name: "Projects", path: "/Users/u/iCloud/Projects")]
         #expect(SidebarSourceModel.owningSource(of: "/Users/u/iCloud/Projects/App", among: roots) { $0 }?.id == "proj")
     }
 
-    /// A path that *is* a source's root is owned by it — the case
-    /// `SettingsManager.addFolderSource` already handles by returning the existing id, and this
-    /// must agree with it rather than promoting alongside it.
+    /// A path that is a source's root is owned by it, agreeing with
+    /// `SettingsManager.addFolderSource`, which returns the existing id.
     @Test func aPathThatIsASourceRootIsOwnedByThatSource() {
         let roots = [(id: "dl", name: "Downloads", path: "/Users/u/Downloads")]
         #expect(SidebarSourceModel.owningSource(of: "/Users/u/Downloads", among: roots) { $0 }?.id == "dl")
     }
 
-    /// **A sibling whose name merely starts the same way is not inside.** `hasPrefix` alone reports
-    /// `/Users/u/Downloads2` as contained, which would silently route a click into the wrong
-    /// source and quietly suppress a promotion the user asked for.
+    /// A sibling whose name merely starts the same way is not inside. `hasPrefix` alone would call
+    /// `/Users/u/Downloads2` contained, routing a click into the wrong source and suppressing a
+    /// promotion the user asked for.
     @Test func aSiblingSharingAPrefixIsNotContained() {
         let roots = [(id: "dl", name: "Downloads", path: "/Users/u/Downloads")]
         #expect(SidebarSourceModel.owningSource(of: "/Users/u/Downloads2", among: roots) { $0 } == nil)
@@ -90,12 +87,10 @@ import Foundation
         #expect(SidebarSourceModel.contains("/Users/u/Downloads/A", under: "/Users/u/Downloads"))
     }
 
-    /// **Two same-named sources resolve by ID, and the id survives into `.inside`.** Name
-    /// collisions are the very case this section's qualifiers exist for — three Google Drive
-    /// accounts all render one word — so a handler re-resolving the owner by display name would
-    /// pick whichever "Drive" came first and count-strip the path against the wrong root. The id
-    /// `owningSource` returns is what `.inside(sourceId:sourceName:)` carries; this pins that a
-    /// path inside the SECOND of two same-named roots identifies the second.
+    /// Two same-named sources resolve by id, and the id survives into
+    /// `.inside(sourceId:sourceName:)`. Resolving by display name would pick whichever "Drive" came
+    /// first and strip the path against the wrong root, so a path inside the second of two
+    /// same-named roots must identify the second.
     @Test func aPathInsideTheSecondOfTwoSameNamedSourcesResolvesToTheSecond() throws {
         let roots = [(id: "drive-personal", name: "Drive", path: "/Users/u/Drive"),
                      (id: "drive-work", name: "Drive", path: "/Volumes/Work/Drive")]
@@ -110,15 +105,15 @@ import Foundation
         #expect(state == .inside(sourceId: "drive-work", sourceName: "Drive"))
     }
 
-    /// Case is folded, because the default macOS volume is case-insensitive and the two spellings
-    /// name one folder. Claiming is the safe direction: a wrong claim costs a navigation the user
-    /// can see, a missed one costs a duplicate source they will not.
+    /// Case is folded, because the default macOS volume is case-insensitive. Claiming is the safe
+    /// direction: a wrong claim costs a navigation the user can see, a missed one a duplicate source
+    /// they won't.
     @Test func containmentFoldsCase() {
         #expect(SidebarSourceModel.contains("/Users/u/DOWNLOADS/A", under: "/Users/u/downloads"))
     }
 
-    /// A trailing slash on the root must not change the answer — provider paths are user-settable
-    /// and arrive spelled however they were typed.
+    /// A trailing slash on the root must not change the answer: provider paths are user-settable
+    /// and arrive however they were typed.
     @Test func aTrailingSlashOnTheRootChangesNothing() {
         #expect(SidebarSourceModel.contains("/Users/u/Downloads/A", under: "/Users/u/Downloads/"))
         #expect(SidebarSourceModel.contains("/Users/u/Downloads", under: "/Users/u/Downloads/"))
@@ -133,9 +128,9 @@ import Foundation
 
     // MARK: - What lives where
 
-    /// **Desktop, Documents and Downloads are the three places whose ONLY band is Favorites** —
-    /// they have no Locations row to fall back to, which is what makes "Restore Standard Places"
-    /// necessary. The rest of the default Favorites set is asserted in `SidebarFavoritePlacesTests`.
+    /// Desktop, Documents and Downloads are the places whose only band is Favorites: with no
+    /// Locations row to fall back to, they need "Restore Standard Places". The rest of the default
+    /// set is asserted in `SidebarFavoritePlacesTests`.
     @Test func theStandardFoldersAreTheThreeYouFileInto() {
         #expect(SidebarSourceModel.favoriteShortcuts.map(\.name) == ["Desktop", "Documents", "Downloads"])
         #expect(SidebarSourceModel.favoriteShortcuts.allSatisfy { $0.path.hasPrefix("/") },
@@ -143,15 +138,10 @@ import Foundation
         #expect(SidebarSourceModel.favoriteShortcuts.allSatisfy { !$0.symbol.isEmpty })
     }
 
-    /// **Home is favorited by default and is still built as a Locations row**, which is not a
-    /// contradiction — it is the difference the two constants encode.
-    ///
-    /// `favoriteShortcuts` is "places that exist only in Favorites"; `homeEntry` is a place with a
-    /// Locations row of its own that the default list happens to lift into Favorites. A second
-    /// `favoriteShortcuts` entry for it would build TWO rows for one folder — the builder walks both
-    /// lists — which is why the default set names a path instead. The startup disk is checked here
-    /// for the same hazard even though it is no longer in the default list: adding it to
-    /// `favoriteShortcuts` would draw it in both sections at once.
+    /// Home is favorited by default and still built as a Locations row. `favoriteShortcuts` holds
+    /// places that exist only in Favorites; `homeEntry` has a Locations row the default list lifts
+    /// into Favorites by path. A `favoriteShortcuts` entry for it would build two rows, since the
+    /// builder walks both lists. The startup disk is checked for the same hazard.
     @Test func homeIsAFavoriteByDefaultAndStillHasItsLocationsRow() {
         #expect(SidebarSourceModel.homeEntry.path == NSHomeDirectory())
         #expect(SidebarFavoritePlaces.standard.contains(NSHomeDirectory()),
@@ -162,15 +152,14 @@ import Foundation
                 "the startup disk is in both lists — the builder would draw two rows for it")
     }
 
-    /// The startup disk is `/` and nothing else needs to be true of it here: its name and its glyph
-    /// come from the mounted-volume walk, so this constant cannot go stale when a disk is renamed.
+    /// The startup disk is `/`, nothing more: its name and glyph come from the mounted-volume walk,
+    /// so this can't go stale when a disk is renamed.
     @Test func theStartupDiskIsNamedByPathOnly() {
         #expect(SidebarSourceModel.startupDiskPath == "/")
     }
 
-    /// **Home still contains the other three**, which is why `owningSource` takes the longest match
-    /// rather than the first. Once Home is a folder source, clicking Desktop or Downloads must
-    /// navigate inside it rather than mint two more sources under one root.
+    /// Home contains the standard folders. Once Home is a folder source, clicking Desktop or
+    /// Downloads must navigate inside it rather than mint more sources under one root.
     @Test func onceHomeIsASourceTheStandardFoldersAreInsideIt() {
         let roots = [(id: "home", name: "Home", path: SidebarSourceModel.homeEntry.path)]
         for shortcut in SidebarSourceModel.favoriteShortcuts {
@@ -179,8 +168,8 @@ import Foundation
         }
     }
 
-    /// The Trash is under Home too, so the same rule applies to it — but it is never promoted
-    /// regardless, which is the `revealOnly` state rather than anything about containment.
+    /// The Trash is under Home too, but it is never promoted, which is the `revealOnly` state, not
+    /// containment.
     @Test func theTrashIsUnderHome() {
         #expect(SidebarSourceModel.trashEntry.path.hasPrefix(NSHomeDirectory()))
         #expect(SidebarSourceModel.trashEntry.name == "Trash")
@@ -193,8 +182,8 @@ import Foundation
         .init(name: name, path: "/Volumes/\(name)", isRemovable: removable, isInternal: isInternal)
     }
 
-    /// **The startup disk first, then everything else by name.** Mount order is arrival order and
-    /// differs between boots; a sidebar whose disks rearranged themselves would look broken.
+    /// The startup disk first, then the rest by name. Mount order differs between boots, and disks
+    /// that rearranged themselves would look broken.
     @Test func theStartupDiskLeadsAndTheRestSortByName() {
         let out = SidebarSourceModel.orderedVolumes(
             [volume("Backup"), volume("Macintosh HD", internal: true), volume("Archive")])
@@ -224,8 +213,8 @@ import Foundation
         #expect(volume("Backup").symbol == "externaldrive")
     }
 
-    /// A removable volume that also claims to be internal is drawn as internal — the startup disk
-    /// on some Macs reports both, and "built in" is the more useful of the two claims.
+    /// A volume that reports both removable and internal is drawn as internal: the startup disk on
+    /// some Macs reports both, and "built in" is the more useful claim.
     @Test func internalWinsOverRemovableForTheGlyph() {
         #expect(volume("HD", internal: true, removable: true).symbol == "internaldrive")
     }
@@ -239,8 +228,8 @@ import Foundation
 
     // MARK: - Bands
 
-    /// The bands are drawn in the order they are declared, which is Finder's: the clouds you signed
-    /// into, then the hardware, then the Trash.
+    /// The bands are drawn in declaration order, which is Finder's: clouds, then hardware, then the
+    /// Trash.
     @Test func theBandsOrderCloudsThenDevicesThenTrash() {
         #expect(SidebarSourceRow.Band.cloud < SidebarSourceRow.Band.device)
         #expect(SidebarSourceRow.Band.device < SidebarSourceRow.Band.trash)
@@ -254,18 +243,15 @@ import Foundation
                          state: state, isAvailable: available)
     }
 
-    /// **A place SyncCloud has not been given yet is NOT dimmed**, and that is the correction this
-    /// test records: it used to assert the opposite, and drawing it showed why that was wrong.
-    /// Locations' whole device band is un-added on a fresh install — a disk is not a source until
-    /// someone makes it one — so dimming `.unknown` greyed out the home folder, the startup disk
-    /// and every mounted card at once, which reads as broken rather than as available. Finder does
-    /// not dim your disks either.
+    /// A place SyncCloud hasn't been given yet is not dimmed. On a fresh install the whole device
+    /// band is un-added, so dimming `.unknown` would grey out home, the startup disk and every card
+    /// at once, which reads as broken. Finder doesn't dim your disks either.
     @Test func aPlaceThatIsNotASourceYetIsNotDimmed() {
         #expect(!row(.unknown).isDimmed)
     }
 
-    /// **Dimmed means "not answering", and nothing else.** That is the one claim left, and it is
-    /// the one a reader can act on: an unplugged drive, a signed-out account.
+    /// Dimmed means "not answering" and nothing else, which a reader can act on: an unplugged
+    /// drive, a signed-out account.
     @Test func onlyAnUnavailableRowIsDimmed() {
         #expect(row(.configured, available: false).isDimmed)
         #expect(row(.unknown, available: false).isDimmed)

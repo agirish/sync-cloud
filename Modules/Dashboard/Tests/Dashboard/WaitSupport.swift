@@ -1,29 +1,17 @@
 import Foundation
 import Testing
 
-/// Polls until `condition` holds, and **fails, at the caller, when it never does.**
+/// Polls until `condition` holds, and fails at the caller when it never does.
 ///
-/// The third copy of this helper. `Modules/Sync/Tests/Sync/TestSupport.swift` and
-/// `SyncCloudTests/TestSupport.swift` carry the other two, and all three bodies are identical on
-/// purpose: a test target cannot import another target's test code, so the choice is a duplicate or
-/// a per-suite reinvention — and the reinvention is what this file exists to retire.
+/// A copy of the helper in `SyncCloudTests/TestSupport.swift` (identical) and
+/// `Modules/Sync/Tests/Sync/TestSupport.swift` (which also bounds by scheduler turns, via
+/// `TurnDeadline`): a test target can't import another target's test code. A wait that just returns
+/// when it gives up makes "it happened" and "I stopped waiting" the same result, and the assertions
+/// after it then fail for the wrong reason (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
 ///
-/// **What it replaces, and why that mattered.** `FileActionHandlerOperationTests` had its own
-/// `waitUntil` that polled 200 × 20 ms and then simply **returned**. Nothing read the outcome, so
-/// "the thing happened" and "I stopped waiting" were the same result, and a contended run fell
-/// through to the assertions and reported *those* instead. On 2026-08-22
-/// `testCopyItemsFromLeftCopiesToRightPane` failed CI on a banner's `message` and `isUndoable`,
-/// both `nil`, 19.7 seconds in, with nothing in either message about waiting — while the same suite
-/// was green locally and green on the next CI run. It is recorded under "Fixed pumps and fixed
-/// sleeps" in `docs/flaky-tests.md`.
-///
-/// **The poll floor is the part that is easy to leave out.** A deadline in seconds is a throughput
-/// bet: measured on 2026-08-08 a poll costs its nominal 10 ms idle and **223 ms** under load, 22×,
-/// so five seconds buys ~500 evaluations on a quiet machine and ~22 on a busy one — the budget
-/// shrinks exactly when the wait needs it most. The loop therefore runs at least `waitPollFloor`
-/// times whatever the clock says, and the poll count goes in the failure because **the count is the
-/// diagnosis**: a handful means the wait was starved, hundreds means the condition was genuinely
-/// disproved.
+/// A deadline in seconds shrinks under load: a poll costs 10 ms idle but has measured 223 ms on a
+/// busy machine. So the loop runs at least `waitPollFloor` times whatever the clock says, and the
+/// failure reports the poll count: a handful means starved, hundreds means disproved.
 @MainActor
 func waitUntil(
     _ what: Comment,
@@ -43,7 +31,7 @@ func waitUntil(
             sourceLocation: sourceLocation)
 }
 
-/// The fewest polls `waitUntil` will make before it may give up, however little of its deadline is
-/// left. Same number, and the same reason, as the copies in `Modules/Sync/Tests/Sync/TestSupport
+/// The fewest polls `waitUntil` makes before it may give up, however little of its deadline is
+/// left. Same number, for the same reason, as the copies in `Modules/Sync/Tests/Sync/TestSupport
 /// .swift` and `SyncCloudTests/TestSupport.swift`.
 let waitPollFloor = 50

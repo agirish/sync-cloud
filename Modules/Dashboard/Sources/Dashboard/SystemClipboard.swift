@@ -3,31 +3,21 @@ import AppKit
 import Sync
 import Events
 
-/// **The other clipboard.**
+/// The bridge between the app's internal file clipboard (`FileSyncManager.clipboardNodes` and
+/// `clipboardIsCut`) and the system pasteboard, so ⌘C and ⌘V work between a pane and Finder.
 ///
-/// SyncCloud has had a working file clipboard since v3 — `FileSyncManager.clipboardNodes` plus
-/// `clipboardIsCut`, with grouped undo and a banner — and it has always been *internal*: ⌘C in a
-/// pane and ⌘V in Finder did nothing, and ⌘C in Finder and ⌘V in a pane did nothing. Every
-/// `NSPasteboard` use in the app before this wrote a path as **text**.
-///
-/// This is the bridge, and it is deliberately thin: the pasteboard carries file URLs, and the
-/// existing copy/move path does the work. Nothing here writes to disk.
-///
-/// **`NSFilePromiseProvider` is not involved, and §3's "there is no file pasteboard" priced it in.**
-/// A promise provider exists for content that does not exist yet — a file the receiver's drop makes
-/// the sender generate. Every node in a SyncCloud pane is a real file at a real path, including an
-/// online-only placeholder, which is a dataless file the system materialises on read. Writing the
-/// URLs is both sufficient and what every other file browser does.
+/// Deliberately thin: the pasteboard carries file URLs and the existing copy/move path does the
+/// work. Nothing here writes to disk. No `NSFilePromiseProvider`: that is for content the receiver's
+/// drop makes the sender generate, and every pane node is a real file at a real path (an
+/// online-only placeholder is a dataless file the system materialises on read).
 public enum SystemClipboard {
 
     /// Puts these files on the pasteboard for other apps, and returns the `changeCount` that write
-    /// produced — the token `ClipboardSource` uses to decide who wrote last.
+    /// produced, the token `ClipboardSource` uses to decide who wrote last.
     ///
-    /// **A cut writes the same thing a copy does.** The pasteboard has no "this is a move" flag
-    /// that Finder reads — Finder's own paste-as-move is ⌥⌘V, a decision made by the *receiver* —
-    /// so a cut in SyncCloud followed by a paste in Finder copies. That is the safe direction of
-    /// being wrong, and it is why `clipboardIsCut` stays in the in-app clipboard rather than being
-    /// something this tries to encode.
+    /// A cut writes the same thing a copy does. The pasteboard has no move flag Finder reads
+    /// (Finder's paste-as-move is ⌥⌘V, the receiver's choice), so a cut here pasted in Finder
+    /// copies, which is the safe way to be wrong. `clipboardIsCut` stays in the in-app clipboard.
     @discardableResult
     public static func write(paths: [String], to pasteboard: NSPasteboard = .general) -> Int {
         let urls = paths.map { URL(fileURLWithPath: $0) as NSURL }
@@ -38,10 +28,8 @@ public enum SystemClipboard {
     }
 
     /// The file URLs currently on the pasteboard, or an empty array when it holds something else.
-    ///
-    /// `urlReadingFileURLsOnly` is what keeps a copied *web address* out: without it a plain
-    /// `https://` URL on the pasteboard reads back as an `NSURL` and would be handed to the copy
-    /// engine as a file to copy.
+    /// `urlReadingFileURLsOnly` keeps a copied web address out, or an `https://` URL would reach the
+    /// copy engine as a file to copy.
     public static func fileURLs(from pasteboard: NSPasteboard = .general) -> [URL] {
         let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
         guard let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] else {
@@ -50,20 +38,13 @@ public enum SystemClipboard {
         return objects
     }
 
-    /// Whether the pasteboard holds at least one file URL — **memoized on `changeCount`**.
+    /// Whether the pasteboard holds at least one file URL, memoized on `changeCount`.
     ///
-    /// This is asked from view bodies — the row menu's "Paste here" builds per row — so it runs
-    /// many times per render of the workspace. **Measured on this machine rather than assumed:**
-    /// `changeCount` is **0.8µs** and `readObjects` is **62µs**, seventy-seven times more, so fifty
-    /// visible rows would spend ~3ms per render deciding whether one menu item is enabled.
-    ///
-    /// Keying the memo on the count is exact rather than approximate — AppKit bumps it on **every**
-    /// write by anyone, so an unchanged count is a guarantee that the contents are unchanged, not a
-    /// guess that they probably are.
-    /// **Keyed by the pasteboard's name as well as its count.** Every pasteboard keeps its own
-    /// independent `changeCount`, so a memo on the number alone would answer a question about the
-    /// general pasteboard with a reading taken from another one the moment the two counts happened
-    /// to coincide — which is exactly what a test with its own pasteboard makes likely.
+    /// View bodies ask this (the row menu's "Paste here" builds per row), and `readObjects` costs
+    /// about 60µs against under 1µs for `changeCount`, so fifty rows would spend milliseconds per
+    /// render on one menu item. The memo is exact: AppKit bumps the count on every write by anyone.
+    /// It is keyed by the pasteboard's name too, since each pasteboard has its own count and two
+    /// could coincide (a test's private pasteboard makes that likely).
     @MainActor
     public static func hasFiles(in pasteboard: NSPasteboard = .general) -> Bool {
         let key = Memo(name: pasteboard.name.rawValue, count: pasteboard.changeCount)
@@ -80,10 +61,9 @@ public enum SystemClipboard {
 
     /// Those URLs as nodes the existing copy path can take.
     ///
-    /// `isDirectory` is read from the disk rather than from the URL, which can carry a stale or
-    /// absent directory hint depending on how the sender created it — and the copy engine branches
-    /// on it. A URL naming something that is no longer there is dropped: a paste that half-fails
-    /// with a banner claiming success is worse than one that pastes what still exists.
+    /// `isDirectory` is read from the disk, not the URL, whose directory hint can be stale or absent,
+    /// and the copy engine branches on it. A URL naming something no longer there is dropped, so a
+    /// paste never half-fails behind a banner claiming success.
     public static func nodes(from pasteboard: NSPasteboard = .general,
                              fileManager: FileManager = .default) -> [FileNode] {
         fileURLs(from: pasteboard).compactMap { url in
@@ -95,18 +75,15 @@ public enum SystemClipboard {
     }
 }
 
-/// **Which clipboard a paste means.**
+/// Which clipboard a paste means.
 ///
-/// Two clipboards would be two behaviours, so this makes them one: the system pasteboard is the
-/// arbiter, and the in-app list is consulted only while SyncCloud still owns what is on it.
-///
-/// `changeCount` is what makes that decidable. AppKit bumps it on every write by anyone, so the
-/// count recorded at our own ⌘C either still matches — nobody has copied since — or it does not,
-/// and something else is on the pasteboard now.
+/// The system pasteboard is the arbiter, and the in-app list is used only while SyncCloud still
+/// owns what is on it. `changeCount` decides that: AppKit bumps it on every write by anyone, so the
+/// count recorded at our own ⌘C either still matches or something else is on the pasteboard now.
 public enum ClipboardSource: Equatable, Sendable {
-    /// SyncCloud's own list: carries `isCut`, so this is the only path that can *move*.
+    /// SyncCloud's own list: carries `isCut`, so this is the only path that can move.
     case inApp
-    /// Whatever another app put there. Always a copy — the pasteboard carries no cut flag.
+    /// Whatever another app put there. Always a copy, since the pasteboard carries no cut flag.
     case system
     /// Nothing to paste; the menu item and the row action disable.
     case none
@@ -117,12 +94,10 @@ public enum ClipboardSource: Equatable, Sendable {
     ///   - hasInAppItems: `!clipboardNodes.isEmpty`.
     ///   - systemHasFiles: the pasteboard holds at least one file URL.
     ///
-    /// The ordering is the whole rule. **Ours only while we still own the pasteboard**, so a copy
-    /// made in Finder after a copy made here wins — which is what a single-clipboard platform
-    /// promises and what a user who just pressed ⌘C in Finder expects. And when the pasteboard has
-    /// moved on to something that is *not* files (text, an image), the answer is `none` rather than
-    /// a fallback to our stale list: pasting files nobody asked for, from a copy made minutes ago,
-    /// is the one outcome here that writes to disk by surprise.
+    /// Ours only while we still own the pasteboard, so a copy made in Finder after one made here
+    /// wins, as a single-clipboard platform promises. When the pasteboard has moved on to something
+    /// that isn't files, the answer is `none`, never our stale list: pasting files nobody asked for
+    /// would write to disk by surprise.
     public static func resolve(systemChangeCount: Int, ownChangeCount: Int?,
                                hasInAppItems: Bool, systemHasFiles: Bool) -> ClipboardSource {
         if let ownChangeCount, ownChangeCount == systemChangeCount, hasInAppItems { return .inApp }
@@ -130,9 +105,8 @@ public enum ClipboardSource: Equatable, Sendable {
         return .none
     }
 
-    /// The rule against the live pasteboard — **the one place enablement and action both ask**, so
-    /// a Paste that offers itself and a Paste that runs can never be answering different questions.
-    /// That split is how a menu item comes to be enabled over nothing, or greyed over something.
+    /// The rule against the live pasteboard, the one place both enablement and the action ask, so
+    /// Paste can't be enabled over nothing or greyed over something.
     @MainActor
     public static func current(pasteboard: NSPasteboard = .general,
                                hasInAppItems: Bool, ownChangeCount: Int?) -> ClipboardSource {

@@ -3,21 +3,16 @@ import SwiftUI
 import Testing
 @testable import Dashboard
 
-/// The customize sheet, as far as a test host can see it: that it lays out at all, and that every
-/// palette tile it offers is an item the bar can actually place.
-///
-/// Deliberately not a click-through: the drag gestures and the drop targets need a real event loop,
-/// and a test that pretended otherwise would be the kind of false green this suite exists to avoid.
-/// What is checked here is the part that can be: composition and geometry.
+/// The customize sheet, as far as a test host can see it: that it lays out, and that every palette
+/// tile is an item the bar can place. Not a click-through: the drags and drop targets need a real
+/// event loop, and a test that pretended otherwise would be a false green. What is checked is
+/// composition and geometry.
 @MainActor
 @Suite(.serialized) struct PaneBarCustomizeSheetTests {
 
-    /// Renders the sheet against an injected defaults domain.
-    ///
-    /// Without this the sheet's `@AppStorage` reads `UserDefaults.standard` — i.e. **the arrangement
-    /// on the machine running the tests**. A developer who had customized their own bar would render
-    /// a different sheet from CI's, and the height assertion below would be a coin flip on their
-    /// machine. Same reason `DashboardSnapshotTests` injects the preview setting.
+    /// Renders the sheet against an injected defaults domain. Without it the sheet's `@AppStorage`
+    /// reads `UserDefaults.standard`, the arrangement on the machine running the tests, so a
+    /// customized bar would render a different sheet from CI's.
     private func laidOut(_ view: some View) -> CGSize {
         let defaults = ScratchDefaults("PaneBarCustomizeSheetTests-layout")
         defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
@@ -31,10 +26,9 @@ import Testing
     }
 
     @Test func testItemsTheEditingPaneCannotDrawAreStillOfferedButMarked() {
-        // Collapse Pane is in the DEFAULT arrangement and only the single-source rail draws it, so a Compare
-        // pane's sheet necessarily shows a pill its own bar does not have. That is honest — the
-        // arrangement is shared — but it has to be visibly explained rather than looking like a bug
-        // in the sheet.
+        // Collapse Pane is in the default arrangement but only the single-source rail draws it, so
+        // a Compare pane's sheet shows a pill its own bar lacks. The arrangement is shared, so that
+        // is right, but the sheet must explain it rather than look broken.
         let comparePane = PaneBarCustomizeSheet(
             availableHere: [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles])
         #expect(comparePane.explainsItemsFromElsewhere,
@@ -47,20 +41,15 @@ import Testing
 
     @Test func testTheSheetLaysOutAtAWorkableSize() {
         let size = laidOut(PaneBarCustomizeSheet())
-        // 600 is not a taste call: it was the window's own `minWidth` when this was chosen, so
-        // anything wider was a sheet wider than the window it belongs to at the size a user could
-        // actually drag theirs down to. The window floor is 810 now, which only widens the margin —
-        // the number stays because the track's metrics were tightened around it.
-        // (The `<= 600` restatement that sat here was noise — it cannot fail while the line above
-        // passes. One assertion, and the reason for the number in prose beside it.)
+        // 600 is the sheet's declared width, which the track's metrics are sized to. It stays
+        // under the window's minimum width, so the sheet never outgrows its window.
         #expect(size.width == 600, "the sheet should hold its declared width, got \(size.width)")
         // Tall enough to be a real sheet, short enough not to run off a laptop screen.
         #expect(size.height > 300 && size.height < 760, "sheet height \(size.height) is out of range")
     }
 
     @Test func testEveryPaletteItemIsSomethingTheBarCanPlace() {
-        // A tile for an item the bar cannot draw would be a dead affordance: you would drag it on and
-        // nothing would appear.
+        // A tile for an item the bar can't draw would be dead: drag it on and nothing appears.
         let palette = PaneBarCustomizeSheet.palette
         #expect(Set(palette).count == palette.count, "the palette repeats an item")
         for item in palette {
@@ -69,8 +58,7 @@ import Testing
     }
 
     @Test func testThePaletteOffersEveryRemovableControl() {
-        // The other direction, and the one that rots: add a control to the bar, forget the tile, and
-        // anyone who removes it can never put it back.
+        // The direction that rots: a new control with no tile can never be put back once removed.
         for item in PaneBarItem.allCases where !item.isSpacer {
             #expect(PaneBarCustomizeSheet.palette.contains(item),
                     "\(item.displayName) can be on the bar but has no palette tile")
@@ -78,8 +66,8 @@ import Testing
     }
 
     @Test func testEveryPaletteGlyphIsARealSFSymbol() {
-        // A typo'd symbol name doesn't fail anywhere — it draws nothing, and the tile becomes a
-        // labelled blank. `PaneGlyphTests` pins the pane's other glyphs for exactly this reason.
+        // A misspelled symbol name fails nowhere: it draws nothing and the tile becomes a labelled
+        // blank. `PaneGlyphTests` pins the pane's other glyphs for the same reason.
         for item in PaneBarItem.allCases {
             #expect(NSImage(systemSymbolName: item.paletteSymbol, accessibilityDescription: nil) != nil,
                     "\(item.displayName) names a symbol that does not exist: \(item.paletteSymbol)")
@@ -87,21 +75,17 @@ import Testing
     }
 
     @Test func testScanIsOfferedButInert() {
-        // Present so its absence from the removable set is explained, rather than leaving someone
-        // hunting for a control that was never offered.
+        // Offered so its absence from the removable set is visible, not a control someone hunts for.
         #expect(PaneBarCustomizeSheet.palette.contains(.scan))
         #expect(!PaneBarItem.scan.isRemovable)
     }
 
     // MARK: Can you actually aim at it
 
-    /// Right-clicks the centre of one track pill and reports the menu that came back, if any.
-    ///
-    /// This is the one interaction in this sheet a test *can* drive. The header note above is still
-    /// right that the drags need a live event loop — but a context menu does not: SwiftUI answers
-    /// `NSView.menu(for:)` on the hosting view, and it answers it by hit-testing the point. So the
-    /// menu is a direct readout of whether the pill is aimable, which is the thing that was broken.
-    /// A pill drawn as an unfilled outline is hit-testable only along the outline itself.
+    /// Right-clicks the centre of one track pill and returns the menu, if any. The one interaction
+    /// here a test can drive: SwiftUI answers `NSView.menu(for:)` by hit-testing the point, so the
+    /// menu shows whether the pill is aimable. A pill drawn as an unfilled outline is hit-testable
+    /// only along the outline.
     private func menuAtCentre(of item: PaneBarItem) -> NSMenu? {
         let defaults = ScratchDefaults("PaneBarCustomizeSheetTests-aim")
         defaults.set(PaneBarArrangement([.space, .scan, .flexibleSpace, .sort]).encoded,
@@ -109,8 +93,8 @@ import Testing
         let sheet = PaneBarCustomizeSheet()
         let host = NSHostingView(rootView: AnyView(sheet.trackItem(item, at: 0)
                                                        .defaultAppStorage(defaults)))
-        // Borderless, and never ordered in. A `.titled` window cannot be parked off screen —
-        // `constrainFrameRect` drags it back onto his desktop, over whatever he is doing.
+        // Borderless and never ordered in: `constrainFrameRect` drags a `.titled` window back on
+        // screen, over whatever the user is doing.
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 80),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -134,15 +118,10 @@ import Testing
         return host.menu(for: event)
     }
 
-    /// The head of the track is a blank drop zone, not a fake provider capsule.
-    ///
-    /// The sheet drew a cloud glyph and "iCloud" at the leading edge for every pane, standing for a
-    /// name the real bar retired in fd068fc49. What has to survive is the drop target — "first" has
-    /// to stay aimable — so the zone keeps a width, and paints nothing. It lies over the track's
-    /// leading padding rather than in the row, so the width it keeps indents nothing (the
-    /// customize-sheet snapshots show the first pill at the edge). The control is a fixed space's
-    /// pill, which is the faintest thing on the track: if the probe can see that, it can see a
-    /// capsule and a word.
+    /// The head of the track is a blank drop zone, not a provider capsule, which the real bar
+    /// doesn't have. "First" must stay aimable, so the zone keeps a width and paints nothing. It
+    /// lies over the track's leading padding, so its width indents nothing. The control is a fixed
+    /// space's pill, the faintest thing on the track: a probe that sees it would see a capsule.
     @Test func theHeadOfTheTrackIsABlankDropZone() throws {
         let sheet = PaneBarCustomizeSheet()
         let zone = NSHostingView(rootView: AnyView(sheet.leadingEdgeZone))
@@ -157,10 +136,10 @@ import Testing
         #expect(blank == 0, "the leading drop zone painted \(blank) pixels; it should draw nothing")
     }
 
-    /// **The head's zone scrolls with the row.** Laid over the `ScrollView` it stayed pinned at the
-    /// visible left edge, so with a long bar scrolled a drop there landed at index 0, off-screen,
-    /// rather than on the pill under the pointer. A drop cannot be driven from a test, so this reads
-    /// `track`: the zone must be laid inside the scroll view's content closure, and nowhere after.
+    /// The head's zone scrolls with the row. Laid over the `ScrollView` it would stay pinned at the
+    /// visible left edge, and on a scrolled long bar a drop there would land at index 0, off screen.
+    /// A drop can't be driven from a test, so this reads `track`: the zone must be inside the scroll
+    /// view's content closure, and nowhere after it.
     @Test func theHeadZoneIsScrolledContent() throws {
         let code = try Self.source().split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
@@ -201,14 +180,10 @@ import Testing
     }
 
     @Test func theSpaceOnTheTrackCanBeAimedAt() {
-        // The bug this is here for: a fixed space could be added to the bar and never taken off.
-        // Its pill is a dashed outline around an empty fill, so the drag, the drop and the context
-        // menu were all attached to a 1pt ring, and every click in the middle of it went through to
-        // the track behind. Nothing else in the sheet reaches a space — it has no palette check to
-        // click off, and Restore is all-or-nothing.
-        //
-        // Both spacers, because only one of them was broken and the difference was an accident of
-        // fill opacity, not a decision anyone made.
+        // A spacer's pill is a dashed outline; with an empty fill its drag, drop and context menu
+        // sit on a 1pt ring and a click in the middle falls through to the track. Nothing else
+        // removes a space (no palette check, and Restore is all-or-nothing), so it would be stuck on
+        // the bar. Both spacers, since their fills differ.
         for spacer in [PaneBarItem.space, .flexibleSpace] {
             let titles = menuAtCentre(of: spacer)?.items.map(\.title) ?? []
             #expect(titles.contains("Remove"),
@@ -217,42 +192,33 @@ import Testing
     }
 
     @Test func soCanAControl() {
-        // The control pills were never broken — they are drawn on a filled capsule. Here so that a
-        // failure above is read as "the space is unaimable" rather than "the probe measures nothing",
-        // which is the failure mode that would let the test pass while proving nothing.
+        // Control pills sit on a filled capsule. This control shows the probe works, so a failure
+        // above means "the space is unaimable", not "the probe measures nothing".
         let titles = menuAtCentre(of: .sort)?.items.map(\.title) ?? []
         #expect(titles.contains("Remove"), "a control pill offered \(titles)")
     }
 
-    /// **Every edit this sheet makes goes through `commit`**, which is what logs it.
+    /// Every edit this sheet makes goes through `commit`, which logs it. A source scan, because the
+    /// five gestures that change the bar (a `Button` action, three drop handlers and an
+    /// accessibility action) can't be driven by a unit test. What can be checked is that the whole
+    /// product writes the stored arrangement in one place, inside `commit`, so a new gesture that
+    /// writes it directly fails here instead of going unlogged.
     ///
-    /// A source scan, because the alternative cannot be built: the five gestures that change the
-    /// bar are a `Button` action, three drop handlers and an accessibility action, none of which a
-    /// unit test can drive — a `Button` is not an `NSControl`. So a logging call added to four of
-    /// the five sites would look exactly like one added to all five. What *is* checkable is an
-    /// absence, and this is that: one write of the stored arrangement in the whole product, inside
-    /// `commit`. A sixth gesture that writes it directly fails this test rather than silently going
-    /// unlogged.
-    ///
-    /// **Scanned by the KEY, across every source file, not by the local variable's name.** The first
-    /// version counted `"arrangementRaw = "` in this one file, and a write is not obliged to spell
-    /// that: `UserDefaults.standard.set(next.encoded, forKey: PaneBar.arrangementKey)` inside
-    /// `drop(_:at:)` is a live, unlogged sixth route that the count reported as absent, and
-    /// `$arrangementRaw.wrappedValue =` evades it identically. One file was the wrong scope too —
-    /// `DashboardViews.swift` holds the same `@AppStorage(PaneBar.arrangementKey)`, read-only today
-    /// and with nothing saying it stays that way.
+    /// Scanned by the key across every source file, not by a variable name in one file: a write can
+    /// be spelled `set(…, forKey: PaneBar.arrangementKey)` or `$binding.wrappedValue =`, and
+    /// `DashboardViews.swift` binds the same `@AppStorage` key.
     @Test func testTheSheetWritesTheArrangementInExactlyOnePlace() throws {
         let writers = try Self.arrangementWrites()
-        // Roots first. A scan whose file list or anchor came back empty measures nothing, and would
-        // report "no stray writes" for free.
+        // Roots first: a scan with an empty file list or anchor would report "no stray writes" for
+        // free.
         #expect(Self.productionSources.count > 1,
                 "the repo-wide scan found \(Self.productionSources.count) source files")
         #expect(Self.productionSources.contains { $0.lastPathComponent == "PaneBarCustomizeSheet.swift" },
                 "the customize sheet is not in the scanned set, so its own writes are invisible here")
         #expect(Self.productionSources.contains { $0.lastPathComponent == "DashboardViews.swift" },
                 "DashboardViews holds the same @AppStorage key and is not in the scanned set")
-        // The known member of the derived set: the sheet's own binding. If the declaration scan
-        // stopped finding @AppStorage declarations, every assignment count below would be zero.
+        // The known bindings. If the declaration scan stopped finding them, every assignment count
+        // below would be zero.
         let bound = Self.arrangementBindings.map { "\($0.0.lastPathComponent).\($0.1)" }
         let bindingsChanged = "the files binding @AppStorage(PaneBar.arrangementKey) changed: \(bound)"
         #expect(Self.arrangementBindings.map { $0.0.lastPathComponent }.sorted()
@@ -264,8 +230,8 @@ import Testing
             + "listed in `exempt` with its reason."
         #expect(writers.count == 1, "\(strayWrites)")
 
-        // …and that one is inside `commit`, not merely somewhere in the file. `commit` is the last
-        // member of its MARK group, so the next `private var`/`func` bounds it.
+        // …and that one is inside `commit`, not merely somewhere in the file. The body ends at the
+        // first closing brace at member indent.
         let sheet = try Self.source()
         let commitStart = try #require(sheet.range(of: "private func commit(_ next: PaneBarArrangement)"),
                                        "the funnel is gone or renamed; this scan is vacuous without it")
@@ -274,37 +240,28 @@ import Testing
         let body = tail[..<bodyEnd]
         #expect(body.contains("arrangementRaw = next.encoded"),
                 "the single arrangement write is not inside commit(_:)")
-        // **And that write is logged.** Deleting this one line left the whole suite green and
-        // `PaneBarEditLog` dead code with nothing referencing it — the sheet's headline claim
-        // ("all five gestures funnel through one commit, which is what logs it") rested on nothing.
-        // The assignment being alone in `commit` is checked above; this is the other half.
+        // And that write is logged: deleting the `PaneBarEditLog.record` call from `commit` must
+        // fail here, since nothing else would notice.
         let unlogged = "commit(_:) writes the arrangement without logging it, so every gesture in "
             + "this sheet is silent and PaneBarEditLog has no caller at all"
         #expect(body.contains("PaneBarEditLog.record(from: before, to: next)"), "\(unlogged)")
     }
 
-    /// Every write of the stored pane-bar arrangement in the product, as `file.member` strings.
-    ///
-    /// Two shapes, because a write has two spellings and only one of them mentions a variable this
-    /// file could guess at:
+    /// Every write of the stored pane-bar arrangement in the product, as `file: line` strings. Two
+    /// spellings:
     ///
     /// * an assignment to a property bound with `@AppStorage(PaneBar.arrangementKey)`, in whichever
     ///   file declares it, including through `$binding.wrappedValue`;
     /// * a `set(…, forKey:)` naming the key or its literal, anywhere.
     ///
-    /// `PaneBarArrangement.swift` is exempt from the second: `PaneBarMigration.apply` writes the
-    /// migrated bar there, before any `@AppStorage` wrapper has read it, and it is not a user edit
-    /// to log — it has its own launch line. Exempted by its exact text AND its file, so a second
-    /// write added to that file later is reported rather than quietly covered.
+    /// `PaneBarMigration.apply`'s write in `PaneBarArrangement.swift` is exempt: it runs before any
+    /// `@AppStorage` wrapper reads the bar, isn't a user edit, and logs its own launch line.
     ///
-    /// **What it still cannot see**, stated rather than implied: a write whose key arrives through a
-    /// local (`let k = PaneBar.arrangementKey; d.set(x, forKey: k)`), or through
-    /// `setPersistentDomain`. Both are reachable and neither is a spelling anything in this repo
-    /// uses; the two the review actually demonstrated — a direct `set(…, forKey:)` and
-    /// `$binding.wrappedValue =` — are covered, and each is proven by mutation.
+    /// Blind spots: a key passed through a local (`let k = PaneBar.arrangementKey`), or
+    /// `setPersistentDomain`. Nothing in the repo writes the key either way.
     private static func arrangementWrites() throws -> [String] {
         /// The migration's own write, quoted exactly. Exempt by its whole text and its file, so a
-        /// SECOND write added to `PaneBarArrangement.swift` is reported rather than covered.
+        /// second write added to `PaneBarArrangement.swift` is still reported.
         let exempt = ("PaneBarArrangement.swift",
                       "defaults.set(arrangement.encoded, forKey: PaneBar.arrangementKey)")
         var writes: [String] = []
@@ -312,9 +269,8 @@ import Testing
             let bindings = arrangementBindings.filter { $0.0 == url }.map(\.1)
             for line in try readStrippingComments(url).split(separator: "\n") {
                 let text = line.trimmingCharacters(in: .whitespaces)
-                // `hasSuffix` as well as `contains`, so an assignment whose value sits on the next
-                // line — which is how the declarations in both these files are written — is not a
-                // spelling the scan is blind to.
+                // `hasSuffix` as well as `contains`, to catch an assignment whose value sits on the
+                // next line, as both declaring files write it.
                 let assigns = bindings.contains {
                     text.contains("\($0) = ") || text.hasSuffix("\($0) =")
                         || text.contains("$\($0).wrappedValue = ")
@@ -351,11 +307,9 @@ import Testing
         return found
     }()
 
-    /// Every Swift file the shipped app is built from — `Modules/*/Sources` plus `MacApp`.
-    ///
-    /// Repo-wide rather than this module's, because the key is `public` and nothing stops another
-    /// module writing it. Tests are excluded deliberately: they set the key constantly, on scratch
-    /// domains, which is the point of them.
+    /// Every non-test Swift file under `Modules`, `MacApp` and `SyncCloudCLI`. Repo-wide because
+    /// the key is `public` and any module could write it. Tests are excluded: they set the key on
+    /// scratch domains all the time.
     private static let productionSources: [URL] = {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // …/Tests/Dashboard
@@ -376,8 +330,7 @@ import Testing
         return urls
     }()
 
-    /// Source with whole-line comments removed — the prose in these files quotes the very spellings
-    /// being counted, and a scan that read comments would answer its own question.
+    /// Source with whole-line comments removed: comments quote the very spellings being counted.
     private static func readStrippingComments(_ url: URL) throws -> String {
         let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
                                "cannot read \(url.lastPathComponent) — this scan would be vacuous")

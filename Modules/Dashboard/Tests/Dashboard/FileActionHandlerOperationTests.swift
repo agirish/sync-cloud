@@ -6,38 +6,23 @@ import os
 import Settings
 @testable import Dashboard
 
-/// Coverage for FileActionHandler's real operations — the clipboard/paste routes, pane-to-pane
-/// moves, delete, rename, new folder, and Get Info — through the constructor-injected seams
-/// (prompts, delete confirmation, AppleScript runner). File I/O runs against real temp
-/// directories, following FileActionHandlerTests; waits are outcome-based (poll for the effect
-/// on disk / on the manager) because the operation counter's 0 means both "not started" and
-/// "finished" under a contended main actor.
+/// Coverage for FileActionHandler's real operations (clipboard and paste routes, pane-to-pane
+/// moves, delete, rename, new folder, Get Info) through the constructor-injected seams: prompts,
+/// delete confirmation, AppleScript runner. File I/O runs in real temp directories. Waits poll for
+/// the effect on disk or on the manager, because the operation counter's 0 means both "not
+/// started" and "finished" under a contended main actor.
 @Suite struct FileActionHandlerOperationTests {
 
-    /// A pasteboard of this **test's** own, cleared as it is handed over.
+    /// A pasteboard of this test's own, cleared as it is handed over.
     ///
-    /// **`handleCopyToClipboard` writes to the system pasteboard as of v4.2**, so a handler built
-    /// on `.general` here would replace whatever the developer had copied — and did: with the real
-    /// pasteboard in play, `testPasteClipboardToNodeWithEmptyClipboardDoesNothing` pasted the
-    /// preceding test's `clip.txt` into its temp directory and failed on a banner it never asked
-    /// for. That failure is the reason the handler takes a pasteboard at all.
-    ///
-    /// **`label` is what keeps that fix from being half a fix.** Moving off `.general` took the
-    /// developer's clipboard out of the blast radius and left twelve tests sharing one *named*
-    /// board — and swift-testing runs a suite's tests in **parallel**, so they overlap for as long
-    /// as their real file I/O and outcome polling take. A board is global state keyed by its name:
-    /// one test's `clearContents()` lands between another's copy and its paste (that paste then
-    /// resolves `.none` and copies nothing), or one test's copy lands after another's clear (that
-    /// test then pastes real files into its temp dir — which is the *same* failure quoted above,
-    /// reproduced with a different board). Naming the board after the test that owns it is what
-    /// makes the isolation real; `SystemClipboardTests` already does exactly this, one file over.
-    ///
-    /// `SystemClipboard.hasFiles`'s memo is keyed on `(name, changeCount)` for this reason too, so
-    /// distinct names keep the memo honest as well as the board.
-    /// The pid scopes the board to this process on top of the per-test label: named boards live
-    /// in the machine-global pasteboard server, so a concurrent test process — CI beside a local
-    /// run on this same machine — shares an unsuffixed name and writes into its sibling's
-    /// assertions (see `SystemClipboardTests.board(_:)` for the incident).
+    /// `handleCopyToClipboard` writes to the system pasteboard, so `.general` would replace whatever
+    /// the developer had copied and leak one test's files into the next. The `label` names the board
+    /// after its test, because swift-testing runs a suite's tests in parallel and a shared named
+    /// board lets one test's clear or copy land between another's copy and paste.
+    /// `SystemClipboard.hasFiles`'s memo is keyed on `(name, changeCount)`, so distinct names keep
+    /// it honest too. The pid scopes the board to this process: named boards live in the
+    /// machine-global pasteboard server, shared with any concurrent test process (see
+    /// `SystemClipboardTests.board(_:)`).
     static func scratchPasteboard(_ label: String) -> NSPasteboard {
         let board = NSPasteboard(name: NSPasteboard.Name(
             "SyncCloudTests.fileActionHandler.\(label).\(ProcessInfo.processInfo.processIdentifier)"))
@@ -77,31 +62,16 @@ import Settings
 
     /// Waits for the manager's file-operation bookkeeping to drain.
     ///
-    /// **On its own this is not a wait at all, and every caller is what makes it one.** The old
-    /// body returned the moment `activeFileOperationsCount == 0` — *including before the operation
-    /// had started*, which is "quiescence cannot tell finished from not started" verbatim
-    /// (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps"). It is safe here only because every
-    /// call site waits for the operation's own OUTCOME first, with `waitUntil` on the file
-    /// appearing or disappearing. Keep that order: outcome, then drain — polling for zero cannot
-    /// distinguish the two ends on its own, and no change to this helper can make it.
+    /// **Not a wait on its own:** `activeFileOperationsCount == 0` also holds before the operation
+    /// starts (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps"). Every caller must first wait
+    /// for the operation's outcome with `waitUntil` on the file appearing or disappearing; outcome,
+    /// then drain. The drain goes through `waitUntil`, which has a poll floor and reports at the
+    /// caller when the condition never holds.
     ///
-    /// **What is fixed here** is the pair that could fail in silence: it gave up after a fixed 50
-    /// iterations, a budget that shrinks under load exactly when it is needed, and then returned as
-    /// though it had drained. The drain now goes through the shared `waitUntil`, which has a poll
-    /// floor and says so at the caller when the condition never holds.
-    ///
-    /// **The trailing settle stays, and it stays because removing it failed.** `FileOperations
-    /// .swift` documents building its history records synchronously so a caller waiting on
-    /// completion cannot observe done early, which is easy to read as "`banner` is published before
-    /// the count reaches zero". It is not: dropping this sleep failed
-    /// `testCopyItemsFromLeftCopiesToRightPane` on an **idle** machine — load 4.1, banner `nil`, in
-    /// 2.9s — so the publication lands on a later turn than the decrement.
-    ///
-    /// It is a fixed pump, which this repo's own flake doc names as a smell, and it is left as one
-    /// **knowingly**. The honest fix is for the tests that assert a banner to wait on
-    /// `manager.banner` instead of on the drain — a dozen assertions, six of which assert the
-    /// banner is *absent* and would need the wait written the other way round. Worth doing; not
-    /// this commit.
+    /// The trailing sleep is a known fixed pump: the banner publishes on a later turn than the
+    /// count's decrement, so without it banner assertions can see `nil`. The proper fix is for
+    /// banner assertions to wait on `manager.banner` instead (the ones asserting it absent need the
+    /// wait the other way round).
     @MainActor
     private func waitForOperationsToFinish(_ manager: FileSyncManager,
                                            sourceLocation: SourceLocation = #_sourceLocation) async {
@@ -367,8 +337,8 @@ import Settings
         #expect(manager.banner?.isUndoable == true)
     }
 
-    /// A vanished DESTINATION provider (source pane intact) aborts before any I/O, blaming the
-    /// destination side — the transferRoots guard opposite the one the source tests cover.
+    /// A vanished destination provider (source pane intact) aborts before any I/O, blaming the
+    /// destination side: the transferRoots guard opposite the one the source tests cover.
     @MainActor
     @Test func testMoveItemsWithUnknownDestinationProviderPresentsErrorForDestinationSide() async throws {
         let manager = FileSyncManager()
@@ -410,8 +380,8 @@ import Settings
         #expect(manager.banner == nil)
     }
 
-    /// When every item fails to move (source file vanished), no success banner appears —
-    /// the "no banner when nothing was actually transferred" contract.
+    /// When every item fails to move (source file vanished), no success banner appears: nothing
+    /// was transferred.
     @MainActor
     @Test func testMoveItemsWithMissingSourceFileShowsNoSuccessBanner() async throws {
         let manager = FileSyncManager()
@@ -433,9 +403,8 @@ import Settings
         await waitForOperationsToFinish(manager)
 
         #expect(moved.isEmpty)
-        // No wait for a banner here, deliberately: this test's contract is that **no success
-        // banner appears**, and `banner?.severity != .success` is satisfied by `nil`. Waiting for
-        // one would spend five seconds proving the opposite of what the test is named for.
+        // No wait for a banner, on purpose: the contract is that no success banner appears, which
+        // `nil` satisfies. Waiting for one would only time out.
         #expect(manager.banner?.severity != .success)
     }
 
@@ -466,9 +435,9 @@ import Settings
         #expect(manager.banner == nil)
     }
 
-    /// A folder carries everything in it, and both the Trash prompt and a copy's result say how
-    /// much of that the pane's type filter is hiding (RD70, FJ) — the result in the banner the
-    /// handler sets last, which is the one on screen.
+    /// A folder carries everything in it, so both the Trash prompt and a copy's result say how much
+    /// the pane's type filter is hiding, the result in the banner the handler sets last (the one on
+    /// screen).
     @MainActor
     @Test func aFilteredFolderSaysWhatTheFilterHidesInThePromptAndTheResult() async throws {
         let src = try makeTempDir("filter-src")
@@ -579,7 +548,7 @@ import Settings
     }
 
     /// With no prompt to say it, the Trash's result says what the filter was hiding inside the
-    /// folder (FJ, G6) — the same clause the prompt and a copy's result use.
+    /// folder, in the same clause the prompt and a copy's result use.
     @MainActor
     @Test func anUnconfirmedDeleteSaysWhatTheFilterHidInTheResult() async throws {
         let dir = try makeTempDir("del-filter-noprompt")
@@ -616,16 +585,10 @@ import Settings
         #expect(!FileManager.default.fileExists(atPath: box.path))
     }
 
-    /// The pane bar's Delete asks even with the setting off — `alwaysConfirm: true`.
-    ///
-    /// Paired with `testConfirmDeleteSkipsPromptWhenSettingDisabled` above, which is the half that
-    /// makes this one mean anything: the same defaults domain, the same setting, and the only
-    /// difference is the flag. Without its sibling this could pass just as well against a build
-    /// where confirmation had become unconditional for everybody — which is precisely the change
-    /// the tooltip promises has NOT been made.
-    ///
-    /// Cancelling rather than confirming, so the file survives and the test leaves nothing in the
-    /// user's Trash to restore.
+    /// The pane bar's Delete asks even with the setting off (`alwaysConfirm: true`). Paired with
+    /// `testConfirmDeleteSkipsPromptWhenSettingDisabled`, which differs only in the flag; without it
+    /// this would also pass if confirmation became unconditional for everyone. Cancels rather than
+    /// confirms, so the file survives and nothing lands in the user's Trash.
     @MainActor
     @Test func testAlwaysConfirmAsksEvenWithTheSettingOff() async throws {
         let manager = FileSyncManager()
@@ -650,7 +613,7 @@ import Settings
         await waitForOperationsToFinish(manager)
 
         #expect(promptedNames == ["asked.txt"])
-        // Asked AND obeyed: a prompt whose "no" was ignored would be worse than no prompt.
+        // Asked and obeyed: a prompt whose "no" was ignored would be worse than no prompt.
         #expect(FileManager.default.fileExists(atPath: file.path))
     }
 
@@ -784,14 +747,11 @@ import Settings
 
     // MARK: - Every operation runs on the manager's own file manager
 
-    /// A real `FileManager` that notes the destination of every move and every new folder.
-    ///
-    /// Each handler operation below ends in one of those two calls on the file manager it was
-    /// handed: a copy moves its staged file onto the destination, a move or a rename moves the
-    /// item, and a new folder is `createDirectory`. So a note here says the operation ran on THIS
-    /// file manager. Drop a call site's `fileManager:` and the same operation runs on
-    /// `FileManager.default`, lands just the same and leaves no note, which is how these tests tell
-    /// the two apart when the disk cannot.
+    /// A real `FileManager` that notes the destination of every move and every new folder. Each
+    /// operation below ends in one of those calls (a copy moves its staged file into place, a move
+    /// or rename moves the item, a new folder is `createDirectory`), so a note proves it ran on this
+    /// file manager. A call site that dropped `fileManager:` would land the same on disk via
+    /// `FileManager.default` but leave no note.
     private final class RecordingFileManager: FileManager, @unchecked Sendable {
         private let notes = OSAllocatedUnfairLock(initialState: [String]())
         var destinations: [String] { notes.withLock { $0 } }

@@ -4,13 +4,13 @@ import Sync
 import Design
 @testable import Dashboard
 
-/// The Info inspector's split between its picture and its details (TE318 B): where a drag lands,
-/// where it snaps shut, and the share it starts at.
+/// The Info inspector's split between its picture and its details: where a drag lands, where it
+/// snaps shut, and the share it starts at.
 @Suite struct InspectorSplitTests {
     typealias Split = InspectorSplit<EmptyView, EmptyView>
 
-    /// The preview takes most of the panel until it is dragged — he asked for it not to be half and
-    /// half — and the default is a share the split draws as it is, not one it snaps.
+    /// The preview takes most of the panel until dragged, not half and half, and the default is a
+    /// share the split draws as it is, not one it snaps.
     @Test func testThePreviewStartsWithMostOfThePanel() {
         #expect(DetailsSidebar.defaultPreviewFraction > 0.5)
         #expect(Split.settled(DetailsSidebar.defaultPreviewFraction) == DetailsSidebar.defaultPreviewFraction)
@@ -38,8 +38,8 @@ import Design
     }
 
     /// A VoiceOver step walks the open range, stops at the edge of each fold, and folds only on the
-    /// step after that — never from anywhere within 5% of a margin in one go, and never straight
-    /// back shut out of a fold.
+    /// step after that: never from within 5% of a margin in one go, and never straight back shut
+    /// out of a fold.
     @Test func aVoiceOverStepStopsAtTheEdgeOfAFold() {
         let low = Split.foldMargin, high = 1 - Split.foldMargin
         #expect(abs(Split.stepped(0.86, grows: true) - high) < 1e-9, "a step from 0.86 folded the details away")

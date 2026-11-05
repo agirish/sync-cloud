@@ -63,8 +63,8 @@ import Testing
     }
 
     @Test func testTinyMaxVisibleNeverCollapsesBelowFourCrumbs() {
-        // A "middle" only exists between the first crumb and the last two, so trails of
-        // three or fewer render fully even if maxVisible is smaller.
+        // A middle exists only between the first crumb and the last two, so a trail of three or
+        // fewer renders in full even when maxVisible is smaller.
         let crumbs = BreadcrumbTrail.crumbs(forRelativePath: "a/b/c")
         let items = BreadcrumbTrail.displayItems(for: crumbs, maxVisible: 2)
         #expect(items == crumbs.map(BreadcrumbTrail.Item.crumb))

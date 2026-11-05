@@ -3,10 +3,8 @@ import Testing
 @testable import Dashboard
 
 /// The pane bar's model: what is on the bar, in what order, and what a narrow pane gives up first.
-///
 /// The view tests measure the rendered result; these pin the arithmetic behind it, because the
-/// arrangement is *persisted* — a rule that changes here silently rewrites bars people arranged on a
-/// previous build.
+/// arrangement is persisted and a rule changed here silently rewrites bars people already arranged.
 @Suite struct PaneBarArrangementTests {
 
     /// Every item a Compare pane in Columns mode can offer.
@@ -17,34 +15,21 @@ import Testing
     // MARK: Persistence
 
     @Test func testTheDefaultIsTodaysBar() {
-        // The load-bearing one: the nine controls in their historical order — followed by Search,
-        // and by Delete ahead of it, since the shedding order runs right-to-left and Search is the
-        // one control here with a keyboard equivalent on every surface.
-        //
-        // Restated literally rather than read off `PaneBarArrangement.default`, deliberately: this is
-        // the assertion that makes changing the shipped bar a decision someone has to write down.
-        // Delete arriving here was one such decision — a header only draws it if the host passes a
-        // delete handler, which no test fixture and no non-app caller does.
-        //
-        // The **leading `flexibleSpace` leaving** is the other. It was there because the provider
-        // capsule held the row's leading edge and the bar had to be pushed past it; with the capsule
-        // retired and the source picker folded into the breadcrumb's first crumb, the bar has the
-        // whole row and starts where the breadcrumb below it starts.
-        //
-        // **Filter by Type** (RD70) is the third: just before Search, so Search keeps the trailing
-        // end it has always had and is still the first thing the ladder gives up.
-        //
-        // **Preview leaving** is the fourth: the preview is the Info inspector's (TE317 C), so the
-        // pane bar has no toggle for it.
+        // The shipped bar, restated literally rather than read off `PaneBarArrangement.default`,
+        // so changing it is a decision someone has to write down. Search sits at the trailing end,
+        // the first thing the ladder sheds, since it has a keyboard equivalent on every surface;
+        // Filter by Type and Delete sit just before it. A header draws Delete only when the host
+        // passes a delete handler. No leading `flexibleSpace`: the bar starts where the breadcrumb
+        // below it starts. No Preview: the preview lives in the Info inspector.
         #expect(PaneBarArrangement.default.items == [
             .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
             .delete, .typeFilter, .search
         ])
     }
 
-    /// A bar stored while the Preview toggle shipped still lists `preview`. It reads as every other
-    /// control the bar had, without that one — and the token rides through `encoded`, so the sheet's
-    /// write-back does not take it from a maintenance-line build reading the same defaults.
+    /// A stored bar that still lists the retired `preview` draws everything else. The token rides
+    /// through `encoded`, so the sheet's write-back doesn't take it from a maintenance-line build
+    /// reading the same defaults.
     @Test func testAStoredRetiredPreviewIsCarriedButNotDrawn() {
         let stored = PaneBarArrangement(encoded: "viewMode,backForward,scan,preview,sort")
         #expect(stored.items == [.viewMode, .backForward, .scan, .sort])
@@ -60,17 +45,16 @@ import Testing
     }
 
     @Test func testUnknownTokensAreDroppedNotRejected() {
-        // A bar arranged on a newer build, opened on an older one: the item it doesn't know about
-        // disappears from the BAR, the rest survives. Resetting to the default here would throw
-        // away an arrangement over one unrecognized word. The token itself still rides through
-        // `encoded` — that half is `PaneBarArrangementWriteBackTests`' subject.
+        // A bar from a newer build on an older one: the unknown item leaves the bar and the rest
+        // survives, rather than resetting over one unrecognized word. The token still rides through
+        // `encoded` (`PaneBarArrangementWriteBackTests`).
         let parsed = PaneBarArrangement(encoded: "backForward,teleport,scan,sort")
         #expect(parsed.items == [.backForward, .scan, .sort])
     }
 
     @Test func testEmptyStringIsAnEmptyBarNotTheDefault() {
-        // Removing everything is a legitimate arrangement, and must not spring back to the default —
-        // only `scan` returns, because it is not removable.
+        // Removing everything is a legitimate arrangement and must not spring back to the default.
+        // Only `scan` returns, because it can't be removed.
         #expect(PaneBarArrangement(encoded: "").items == [.scan])
     }
 
@@ -80,8 +64,8 @@ import Testing
     }
 
     @Test func testScanIsRestoredWhenAStoredArrangementLacksIt() {
-        // Not reachable through the sheet — this is the hand-edited-plist case. A pane that cannot be
-        // scanned is broken rather than customized.
+        // The hand-edited-plist case; the sheet can't reach it. A pane that can't be scanned is
+        // broken, not customized.
         #expect(PaneBarArrangement(encoded: "backForward,sort").items.contains(.scan))
     }
 
@@ -150,14 +134,12 @@ import Testing
     }
 
     @Test func testFoldingFollowsTheUsersOwnOrderFromTheRight() {
-        // The rule that replaces the old hard-coded "sort and hidden files first". Here the user put
-        // Sort last, so Sort is what a cramped pane gives up first — the arrangement IS the priority
-        // list, and nobody had to be told that.
+        // The arrangement is the priority list: the user put Sort last, so Sort is what a cramped
+        // pane gives up first.
         let arrangement = PaneBarArrangement([.flexibleSpace, .backForward, .scan, .hiddenFiles, .sort])
         let plan = PaneBarLayout.plan(arrangement: arrangement, available: Self.allAvailable, depth: 1)
         #expect(plan.visible == [.flexibleSpace, .backForward, .scan, .hiddenFiles])
-        // Folded items lead the menu, ahead of the ones that were never on the bar — what just
-        // disappeared should be the first thing you find when you go looking for it.
+        // What just folded goes into ⋯, where you look for it.
         #expect(plan.overflow.first == .sort)
     }
 
@@ -199,8 +181,8 @@ import Testing
     }
 
     @Test func testTheDeepestRungIsTodaysNarrowBar() {
-        // What a 250pt comparison pane shows: the view switch as one pill, back, forward, scan, and
-        // ⋯. If this set grows, the bar's minimum width grows with it and the 250pt snapshots move.
+        // A 250pt comparison pane shows the view switch as one pill, back, forward, scan and ⋯. If
+        // this set grows, the bar's minimum width grows and the 250pt snapshots move.
         let comparisonPane: [PaneBarItem] = [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles]
         let plan = PaneBarLayout.plan(arrangement: .default, available: comparisonPane, depth: .max)
         #expect(plan.visible == [.viewMode, .backForward, .scan])
@@ -208,8 +190,8 @@ import Testing
     }
 
     @Test func testPlanIsIdempotentPastMaxDepth() {
-        // The header declares a fixed number of `ViewThatFits` rungs, so the surplus ones have to be
-        // harmless duplicates rather than progressively emptier bars.
+        // The header declares a fixed number of `ViewThatFits` rungs, so surplus ones must be
+        // harmless duplicates, not ever emptier bars.
         let available = Self.allAvailable
         let maxDepth = PaneBarLayout.maxDepth(arrangement: .default, available: available)
         let atMax = PaneBarLayout.plan(arrangement: .default, available: available, depth: maxDepth)
@@ -228,10 +210,8 @@ import Testing
         #expect(!plan.overflow.contains(.collapse))
     }
 
-    /// **A control you took off the bar is off the bar.** ⋯ used to append every available control
-    /// the arrangement did not place, on the principle that a removal should cost a pill and never
-    /// an ability — which meant the customize sheet could not actually remove anything, only demote
-    /// it into a menu. Removing is now removing; the sheet's palette is where you get one back.
+    /// A control you took off the bar is off the bar: ⋯ doesn't hand it back, or the customize
+    /// sheet could only demote controls into a menu. The sheet's palette is where you get one back.
     @Test func testARemovedControlIsNotHandedBackInTheOverflow() {
         let arrangement = PaneBarArrangement([.flexibleSpace, .backForward, .scan])
         let plan = PaneBarLayout.plan(arrangement: arrangement, available: Self.allAvailable, depth: 0)
@@ -246,11 +226,9 @@ import Testing
         }
     }
 
-    /// The other half of the same rule, and the one with a cost worth restating: a control that
-    /// ships in a later release is absent from every stored arrangement, and no longer lands in ⋯ as
-    /// a consolation. `PaneBarMigration` is what puts it on the bar — this test is what fails if
-    /// anyone assumes the old fallback is still there. `delete` stands in for "the next one we
-    /// add" — it declines a migration step — as an arrangement saved before it existed.
+    /// The cost of the same rule: a control shipped later is absent from every stored arrangement
+    /// and doesn't land in ⋯ either. Only `PaneBarMigration` puts it on the bar. `delete`, which
+    /// declines a migration step, stands in for the next new control, on a bar saved before it.
     @Test func testAControlAddedInALaterReleaseLandsNowhereWithoutAMigration() {
         let savedBeforeDeleteExisted = PaneBarArrangement(
             encoded: "flexibleSpace,viewMode,backForward,scan,sort,hiddenFiles")
@@ -261,8 +239,8 @@ import Testing
                 "a new control still falls back into ⋯ — the fallback that hid Search is back")
     }
 
-    /// Folding still fills ⋯, in the bar's own order: it is the *shed* items, and the ladder sheds
-    /// right to left, so what comes back reads the way the bar did.
+    /// ⋯ lists the folded controls in the bar's own order, so it reads the way the bar did even
+    /// though the ladder sheds right to left.
     @Test func testTheOverflowListsFoldedControlsInBarOrder() {
         let arrangement = PaneBarArrangement([.flexibleSpace, .viewMode, .backForward, .scan,
                                               .sort, .hiddenFiles, .newFolder])

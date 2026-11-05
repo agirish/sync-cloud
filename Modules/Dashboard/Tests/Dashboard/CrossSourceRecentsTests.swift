@@ -2,17 +2,14 @@ import Testing
 import Foundation
 @testable import Dashboard
 
-/// **One global Recents list across every source**, and the timestamp that makes it computable.
-///
-/// Before v4.4 a `JumpLocation` was `{relativePath, name}` — the per-root lists were each ordered,
-/// but two ordered lists cannot be interleaved without a clock, so "the eight folders I visited
-/// last, wherever they were" was not a question the store could answer. `visitedAt` is what makes
-/// it one, and every rule below is about what happens at the seam between entries that have a date
-/// and entries written before the field existed.
+/// One global Recents list across every source. Per-root lists can't be interleaved without a
+/// clock, so `visitedAt` is what lets the store answer "the eight folders I visited last, wherever
+/// they were". Most rules below cover the seam between dated entries and entries written without
+/// the field.
 @Suite struct CrossSourceRecentsTests {
 
-    /// A fixed clock. Dates are built by offset from one instant so the tests state *ordering*
-    /// rather than racing a real `Date()` — the reason `recordVisit` takes its `at:`.
+    /// A fixed clock, so the tests state ordering rather than racing a real `Date()`; it is why
+    /// `recordVisit` takes `at:`.
     static let t0 = Date(timeIntervalSinceReferenceDate: 800_000_000)
     static func at(_ minutes: Double) -> Date { t0.addingTimeInterval(minutes * 60) }
 
@@ -21,16 +18,15 @@ import Foundation
                      visitedAt: minutes.map { Self.at($0) })
     }
 
-    /// An empty favorites map shaped like the recents one — so a test about landings cannot pass
-    /// because of a favorite it forgot to declare.
+    /// An empty favorites map shaped like the recents one, so a landings test can't pass because of
+    /// a favorite it forgot to declare.
     private func favorites(none recents: [String: [JumpLocation]]) -> [String: [JumpLocation]] {
         recents.mapValues { _ in [] }
     }
 
     // MARK: - The ordering itself
 
-    /// The headline: folders from four different sources come back as one list in the order they
-    /// were visited, not grouped by where they live.
+    /// Folders from four sources come back as one list in visit order, not grouped by source.
     @Test func visitsInterleaveAcrossRootsByTime() {
         let out = FolderJumpStore.mostRecentAcrossRoots(
             recents: ["/iCloud": [visit("Health/Dental", 100)],
@@ -42,13 +38,10 @@ import Foundation
         #expect(out.map(\.root) == ["/iCloud", "/Drive-emp", "/Dropbox", "/Local"])
     }
 
-    /// **The migration case, and the reason `visitedAt` is optional rather than defaulted.**
-    ///
-    /// An entry written by any build before v4.4 — or by a v2.x/v3.x build, which share this
-    /// defaults domain and will never write the field — has no date. Defaulting it to
-    /// `.distantPast` would assert that folder was visited longest ago; the truth is that nobody
-    /// recorded it. It sorts after everything dated, which is where "we do not know" belongs
-    /// against "we do", and it is still *listed* rather than dropped.
+    /// Why `visitedAt` is optional, not defaulted: older builds, and the maintenance lines that
+    /// share this defaults domain, write entries with no date. `.distantPast` would claim the
+    /// folder was visited longest ago when nobody recorded it. An undated entry sorts after every
+    /// dated one and is still listed.
     @Test func anUndatedEntrySortsAfterEveryDatedOneAndIsStillListed() {
         let out = FolderJumpStore.mostRecentAcrossRoots(
             recents: ["/iCloud": [visit("Dental", 100), visit("Statements", nil)],
@@ -58,8 +51,8 @@ import Foundation
         #expect(out.last?.visitedAt == nil)
     }
 
-    /// The other half of that claim, and the one a `.distantPast` default would have passed anyway:
-    /// an undated entry must not outrank a *very old* dated one either.
+    /// An undated entry must not outrank even a very old dated one, a case a `.distantPast` default
+    /// would pass anyway.
     @Test func aVeryOldDatedEntryStillOutranksAnUndatedOne() {
         let out = FolderJumpStore.mostRecentAcrossRoots(
             recents: ["/a": [visit("Ancient", -500_000)], "/b": [visit("Unknown", nil)]],
@@ -67,8 +60,8 @@ import Foundation
         #expect(out.map(\.relativePath) == ["Ancient", "Unknown"])
     }
 
-    /// All-undated is the state every install is in on first launch after upgrading, and it must
-    /// still produce a list — just one whose order carries no claim about recency.
+    /// An all-undated store, the state after upgrading, still lists everything; its order makes no
+    /// claim about recency.
     @Test func anAllUndatedStoreStillListsEverything() {
         let out = FolderJumpStore.mostRecentAcrossRoots(
             recents: ["/b": [visit("Two", nil)], "/a": [visit("One", nil)]],
@@ -78,10 +71,8 @@ import Foundation
 
     // MARK: - Stability
 
-    /// **The order must be the same on every launch.** Dictionary iteration order is not stable
-    /// across processes, so a rule that leaned on it would give a Recents section that reshuffled
-    /// itself for no reason the user could see. Asserted by building the same store many times and
-    /// requiring one answer.
+    /// The order must be the same on every launch. Dictionary iteration order varies between
+    /// processes, and leaning on it would reshuffle Recents for no visible reason.
     @Test func theOrderDoesNotDependOnDictionaryIteration() {
         let recents = ["/z": [visit("Zed", nil)], "/a": [visit("Ay", nil)], "/m": [visit("Em", nil)]]
         let answers = Set((0..<40).map { _ in
@@ -104,8 +95,8 @@ import Foundation
 
     // MARK: - What it excludes and how far it goes
 
-    /// Favorites are subtracted per root, exactly as `recentPaths(forRoot:)` does it — a folder
-    /// under two headings is one wasted row in a list of eight.
+    /// Favorites are subtracted per root, as `recentPaths(forRoot:)` does: a folder under two
+    /// headings wastes a row in a list of eight.
     @Test func aFolderThatIsAFavoriteIsNotAlsoARecent() {
         let out = FolderJumpStore.mostRecentAcrossRoots(
             recents: ["/iCloud": [visit("Dental", 100), visit("Taxes 2026", 90)]],
@@ -113,8 +104,8 @@ import Foundation
         #expect(out.map(\.relativePath) == ["Dental"])
     }
 
-    /// **Subtraction is per root, not global.** The same relative path under two different sources
-    /// is two different folders, and favouriting one must not silently hide the other.
+    /// Subtraction is per root, not global: the same relative path under two sources is two
+    /// folders, and favouriting one must not hide the other.
     @Test func favouritingAFolderInOneSourceDoesNotHideTheSamePathInAnother() {
         let out = FolderJumpStore.mostRecentAcrossRoots(
             recents: ["/iCloud": [visit("Health", 100)], "/Dropbox": [visit("Health", 90)]],
@@ -122,14 +113,10 @@ import Foundation
         #expect(out.map(\.root) == ["/Dropbox"])
     }
 
-    /// **The landing folder is subtracted**, which is the case that made this section useless with
-    /// several accounts connected: switching to a source lands the pane on its `openAt` and records
-    /// a visit, so Recents filled up with the very folders the Locations rows above take you to.
-    /// Measured on the real store, 2026-08-27: six of seven recents were landings.
-    ///
-    /// `/iCloud` lands at its root — the empty spelling — and its recent survives, which is the
-    /// case a rule written as "drop what equals the landing" gets right only because a recent for
-    /// the root itself is something `recordVisit` will not write.
+    /// The landing folder is subtracted. Switching to a source lands the pane on its `openAt` and
+    /// records a visit, so without this Recents fills with the folders the Locations rows already
+    /// reach. `/iCloud` lands at its root (the empty path) and its recent survives, since
+    /// `recordVisit` never writes a recent for a root itself.
     @Test func aSourcesLandingFolderIsNotAlsoARecent() {
         let out = FolderJumpStore.mostRecentAcrossRoots(
             recents: ["/Dropbox": [visit("Documents", 100)],
@@ -141,9 +128,8 @@ import Foundation
         #expect(out.map(\.relativePath) == ["Finance/US"])
     }
 
-    /// **Only the landing itself.** A folder *inside* it is somewhere the user navigated to, and no
-    /// row anywhere else in the column goes there — the mirror of the favorites rule, and the half
-    /// a prefix match would have got wrong for every source whose landing is `Documents`.
+    /// Only the landing itself: a folder inside it is somewhere the user navigated to, and no other
+    /// row goes there. A prefix match would wrongly hide it.
     @Test func aFolderUnderTheLandingIsStillARecent() {
         let out = FolderJumpStore.mostRecentAcrossRoots(
             recents: ["/Dropbox": [visit("Documents", 100), visit("Documents/Taxes 2026", 90)]],
@@ -160,9 +146,8 @@ import Foundation
         #expect(out.map(\.root) == ["/OneDrive"])
     }
 
-    /// **Subtracted before the cap, not after.** Eight landings ahead of a real recent is exactly
-    /// the shape a multi-account install reaches, and a filter applied to the result of a limit of
-    /// eight would have returned an empty section while `Finance/US` sat unshown behind them.
+    /// Landings are subtracted before the cap, not after. A multi-account install can have eight
+    /// landings ahead of a real recent; filtering after the limit would show an empty section.
     @Test func landingsDoNotConsumeTheLimit() {
         var recents: [String: [JumpLocation]] = ["/iCloud": [visit("Finance/US", 1)]]
         var landings: [String: String] = [:]
@@ -176,16 +161,14 @@ import Foundation
                 "a landing displaced a real recent out of the eight")
     }
 
-    /// No landings is the shape every other caller passes — the ⌘K palette, and any build before
-    /// this rule existed. Nothing is subtracted.
+    /// No landings, as every other caller (the ⌘K palette) passes, subtracts nothing.
     @Test func noLandingsSubtractsNothing() {
         let recents = ["/Dropbox": [visit("Documents", 100)]]
         #expect(FolderJumpStore.mostRecentAcrossRoots(recents: recents, favorites: [:], limit: 8)
                     .map(\.relativePath) == ["Documents"])
     }
 
-    /// The limit is applied to the merged list, which is the whole point — eight across every
-    /// source rather than eight per source.
+    /// The limit bounds the merged list: eight across every source, not eight per source.
     @Test func theLimitBoundsTheMergedListNotEachRoot() {
         let recents = Dictionary(uniqueKeysWithValues: (0..<5).map { r in
             ("/root\(r)", (0..<4).map { i in visit("r\(r)f\(i)", Double(r * 10 + i)) })
@@ -210,8 +193,7 @@ import Foundation
 
     // MARK: - Favorites across roots
 
-    /// Favorites span sources the same way, but keep each root's curated order rather than being
-    /// re-sorted by anything — the user put them in that order.
+    /// Favorites span sources too, but keep each root's curated order: the user chose it.
     @Test func favoritesSpanRootsAndKeepEachRootsOwnOrder() {
         let store = ["/iCloud": [visit("Taxes 2026", nil), visit("Scans", nil)],
                      "/Dropbox": [visit("Health", nil)]]
@@ -224,16 +206,13 @@ import Foundation
     }
 }
 
-/// **The decode side of `visitedAt`** — the half a test of the ordering rule cannot see.
-///
-/// The ordering tests above build `JumpLocation`s in memory, so they would pass identically whether
-/// the field round-trips through JSON or not. What actually reaches the sidebar is whatever
-/// `JSONDecoder` makes of bytes on disk, including bytes written by a build that had never heard of
-/// this key.
+/// The decode side of `visitedAt`. The ordering tests build `JumpLocation`s in memory and can't
+/// see whether the field round-trips; the sidebar gets whatever `JSONDecoder` makes of the stored
+/// bytes, including bytes from builds that never write this key.
 @Suite struct JumpLocationMigrationTests {
 
-    /// **Bytes from before v4.4 decode, and decode as unknown.** This is the shape sitting in every
-    /// existing install's defaults, and the shape a v2.x or v3.x build writes today.
+    /// An entry with no date decodes, as unknown: the shape in older installs' defaults and the one
+    /// older release lines still write.
     @Test func aStoredEntryWithNoDateDecodesAsUnknown() throws {
         let json = #"[{"relativePath":"Health/Dental","name":"Dental"}]"#
         let decoded = try JSONDecoder().decode([JumpLocation].self, from: Data(json.utf8))
@@ -242,8 +221,7 @@ import Foundation
         #expect(decoded.first?.visitedAt == nil, "an undated entry decoded to a date it never had")
     }
 
-    /// And a dated one round-trips, so the field is really being written rather than dropped by an
-    /// encoder that never sees it.
+    /// A dated entry round-trips, so the field is really written, not dropped by the encoder.
     @Test func aDatedEntryRoundTrips() throws {
         let when = Date(timeIntervalSinceReferenceDate: 800_000_000)
         let original = JumpLocation(relativePath: "Work/Q3", name: "Q3", visitedAt: when)
@@ -252,10 +230,9 @@ import Foundation
         #expect(back.first?.visitedAt == when)
     }
 
-    /// **A whole stored map from the old shape survives**, which is what `storedMap` actually
-    /// decodes — a per-root dictionary, not a bare array. If this failed, `storedMap` would take
-    /// the undecodable branch and stash every existing user's recents into the salvage key on
-    /// first launch, which looks exactly like "the upgrade lost my history".
+    /// A whole per-root map in the undated shape decodes, as `storedMap` reads it. If it didn't,
+    /// `storedMap` would take the undecodable branch and move every user's recents into the salvage
+    /// key on first launch, which looks like the upgrade lost their history.
     @Test func aWholeOldMapDecodesRatherThanBeingTreatedAsUnreadable() throws {
         let json = #"{"/iCloud":[{"relativePath":"Health","name":"Health"}],"# +
                    #""/Dropbox":[{"relativePath":"Shared","name":"Shared"}]}"#
@@ -264,9 +241,8 @@ import Foundation
         #expect(decoded.values.allSatisfy { $0.allSatisfy { $0.visitedAt == nil } })
     }
 
-    /// The other direction, which matters because all three release lines share this defaults
-    /// domain: a v2.x decoder meets an entry carrying `visitedAt` and must ignore the key rather
-    /// than fail the whole map. Asserted by decoding into a struct that has no such field.
+    /// The other direction, since the release lines share this defaults domain: an older decoder
+    /// meeting `visitedAt` must ignore the key, not fail the whole map.
     @Test func anOlderDecoderIgnoresTheNewKey() throws {
         struct PreV44: Codable, Equatable { let relativePath: String; let name: String }
         let json = #"[{"relativePath":"Work","name":"Work","visitedAt":776000000}]"#

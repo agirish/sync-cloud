@@ -3,15 +3,10 @@ import Foundation
 import Events
 @testable import Dashboard
 
-/// Pins that the severity chips count the same set their threshold filters.
-///
-/// The chips set `selectedLevel`, which filters the session rows AND any revealed history — but the
-/// counts were tallied from `logger.entries` alone. A quiet session under a raised threshold is
-/// exactly when someone reveals history, so the failure showed up in the worst place: an
-/// "Errors 0" chip sitting directly above a screenful of history error rows.
-/// `@MainActor` because `thresholdCounts` is a static on `LogViewer`, and SwiftUI's `View`
-/// conformance isolates the whole type — calling it off the main actor traps at runtime rather
-/// than failing to compile.
+/// Pins that the severity chips count the same set their threshold filters. `selectedLevel`
+/// filters the session rows and any revealed history, so counting the session alone would show
+/// "Errors 0" above a screenful of history error rows, just when someone reveals history in a
+/// quiet session.
 @MainActor
 @Suite struct LogLevelChipCountTests {
 
@@ -20,11 +15,11 @@ import Events
     }
 
     /// The tally is keyed by `LogLevel?` (nil is the "All" total), so a bare `.error` subscript is
-    /// ambiguous against Optional's own members — this keeps the assertions readable.
+    /// ambiguous against Optional's own members; this keeps the assertions readable.
     private func tally(_ counts: [LogLevel?: Int], _ level: LogLevel?) -> Int? { counts[level] }
 
     @Test func historyEntriesCountTowardTheChips() {
-        // The reported case: nothing in this session, three errors in the log's history.
+        // Nothing in this session, three errors in the log's history.
         let counts = LogViewer.thresholdCounts(
             session: [],
             history: [entry(.error), entry(.error), entry(.error, "boom")])
@@ -45,8 +40,8 @@ import Events
     }
 
     @Test func anUnloadedHistoryLeavesTheCountsExactlyAsTheyWere() {
-        // The pre-existing behaviour, unchanged: before "Show older history" is clicked the window
-        // holds only the session, so that is all the chips may claim.
+        // Before "Show older history" is clicked the window holds only the session, so that is all
+        // the chips may claim.
         let session = [entry(.debug), entry(.warning), entry(.error)]
         let counts = LogViewer.thresholdCounts(session: session, history: [])
 
@@ -57,7 +52,7 @@ import Events
     }
 
     @Test func aLoadedButEmptyHistoryChangesNothing() {
-        // "Loaded, and the log holds nothing older" must read the same as "not loaded" here — the
+        // "Loaded, and the log holds nothing older" reads the same as "not loaded" here; the
         // distinction matters to the footer's message, not to a tally.
         let session = [entry(.info), entry(.error)]
         #expect(tally(LogViewer.thresholdCounts(session: session, history: []), nil) == 2)
@@ -65,7 +60,7 @@ import Events
 
     @Test func everyThresholdKeyIsPresentEvenAtZero() {
         // The chip row reads `levelCounts[option.level] ?? 0` for all four options; a missing key
-        // would silently render 0 rather than fail, so pin that the tally emits each one.
+        // would silently render 0, so the tally must emit each one.
         let counts = LogViewer.thresholdCounts(session: [entry(.debug)], history: [])
         #expect(tally(counts, nil) == 1)
         #expect(tally(counts, .info) == 0)
@@ -74,9 +69,8 @@ import Events
     }
 
     @Test func theCountIsIndependentOfHowMuchHistoryIsRevealed() {
-        // "Show more" reveals further into the SAME filtered set, so the tally must describe what
-        // the window holds, not the scroll position — a count that grew as you paged would be
-        // describing the latter.
+        // "Show more" reveals further into the same filtered set, so the tally describes what the
+        // window holds, not how far the user has paged.
         let history = (0..<40).map { entry(.error, "e\($0)") }
         let counts = LogViewer.thresholdCounts(session: [], history: history)
         #expect(tally(counts, .error) == 40)
@@ -84,12 +78,9 @@ import Events
 
     // MARK: What the window actually counts
 
-    // Everything above pins the ARITHMETIC, given a session and a history array. None of it could
-    // see the decision that produced the bug: which entries the window hands the tally. That choice
-    // used to live in one line of the View body, where `history: []` restored the bug with every
-    // test still green. It now lives in `LogViewerContents`, which takes the history STATE and
-    // feeds the same value to both the counts and the rows — so these tests can reach it, and the
-    // old one-line revert no longer type-checks.
+    // Everything above pins the arithmetic, given a session and a history array. These pin which
+    // entries the window hands the tally: `LogViewerContents` takes the history state and feeds
+    // the same value to both the counts and the rows, so the two can't diverge.
 
     private func contents(session: [LogEntry],
                           history: LogHistoryState,
@@ -100,8 +91,8 @@ import Events
     }
 
     @Test func loadedHistoryIsWhatTheChipsCount() {
-        // The reported bug, at the layer that decides it: the window holds three history errors
-        // and a quiet session, so the Errors chip must read 3 — not 0.
+        // At the layer that decides it: three history errors and a quiet session, so the Errors
+        // chip reads 3, not 0.
         let state = LogHistoryState.loaded(entries: [entry(.error), entry(.error), entry(.error)], revealed: 25)
         let counts = contents(session: [], history: state).levelCounts
 
@@ -110,9 +101,9 @@ import Events
     }
 
     @Test func theCountsAndTheVisibleRowsDescribeTheSameHistory() {
-        // The invariant, stated directly: whatever the chips count is what the list shows the
-        // threshold over. Both come from the one `history` argument, so they cannot drift apart
-        // without the rows visibly emptying too.
+        // The invariant: what the chips count is what the list shows the threshold over. Both
+        // come from the one `history` argument, so they can't drift apart without the rows visibly
+        // emptying too.
         let loaded = LogHistoryState.loaded(entries: [entry(.error), entry(.warning)], revealed: 25)
         let shown = contents(session: [entry(.info)], history: loaded)
         #expect(tally(shown.levelCounts, nil) == 3)
@@ -125,8 +116,8 @@ import Events
     }
 
     @Test func onlyALoadedHistoryContributesToTheCounts() {
-        // The three non-loaded states hold no entries, each for its own reason; none of them may
-        // inflate — or, for `.failed`, be mistaken for — a loaded history.
+        // The three non-loaded states hold no entries; none may inflate the counts, and `.failed`
+        // must not pass for a loaded history.
         let session = [entry(.error)]
         for state in [LogHistoryState.notLoaded, .loading(token: UUID()), .failed] {
             let counts = contents(session: session, history: state).levelCounts
@@ -136,8 +127,7 @@ import Events
     }
 
     @Test func revealingMorePagesDoesNotChangeTheCounts() {
-        // Same set, three reveal positions: the chips describe what the window holds, so the tally
-        // must not move as the user pages into it.
+        // Same set, three reveal positions: the tally must not move as the user pages into it.
         let entries = (0..<40).map { entry(.error, "e\($0)") }
         let counts = [0, 25, 40].map {
             tally(contents(session: [], history: .loaded(entries: entries, revealed: $0)).levelCounts, .error)
@@ -146,8 +136,8 @@ import Events
     }
 
     @Test func theSearchAndLevelFiltersNeverNarrowTheCounts() {
-        // The chips report the window's contents, not the current filter's result — otherwise the
-        // number on the chip you are about to click would already be the number after clicking it.
+        // The chips report the window's contents, not the current filter's result, or the number on
+        // a chip would already be the number after clicking it.
         let state = LogHistoryState.loaded(entries: [entry(.error, "boom"), entry(.info, "quiet")], revealed: 25)
         let filtered = contents(session: [], history: state, level: .error, search: "boom")
         #expect(tally(filtered.levelCounts, nil) == 2)

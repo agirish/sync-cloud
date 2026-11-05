@@ -40,11 +40,10 @@ import Settings
 
     @MainActor
     @Test func testFocusFolderNeverDrivesTheSiblingFromTheSingleSourceRail() {
-        // The single-source rail reuses the left pane's plumbing but has NO visible sibling: with 🔗
-        // linked, drilling the rail must not drag the hidden right pane along (its history
-        // grows, its saved focus is overwritten for the next launch, and FolderJumpStore
-        // records "Recent" folders the user never visited). The rail's delegate passes
-        // suppressLinkedNavigation.
+        // The single-source rail reuses the left pane's plumbing but has no visible sibling: with
+        // 🔗 linked, drilling the rail must not drag the hidden right pane along, growing its
+        // history, overwriting its saved focus and recording Recents the user never visited. The
+        // rail's delegate passes suppressLinkedNavigation.
         let defaults = ScratchDefaults("FileActionHandlerHelperTests")
         defaults.set(true, forKey: PaneLinkPreference.defaultsKey)
         let manager = FileSyncManager()
@@ -62,8 +61,8 @@ import Settings
 
     @MainActor
     @Test func testFocusFolderMovesBothPanesWhenLinked() {
-        // With "Link both panes" on, drilling into a folder from the file list must move the
-        // sibling pane to the same relative path — the bug where only breadcrumb clicks honored it.
+        // With "Link both panes" on, drilling into a folder from the file list moves the sibling
+        // pane to the same relative path, not only breadcrumb clicks.
         let defaults = ScratchDefaults("FileActionHandlerHelperTests")
         defaults.set(true, forKey: PaneLinkPreference.defaultsKey)
         let manager = FileSyncManager()
@@ -100,7 +99,7 @@ import Settings
         // Exact root and a real subpath resolve to the provider.
         #expect(handler.providerDisplayName(forPath: root) == "iCloud")
         #expect(handler.providerDisplayName(forPath: "\(root)/sub/file.txt") == "iCloud")
-        // A sibling that merely shares the root as a string prefix must NOT match (the "/" boundary guard).
+        // A sibling that only shares the root as a string prefix must not match (the "/" boundary).
         #expect(handler.providerDisplayName(forPath: "\(root)Extra") == "the other pane")
     }
 
@@ -111,9 +110,9 @@ import Settings
         #expect(FileActionHandler.escapeForAppleScript("plain") == "plain")
     }
 
-    /// Settings on a scratch suite, so the seed is iCloud and nothing else. On the standard domain
-    /// (under `swift test`, the `swiftpm-testing-helper` plist every test process shares) the seed
-    /// also took whatever `lastKnownAccountFolders` and root overrides other runs had left there.
+    /// Settings on a scratch suite, so the seed is iCloud and nothing else. The standard domain
+    /// under `swift test` is a plist every test process shares, holding whatever
+    /// `lastKnownAccountFolders` and root overrides other runs left there.
     @MainActor
     private func scratchSettings() -> SettingsManager {
         SettingsManager(autoDiscover: false, userDefaults: ScratchDefaults("FileActionHandlerHelperTests"))

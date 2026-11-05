@@ -5,9 +5,9 @@ import Events
 import Design
 @testable import Dashboard
 
-/// Measures a view the way AppKit will, in a real (never-ordered-in) window — the same helper
-/// `PaneHeaderHeightTests` uses, for the same reason: the assertion has to be about the LAID-OUT
-/// result, not about the modifiers we believe we wrote.
+/// Measures a view the way AppKit will, in a real (never-ordered-in) window, as
+/// `PaneHeaderHeightTests` does: the assertion is about the laid-out result, not the modifiers we
+/// believe we wrote.
 @MainActor
 private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     let host = NSHostingView(rootView: AnyView(view.frame(width: width)))
@@ -24,10 +24,9 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     return height
 }
 
-/// Narrowing the Activity Log window must WRAP a long message, not truncate it — in BOTH
-/// densities. The message is the row: the paths and failure reasons people open this window to
-/// read live in it, and compact's `lineLimit(1)` ellipsised them at the window edge with no way
-/// to see the rest short of widening the window again.
+/// Narrowing the Activity Log window wraps a long message rather than truncating it, in both
+/// densities. The message holds the paths and failure reasons people open this window to read, and
+/// an ellipsis at the window edge would hide them.
 @MainActor
 @Suite(.serialized) struct LogRowWrapTests {
 
@@ -43,10 +42,8 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
             density: density)
     }
 
-    /// The regression itself, in the density it was reported in: at the log window's 380pt floor
-    /// a compact row is TALLER than at a width that fits the message on one line — i.e. it
-    /// wrapped. A truncating row measures the same height at every width, which is exactly how
-    /// this went unnoticed.
+    /// At the log window's 380pt floor a row is taller than at a width that fits the message on one
+    /// line, so it wrapped. A truncating row measures the same height at every width.
     @Test(arguments: [ListDensity.compact, ListDensity.comfortable])
     func longMessageWrapsWhenNarrow(density: ListDensity) {
         #expect(laidOutHeight(Self.row(density), width: 380)
@@ -61,9 +58,9 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
                 > laidOutHeight(Self.row(density), width: 380))
     }
 
-    /// Wrapping must not cost the density its point: an entry that DOES fit measures the same
-    /// single-line height in compact at every width, and stays shorter than the comfortable
-    /// two-line block. Compact only grows for the lines that would otherwise be cut off.
+    /// Wrapping must not cost compact its point: an entry that fits keeps the same single-line
+    /// height at every width, shorter than the comfortable two-line block. Compact grows only for
+    /// lines that would otherwise be cut off.
     @Test func shortMessageStaysOneLineInCompact() {
         let short = LogEntryRow(
             entry: LogEntry(timestamp: Date(timeIntervalSince1970: 1_780_315_200),

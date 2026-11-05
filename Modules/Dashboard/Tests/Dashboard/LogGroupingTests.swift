@@ -3,8 +3,8 @@ import Foundation
 import Events
 @testable import Dashboard
 
-/// Coverage for LogGrouping — the operation-run folding and day bucketing that back the Activity
-/// Log's grouped view. Pure, so it's tested without a View or @State.
+/// Coverage for LogGrouping, the operation-run folding and day bucketing behind the Activity Log's
+/// grouped view. Pure, so it's tested without a View or @State.
 @Suite struct LogGroupingTests {
 
     /// A UTC Gregorian calendar so `startOfDay` boundaries are deterministic regardless of the host
@@ -58,7 +58,7 @@ import Events
     }
 
     @Test func testLoneMatchingLineStaysAnEntry() {
-        // A run of 1 is nothing to collapse — it renders as a normal row.
+        // A run of 1 is nothing to collapse; it renders as a normal row.
         let items = LogGrouping.fold([LogEntry(level: .info, message: "Synced file: only-one")])
         #expect(shape(items) == ["entry:Synced file: only-one"])
     }
@@ -135,31 +135,20 @@ import Events
         #expect(header != "Today")
         #expect(header != "Yesterday")
         #expect(!header.isEmpty)
-        // The date itself, which the three assertions above never looked at — and that is how a
-        // header a full day out went unnoticed. `1` is the day this bucket is for in UTC.
+        // The date itself, which the assertions above don't check, so a header a day out would
+        // pass them. `1` is this bucket's day in UTC.
         #expect(header.contains("1"), "the dated header does not name the day it labels")
     }
 
-    /// **A dated header names the day its bucket is for, in the bucket's own zone.**
+    /// A dated header names its bucket's day in the bucket's own zone. `byDay` takes the boundary
+    /// from the calendar it is handed; a header formatter on the system zone would draw sections
+    /// two or more days old under a date a day out (`Today`/`Yesterday` would still be right).
     ///
-    /// `byDay` takes the bucket boundary from the calendar it is handed, but the two header
-    /// formatters used to be shared `DateFormatter`s that captured the system zone at first use and
-    /// never looked again. So the boundary moved with the machine and the rendering did not: entries
-    /// bucketed at midnight in one zone were drawn under a date belonging to another — a full day
-    /// out, and only ever on sections two days old and older, because `Today`/`Yesterday` compare
-    /// against the same fresh calendar and were always right.
-    ///
-    /// **The assertion has to pin the rendered date, not merely show two zones differing.** The
-    /// first version of this test compared a UTC bucket's header with a Kolkata one and asserted
-    /// they were not equal — which passes under the bug too, because the two buckets are different
-    /// instants and render differently in any single zone. It caught nothing; the mutation that
-    /// puts the formatter back on the system zone went green through it.
-    ///
-    /// The two zones are the extremes of the real offset range (+14 and −12), and that is what makes
-    /// this independent of the machine it runs on. Rendering midnight-in-Z under the system zone C
-    /// names the wrong day whenever `offset(C) < offset(Z)`: at Z = +14 that is every C but +14
-    /// itself, and Z = −12 covers the remaining C in +12…+14. One of the two always fails under the
-    /// bug, wherever this runs.
+    /// The test pins the rendered date, not merely that two zones differ, which any two instants
+    /// would. The zones are the offset extremes, +14 and −12: rendering midnight-in-Z under system
+    /// zone C names the wrong day whenever `offset(C) < offset(Z)`, so one of the two always fails
+    /// under a system-zone formatter, wherever this runs. Putting the formatter back on the system
+    /// zone must fail it.
     @Test func testADatedHeaderIsRenderedInItsBucketsOwnZone() throws {
         let instant = at(2026, 7, 1, 20)
         let now = at(2026, 7, 14, 12)
@@ -171,7 +160,7 @@ import Events
             let section = LogGrouping.byDay(entries, now: now, calendar: bucket)[0]
 
             // The expectation, built independently: a fresh formatter, same template, on the
-            // bucket's own zone. Fresh, so it cannot inherit the staleness under test.
+            // bucket's own zone, so it can't inherit a stale zone.
             let control = DateFormatter()
             control.timeZone = bucket.timeZone
             control.setLocalizedDateFormatFromTemplate("EEEEMMMd")

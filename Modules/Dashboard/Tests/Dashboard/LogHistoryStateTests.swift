@@ -3,19 +3,13 @@ import Foundation
 import Events
 @testable import Dashboard
 
-/// Characterization tests for the Activity Log's history state machine.
-///
-/// Written against the behaviour of the FOUR `@State` variables this type replaced
-/// (`loadedHistory` / `historyLimit` / `isLoadingHistory` / `historyLoadGeneration`), each rule read
-/// off the call sites in `LogViewer` before the migration — so a passing suite means the new shape
-/// preserves the old behaviour, not merely that it is self-consistent.
-///
-/// The old rules, and where they lived:
-///   - `loadHistory()` refused to start when a read was in flight OR history was already loaded.
-///   - A completion applied only if its captured generation still matched, and reset the page.
-///   - The Clear Logs notification bumped the generation and reset all three other vars together.
-///   - A level/search change reset the page size; "Show more" grew it.
-///   - `nil` history offered the reload button; EMPTY history said "no earlier activity".
+/// Characterization tests for the Activity Log's history state machine, each rule read off
+/// `LogViewer`'s call sites:
+///   - A load won't start while one is in flight or history is already loaded.
+///   - A completion applies only if its token is current, and reveals the first page.
+///   - Clear Logs resets everything at once and invalidates in-flight loads.
+///   - A level or search change resets the page size; "Show more" grows it.
+///   - `nil` history offers the reload button; empty history says "no earlier activity".
 @Suite struct LogHistoryStateTests {
 
     private func entry(_ message: String) -> LogEntry {
@@ -38,8 +32,8 @@ import Events
     @Test func aSecondLoadCannotStartWhileOneIsInFlight() {
         var state = LogHistoryState.notLoaded
         _ = state.beginLoading()
-        // The old `isLoadingHistory` flag existed to stop the button double-firing; now the
-        // claim itself fails, so a caller cannot forget to check.
+        // Stops the button double-firing: the claim itself fails, so a caller can't forget to
+        // check.
         let second = state.beginLoading()
         #expect(second == nil)
     }
@@ -66,9 +60,9 @@ import Events
     }
 
     @Test func anEmptyParseStillCountsAsLoaded() {
-        // The distinction the footer depends on: nil offers "Show older history", empty says
-        // "No earlier activity in the log". Collapsing them would strand the user on a button
-        // that re-reads a file known to hold nothing.
+        // The footer depends on this: nil offers "Show older history", empty says "No earlier
+        // activity in the log". Collapsing them would leave a button re-reading a file known to
+        // hold nothing.
         var state = LogHistoryState.notLoaded
         let token = state.beginLoading()!
         state.finishLoading([], token: token, pageSize: pageSize)
@@ -77,9 +71,9 @@ import Events
     }
 
     @Test func aLoadThatFinishesAfterAClearIsDiscarded() {
-        // THE rule this machinery exists for. A read parsed from the PRE-clear file must not
-        // resurrect deleted rows — and must not make `entries` non-nil again, which would hide the
-        // reload button for the window's lifetime.
+        // The central rule: a read parsed from the pre-clear file must not bring back deleted rows,
+        // nor make `entries` non-nil again, which would hide the reload button for the window's
+        // lifetime.
         var state = LogHistoryState.notLoaded
         let token = state.beginLoading()!
         state.reset()   // Clear Logs arrives while the read is in flight
@@ -94,9 +88,8 @@ import Events
     }
 
     @Test func aSupersededLoadCannotOverwriteANewerOne() {
-        // Clear, then a second load: the FIRST read's completion must lose. Under the old counter
-        // this worked because the generation had moved; the token carries the same guarantee
-        // without a counter to keep in step.
+        // Clear, then a second load: the first read's completion must lose, because its token is
+        // no longer current.
         var state = LogHistoryState.notLoaded
         let stale = state.beginLoading()!
         state.reset()
@@ -121,7 +114,7 @@ import Events
     }
 
     @Test func aFilterChangeCollapsesBackToTheFirstPage() {
-        // A new level/search is a fresh view of history, so the list must not stay expanded to
+        // A new level or search is a fresh view of history, so the list must not stay expanded to
         // hundreds of now-filtered rows.
         var state = LogHistoryState.notLoaded
         let token = state.beginLoading()!
@@ -136,9 +129,8 @@ import Events
     }
 
     @Test func pagingIsInertWhileNotLoaded() {
-        // The old code assigned `historyLimit` unconditionally on a filter change, which was
-        // harmless only because a completion overwrote it. Here those calls simply do nothing,
-        // and `revealed` stays 0 so a `prefix` against it yields nothing.
+        // Paging calls do nothing before a load, and `revealed` stays 0, so a `prefix` against it
+        // yields nothing.
         var state = LogHistoryState.notLoaded
         state.revealMore(by: pageSize)
         state.resetRevealed(to: pageSize)
@@ -154,9 +146,8 @@ import Events
     // MARK: Reset (was: the four-variable Clear Logs handler)
 
     @Test func resetForgetsEverythingAtOnce() {
-        // The shipped bug was a PARTIAL version of this: Clear Logs reset some of the four and
-        // left `loadedHistory` populated, so deleted rows stayed on screen and the reload button
-        // never returned. One case assignment cannot be partial.
+        // A partial reset would leave deleted rows on screen and the reload button gone. One case
+        // assignment can't be partial.
         var state = LogHistoryState.notLoaded
         let token = state.beginLoading()!
         state.finishLoading([entry("a"), entry("b")], token: token, pageSize: pageSize)
@@ -182,8 +173,7 @@ import Events
     // MARK: A failed read (was: indistinguishable from an empty one)
 
     @Test func aFailedReadIsNeitherLoadedNorEmptyHistory() {
-        // The whole point of the case: a read failure must not look like "loaded, and there is
-        // nothing older", which is what an unreadable log file used to produce.
+        // A read failure must not look like "loaded, and there is nothing older".
         var state = LogHistoryState.notLoaded
         let token = state.beginLoading()!
         let applied = state.failLoading(token: token)
@@ -195,8 +185,8 @@ import Events
     }
 
     @Test func aFailedReadCanBeRetried() {
-        // An unreadable log is usually a torn write the next read gets past — refusing the retry
-        // (as `.loaded` does, by design) would strand the window on the error for its lifetime.
+        // An unreadable log is usually a torn write the next read gets past; refusing the retry
+        // (as `.loaded` does, by design) would leave the window on the error for its lifetime.
         var state = LogHistoryState.notLoaded
         let first = state.beginLoading()!
         state.failLoading(token: first)
@@ -211,8 +201,8 @@ import Events
     }
 
     @Test func aFailureFromASupersededReadIsDiscarded() {
-        // Same token guard `finishLoading` applies: a failure arriving after Clear Logs must not
-        // knock the reset state into `.failed` and show an error for a read nobody is awaiting.
+        // The same token guard as `finishLoading`: a failure arriving after Clear Logs must not
+        // knock the reset state into `.failed` for a read nobody is awaiting.
         var state = LogHistoryState.notLoaded
         let token = state.beginLoading()!
         state.reset()
@@ -227,7 +217,7 @@ import Events
         var loaded = LogHistoryState.notLoaded
         let token = loaded.beginLoading()!
         loaded.finishLoading([], token: token, pageSize: pageSize)
-        // An EMPTY load is loaded, not failed — the distinction the footer's wording rests on.
+        // An empty load is loaded, not failed: the footer's wording rests on it.
         #expect(loaded.isLoaded && !loaded.readFailed)
     }
 
@@ -239,16 +229,16 @@ import Events
     }
 
     @Test func theRevealCountIsTheREMAINDEROnTheLastPage() {
-        // The shipped bug: the button hard-coded the page size, so the final tap promised 25 and
-        // produced 5.
+        // The last page offers the remainder, not a full page: promising 25 and producing 5 would
+        // mislead.
         #expect(LogHistoryState.nextRevealCount(matchCount: 30, revealed: 25, pageSize: 25) == 5)
         #expect(LogHistoryState.nextRevealCount(matchCount: 26, revealed: 25, pageSize: 25) == 1)
     }
 
     @Test func theRevealCountIsZeroWhenNothingIsHidden() {
-        // Zero is also the gate that swaps the button for the "you're at the start of the log"
-        // note, so it must never go negative when `revealed` has run past the match count (which
-        // it does the moment a filter narrows the matches after a few "Show more" taps).
+        // Zero also swaps the button for the "you're at the start of the log" note, so it must
+        // never go negative when `revealed` passes the match count, as it does when a filter
+        // narrows the matches after a few "Show more" taps.
         #expect(LogHistoryState.nextRevealCount(matchCount: 25, revealed: 25, pageSize: 25) == 0)
         #expect(LogHistoryState.nextRevealCount(matchCount: 3, revealed: 75, pageSize: 25) == 0)
         #expect(LogHistoryState.nextRevealCount(matchCount: 0, revealed: 25, pageSize: 25) == 0)
@@ -257,8 +247,8 @@ import Events
     // MARK: The combinations that are now unrepresentable
 
     @Test func loadingAndLoadedAreMutuallyExclusive() {
-        // The pairing the four booleans-and-optionals could express and this cannot: every state
-        // answers exactly one of the two questions, so no consumer has to decide which wins.
+        // Every state answers exactly one of the two questions, so no consumer has to decide which
+        // wins.
         var loading = LogHistoryState.notLoaded
         _ = loading.beginLoading()
         #expect(loading.isLoading && !loading.isLoaded)

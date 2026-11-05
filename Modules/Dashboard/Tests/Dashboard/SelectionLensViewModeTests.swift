@@ -5,8 +5,8 @@ import Sync
 import Design
 @testable import Dashboard
 
-/// RD46.7 — Tree · Columns in the pane bar hosts a selection lens: in Frosted and Clear the lens
-/// lands exactly where Solid draws today's fill.
+/// Tree · Columns in the pane bar hosts a selection lens: in Frosted and Clear the lens lands
+/// exactly where Solid draws today's fill.
 ///
 /// Rendered with the lens probe (glass draws nothing offscreen — see `SelectionLensTests` in
 /// Design) and compared, pixel box for pixel box, with the Solid render's accent fill.
@@ -46,9 +46,8 @@ import Design
     }
 
     /// Today's fill: Blue's deepened accent, matched loosely enough to survive the render's colour
-    /// shift — measured, `(0.2, 0.5, 1.0)` comes back as `(0.22, 0.53, 0.92)` — and strictly
-    /// enough that nothing else in the header (inks, grounds, the white backdrop) comes near it. If
-    /// anything did, the fill's box would outgrow the lens's and the comparison below would say so.
+    /// shift (`(0.2, 0.5, 1.0)` comes back as `(0.22, 0.53, 0.92)`) and strictly enough that nothing
+    /// else in the header matches. If anything did, the fill's box would outgrow the lens's.
     nonisolated static let isTodaysFill: Pixel.Match = Pixel.near(LiquidGlassHue.blue.accentFillColor)
 
     @Test(.machinePinned(.pixelSampling), arguments: [PaneViewMode.tree, .columns])

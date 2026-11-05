@@ -3,27 +3,23 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Finder's "Customize Toolbar…" for the pane bar: drag items onto the bar, drag them off to remove,
-/// drop the default set back.
+/// put the default set back.
 ///
-/// Two differences from Finder, both deliberate:
+/// Two deliberate differences from Finder:
 ///
-/// * **The bar being edited lives in the sheet, not behind it.** Finder can leave its real toolbar
-///   visible because the toolbar sits in the window's title bar, above where a sheet drops from. This
-///   bar sits *inside* the window content, so a sheet covers it — an editable copy is the honest way
-///   to show what you are arranging rather than an inch of it peeking out.
-/// * **Every drag has a click.** Each item on the track carries Move Left / Move Right / Remove, and
-///   each palette tile adds on click. Drag is the expected gesture, but this app has shipped a
-///   drag-only affordance that never worked in a Release build before (`4d55246`), and an
-///   arrangement you cannot reach without a mouse is not an accessible one.
+/// * The bar being edited lives in the sheet. Finder's toolbar sits above where a sheet drops
+///   from; this bar sits inside the window content, so a sheet covers it, and an editable copy
+///   shows what you are arranging.
+/// * Every drag has a click. Each item on the track carries Move Left / Move Right / Remove, and
+///   each palette tile adds on click: an arrangement you can't reach without a mouse isn't
+///   accessible, and a drag-only affordance can fail in a Release build unnoticed.
 struct PaneBarCustomizeSheet: View {
-    /// What the pane you opened this from can actually draw.
+    /// What the pane you opened this from can draw.
     ///
-    /// The arrangement is shared by both Compare panes and the single-source rail, so it necessarily contains
-    /// items a given pane has no use for — Collapse Pane is in the *default* arrangement and only the
-    /// single-source rail ever draws it. Without this the sheet showed
-    /// a Collapse Pane pill on the track of a Compare pane whose bar does not have one, which reads as
-    /// a bug in the sheet. Those items are still fully editable here; they are just marked as not
-    /// applying to the pane in front of you.
+    /// The arrangement is shared by both Compare panes and the single-source rail, so it holds items
+    /// a given pane has no use for (Collapse Pane is in the default, and only the rail draws it).
+    /// Those items stay fully editable here, marked as not applying to this pane, so the track
+    /// doesn't look wrong against the pane's real bar.
     var availableHere: Set<PaneBarItem> = Set(PaneBarItem.allCases)
 
     @Environment(\.dismiss) private var dismiss
@@ -37,12 +33,9 @@ struct PaneBarCustomizeSheet: View {
     /// True while a bar item is over the palette, which is how a drag removes it.
     @State private var isOverPalette: Bool
 
-    /// - Parameter showingRemoveTarget: seeds `isOverPalette`. **For snapshots only**, and it earns
-    ///   its keep: this state exists solely while a drag is in flight, which no test can stage, so
-    ///   the remove affordance shipped in a state nobody could look at. The first draft of it put a
-    ///   `Material.regular` card over the palette and the tiles underneath read straight through the
-    ///   words — a defect no geometry assertion could see and no test could reach. One line of seam
-    ///   makes it a picture.
+    /// - Parameter showingRemoveTarget: seeds `isOverPalette`, for snapshots only. That state exists
+    ///   only while a drag is in flight, which no test can stage, so this seam is the only way to
+    ///   look at the remove affordance.
     init(availableHere: Set<PaneBarItem> = Set(PaneBarItem.allCases),
          showingRemoveTarget: Bool = false) {
         self.availableHere = availableHere
@@ -59,19 +52,16 @@ struct PaneBarCustomizeSheet: View {
         commit(next)
     }
 
-    /// **The only place this sheet writes the arrangement.** Every add, remove, reorder and restore
-    /// goes through here, and so does the logging — see `PaneBarEditLog` for why the bar needs any.
+    /// The only place this sheet writes the arrangement. Every add, remove, reorder and restore goes
+    /// through here, and so does the logging (see `PaneBarEditLog`).
     ///
-    /// One funnel rather than a log call beside each of the five gestures, because the gestures are
-    /// the part of this view no test can drive: a `Button` action and a drop handler need a real
-    /// event loop, so a line added to four of five sites would look identical to a line added to
-    /// all five. `PaneBarCustomizeSheetTests.testTheSheetWritesTheArrangementInExactlyOnePlace`
-    /// counts the assignments in this file instead, which is a claim about absence and so can be
-    /// checked.
+    /// One funnel rather than a log call beside each gesture, because no test can drive the
+    /// gestures: a missed site would look like the rest.
+    /// `PaneBarCustomizeSheetTests.testTheSheetWritesTheArrangementInExactlyOnePlace` counts the
+    /// assignments in this file instead, a claim about absence that can be checked.
     ///
-    /// The write is unconditional, exactly as it was before: `PaneBarEditLog.record` is what refuses
-    /// a no-op, so an edit that changes nothing still normalizes the stored string the way it always
-    /// did and simply writes no line.
+    /// The write is unconditional: `PaneBarEditLog.record` refuses a no-op, so an edit that changes
+    /// nothing still normalizes the stored string and simply writes no line.
     private func commit(_ next: PaneBarArrangement) {
         let before = arrangement
         arrangementRaw = next.encoded
@@ -79,19 +69,14 @@ struct PaneBarCustomizeSheet: View {
     }
 
     /// Everything the palette offers. Spacers last, as in Finder, because they are layout rather than
-    /// ability — and `scan` is present but inert, so its absence from the removable set is explained
-    /// rather than merely felt.
+    /// ability, and `scan` is present but inert, so its absence from the removable set is explained.
     ///
-    /// Hand-written and therefore the second place a new case has to be listed — the enum's own
-    /// `allCases` does not reach here. An item missing from this list is not merely absent from the
-    /// sheet: it is a control that can be dragged OFF a bar and never put back. ⋯ used to be a
-    /// second way back — it carried every available control the arrangement did not place — and
-    /// since `9db37173` it carries only what the rung folded, so this palette is now the ONLY route
-    /// back onto the bar for a removed control, and the only route on at all for a control that
-    /// declines a migration step (Delete does).
-    /// `PaneBarCustomizeSheetTests.testThePaletteOffersEveryRemovableControl`
-    /// checks this against `PaneBarItem.allCases` so the next one cannot be forgotten quietly — it
-    /// is what caught Delete's tile missing here.
+    /// Hand-written, so a new case has to be listed here too. A missing item is a control that can
+    /// be dragged off a bar and never put back: ⋯ carries only what a rung folded, so this palette
+    /// is the only route back for a removed control, and the only route on at all for one that
+    /// declines a migration step (Delete).
+    /// `PaneBarCustomizeSheetTests.testThePaletteOffersEveryRemovableControl` checks it against
+    /// `PaneBarItem.allCases`.
     static let palette: [PaneBarItem] = [
         .viewMode, .backForward, .newFolder, .sort, .hiddenFiles, .typeFilter, .search, .delete,
         .collapse, .scan, .space, .flexibleSpace
@@ -99,46 +84,31 @@ struct PaneBarCustomizeSheet: View {
 
     // MARK: Metrics
     //
-    // The width is set by two things, neither of them taste.
-    //
-    // The floor is the *track*: a full bar is ten items, and at the first draft's 560pt they did not
-    // fit — the row overflowed and what gave way was the provider capsule's label, so the sheet
-    // shipped showing a bare cloud glyph where "iCloud" should have been. That is precisely the
-    // leading edge the whole arrangement is measured against. (The capsule is gone since: it named
-    // a provider the real bar no longer draws, and `leadingEdgeZone` holds that edge blank.)
-    //
-    // The ceiling is the *window*: `ContentView` set `minWidth: 600` when this was chosen, and the
-    // fix for the first problem was a 700pt sheet — wider than the window it belongs to, at the
-    // size a real user could drag theirs down to. Fixing an overflow by overflowing something
-    // bigger is not a fix. (That floor is 760 now. The sheet is deliberately left at 600: the
-    // ceiling rising is not a reason to spend the room, and the track's metrics were tightened
-    // around this width.)
-    //
-    // So: 600, with the row's own metrics tightened until ten items fit inside it, and a horizontal
-    // scroll for the arrangements that still do not (nothing stops someone adding six spacers).
+    // The width is set by two limits. The floor is the track: a full bar of ten items must fit, or
+    // the row overflows at its leading edge, which is what the arrangement is measured against.
+    // The ceiling is the window: the sheet must not be wider than the smallest window it belongs
+    // to. So 600, with the row's metrics tightened until ten items fit, and a horizontal scroll for
+    // arrangements that still don't (nothing stops someone adding six spacers).
 
     private static let sheetWidth: CGFloat = 600
     /// The sheet's own inset, and the track card's. Named because `trackRowWidth` is derived from
-    /// both: as three unrelated literals — 600 here, `.padding(22)` on the body, `.padding(9)` on the
-    /// track — a later tweak to either padding would leave the derived width quietly wrong, and the
-    /// symptom would be a track that scrolls a few points when it should not, or dead space where a
-    /// drop target was meant to be. Change the padding and the width follows.
+    /// both, so a change to either padding moves the derived width with it. As loose literals, the
+    /// track would quietly scroll a few points or leave dead space where a drop target belongs.
     private static let sheetPadding: CGFloat = 22
     private static let trackPadding: CGFloat = 9
     /// Width available to the track's row: the sheet, less its own padding, less the track's.
     ///
-    /// A constant rather than a measurement, so the row inside the scroll view can be told to fill
-    /// the viewport without a `GeometryReader` — which is what keeps the trailing slot greedy when
-    /// the bar is short and scrollable when it is long.
+    /// A constant rather than a measurement, so the row inside the scroll view can fill the
+    /// viewport without a `GeometryReader`, which keeps the trailing slot greedy when the bar is
+    /// short and scrollable when it is long.
     ///
-    /// It assumes the body pads *before* it fixes the width (`.padding` then `.frame`). Swapped, the
-    /// content box would be the full 600 and this would be 44pt short. The customize-sheet snapshot
-    /// is what catches that: a track whose last pill is clipped is visible in the image and in
-    /// nothing else the suite measures.
+    /// It assumes the body pads before it fixes the width (`.padding` then `.frame`). Swapped, the
+    /// content box would be the full 600 and this would be 44pt short. Only the customize-sheet
+    /// snapshot catches that, as a track whose last pill is clipped.
     private static let trackRowWidth: CGFloat = sheetWidth - 2 * sheetPadding - 2 * trackPadding
     private static let pillHeight: CGFloat = 26
-    /// The default-set strip is a picture of the bar, not another bar — it is drawn smaller and
-    /// quieter on purpose, because two rows of identical pills read as two editable bars.
+    /// The default-set strip is a picture of the bar, not another bar, so it is drawn smaller and
+    /// quieter: two rows of identical pills would read as two editable bars.
     private static let samplePillHeight: CGFloat = 19
     private static let slotWidth: CGFloat = 6
 
@@ -156,10 +126,9 @@ struct PaneBarCustomizeSheet: View {
         }
         .padding(Self.sheetPadding)
         .frame(width: Self.sheetWidth)
-        // Escape closes it. There is nothing to cancel — every edit is applied to the shared
-        // arrangement as it is made, so Done and Escape mean the same thing, and a sheet that
-        // swallows Escape reads as stuck. `.cancelAction` on the Done button is not an option:
-        // it already carries `.defaultAction`, and a button can only have one shortcut.
+        // Escape closes it. Every edit applies as it is made, so there is nothing to cancel, and a
+        // sheet that swallows Escape reads as stuck. `.cancelAction` on Done isn't an option: it
+        // already carries `.defaultAction`, and a button can only have one shortcut.
         .onExitCommand { dismiss() }
     }
 
@@ -185,8 +154,8 @@ struct PaneBarCustomizeSheet: View {
         }
     }
 
-    /// One small-caps rule between sections. The first draft ran the bar, the palette and the footer
-    /// together with nothing but spacing, and the result read as one undifferentiated grid of grey.
+    /// One small-caps rule between sections, so the bar, the palette and the footer don't read as
+    /// one undifferentiated grid of grey.
     private func sectionLabel(_ text: String) -> some View {
         Text(text)
             .scaledFont(.system(.caption, weight: .semibold))
@@ -197,8 +166,8 @@ struct PaneBarCustomizeSheet: View {
             .padding(.bottom, 7)
     }
 
-    /// Whether anything on the bar or in the palette belongs to a pane other than this one — the
-    /// explanation is only worth the space when there is something to explain.
+    /// Whether anything in the palette belongs to a pane other than this one; the explanation is
+    /// only worth the space when there is something to explain.
     var explainsItemsFromElsewhere: Bool {
         Self.palette.contains { !$0.isSpacer && !availableHere.contains($0) }
     }
@@ -209,36 +178,29 @@ struct PaneBarCustomizeSheet: View {
 
     // MARK: The editable bar
 
-    /// Every part of the track you can aim at is its own drop target, and none of them overlap (the
-    /// padding ring around the row is the one exception, and a drop there springs back — except on
-    /// its leading side):
+    /// Every part of the track you can aim at is its own drop target, and none overlap (the padding
+    /// ring around the row is the one exception, where a drop springs back, except on its leading
+    /// side):
     ///
     /// - the leading-edge zone, laid over the row's scrolled leading padding, inserts at the head,
     /// - each gap between two pills inserts at its own slot,
-    /// - **each pill inserts before itself**, which is the whole point of the arrangement below,
+    /// - each pill inserts before itself,
     /// - the trailing slot takes the rest of the row and appends.
     ///
-    /// There used to be one blanket destination over the whole track instead of the last two,
-    /// appending whatever it caught, and it was a worse bug than the gap it filled. Dropping a pill
-    /// onto another pill — or onto *itself*, which is how anyone abandons a drag — silently relocated
-    /// it to the end of the bar. A drop that does nothing is a miss; a drop that quietly does the
-    /// wrong thing is a defect, and it replaced the first with the second.
-    ///
-    /// It also rested on nested destinations resolving innermost-first, which needs a live event loop
-    /// to check and so was never checked. If that assumption were wrong, every drop would have
-    /// appended and the gaps would have been decoration. Leaf targets that do not overlap do not need
-    /// the assumption to be true.
+    /// **Never** cover the track with one blanket destination: dropping a pill onto another, or
+    /// onto itself to abandon a drag, would silently move it to the end of the bar. Leaf targets
+    /// that don't overlap also don't depend on nested destinations resolving innermost-first, which
+    /// needs a live event loop to check.
     private var track: some View {
-        // Indicators ON. macOS overlay scrollers stay invisible until the pointer or a scroll asks
-        // for them, so they cost nothing when the bar fits — and when it does not, they are the only
-        // thing telling you the row continues. Hidden, a clipped pill reads as a broken sheet.
+        // Indicators on. macOS overlay scrollers stay invisible until the pointer or a scroll asks,
+        // so they cost nothing when the bar fits, and when it doesn't they are the only sign the row
+        // continues.
         ScrollView(.horizontal, showsIndicators: true) {
             trackRow.frame(minWidth: Self.trackRowWidth, alignment: .leading)
-                // The leading padding is scrolled content, and the head's zone lies over it, so the
-                // zone scrolls with the row. Laid over the ScrollView instead, it stayed pinned at
-                // the visible left edge, and with the row scrolled a drop there landed at index 0,
-                // off-screen, rather than on the pill under the pointer. Over the padding, not in
-                // the row: the head stays aimable without pushing the first pill in from the edge.
+                // The leading padding is scrolled content and the head's zone lies over it, so the
+                // zone scrolls with the row. Over the ScrollView instead, it would stay pinned at the
+                // visible edge and a drop there would land at index 0, off-screen. Over the padding,
+                // not in the row, so the first pill isn't pushed in from the edge.
                 .padding(.horizontal, Self.trackPadding)
                 .overlay(alignment: .leading) { leadingEdgeZone }
         }
@@ -267,38 +229,30 @@ struct PaneBarCustomizeSheet: View {
                 if index > 0 { slot(index) }
                 trackItem(item, at: index)
             }
-            // The trailing slot is what you aim at to append, so it takes the whole rest of the row
-            // rather than another sliver. The width has to be applied INSIDE the slot, ahead of its
-            // `contentShape` and drop destination: an outer `.frame(maxWidth: .infinity)` only grows
-            // an empty box around the original hit area, centred, which is what this did at first —
-            // the target claimed the row's leftovers in a comment and covered none of it.
+            // The trailing slot is what you aim at to append, so it takes the rest of the row. The
+            // width must be applied inside the slot, ahead of its `contentShape` and drop
+            // destination: an outer `.frame(maxWidth: .infinity)` only grows an empty box around
+            // the original hit area.
             slot(items.count, flexible: true)
         }
     }
 
     /// Marks `index` as where a drop would land, and clears it on the way out.
     ///
-    /// A slot and the pill beside it name the same insertion point, so crossing from one to the other
-    /// can clear the caret a frame after the new target set it. That costs a flicker and never a
-    /// wrong drop — both targets insert at the same index — which is why it is left alone rather than
-    /// fixed with a second piece of state to keep in step.
+    /// A slot and the pill beside it name the same insertion point, so crossing from one to the
+    /// other can clear the caret a frame after the new target set it. That costs a flicker, never a
+    /// wrong drop, so it isn't worth a second piece of state.
     private func markTarget(_ index: Int, _ isTargeted: Bool) {
         targetedSlot = isTargeted ? index : (targetedSlot == index ? nil : targetedSlot)
     }
 
-    /// A blank drop target at the head of the bar, so "first" is easy to aim at.
+    /// A blank drop target at the head of the bar, so "first" is easy to aim at. The bar starts at
+    /// the pane's leading edge, so this is that edge: nothing drawn, still aimable.
     ///
-    /// It was a fake provider capsule — a cloud glyph and the word "iCloud", drawn for every pane
-    /// whatever its source — standing for a name the real bar retired in fd068fc49. The bar now
-    /// starts at the pane's leading edge, so this is that edge: nothing drawn, still aimable.
-    ///
-    /// **It takes no width from the row.** It is laid over the row's leading padding — inside the
-    /// scroll view, so it scrolls away with the head (`track`) — and so the first pill sits as close
-    /// to the edge as the default set's does below. In the row it was 18pt,
-    /// plus a 6pt slot after it, and pushed the first pill 33pt in. The head is not thinner to aim
-    /// at for it: the first pill also inserts before itself, so this zone and that pill together
-    /// land at index 0. Index 0's caret is drawn here, against the first pill, since there is no
-    /// slot before it.
+    /// It takes no width from the row: it lies over the row's leading padding, inside the scroll
+    /// view so it scrolls away with the head (`track`), and the first pill sits as close to the edge
+    /// as the default set's below. The first pill also inserts before itself, so this zone and that
+    /// pill together land at index 0, and index 0's caret is drawn here since no slot precedes it.
     var leadingEdgeZone: some View {
         Rectangle()
             .fill(.clear)
@@ -321,32 +275,22 @@ struct PaneBarCustomizeSheet: View {
     /// The track's leading padding, which the zone covers exactly.
     static let leadingEdgeWidth: CGFloat = trackPadding
 
-    /// One item on the track. The pill is what it looks like on the bar; the menu is what makes it
-    /// reachable without a drag.
-    ///
-    /// Internal rather than private so `PaneBarCustomizeSheetTests` can host one item on its own and
-    /// right-click it. That is not a nicety: the whole of this view's interaction rested on the pills
-    /// being aimable, and nothing checked that they were.
+    /// One item on the track. The pill is what it looks like on the bar; the menu makes it reachable
+    /// without a drag. Internal so `PaneBarCustomizeSheetTests` can host one item and right-click
+    /// it, since the whole interaction rests on the pills being aimable.
     func trackItem(_ item: PaneBarItem, at index: Int) -> some View {
         pill(item, style: .onBar)
             .opacity(appliesHere(item) ? 1 : 0.4)
-            // A drawn shape is only hit-testable where it is PAINTED, and a fixed space is painted as
-            // a dashed 1pt outline around nothing — `spacerPill` gives it a fill of
-            // `.quaternary.opacity(0)`, which is to say no fill at all. So every affordance below —
-            // the drag that removes it, the drop that moves things around it, and the context menu
-            // that is the only click-only way to take it off — was attached to a 1pt dashed ring,
-            // and a right-click in the middle of a space landed on nothing. The bar could gain a
-            // space it could never lose. The flexible space escaped it by accident: its fill is
-            // 0.35, so it is solid enough to hit.
-            //
-            // Measured with `NSHostingView.menu(for:)` at each pill's centre — a fixed space
-            // answered nil, everything else answered its menu. `theSpaceOnTheTrackCanBeAimedAt`
-            // is that measurement.
+            // A drawn shape is hit-testable only where it is painted, and a fixed space is a dashed
+            // 1pt outline with no fill, so without this the drag, the drop and the context menu (the
+            // only click-only way to remove it) would sit on a 1pt ring, and the bar could gain a
+            // space it could never lose. `theSpaceOnTheTrackCanBeAimedAt` checks every pill answers
+            // a menu at its centre.
             .contentShape(Rectangle())
             .draggable(PaneBarDrop.payload(forItemAt: index))
-            // A pill is both a drag source and a drop target. Dropping onto it inserts *before* it,
-            // which makes the pills themselves aimable instead of being dead space between the gaps;
-            // dropping a pill onto itself resolves to its own slot, changes nothing, and springs back.
+            // A pill is both a drag source and a drop target. Dropping onto it inserts before it,
+            // so the pills are aimable rather than dead space between the gaps; dropping a pill onto
+            // itself resolves to its own slot, changes nothing, and springs back.
             .dropDestination(for: String.self) { payloads, _ in
                 drop(payloads, at: index)
             } isTargeted: { markTarget(index, $0) }
@@ -363,15 +307,10 @@ struct PaneBarCustomizeSheet: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(item.displayName)
             .accessibilityHint(item.isRemovable ? "Draggable. Actions available." : "Always shown.")
-            // **Offered on exactly the same terms as the menu eleven lines up.** They were attached
-            // unconditionally while the visual versions are correctly disabled at the ends and for
-            // a pinned item — so a VoiceOver user landing on the always-shown Scan pill was offered
-            // "Remove", activated it, and got nothing: no move, no announcement, no reason. An
-            // action that cannot fire is worse than an absent one, because the absent one does not
-            // claim anything. And this is the keyboard path the sheet exists to provide.
-            //
-            // `if` around the modifier rather than a no-op closure: an action present but inert is
-            // the very state being removed.
+            // Offered on exactly the same terms as the context menu above: a VoiceOver user offered
+            // "Remove" on the always-shown Scan pill would activate it and get nothing, and an action
+            // that can't fire is worse than an absent one. `if` around each action rather than a
+            // no-op closure, since present-but-inert is the state to avoid.
             .accessibilityActions {
                 if index > 0 {
                     Button("Move Left") { update { $0.nudge(index, by: -1) } }
@@ -398,11 +337,11 @@ struct PaneBarCustomizeSheet: View {
     /// How solid a pill reads. The same shape does three jobs in this sheet and they must not look
     /// alike: one you can grab, one you can add, one that is only a picture of the default.
     private enum PillStyle {
-        /// On the track — the real thing, grabbable.
+        /// On the track: the real thing, grabbable.
         case onBar
-        /// In the palette — a source you drag from.
+        /// In the palette: a source you drag from.
         case palette
-        /// In the default-set row — a picture, not a control.
+        /// In the default-set row: a picture, not a control.
         case sample
     }
 
@@ -431,8 +370,8 @@ struct PaneBarCustomizeSheet: View {
         }
     }
 
-    /// Spacers are drawn as what they are — a stretch of nothing — rather than as a control with a
-    /// glyph in it, so the track reads as "gap here" at a glance instead of "some other button".
+    /// Spacers are drawn as what they are, a stretch of nothing, rather than as a control with a
+    /// glyph, so the track reads as "gap here" at a glance.
     private func spacerPill(_ item: PaneBarItem, style: PillStyle) -> some View {
         let flexible = item == .flexibleSpace
         return RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
@@ -463,8 +402,8 @@ struct PaneBarCustomizeSheet: View {
             .fill(.clear)
             .frame(width: flexible ? nil : Self.slotWidth, height: Self.pillHeight + 6)
             .frame(maxWidth: flexible ? .infinity : nil)
-            // Leading for the flexible slot: the caret marks where the item will land, which is hard
-            // against the last pill, not adrift in the middle of the empty space.
+            // Leading for the flexible slot: the caret marks where the item will land, hard against
+            // the last pill, not adrift in the empty space.
             .overlay(alignment: flexible ? .leading : .center) {
                 if targetedSlot == index {
                     Capsule()
@@ -478,8 +417,8 @@ struct PaneBarCustomizeSheet: View {
             } isTargeted: { markTarget(index, $0) }
     }
 
-    /// Applies a drop at `index`, reporting whether the bar actually moved — the rules and their
-    /// tests live in `PaneBarDrop`.
+    /// Applies a drop at `index`, reporting whether the bar moved. The rules and their tests live in
+    /// `PaneBarDrop`.
     private func drop(_ payloads: [String], at index: Int) -> Bool {
         guard let next = PaneBarDrop.applying(payloads, at: index, to: arrangement) else { return false }
         commit(next)
@@ -513,41 +452,31 @@ struct PaneBarCustomizeSheet: View {
                                             : AnyShapeStyle(.quaternary),
                               lineWidth: isOverPalette ? 1.5 : 0.5)
         )
-        // The red wash says "something will happen here"; this says WHAT. macOS has no minus and no
-        // trash badge for a drag — the cursor's badge vocabulary is a green + for copy, a curved
-        // arrow for a link, and nothing at all for a move — so the only place a remove can actually
-        // be *drawn* is the target itself. The poof everyone remembers from Finder is an animation
-        // played after the drop, not a sign shown during it.
+        // The red wash says something will happen here; this says what. macOS has no minus or
+        // trash badge for a drag (a green + for copy, a curved arrow for a link, nothing for a
+        // move), so the target itself is the only place a remove can be drawn.
         //
-        // `allowsHitTesting(false)` is load-bearing, not caution: this sits above the drop
-        // destination below, and an overlay that took the hit would swallow the drop it exists to
-        // explain — the zone would light up and then refuse to accept anything.
+        // `allowsHitTesting(false)` is required: this sits above the drop destination below, and an
+        // overlay that took the hit would swallow the drop it explains.
         .overlay {
             if isOverPalette { removeOverlay.allowsHitTesting(false) }
         }
-        // Dropping a bar item back into the palette removes it — Finder's drag-off-the-toolbar,
-        // aimed at a target that actually exists rather than at "anywhere but the bar".
+        // Dropping a bar item back into the palette removes it, like Finder's drag-off-the-toolbar
+        // but aimed at a real target.
         //
-        // A `DropDelegate` rather than `dropDestination(for:)` for one reason: only a delegate can
-        // say what KIND of operation this is, and `dropDestination` always proposes a copy. So the
-        // cursor showed a green + — "this will duplicate the item" — over a target whose whole job
-        // is to delete it. `.move` is both true and the only way to get rid of the badge.
-        //
-        // The cost is real and worth stating: `DropInfo` cannot read a payload synchronously, so
-        // this target can no longer refuse a drop by inspecting it. It accepts, then removes
-        // whatever turns out to be a bar item. Dragging a *palette* tile into the palette therefore
-        // animates as accepted and changes nothing, where it used to spring back. That trade only
-        // applies here — the track's targets keep `dropDestination` and keep springing back, which
-        // is where it matters, because that is where a drop lands somewhere specific.
+        // A `DropDelegate` rather than `dropDestination(for:)`, because only a delegate can propose
+        // `.move`; `dropDestination` always proposes a copy, which badges the cursor with a green +
+        // over a target that deletes. The cost: `DropInfo` can't read a payload synchronously, so
+        // this target accepts first and removes whatever turns out to be a bar item, and a palette
+        // tile dragged into the palette animates as accepted and changes nothing. The track's
+        // targets keep `dropDestination` and still spring back, which is where it matters.
         .onDrop(of: [.utf8PlainText], delegate: RemoveDropDelegate(
             isTargeted: { isOverPalette = $0 },
             remove: { dropToRemove([$0]) }))
     }
 
-    /// What the palette says while a bar item is over it.
-    ///
-    /// Internal so it can be laid out and rendered on its own — the real thing only appears mid-drag,
-    /// which no test can stage.
+    /// What the palette says while a bar item is over it. Internal so it can be rendered on its own,
+    /// since the real thing only appears mid-drag, which no test can stage.
     var removeOverlay: some View {
         VStack(spacing: 6) {
             Image(systemName: "trash")
@@ -558,11 +487,9 @@ struct PaneBarCustomizeSheet: View {
         .foregroundStyle(Color.red)
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
-        // OPAQUE, and rendering it is what said so. `Material.regular` let the tiles underneath
-        // show straight through the card — "New Folder", the Scan tile and a blue checkmark all
-        // read through the words "Remove from bar", which looked like a rendering fault rather than
-        // a label. A material is for something floating over a *surface*; this floats over a grid of
-        // labelled controls, and the point of it is to be read at a glance mid-drag.
+        // Opaque: a material would let the tiles' labels underneath read through "Remove from bar".
+        // A material is for floating over a surface; this floats over labelled controls and must
+        // read at a glance mid-drag.
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color(nsColor: .windowBackgroundColor))
@@ -574,12 +501,9 @@ struct PaneBarCustomizeSheet: View {
         )
     }
 
-    /// One palette tile.
-    ///
-    /// Deliberately NOT dimmed for being on the bar already. The default arrangement carries every
-    /// control, so the first draft opened with all ten tiles at 45% — a palette that looks broken,
-    /// and the state anyone sees first. What is on the bar is said with a check instead, which is a
-    /// fact rather than a disability.
+    /// One palette tile. Not dimmed for being on the bar already: the default carries every
+    /// control, so the palette would open with every tile dimmed and look broken. A check says
+    /// what is on the bar instead.
     private func paletteTile(_ item: PaneBarItem) -> some View {
         let onBar = !item.isSpacer && arrangement.items.contains(item)
         return Button {
@@ -603,9 +527,8 @@ struct PaneBarCustomizeSheet: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
-                    // Fixed height rather than a conditional row: the captions used to appear only
-                    // under some tiles, which made the grid's rows different heights and clipped the
-                    // longest of them against the row below.
+                    // Always a caption line, even a blank one, so every grid row is the same height
+                    // and the longest tiles don't clip against the row below.
                     Text(captionFor(item))
                         .scaledFont(.caption2)
                         .foregroundStyle(.tertiary)
@@ -622,10 +545,9 @@ struct PaneBarCustomizeSheet: View {
         .draggable(PaneBarDrop.payload(for: item))
         .help(paletteHelp(item, onBar: onBar))
         .accessibilityLabel(item.displayName)
-        // Say where it lands, not just that it lands: clicking appends, which for a flexible space
-        // means it arrives at the trailing end where it has nothing to push, and the placing is done
-        // afterwards with Move Left. A hint that stopped at "adds it" would leave a spacer looking
-        // like it had done nothing.
+        // Say where it lands: clicking appends, which for a spacer means the trailing end, where it
+        // pushes nothing until placed with Move Left. A hint that stopped at "adds it" would leave a
+        // spacer looking like it did nothing.
         .accessibilityHint(onBar
                            ? "Already on the bar"
                            : (item.isSpacer
@@ -633,8 +555,8 @@ struct PaneBarCustomizeSheet: View {
                               : "Adds to the end of the bar"))
     }
 
-    /// The one line under a tile's name. Deliberately not "on the bar" — the check already says that,
-    /// and repeating it under seven of the ten tiles turned the palette into a wall of grey text.
+    /// The one line under a tile's name. Not "on the bar": the check already says that, and
+    /// repeating it under most tiles would make the palette a wall of grey text.
     private func captionFor(_ item: PaneBarItem) -> String {
         if !item.isRemovable { return "always shown" }
         if !appliesHere(item) { return "other panes" }
@@ -656,9 +578,8 @@ struct PaneBarCustomizeSheet: View {
 
     // MARK: The default set
 
-    /// A picture of the bar as it ships, with the one button that puts it back — the mockup's
-    /// "…or drag the default set into the toolbar", minus the drag, because there is exactly one
-    /// thing anyone wants to do with it.
+    /// A picture of the bar as it ships, with the one button that puts it back. No drag, because
+    /// there is exactly one thing anyone wants to do with it.
     private var defaultSetRow: some View {
         HStack(spacing: 0) {
             ForEach(Array(PaneBarArrangement.default.items.enumerated()), id: \.offset) { _, item in
@@ -667,8 +588,7 @@ struct PaneBarCustomizeSheet: View {
             }
             Spacer(minLength: 12)
             Button("Restore") { commit(arrangement.restoredToDefault) }
-                // Same lesson as the provider ghost: the thing that must never be squeezed says so
-                // itself rather than trusting the row to have room.
+                // Fixed size, so the pills beside it can never squeeze the button.
                 .fixedSize()
                 .disabled(arrangement.drawsTheDefault)
                 .help(arrangement.drawsTheDefault
@@ -718,17 +638,14 @@ struct PaneBarCustomizeSheet: View {
 
 /// The palette's remove target, as a delegate rather than a `dropDestination`.
 ///
-/// The whole reason this type exists is `dropUpdated`. `dropDestination(for:)` always proposes a
-/// **copy**, and macOS draws a copy as a green + on the cursor — so dragging a control off the bar
-/// was announced with the one badge that means "and it will still be there afterwards". A delegate
-/// is the only SwiftUI drop API that can propose an operation, and `.move` is both what this
-/// actually is and the only proposal that draws no badge at all. There is no minus badge and no
-/// trash badge to ask for; the trash is drawn in the target instead.
+/// It exists for `dropUpdated`. `dropDestination(for:)` always proposes a copy, which macOS draws
+/// as a green + on the cursor, the badge for "it will still be there afterwards". A delegate is
+/// the only SwiftUI drop API that can propose an operation, and `.move` is both true and the only
+/// proposal with no badge. There is no minus or trash badge, so the trash is drawn in the target.
 ///
-/// `performDrop` accepts before it knows what it caught: `DropInfo` hands out `NSItemProvider`s and
-/// every read from one is asynchronous, so there is no point at which this can inspect the payload
-/// and still answer the drag session in time. It returns true and removes whatever turns out to be
-/// a bar item. See the call site for why that trade is acceptable *here* and nowhere else.
+/// `performDrop` accepts before it knows what it caught: every read from an `NSItemProvider` is
+/// asynchronous, too late to answer the drag session. It returns true and removes whatever turns
+/// out to be a bar item. See the call site for why that trade is acceptable here only.
 private struct RemoveDropDelegate: DropDelegate {
     let isTargeted: (Bool) -> Void
     let remove: (String) -> Bool
@@ -736,7 +653,7 @@ private struct RemoveDropDelegate: DropDelegate {
     func dropEntered(info: DropInfo) { isTargeted(true) }
     func dropExited(info: DropInfo) { isTargeted(false) }
 
-    /// The point of the type. `.move`, so the cursor stops promising a copy.
+    /// The point of the type: `.move`, so the cursor stops promising a copy.
     func dropUpdated(info: DropInfo) -> DropProposal? {
         DropProposal(operation: .move)
     }

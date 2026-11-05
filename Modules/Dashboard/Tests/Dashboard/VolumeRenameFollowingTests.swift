@@ -4,17 +4,13 @@ import Testing
 import Sync
 @testable import Dashboard
 
-/// **What follows a card renamed in Finder, on the two surfaces outside `SettingsManager`.**
+/// What follows a card renamed in Finder, on the two surfaces outside `SettingsManager`.
 ///
-/// `FolderSource.following(volumeRenameFrom:to:in:)` moves the source itself, and `VolumeRenameTests`
-/// in the Sync package pins that rule. The source moving is not enough on its own: the pins, the
-/// recents and the Favorites order are all keyed by provider ROOT, and the root is exactly what a
-/// rename changes. Left alone they survive on disk under a key nothing will ever ask for again, and
-/// `reachable` cannot report it — that filters what a root holds, and this is the root moving out
-/// from under it.
-///
-/// The glyph half is here for a different reason: it is the same session's report, and the constant
-/// it pins lives in this module.
+/// `FolderSource.following(volumeRenameFrom:to:in:)` moves the source itself (`VolumeRenameTests` in
+/// Sync). The pins, recents and Favorites order are keyed by provider root, which is what a rename
+/// changes, so left alone they would sit on disk under a key nothing asks for. `reachable` can't
+/// catch it: it filters what a root holds, not the root moving. The pane-collapse glyph tests are
+/// here because the constant they pin lives in this module.
 @Suite struct VolumeRenameFollowingTests {
 
     private static let old = "/Volumes/OLD CARD"
@@ -35,18 +31,17 @@ import Sync
         #expect(after[FolderJumpStore.key(forRoot: "~/Downloads")] == [location("Invoices")])
     }
 
-    /// A root INSIDE the renamed volume moves too — a source can be rooted at `/Volumes/CARD/DCIM`
-    /// as easily as at the mount point, and the rewrite is the same prefix substitution.
+    /// A root inside the renamed volume moves too: a source can be rooted at `/Volumes/CARD/DCIM` as
+    /// easily as at the mount point, and the rewrite is the same prefix substitution.
     @Test func aRootInsideTheRenamedVolumeMovesWithIt() {
         let after = FolderJumpStore.rekeyed(["\(Self.old)/DCIM": [location("100MSDCF")]],
                                             whenVolumeMovedFrom: Self.old, to: Self.new)
         #expect(after[FolderJumpStore.key(forRoot: "\(Self.new)/DCIM")] == [location("100MSDCF")])
     }
 
-    /// **Merged, not overwritten.** The user re-added the card under its new name and pinned
-    /// something there before the rename was followed — which is exactly the sequence reported on
-    /// 2026-08-29. Either side dropped is pins lost to a rename, which is what this exists to stop.
-    /// The destination's own entries lead, the arrivals follow, deduplicated by relative path.
+    /// Merged, not overwritten: the user may re-add the card under its new name and pin something
+    /// before the rename is followed, and dropping either side loses pins. The destination's own
+    /// entries lead, the arrivals follow, deduplicated by relative path.
     @Test func pinsMergeWhenBothTheOldAndNewRootsHaveSome() {
         let before = [Self.old: [location("DCIM"), location("MP_ROOT")],
                       Self.new: [location("PRIVATE"), location("DCIM")]]
@@ -64,9 +59,8 @@ import Sync
 
     // MARK: The Favorites order
 
-    /// The order is a list of `root\u{0}relative` keys, so only the root half moves — and it has to
-    /// move, or every favorite on the renamed card drops to the section's unranked tail, which is a
-    /// silent reordering the user did not ask for.
+    /// The order is a list of `root\u{0}relative` keys, so only the root half moves, and it must, or
+    /// every favorite on the renamed card drops to the unranked tail, a reorder nobody asked for.
     @Test func theFavoritesOrderMovesTheRootHalfOfItsKeys() {
         let order = [FolderJumpStore.favoriteKey(root: Self.old, relativePath: "DCIM"),
                      FolderJumpStore.favoriteKey(root: "~/Downloads", relativePath: "Invoices")]
@@ -76,9 +70,9 @@ import Sync
                           FolderJumpStore.favoriteKey(root: "~/Downloads", relativePath: "Invoices")])
     }
 
-    /// **The separator is load-bearing.** A relative path may contain `/` and a root may contain
-    /// spaces; only the NUL splits `("/Volumes/OLD CARD", "DCIM/100MSDCF")` in one place. Splitting
-    /// on anything a path can hold would rewrite the wrong half of this key.
+    /// The separator matters: a relative path may contain `/` and a root may contain spaces, so
+    /// only NUL splits `("/Volumes/OLD CARD", "DCIM/100MSDCF")` in one place. Splitting on anything
+    /// a path can hold would rewrite the wrong half.
     @Test func onlyTheRootHalfMovesEvenWhenTheRelativePathHasSlashes() {
         let key = FolderJumpStore.favoriteKey(root: Self.old, relativePath: "DCIM/100MSDCF")
         #expect(FolderJumpStore.rekeyedFavoriteOrder([key],
@@ -88,21 +82,16 @@ import Sync
 
     // MARK: The pane-collapse glyph
 
-    /// **The pane's collapse button may not wear the window sidebar toggle's glyph.**
-    ///
-    /// Both were `sidebar.left`, about forty points apart down the same edge of the window, for two
-    /// unrelated acts — show the folder column, fold this pane into the spine. Reported as exactly
-    /// that confusion on 2026-08-29.
-    ///
-    /// Pinned as a *literal* rather than read back from `PaneBarItem`, because the constant is the
-    /// thing under test: comparing it to itself would hold whatever it was changed to.
+    /// The pane's collapse button must not wear the window sidebar toggle's glyph: the two sit about
+    /// forty points apart on the same edge for unrelated acts (show the folder column, fold this
+    /// pane into the spine). Compared with literals, because the constant is what's under test.
     @Test func theCollapseGlyphIsNotTheWindowSidebarToggles() {
         #expect(PaneBarItem.collapseSymbol != "sidebar.left")
         #expect(PaneBarItem.collapseSymbol != "sidebar.leading")
     }
 
-    /// And not the Back button's either, which is the pill immediately to its right — a bare `<`
-    /// would have traded a collision at forty points for one at eight.
+    /// And not the Back button's either, the pill right beside it: a bare `<` would trade a clash at
+    /// forty points for one at eight.
     @Test func theCollapseGlyphIsNotTheBackChevron() {
         #expect(PaneBarItem.collapseSymbol != "chevron.left")
         #expect(PaneBarItem.collapseSymbol != "chevron.backward")
@@ -110,16 +99,15 @@ import Sync
                 "Back's glyph moved — the clash this guards against is now a different pair")
     }
 
-    /// The mark has to exist, or the button draws nothing at all and every geometry assertion in
-    /// `PaneNavMetricsTests` still passes over an empty frame.
+    /// The mark must exist, or the button draws nothing and `PaneNavMetricsTests` still passes over
+    /// an empty frame.
     @Test func theCollapseGlyphIsARealSymbol() {
         #expect(NSImage(systemSymbolName: PaneBarItem.collapseSymbol,
                         accessibilityDescription: nil) != nil)
     }
 
-    /// **The call site, not just the constant.** `PaneBarItem.collapseSymbol` being right is worth
-    /// nothing if the bar goes back to spelling a literal — which is the state this replaced, with
-    /// the same string written out in three places.
+    /// The call site, not just the constant: `PaneBarItem.collapseSymbol` is worth nothing if the
+    /// bar spells the glyph as a literal.
     @Test func theBarAndItsOverflowMenuBothDrawTheConstant() throws {
         let views = try Self.source("Sources/Dashboard/DashboardViews.swift")
         #expect(!views.contains("\"sidebar.left\""),
@@ -130,11 +118,10 @@ import Sync
 
     // MARK: The observer
 
-    /// **A rule with no caller is not a fix.** The two followers above and
-    /// `SettingsManager.followVolumeRename` are all reached from one place — `ContentView`'s
-    /// subscription to `didRenameVolumeNotification` — and nothing else in the app would notice if
-    /// that subscription were dropped. `MacApp/` is in no SPM package, so a source scan is the only
-    /// reading of it available from a test.
+    /// A rule with no caller is not a fix. The two followers above and
+    /// `SettingsManager.followVolumeRename` are reached only from `ContentView`'s subscription to
+    /// `didRenameVolumeNotification`, and nothing would notice it dropped. `MacApp/` is in no SPM
+    /// package, so a source scan is the only way a test can read it.
     @Test func contentViewFollowsTheVolumeRenameNotification() throws {
         let content = try Self.appSource("ContentView.swift")
         #expect(content.contains("didRenameVolumeNotification"),
@@ -145,9 +132,8 @@ import Sync
                 "the pins and recents are not moved when a volume is renamed")
     }
 
-    /// The sidebar's own way out of a dead source, for the rename that happened while SyncCloud was
-    /// quit and therefore could not be followed. Without the caller wiring it, the menu item is
-    /// present and does nothing.
+    /// The sidebar's way out of a dead source, for a rename made while SyncCloud was quit and so
+    /// not followed. Unless the caller wires it, the menu item is present and does nothing.
     @Test func theSidebarIsGivenAWayToRemoveAFolderSource() throws {
         let host = try Self.appSource("ContentView+FolderSidebar.swift")
         #expect(host.contains("onRemoveSource:"), "the sidebar is not given a removal handler")

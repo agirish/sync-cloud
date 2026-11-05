@@ -14,9 +14,9 @@ public class FileActionHandler {
     /// Read for the "Confirm before deleting" and "Link both panes" flags; injectable so tests don't
     /// mutate `.standard`.
     private let defaults: UserDefaults
-    /// The system pasteboard this handler copies to and pastes from — injected for the same reason
-    /// `defaults` is: a test that used the real one would clobber the developer's clipboard mid-session,
-    /// and one such test wrote a file into a temp dir from whatever happened to be on it.
+    /// The system pasteboard this handler copies to and pastes from. Injected for the same reason
+    /// as `defaults`: a test using the real one would clobber the developer's clipboard, and could
+    /// paste whatever happens to be on it.
     public let pasteboard: NSPasteboard
     /// Runs an AppleScript source, returning the error dictionary on failure (nil on success).
     /// Injectable so tests can capture the script instead of driving the real Finder.
@@ -55,7 +55,7 @@ public class FileActionHandler {
     /// The production AppleScript runner behind `appleScriptRunner`: executes via `NSAppleScript`
     /// and surfaces the error dictionary (nil when the script compiled and ran cleanly).
     /// `nonisolated` only so it can be a default argument; `openGetInfo` still calls it on the
-    /// main actor, exactly like the pre-seam inline implementation.
+    /// main actor.
     nonisolated static func executeAppleScript(_ source: String) -> NSDictionary? {
         guard let appleScript = NSAppleScript(source: source) else { return nil }
         var error: NSDictionary?
@@ -65,11 +65,10 @@ public class FileActionHandler {
     
     // MARK: - The run lock
 
-    /// **Refuses a write while a long run is going, and says why** (decision BZ). The window greys
-    /// every write control during a run, but some routes to these methods are keys rather than
-    /// controls — ⌫ in a list, ⌘V, ↩ to rename, the palette's New Folder — and a key cannot be
-    /// greyed. They land here and are told in the banner what a greyed control says in its tooltip.
-    /// Undo waits too (CF), but is not routed here: ⌘Z is the window's, refused by `RunUndoGate`.
+    /// Refuses a write while a long run is going, and says why. The window greys every write
+    /// control during a run, but some routes here are keys (⌫ in a list, ⌘V, ↩ to rename, the
+    /// palette's New Folder), and a key can't be greyed, so the banner says what a greyed control's
+    /// tooltip would. Undo waits too, but not here: ⌘Z is the window's, refused by `RunUndoGate`.
     private func refusedWhileRunning() -> Bool {
         guard let run = syncManager.activeProgress else { return false }
         let reason = run.runLockReason ?? Progress.genericRunLockReason
@@ -87,13 +86,11 @@ public class FileActionHandler {
     ///   - leftProviderId: Current left-pane provider ID (for path lookup).
     ///   - rightProviderId: Current right-pane provider ID.
     /// - Parameter suppressLinkedNavigation: whether to ignore the "Link both panes" toggle for this
-    ///   focus. **Required, with no default**, and that is the guard rather than a style choice: the
-    ///   one caller that needs it true is the single-source rail, which has no visible sibling pane,
-    ///   and dropping the argument there compiled silently and fell back to honoring the link —
-    ///   dragging the hidden pane along, growing its history, overwriting its saved focus for the
-    ///   next launch and recording "Recent" folders the user never visited. Nothing caught that:
-    ///   every delegate fixture is built with `handler: nil`, so the navigation half is a no-op in
-    ///   all of them, and the rule test calls this method directly, making itself its only reader.
+    ///   focus. **Required, with no default**, on purpose: the caller that needs it true is the
+    ///   single-source rail, which has no visible sibling pane, and a silent default would drag the
+    ///   hidden pane along, growing its history, overwriting its saved focus and recording "Recent"
+    ///   folders the user never visited. No delegate test would notice: their fixtures use
+    ///   `handler: nil`.
     public func focusFolder(_ node: FileNode, isLeft: Bool, leftProviderId: String, rightProviderId: String, suppressLinkedNavigation: Bool) {
         let side = isLeft ? "left" : "right"
         let rootPath = isLeft ? settings.rootPath(for: leftProviderId) : settings.rootPath(for: rightProviderId)
@@ -105,13 +102,11 @@ public class FileActionHandler {
         }
 
         let expandedRoot = (rootPath as NSString).expandingTildeInPath
-        // Same boundary rule as providerDisplayName(forPath:): the root itself or "root/…",
-        // never a bare string prefix ("/data/foo" must not claim "/data/foobar") — and, through
-        // `PathBoundary`, a folder the root links in from outside (iCloud Drive's `Documents`,
-        // listed by the walk as `~/Documents`), which a prefix test would refuse to focus. Where
-        // the id is not spelled under the root at all — below a folder symlink, under a root
-        // reached through one, that `Documents` under a root above iCloud Drive — the names down
-        // the pane's own tree place it instead.
+        // Same boundary rule as providerDisplayName(forPath:): the root itself or "root/…", never
+        // a bare string prefix ("/data/foo" must not claim "/data/foobar"). `PathBoundary` also
+        // admits a folder the root links in from outside (iCloud Drive's `Documents`, walked as
+        // `~/Documents`). Where the id isn't spelled under the root at all (below a folder
+        // symlink, or a root reached through one), the names down the pane's own tree place it.
         guard let relPath = syncManager.paneRelativePath(of: node, isLeft: isLeft, root: expandedRoot) else {
             syncManager.present(SyncError(
                 title: "Can’t Focus Folder",
@@ -121,21 +116,18 @@ public class FileActionHandler {
         }
 
         Logger.shared.info("User focused folder: \(relPath.isEmpty ? "root" : relPath)")
-        // Honor the breadcrumb "Link both panes" toggle here too. The feature promises the panes
-        // stay in lock-step "while drilling down," but drilling into a folder from the file list
-        // lands here — not on a breadcrumb crumb — so without this check only clicking an ancestor
-        // crumb ever moved the sibling pane. When linked, drive both panes to the same subfolder.
+        // Honor the "Link both panes" toggle here too: drilling into a folder from the file list
+        // lands here, not on a breadcrumb crumb, and the link promises lock-step while drilling
+        // down. When linked, drive both panes to the same subfolder.
         //
-        // `suppressLinkedNavigation` is the single-source rail's opt-out: the rail reuses the left pane's
-        // plumbing but has NO visible sibling — honoring the link there silently dragged the
-        // hidden right pane along (growing its history, overwriting its saved focus for the next
-        // launch, and recording "Recent" folders the user never visited).
+        // `suppressLinkedNavigation` is the single-source rail's opt-out: the rail reuses the left
+        // pane's plumbing but has no visible sibling to drag along.
         if PaneLinkPreference.isLinked(in: defaults) && !suppressLinkedNavigation {
-            // `relPath` is relative to THIS pane's root, and the sibling's root need not share its
-            // origin any more — a source lands at `openAt`, which is `""` for iCloud and two
-            // components deep for Google Drive. Handing the same string to both sent the sibling
-            // into a doubled `Documents` one way and into a real but unrelated top-level folder the
-            // other, where the comparison then diffed the wrong pair.
+            // `relPath` is relative to this pane's root, and the sibling's need not share its
+            // origin: a source lands at `openAt`, which is `""` for iCloud and two components deep
+            // for Google Drive. The same string for both would send the sibling into a doubled
+            // `Documents`, or into an unrelated folder, and the comparison would diff the wrong
+            // pair.
             let sibling = PathBoundary.reanchor(relPath,
                                                 from: syncManager.paneOpenAt(isLeft),
                                                 to: syncManager.paneOpenAt(!isLeft))
@@ -186,8 +178,8 @@ public class FileActionHandler {
     }
 
     /// Moves the given items to the opposite pane. Returns the nodes that were moved.
-    /// Confirmation lives in the sync layer's Settings-gated `transferConfirmer` — do not
-    /// add a prompt here; a second one makes every move double-confirm.
+    /// Confirmation lives in the sync layer's Settings-gated `transferConfirmer`. Don't add a
+    /// prompt here, or every move double-confirms.
     /// - Parameters: Same as `copyItems`; direction is determined by `fromLeft`.
     @discardableResult
     public func moveItems(_ nodes: [FileNode], fromLeft: Bool, leftProviderId: String, rightProviderId: String) async -> [FileNode] {
@@ -205,8 +197,8 @@ public class FileActionHandler {
     }
 
     /// The roots for a pane-to-pane transfer, or nil (after presenting an error) when either
-    /// pane's provider is no longer known or the source root has vanished from disk — the
-    /// window where a rediscovery pass dropped a provider while its stale tree is still showing.
+    /// pane's provider is no longer known or the source root has vanished from disk, as when a
+    /// rediscovery pass drops a provider while its stale tree is still showing.
     /// `settings.rootPath(for:)` returns "" for an unknown id, and an empty root must never reach
     /// the sync layer: it would resolve destinations against the process working directory.
     private func transferRoots(fromLeft: Bool, leftProviderId: String, rightProviderId: String) async -> (left: String, right: String)? {
@@ -247,8 +239,8 @@ public class FileActionHandler {
     /// Moves the given items into the directory at `destinationPath`.
     /// This is drag & drop's move route; unlike the cut+paste route it never touches the
     /// internal clipboard, and unlike the pane-to-pane move it targets an explicit directory.
-    /// Confirmation lives in the sync layer's `transferConfirmer` (same as the pane-to-pane
-    /// `moveItems` above — no prompt here).
+    /// Confirmation lives in the sync layer's `transferConfirmer`, as for the pane-to-pane
+    /// `moveItems` above: no prompt here.
     public func moveItems(_ nodes: [FileNode], toPath destinationPath: String) {
         guard !refusedWhileRunning() else { return }
         let destDisplayName = providerDisplayName(forPath: destinationPath)
@@ -266,10 +258,9 @@ public class FileActionHandler {
         pasteItems(nodes, toPath: validDestinationPath, isCut: isCut)
     }
     
-    /// Resolves the directory and hands over to `pasteClipboard(toPath:)`, which owns the
-    /// which-clipboard decision — the same resolution `pasteItems(_:to:isCut:)` does, kept here so
-    /// there is exactly one place that answers "where is a paste going" and one that answers
-    /// "what is being pasted".
+    /// Resolves the directory, as `pasteItems(_:to:isCut:)` does, and hands over to
+    /// `pasteClipboard(toPath:)`, which decides which clipboard to paste. One place answers where
+    /// a paste goes, one what is pasted.
     public func pasteClipboard(to targetDir: FileNode) {
         let destination = targetDir.isDirectory
             ? targetDir.id
@@ -277,23 +268,18 @@ public class FileActionHandler {
         pasteClipboard(toPath: destination)
     }
 
-    /// ⌘C / ⌘X — into the app's own clipboard **and** onto the system pasteboard.
-    ///
-    /// The second half is what makes ⌘C here and ⌘V in Finder work. The change count it returns is
-    /// what later tells a paste whether SyncCloud still owns the pasteboard; see
-    /// `FileSyncManager.clipboardPasteboardChangeCount`.
+    /// ⌘C / ⌘X: into the app's own clipboard and onto the system pasteboard, so ⌘C here and ⌘V in
+    /// Finder work. The change count returned later tells a paste whether SyncCloud still owns the
+    /// pasteboard; see `FileSyncManager.clipboardPasteboardChangeCount`.
     public func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {
-        // **Nothing selected changes nothing.** Before the pasteboard was involved this was
-        // harmless — it emptied a list that only this app read. It is not harmless now: writing an
-        // empty set clears `NSPasteboard.general`, so a ⌘C that copied nothing would throw away
-        // whatever the user had copied in another app. No caller does this today; the guard is
-        // here because the consequence of one that did changed when the bridge landed.
+        // Nothing selected changes nothing: writing an empty set clears `NSPasteboard.general`,
+        // so a ⌘C that copied nothing would throw away whatever the user copied in another app.
         guard !nodes.isEmpty else { return }
         Logger.shared.info("User \(isCut ? "cut" : "copied") \(nodes.count) item(s) to the clipboard")
         syncManager.clipboardNodes = nodes
         syncManager.clipboardIsCut = isCut
         // A cut writes what a copy writes: the pasteboard has no move flag that Finder reads, so a
-        // cut here pasted THERE copies. See `SystemClipboard.write`.
+        // cut here pasted in Finder copies. See `SystemClipboard.write`.
         syncManager.clipboardPasteboardChangeCount = SystemClipboard.write(paths: nodes.map(\.id),
                                                                              to: pasteboard)
     }
@@ -311,15 +297,11 @@ public class FileActionHandler {
                 syncManager.clipboardNodes.removeAll { successfullyMovedIds.contains($0.id) }
                 if syncManager.clipboardNodes.isEmpty {
                     syncManager.clipboardIsCut = false
-                    // **And the pasteboard with it, while we still own it.** A cut's paths are on
-                    // the system pasteboard too, and after the move they name files that are no
-                    // longer there. `hasFiles` reads what the pasteboard *says*, not what is on
-                    // disk — checking would be a `stat` per URL per render — so leaving them would
-                    // keep ⌘V and "Paste here" enabled over a paste that finds nothing and logs.
-                    // A control that cannot act does not offer to.
-                    //
-                    // Guarded on ownership for the obvious reason: if anything has copied since,
-                    // the board is theirs and clearing it would throw their copy away.
+                    // Clear the pasteboard too, while we still own it: after the move its paths
+                    // name files that are gone, and `hasFiles` reads what the pasteboard says,
+                    // not the disk, so ⌘V and "Paste here" would stay enabled over nothing.
+                    // Only while we own it: if anything has copied since, clearing would throw
+                    // their copy away.
                     if syncManager.clipboardPasteboardChangeCount == pasteboard.changeCount {
                         pasteboard.clearContents()
                         syncManager.clipboardPasteboardChangeCount = pasteboard.changeCount
@@ -336,15 +318,13 @@ public class FileActionHandler {
     
     /// ⌘V — from whichever clipboard last had something put on it.
     ///
-    /// **One rule, one clipboard, decided by `changeCount`** (`ClipboardSource.resolve`). While the
-    /// app still owns the pasteboard its own list wins, because that list carries `isCut` and is
-    /// therefore the only path that can move rather than copy. Once anything else has written, the
-    /// pasteboard is what a paste means — which is what a user who just pressed ⌘C in Finder
-    /// expects, and what a single-clipboard platform promises.
+    /// One clipboard, decided by `changeCount` (`ClipboardSource.resolve`). While the app still
+    /// owns the pasteboard its own list wins, because only that list carries `isCut` and can move.
+    /// Once anything else has written, the pasteboard is what a paste means, as a user who just
+    /// pressed ⌘C in Finder expects.
     ///
-    /// A pasteboard holding something that is not files ends in `.none` and pastes nothing, rather
-    /// than falling back to a stale in-app list: copying text elsewhere and then pressing ⌘V here
-    /// must not write files nobody asked for.
+    /// A pasteboard holding something other than files pastes nothing rather than falling back to
+    /// a stale in-app list: copying text elsewhere and pressing ⌘V here must not write files.
     public func pasteClipboard(toPath destinationPath: String) {
         guard !refusedWhileRunning() else { return }
         switch ClipboardSource.current(pasteboard: pasteboard,
@@ -354,9 +334,8 @@ public class FileActionHandler {
             pasteItems(syncManager.clipboardNodes, toPath: destinationPath,
                        isCut: syncManager.clipboardIsCut)
         case .system:
-            // Read again rather than reusing the probe above: `nodes` drops URLs whose file is no
-            // longer there, so this is the list that will actually be written, not the one that
-            // decided which clipboard to use.
+            // Read again rather than reusing the probe above: `nodes` drops URLs whose file is
+            // gone, so this is the list that will actually be written.
             let nodes = SystemClipboard.nodes(from: pasteboard)
             guard !nodes.isEmpty else {
                 Logger.shared.warning("Paste: the pasteboard's files are no longer on disk")
@@ -398,20 +377,20 @@ public class FileActionHandler {
     /// `verb` is the past-tense operation name ("Copied" or "Moved").
     ///
     /// `hiddenByFilter` is `typeFilterHiddenCounts` taken before the transfer: a folder carries
-    /// everything in it, and the result says how much of that the type filter was hiding (FJ), in
-    /// the Trash prompt's words. Only what landed counts.
+    /// everything in it, and the banner says how much of that the type filter was hiding, in the
+    /// Trash prompt's words. Only what landed counts.
     private func setTransferBanner(verb: String, _ nodes: [FileNode], to destinationName: String,
                                    hiddenByFilter: [String: Int] = [:]) {
         guard !nodes.isEmpty else { return }
         let includes = Self.filterHidingClause(nodes.reduce(0) { $0 + (hiddenByFilter[$1.id] ?? 0) })
-        // copyItems/moveItems register one grouped undo for the whole batch, so a single Undo (⌘Z)
-        // reverses it — the banner may offer the button.
+        // copyItems/moveItems register one grouped undo for the whole batch, so a single ⌘Z
+        // reverses it and the banner may offer the button.
         syncManager.banner = .success((nodes.count == 1
             ? "\(verb) “\(nodes[0].name)” to \(destinationName)"
             : "\(verb) \(nodes.count) items to \(destinationName)") + includes, undoable: true)
     }
 
-    /// ". Includes 3 items the filter is hiding", or "" for none — the Trash prompt's words (FJ).
+    /// ". Includes 3 items the filter is hiding", or "" for none: the Trash prompt's words.
     static func filterHidingClause(_ hidden: Int) -> String {
         hidden == 0 ? "" : ". Includes \(hidden == 1 ? "1 item" : "\(hidden.formatted()) items") the filter is hiding"
     }
@@ -431,9 +410,9 @@ public class FileActionHandler {
     public func beginCreateFolder(in path: String) {
         guard !refusedWhileRunning() else { return }
         // "" is the root of a pane whose provider vanished from settings (`settings.rootPath(for:)`
-        // for an unknown id) while its stale tree was still showing. The sync layer refuses it
-        // too; short-circuit here — like focusFolder/transferRoots — so the user is never
-        // prompted for a name the folder cannot get.
+        // for an unknown id) while its stale tree is still showing. The sync layer refuses it too;
+        // stopping here, like focusFolder/transferRoots, means no prompt for a name the folder
+        // can't get.
         guard !path.isEmpty else {
             syncManager.present(SyncError(
                 title: "Folder Unavailable",
@@ -448,21 +427,18 @@ public class FileActionHandler {
         }
     }
     
-    /// Deletes after the confirmation alert — or immediately when the user switched the
-    /// "Confirm before deleting" setting off (items still go to the Trash and stay undoable;
-    /// deletions that require a PERMANENT delete keep their own confirmation regardless).
+    /// Deletes after the confirmation alert, or at once when "Confirm before deleting" is off
+    /// (items still go to the Trash and stay undoable; a permanent delete keeps its own
+    /// confirmation regardless).
     ///
-    /// - Parameter alwaysConfirm: asks regardless of the setting. One caller passes it: the pane
-    ///   bar's Delete button, which is permanently visible beside Sort and Hidden Files rather
-    ///   than something you navigated a menu to reach. A stray click on a rung in a row of
-    ///   otherwise reversible controls is a different risk from a menu item chosen by name, and
-    ///   the setting is about the latter. The flag is per-CALL and defaults to off, so the row
-    ///   menu and ⌘⌫ keep honouring the preference exactly as before — this is not a second
-    ///   reading of the defaults key.
+    /// - Parameter alwaysConfirm: asks regardless of the setting. The pane bar's Delete button
+    ///   passes it: it sits beside reversible controls, where a stray click is a different risk
+    ///   from a menu item chosen by name, which is what the setting is about. Per call and off by
+    ///   default, so the row menu and ⌘⌫ keep honouring the preference.
     public func confirmDelete(_ nodes: [FileNode], alwaysConfirm: Bool = false) {
         guard !refusedWhileRunning() else { return }
-        // A folder goes with everything in it, including what the type filter hides (FJ). The
-        // prompt says so; with no prompt, the result has to.
+        // A folder goes with everything in it, including what the type filter hides. The prompt
+        // says so; with no prompt, the result banner has to.
         var unsaidHidden: [String: Int] = [:]
         if alwaysConfirm || GeneralSettings.shouldConfirmBeforeDelete(defaults) {
             guard deleteConfirmer(nodes.map { $0.name }, syncManager.itemsHiddenByTypeFilter(inside: nodes)) else { return }

@@ -7,12 +7,10 @@ import Design
 import FileExplorerTestSupport
 
 /// Measures a view the way AppKit will, in a real (never-ordered-in) window. The identical helper
-/// lives in Modules/Design/Tests/DesignTests/LensHeaderCardTests.swift — SPM offers no clean way
-/// to share test-support code across packages without minting a production library product.
-///
-/// It measures the LAID-OUT result on purpose: the card-gap regression in `4b1f611` survived 523
-/// green tests because the suite asserted constants against each other while the view that was
-/// meant to read them didn't.
+/// lives in Modules/Design/Tests/DesignTests/LensHeaderCardTests.swift: SPM offers no clean way to
+/// share test-support code across packages without a production library product. It measures the
+/// laid-out result, because asserting constants against each other can't see a view that ignores
+/// them.
 @MainActor
 private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     let host = NSHostingView(rootView: AnyView(view.frame(width: width)))
@@ -25,55 +23,49 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
 }
 
 /// The pane side of the shared header line. `LensHeaderCardTests.restsAt81Visible` pins the other
-/// side to the same `LiquidGlass.headerHeight`; together they are what make "both land on 83.5" a
-/// checked property rather than a drawing.
+/// side to the same `LiquidGlass.headerHeight`, so "both land on 83.5" is checked, not drawn.
 @MainActor
 @Suite(.serialized) struct PaneHeaderHeightTests {
 
-    /// Every width the pane can be, including the ones that used to collapse the header. Before it
-    /// was pinned this measured 80 / 80 / 68 — the narrow pane silently broke the line by 13pt,
-    /// which is precisely the drift the constant exists to stop.
+    /// The header rests at `headerHeight` at every width the pane can be, narrow ones included,
+    /// where an unpinned header would shrink and break the line.
     @Test(arguments: [CGFloat(560), CGFloat(400), CGFloat(250)])
     func restsAtHeaderHeightAtEveryWidth(width: CGFloat) {
         #expect(laidOutHeight(Self.header(providerName: "iCloud Drive"), width: width)
                 == LiquidGlass.headerHeight)
     }
 
-    /// The long-name degradation ladder (logo drops, name truncates, nav steps to `.mini`) changes
-    /// what's IN the header, never how tall it is.
+    /// A long source name in a narrow pane changes what's in the header (the name truncates, the
+    /// bar steps to `.mini`), never how tall it is.
     @Test func longProviderNameNarrowHoldsHeight() {
         #expect(laidOutHeight(Self.header(providerName: "Marketing Team Shared Archive Drive"),
                               width: 250) == LiquidGlass.headerHeight)
     }
 
-    /// No provider at all — the state with the least content, and the one that measured
-    /// shortest (66) before the pin.
+    /// No provider at all: the state with the least content, so the likeliest to shrink.
     @Test func sparseStateHoldsHeight() {
         #expect(laidOutHeight(Self.headerNoProvider(), width: 560) == LiquidGlass.headerHeight)
     }
 
-    /// The line itself: the pane header's bottom edge, in the pane's own coordinates, is the card
-    /// inset plus the header — 83.5. `LensHeaderCard`'s visible bottom edge lands on the same
-    /// number from the other side of the window.
+    /// The line itself: the pane header's bottom edge, in the pane's coordinates, is the card inset
+    /// plus the header, 83.5. `LensHeaderCard`'s visible bottom edge lands on the same number from
+    /// the other side of the window.
     @Test func headerBottomEdgeLandsOn83Point5() {
         let bottomEdge = LiquidGlass.cardInset + laidOutHeight(
             Self.header(providerName: "iCloud Drive"), width: 560)
         #expect(bottomEdge == 83.5)
     }
 
-    /// A full Columns bar sits in a cluster at the edge of what a 250pt pane holds — the rung
-    /// ladder exists because the controls barely fit the box. It must therefore cost the header no
-    /// height at any width: the ladder should fold controls into ⋯ rather than let the row grow.
+    /// A full Columns bar costs the header no height at any width: where the controls don't fit,
+    /// the ladder folds them into ⋯ rather than letting the row grow.
     @Test(arguments: [CGFloat(560), CGFloat(400), CGFloat(250)])
     func aFullBarCostsNoHeight(width: CGFloat) {
         #expect(laidOutHeight(Self.paneHeader(), width: width) == LiquidGlass.headerHeight)
     }
 
-    /// Both modes draw the same controls: nothing on the bar is offered to one presentation and not
-    /// the other. The second half is what keeps that from being vacuous — a header with no
-    /// view-mode switch at all draws strictly fewer, so "equal" is two headers that both drew the
-    /// switch rather than two that both lost it. (The Preview toggle was the last control that
-    /// could have differed by mode; it is the Info inspector's now, TE317 C.)
+    /// Both modes draw the same controls. The second half keeps that from being vacuous: a header
+    /// with no view-mode switch draws strictly fewer, so "equal" means both drew the switch, not
+    /// that both lost it.
     @Test func bothModesDrawTheSameControls() {
         let columns = Self.buttonCount(Self.paneHeader(mode: .columns), width: 560)
         let tree = Self.buttonCount(Self.paneHeader(mode: .tree), width: 560)
@@ -84,14 +76,10 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
 
     // MARK: Fixtures
 
-    /// Counts the header's laid-out controls — the rendered result, not the branch that was meant to
-    /// produce it.
-    ///
-    /// By `_FocusRingView`, not by `NSControl`: a SwiftUI `Button` with a custom style draws into a
-    /// layer and puts no control in the AppKit tree at all (every variant of this header reports the
-    /// same three `NSControl`s — the AppKit-backed menus — whatever else is on screen). The focus
-    /// rings are one per focusable control and do track, which is the same handle
-    /// `FoldAllAction`'s test had to reach for.
+    /// Counts the header's laid-out controls, the rendered result rather than the branch meant to
+    /// produce it. By `_FocusRingView`, not `NSControl`: a custom-styled SwiftUI `Button` puts no
+    /// control in the AppKit tree (only the AppKit-backed menus appear), while focus rings come one
+    /// per focusable control.
     @MainActor
     private static func buttonCount<V: View>(_ view: V, width: CGFloat) -> Int {
         let host = NSHostingView(rootView: AnyView(view.frame(width: width)))
@@ -117,9 +105,8 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
             viewMode: .constant(mode), onNewFolder: {})
     }
 
-    /// The same header with no view-mode switch — a surface that draws no pane presentation.
-    /// Identical in every other argument, so the difference in control count is the switch and
-    /// nothing else.
+    /// The same header with no view-mode switch, identical in every other argument, so the
+    /// difference in control count is the switch alone.
     private static func paneHeaderWithoutViewMode() -> PaneHeader {
         PaneHeader(
             title: "Left",
