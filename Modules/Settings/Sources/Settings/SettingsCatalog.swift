@@ -4,15 +4,15 @@ import Foundation
 import Sync
 
 // Every control in Settings, as data: what it is, where its value lives, its choices and default,
-// who may change it from Ask Claude, and what Claude may be told about it (TE290 step 1).
+// who may change it from Ask Claude, and what Claude may be told about it.
 //
-// **One entry per control, not per search-index row.** The index has 68 rows; some are headings
-// (People, Cloud providers, "Ask Claude"), one is a duplicate (Display name), and it misses controls
-// a person can change (the Ask Claude model, One-Way Sync's two pickers, Ignored items, several
-// Clear and Reset buttons). `SettingsCatalogTests` holds the two together: every index row reaches
-// an entry, and every stored key a Settings control reads is an entry or on a named exclusion list.
+// One entry per control, not per search-index row: some index rows are headings (People, Cloud
+// providers, "Ask Claude"), and the index misses controls a person can change (the Ask Claude
+// model, One-Way Sync's two pickers, Ignored items, several Clear and Reset buttons).
+// `SettingsCatalogTests` holds the two together: every index row reaches an entry, and every
+// stored key a Settings control reads is an entry or on a named exclusion list.
 //
-// Read-only in this step: nothing here reads or writes a value yet.
+// Pure data: nothing here reads or writes a value.
 
 /// A setting's value, in the four shapes Settings stores.
 public enum SettingValue: Hashable, Sendable, Codable, CustomStringConvertible {
@@ -62,7 +62,7 @@ public enum SettingControl: Hashable, Sendable {
     case readout
 }
 
-/// Who may change the setting from Ask Claude (decisions HJ, HM, HN).
+/// Who may change the setting from Ask Claude.
 public enum SettingTier: String, Hashable, Sendable, CaseIterable {
     /// Look and feel: Claude changes it when asked, with Undo.
     case direct
@@ -464,8 +464,8 @@ public enum SettingsCatalog {
           help: "Off: Apple Intelligence reads a file on this Mac, and its answer and text go to Claude only when you share them on the card. On: the answer and the passage it came from go without asking, and so do lookups; all of a document still waits for your click."),
         e("intelligence.hidden", .intelligence, "Hidden from Claude", indexed: true, others: ["Add…"],
           storage: .owner("AskClaudePrivacy"), control: .list, tier: .suggested, privacy: .countOnly, effects: .newChat),
-        // Never in chat (TE321): a folder shared without asking loosens what reaches Claude, so
-        // only the person sets it, from the shield menu, and only they take one off.
+        // Never in chat: a folder shared without asking loosens what reaches Claude, so only the
+        // person sets it, from the shield menu, and only they take one off.
         e("intelligence.shared", .intelligence, "Shared without asking", indexed: true,
           storage: .owner("AskClaudePrivacy"), control: .list, tier: .notInChat, privacy: .countOnly),
         e("intelligence.monthlyLimit", .intelligence, "Monthly limit", indexed: true,

@@ -3,8 +3,8 @@ import Testing
 import Sync
 @testable import Settings
 
-/// TE290 step 8: a card edits a list one item at a time, through the owners Settings uses, and
-/// never names what is hidden from Claude.
+/// A card edits a list one item at a time, through the owners Settings uses, and never names what
+/// is hidden from Claude.
 @MainActor
 @Suite struct SettingsListsTests {
 
@@ -72,8 +72,8 @@ import Sync
         #expect(SettingsLists.shown("sync.ignoredItems", scoped) == "Taxes/2023")
     }
 
-    /// TE290 review: an item already there is refused, so nothing records an edit that changed
-    /// nothing — and Undo of such a "hide" can't unhide a folder that was hidden all along.
+    /// An item already there is refused, so nothing records an edit that changed nothing, and Undo
+    /// of such a "hide" can't unhide a folder that was hidden all along.
     @Test func addingWhatIsAlreadyThereIsRefused() {
         let rig = Rig(#function); defer { wipeDefaultsSuite(rig.name) }
         let lists = rig.lists

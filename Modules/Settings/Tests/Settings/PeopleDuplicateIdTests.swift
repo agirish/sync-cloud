@@ -5,54 +5,23 @@ import Sync
 import Testing
 @testable import Settings
 
-/// **What a `people.json` with a repeated person id does to the Settings pane.**
+/// What a `people.json` with a repeated person id does to the Settings pane. The file is
+/// hand-edited and nothing rejects a repeated `id`. `PersonRegistry.init(people:)` collapses the
+/// roster to one record per id, so these tests pin the collapse and what the pane draws: one row,
+/// from the record that won. The no-crash guarantee is `PersonRegistryDuplicateIdTests`, in Sync,
+/// where the dedup is.
 ///
-/// `people.json` is written to be hand-edited, and nothing rejects a repeated `id`. That used to
-/// reach `PeopleList` as two entries with one id, where `allFacts` keyed them with
-/// `Dictionary(uniqueKeysWithValues:)` and **trapped** on the duplicate — on the main actor, while
-/// a settings pane rendered. Tolerant keying (`uniquingKeysWith:`) fixed the crash, and this file
-/// was the regression test it shipped without.
+/// `allFacts` still keys with `uniquingKeysWith:`, as a backstop: `uniqueKeysWithValues:` would
+/// trap on the main actor if the dedup ever regressed, and a trap can't be caught in-process.
 ///
-/// **That crash is now unreachable from here, and this file changed shape because of it.**
-/// `PersonRegistry.init(people:)` reduces the roster to one record per id before the store ever
-/// sees it, so `allFacts` cannot meet a repeated key by any path a user can produce. The earlier
-/// version of this suite asserted the opposite — that both copies survive — and said in as many
-/// words that a store which deduplicated would make its own render test vacuous. It was right, so
-/// the assertions below now pin the collapse instead of the duplication.
-///
-/// Two things follow, both deliberate:
-///
-/// - **`uniquingKeysWith:` stays** in `allFacts`. It is belt-and-braces now rather than the thing
-///   standing between the user and a trap, and removing it would re-arm that trap the moment the
-///   dedup above it regressed. A guard whose protection has moved upstream is not thereby wrong.
-/// - **The crash guarantee lives in `PersonRegistryDuplicateIdTests`**, in the Sync package, where
-///   the dedup is. What is tested *here* is what the pane draws — one row, from the record that
-///   won — which is the part the Settings module owns.
-///
-/// The pre-fix failure was a Swift runtime trap, which cannot be caught in-process: there is no
-/// `#expect(throws:)` for it and no death-test facility in swift-testing. Historically this file
-/// drove the path in a real hosting view so that reinstating `uniqueKeysWithValues` killed the test
-/// process rather than leaving a green suite; with the dedup in place that mutation is now caught
-/// upstream instead, by the Sync suite, and no longer by this one.
-///
-/// **`.machinePinned(.pixelSampling)`** — `renderedInk` below reads painted pixels back out of a
-/// live renderer (`bitmapImageRepForCachingDisplay` + `cacheDisplay` + `colorAt`), which is the
-/// declared meaning of that reason, so this suite has to stand down wherever its siblings do.
-/// It shipped as a bare `@Suite` under a commit message that claimed otherwise. There is no
-/// consequence while CI is this same Mac and excludes only `referenceImages,liveProfile` — but
-/// the day the runner moves, the undeclared suite is the one still sampling an uncalibrated
-/// renderer while every suite that declared itself correctly steps aside.
-///
-/// The trait is applied to the whole suite, as every pinned suite in this repo applies it, which
-/// does take the two members that sample nothing — the source scan and the collapse assertions —
-/// down with it. That is the accepted cost of the one-token declaration: a per-test gate is the
-/// shape that gets forgotten by a renamer, which is the gap `MachinePinnedReason` was minted to
-/// close.
+/// `.machinePinned(.pixelSampling)` because `renderedInk` reads painted pixels back with
+/// `colorAt`. The trait covers the whole suite, as every pinned suite does, so the two tests that
+/// sample nothing stand down with it.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct PeopleDuplicateIdTests {
 
-    /// Two people, one id — the shape a copy-pasted block leaves behind. The second entry differs in
-    /// every other field, so "last wins" is a visible choice rather than a coincidence.
+    /// Two people, one id, as a copy-pasted block leaves behind. The entries differ in every other
+    /// field, so "last wins" is visible.
     private static let duplicated = """
     {"schemaVersion": 1, "people": [
       {"id": "elder", "displayName": "Elder", "relationship": "father",
@@ -66,8 +35,8 @@ import Testing
             .appendingPathComponent("people-dup-\(UUID().uuidString)")
     }
 
-    /// Writes `people.json` for profile `t` and opens a store over it — the real load path, not a
-    /// roster handed in by hand, because the duplicate has to survive *decoding* to matter.
+    /// Writes `people.json` for profile `t` and opens a store over it: the real load path, because
+    /// the duplicate has to survive decoding to matter.
     private func storeOverFile(_ json: String, in dir: URL) throws -> PeopleStore {
         try FileManager.default.createDirectory(at: dir.appendingPathComponent("t"),
                                                 withIntermediateDirectories: true)
@@ -75,11 +44,9 @@ import Testing
         return PeopleStore(directory: dir, profileId: "t", profile: nil)
     }
 
-    /// Lays the view out in a real (never-ordered-in) borderless window — the same shape
-    /// `PaneBarCustomizeSheetTests` uses — and reads the result back as pixels.
-    ///
-    /// A window rather than a bare hosting view because the pane's colours and materials resolve
-    /// through one; never ordered in, so nothing appears on the machine running the tests.
+    /// Lays the view out in a borderless window, as `PaneBarCustomizeSheetTests` does, and reads
+    /// the result back as pixels. A window because the pane's colours and materials resolve through
+    /// one; never ordered in, so nothing appears on screen.
     private func renderedInk(_ view: some View, width: CGFloat) -> (ink: Int, height: CGFloat) {
         let subject = view
             .frame(width: width, alignment: .topLeading)
@@ -92,7 +59,7 @@ import Testing
         window.isReleasedWhenClosed = false
         window.colorSpace = .sRGB
         window.contentView = host
-        // The layout that evaluates `body` — and with it `allFacts`, which is where the trap was.
+        // The layout that evaluates `body`, and with it `allFacts`.
         host.layoutSubtreeIfNeeded()
         guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return (0, height) }
         host.cacheDisplay(in: host.bounds, to: rep)
@@ -113,18 +80,9 @@ import Testing
         PersonVetoLog(userDefaults: ScratchDefaults("PeopleDuplicateIdTests"))
     }
 
-    /// **The guard this suite says stays, enforced rather than asserted in prose.**
-    ///
-    /// The header above records a decision: `allFacts` keeps `uniquingKeysWith:` even though the
-    /// collapse upstream means no user input can now reach it with a repeated key. A guard kept for
-    /// a regression that has not happened yet is exactly the kind that gets "tidied" — and with no
-    /// test naming it, reverting that one call to `Dictionary(uniqueKeysWithValues:)` leaves the
-    /// entire repository green, because the trap is unreachable until the day the dedup breaks, at
-    /// which point both halves are gone at once.
-    ///
-    /// A source scan rather than a behavioural test, deliberately: there is no longer a way to
-    /// *drive* a duplicate into `allFacts`, so there is nothing to assert about. What is left worth
-    /// pinning is the text of the decision.
+    /// Pins the backstop: `allFacts` keeps `uniquingKeysWith:`. No input can reach it with a
+    /// repeated key, so reverting to `uniqueKeysWithValues:` would leave every other test green
+    /// until the dedup broke too. A source scan, because a duplicate can no longer be driven there.
     @Test func theFactsMapStaysTolerantOfARepeatedKey() throws {
         let source = try Self.settingsSource()
         let facts = try #require(source.range(of: "private var allFacts:"),
@@ -139,8 +97,7 @@ import Testing
                 "`allFacts` traps on a repeated key again")
     }
 
-    /// Reads `SettingsView.swift` off disk. `#filePath` walks up from the test file rather than
-    /// hardcoding a checkout location, so it works in any worktree.
+    /// Reads `SettingsView.swift` off disk, found from `#filePath` so it works in any worktree.
     private static func settingsSource() throws -> String {
         let root = URL(fileURLWithPath: #filePath)          // …/Tests/Settings/PeopleDuplicateIdTests.swift
             .deletingLastPathComponent()                     // …/Tests/Settings
@@ -150,12 +107,9 @@ import Testing
         return try String(contentsOf: root, encoding: .utf8)
     }
 
-    /// The premise, asserted before anything is rendered: the duplicate reaches the STORE, is
-    /// collapsed there, and the survivor is the last entry the file listed.
-    ///
-    /// The fixture's two blocks differ in every field but the id, so "last wins" is a visible
-    /// choice rather than a coincidence — a fixture whose two records agreed could not tell the
-    /// rule from its opposite.
+    /// The premise, before anything renders: the duplicate reaches the store, is collapsed there,
+    /// and the survivor is the file's last entry. The two blocks differ in every field but the id,
+    /// so the test can tell "last wins" from its opposite.
     @Test func aHandEditedRepeatedIdCollapsesToTheLastEntry() throws {
         let dir = scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -171,8 +125,8 @@ import Testing
         #expect(!store.rosterIsUnreadable, "a repeated id is valid JSON — it must not read as corrupt")
     }
 
-    /// **The regression itself: the pane renders.** `PeopleList`'s body computes `allFacts` (it feeds
-    /// `PeopleTester`), so laying this out is what used to trap.
+    /// The pane renders a roster with a repeated id. `PeopleList`'s body computes `allFacts` (it
+    /// feeds `PeopleTester`), so laying it out exercises the keying.
     @Test func thePeoplePaneRendersARosterWithARepeatedId() throws {
         let dir = scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -187,35 +141,20 @@ import Testing
             .padding(16),
             width: width)
 
-        // Survived — and drew a pane, rather than laying out to an empty strip. A crash never
-        // reaches this line; a blank one would pass an "it did not crash" test and fail this.
+        // Drew a pane, not an empty strip: a blank render would pass a bare "didn't crash" test.
         #expect(drawn.height > 100, "the pane laid out to \(drawn.height)pt — it drew almost nothing")
         #expect(drawn.ink > 2_000, "the pane rendered \(drawn.ink) inked pixels — it is blank")
     }
 
-    /// **A repeated id draws the surviving record, and says why edits will not save.**
-    ///
-    /// Two earlier versions of this test are worth knowing about, because both measured the wrong
-    /// thing. The first asserted that a duplicated roster and a two-person roster lay out to the
-    /// SAME height — a control for "a duplicate costs the pane nothing visible", true only because
-    /// `ForEach` keyed on `Person.id` drew the first record twice. The second inverted it after the
-    /// collapse landed: one row must be shorter than two. That one died the moment `PeopleList`
-    /// grew the note below, which makes the duplicated pane the TALLER of the two — so height
-    /// stopped separating "one row plus a note" from "two rows" altogether.
-    ///
-    /// Its ink limb was worse than wrong, it was inert: `repeated.ink > clean.ink / 3` expands to
-    /// `2C + R > 0` once the shared chrome `C` is written out, which holds for every value
-    /// including a row that drew nothing at all.
-    ///
-    /// So this compares the duplicated roster against **the one-person roster it is equivalent to**
-    /// — the surviving record, alone — and asserts the only two things that are now true and worth
-    /// having: the rows match pixel for pixel, and the duplicated pane is taller, by the note that
-    /// tells the user their file still holds a record this list is not showing.
+    /// A repeated id draws the surviving record, plus a note saying why edits won't save. Compared
+    /// against the one-person roster it collapses to: the duplicated pane must be taller by about a
+    /// line, not a row, and draw more ink. A comparison against a two-person roster can't separate
+    /// "one row plus a note" from "two rows".
     @Test func aRepeatedIdDrawsTheSurvivingRecordAndSaysEditsAreHeld() throws {
         let dir = scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        // The roster the duplicated one collapses TO: the file's last `elder` block, alone. Same
-        // bytes the survivor carries, so the rows below must draw identically.
+        // The roster the duplicated one collapses to: the file's last `elder` block, alone, so any
+        // difference between the two panes is the note.
         let equivalent = try storeOverFile("""
         {"schemaVersion": 1, "people": [
           {"id": "elder", "displayName": "Elder F", "relationship": "father-in-law",
@@ -233,24 +172,21 @@ import Testing
             }
             .padding(16)
         }
-        // The premise: one store is holding back its edits and the other is not, so the difference
-        // measured below is the note and nothing else.
+        // The premise: one store holds back its edits and the other doesn't.
         #expect(duplicated.repeatedRosterIds == ["elder"])
         #expect(equivalent.repeatedRosterIds.isEmpty)
 
         let one = renderedInk(pane(equivalent), width: width)
         let repeated = renderedInk(pane(duplicated), width: width)
 
-        // The harness can report a difference at all — without this every equality below could be
-        // two identical failures to render.
+        // The harness renders at all, or the comparisons below could be two blank renders.
         #expect(one.ink > 2_000, "the one-person pane inked \(one.ink) pixels — it is blank")
 
         #expect(repeated.height > one.height, """
                 the repeated-id pane (\(repeated.height)pt) is no taller than the same roster \
                 without the duplicate (\(one.height)pt) — the note saying edits are held is missing
                 """)
-        // A note is a line of text, not a second row: bounding it keeps this from passing if the
-        // pane started drawing the dropped record again underneath the note.
+        // A note is a line of text, not a row: the bound fails if the dropped record is drawn again.
         #expect(repeated.height - one.height < 80, """
                 the repeated-id pane is \(repeated.height - one.height)pt taller than the same \
                 roster without the duplicate — that is more than a note; a row came back

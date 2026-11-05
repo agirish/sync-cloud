@@ -5,15 +5,12 @@ import Sync
 
 /// The two per-location preferences: what it is called, and where a pane opens inside it.
 ///
-/// **Extracted so setup and Settings are the same control, not two spellings of it.** The guided
-/// setup sheet offers these under *More options* on its Locations screen; Settings ▸ Sources offers
-/// them inside a location's disclosure. They commit identically — Return or focus-loss for the
-/// name, a refusal line under the picker for a folder outside the root — because they are one view.
+/// One view for setup (*More options* on its Locations screen) and Settings ▸ Sources (inside a
+/// location's disclosure), so both commit the same way: Return or focus-loss for the name, a
+/// refusal line under the picker for a folder outside the root.
 ///
-/// The `SettingsRow`/`Toggle` titles are the same literals they were inside
-/// ``ProviderSettingsSection``, so `SettingsSearchTests.everyControlLabelInTheTabSourcesIsIndexed`
-/// still finds them; the file sits directly in `Sources/Settings/` because that scan reads one
-/// level of the directory and nothing below it.
+/// `SettingsSearchTests.everyControlLabelInTheTabSourcesIsIndexed` reads the `SettingsRow` and
+/// `Toggle` titles, and only one level of `Sources/Settings/`, so this file must stay directly in it.
 public struct ProviderOptionRows: View {
     @ObservedObject var settings: SettingsManager
     let provider: CloudProvider
@@ -23,8 +20,8 @@ public struct ProviderOptionRows: View {
 
     @State private var draftName: String = ""
     @FocusState private var nameFieldFocused: Bool
-    /// Why the last "Open at" pick was declined, or nil when none was. A picker that simply did
-    /// nothing would look broken rather than principled.
+    /// Why the last "Open at" pick was declined, or nil. A picker that silently did nothing would
+    /// look broken.
     @State private var openAtRefusal: String?
 
     public init(settings: SettingsManager, provider: CloudProvider, showsOpenAt: Bool = true) {
@@ -84,9 +81,8 @@ public struct ProviderOptionRows: View {
         VStack(alignment: .leading, spacing: 4) {
             SettingsRow("Open at") {
                 HStack(spacing: 8) {
-                    // **Monospaced only when it is a path.** "The source root" is an English
-                    // sentence standing in for a value, and setting it in the same face as a real
-                    // path says it is one.
+                    // Monospaced only when it is a path: "The source root" is a phrase, and a
+                    // path's face would claim it is one.
                     Text(openAtDisplay)
                         .scaledFont(provider.openAt.isEmpty ? .callout
                                                             : .system(.callout, design: .monospaced))
@@ -107,9 +103,8 @@ public struct ProviderOptionRows: View {
                 .disabled(!isEnabled)
             }
 
-            // Both, not `else if`. The missing-folder note is a standing fact about the location
-            // and the refusal is about the click just made; shadowing the first behind the second
-            // hid "your landing folder is gone" until the row was re-mounted.
+            // Both, not `else if`: the missing-folder note is a standing fact about the location,
+            // the refusal is about the last click, and one must not hide the other.
             if !provider.openAt.isEmpty, settings.isPathValid(for: provider.id),
                !settings.isLandingValid(for: provider.id) {
                 note("That folder isn’t there any more, so panes open at the root instead.")
@@ -129,10 +124,8 @@ public struct ProviderOptionRows: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The landing folder as the row shows it — the root-relative path, or a phrase for the root.
-    ///
-    /// A phrase rather than a blank line: `""` is a real, chosen value here, and panes on this
-    /// location do open somewhere.
+    /// The landing folder as the row shows it: the root-relative path, or a phrase for the root,
+    /// since `""` is a real, chosen value and panes do open somewhere.
     private var openAtDisplay: String {
         provider.openAt.isEmpty ? "The source root" : provider.openAt
     }
@@ -145,8 +138,7 @@ public struct ProviderOptionRows: View {
         panel.message = "Choose the folder \(provider.displayName) opens at"
         panel.prompt = "Open at"
         // Through the manager, not `provider.landingPath`: the value type joins root and `openAt`
-        // unconditionally, while the manager degrades to the root when the landing folder is not
-        // there.
+        // unconditionally, while the manager falls back to the root when the folder is missing.
         panel.directoryURL = URL(
             fileURLWithPath: (settings.landingPath(for: provider.id) as NSString).expandingTildeInPath)
 
@@ -158,9 +150,8 @@ public struct ProviderOptionRows: View {
 
 /// What the app says when a landing folder is declined.
 ///
-/// **One vocabulary, two rows.** Settings ▸ Sources and setup's Locations screen both offer this
-/// pick, and a refusal worded differently in the two places is the same defect as a rule
-/// implemented twice — the user reads one of them and learns the wrong thing about the other.
+/// One vocabulary for both rows that offer this pick, Settings ▸ Sources and setup's Locations
+/// screen, so a refusal reads the same in each.
 public enum OpenAtRefusal {
     public static func message(_ outcome: PathChangeOutcome,
                                provider: String) -> String? {
@@ -172,9 +163,9 @@ public enum OpenAtRefusal {
         case .refusedUnknownSource:
             return "\(provider) isn’t available right now, so its opening folder wasn’t changed."
         case .refusedDuplicate:
-            // Unreachable from this picker — a landing folder is not a source and cannot collide
-            // with one — but named rather than defaulted, so adding a case to the enum keeps
-            // failing here until someone decides what these rows should say about it.
+            // Unreachable here, since a landing folder isn't a source and can't collide with one.
+            // Named rather than defaulted, so a new enum case fails to compile here until someone
+            // decides what these rows say.
             return "That folder couldn’t be used as \(provider)’s opening folder."
         }
     }
@@ -182,8 +173,7 @@ public enum OpenAtRefusal {
 
 /// Which provider's folder-name rules names are checked against.
 ///
-/// **One global control, not a per-location one**, which is why it is extracted on its own: the
-/// rule applies to every name the app checks, wherever it came from.
+/// One global control, not per location: the rule applies to every name the app checks.
 public struct FolderNameRuleRow: View {
     @ObservedObject var settings: SettingsManager
 
@@ -210,10 +200,9 @@ public struct FolderNameRuleRow: View {
 
 /// The two filing preferences setup offers under *More options* on its Learn screen.
 ///
-/// **The same two keys Settings ▸ Organize and Settings ▸ Intelligence write**, read through the
-/// same constants rather than re-declared: the inbox folder is what the walk marks as refusing
-/// files, and the on-device pass is what Organize uses when a name alone is not enough. Both are
-/// live the moment they are touched, exactly as they are in Settings.
+/// The same two keys Settings ▸ Organize and Settings ▸ Intelligence write, through the same
+/// constants: the inbox folder, which the walk marks as refusing files, and the on-device pass
+/// Organize uses when a name alone isn't enough. Both take effect at once, as in Settings.
 public struct InboxAndSuggestionRows: View {
     @ObservedObject var settings: SettingsManager
 
@@ -227,8 +216,8 @@ public struct InboxAndSuggestionRows: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             SettingsRow("Loose-files inbox") {
-                // The placeholder is "None", not the key's default: a field deliberately emptied
-                // has to look different from one never touched.
+                // "None", not the key's default, so a field emptied on purpose looks different
+                // from one never touched.
                 TextField("None", text: $filingInbox)
                     .frame(width: 160)
                     .multilineTextAlignment(.trailing)

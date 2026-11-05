@@ -1,27 +1,17 @@
 import Testing
 @testable import Settings
 
-/// Pins the Location field's draft lifecycle — specifically what "Reset" leaves in the field.
-///
-/// The bug: `resetToDefault()` blanked the draft and relied on `onChange(of: provider.path)` to
-/// refill it. That refresh only fires when the published path actually CHANGES, and resetting a
-/// provider with NO override removes a defaults key that was never there — so nothing changed,
-/// nothing refreshed, and the field sat empty. Then a focus-blur committed that empty string,
-/// which `SettingsManager.setPath` records as "User cleared custom path mapping" for a provider
-/// that never had one.
-///
-/// The two cases differ only in whether an external change follows, which is why they are tested
-/// as sequences rather than as single calls.
-///
-/// The follow-up bug — fixing the blank field re-committed the override instead, because the
-/// rediscovery correction arrives while the field is still focused and was declined as mid-edit —
-/// is why they are tested as sequences with the FOCUS state varied too, not just the path.
+/// Pins the Location field's draft lifecycle, especially what Reset leaves in the field. Reset
+/// can't rely on `onChange(of: provider.path)` to refill the field: with no override, nothing
+/// changes and no refresh comes, and a blank field's blur would commit "" and log a cleared mapping
+/// for a provider that never had one. With an override, the rediscovered default arrives while
+/// the field still has focus. So the tests are sequences, varying both the path and focus.
 @Suite struct ProviderPathDraftTests {
 
     private let iCloudDefault = "/Users/me/Library/Mobile Documents/com~apple~CloudDocs"
 
-    /// The case that was broken. No override → `resetPath` changes nothing → no refresh is coming,
-    /// so the draft has to be correct the moment Reset returns.
+    /// With no override, `resetPath` changes nothing and no refresh is coming, so the draft has to
+    /// be right the moment Reset returns.
     @Test func testResetWithNoOverrideLeavesTheFieldShowingTheDefault() {
         var draft = ProviderPathDraft()
         draft.adopt(iCloudDefault)
@@ -29,15 +19,13 @@ import Testing
         draft.reset(toEffective: iCloudDefault)
         #expect(draft.value == iCloudDefault)
 
-        // The consequence that made the blank field more than cosmetic: with the effective path in
-        // the field, the blur that follows is a no-op instead of committing "" and logging a
-        // cleared override for a provider that never had one.
+        // With the effective path in the field, the blur that follows writes nothing instead of
+        // committing "" and logging a cleared override for a provider that never had one.
         #expect(!ProviderFieldEdit.shouldCommit(draft: draft.value, committed: iCloudDefault))
     }
 
-    /// The case that appeared to work. An override IS cleared, so discovery republishes a
-    /// different path and the refresh arrives — but the field must still be honest in between,
-    /// never blank.
+    /// With an override, discovery republishes a different path and the refresh arrives, but the
+    /// field must not be blank in between.
     @Test func testResetWithAnOverrideShowsTheOldPathThenAdoptsTheRediscoveredDefault() {
         var draft = ProviderPathDraft()
         draft.adopt("/Volumes/Archive/iCloud")
@@ -51,8 +39,7 @@ import Testing
         #expect(draft.value == iCloudDefault)
     }
 
-    /// Reset never yields an empty field for either provider shape — the one property the old code
-    /// violated, stated directly so a future edit can't reintroduce it through some other route.
+    /// Reset never leaves the field empty, whatever the effective path.
     @Test func testResetNeverBlanksTheFieldForAnyEffectivePath() {
         for effective in [iCloudDefault, "/Volumes/Archive/iCloud", "/Users/me/Dropbox"] {
             var draft = ProviderPathDraft()
@@ -62,8 +49,8 @@ import Testing
         }
     }
 
-    /// The pre-existing guard this refactor had to preserve: a concurrent `discoverProviders()`
-    /// must not overwrite what the user is in the middle of typing.
+    /// A concurrent `discoverProviders()` must not overwrite what the user is in the middle of
+    /// typing.
     @Test func testAnExternalChangeIsIgnoredWhileTheUserIsEditing() {
         var draft = ProviderPathDraft()
         draft.adopt(iCloudDefault)
@@ -76,37 +63,30 @@ import Testing
         #expect(draft.value == "/Users/me/Rediscovered")
     }
 
-    /// The composition the two halves above never made: Reset AND the rediscovery it starts,
-    /// landing while the Location field still has focus.
-    ///
-    /// Clicking a macOS button does not blur a text field, so the `onChange(of: provider.path)`
-    /// that carries the restored default arrives with `isEditing: true`. A draft that DECLINED it
-    /// as "the user is typing" kept showing the override Reset had just cleared — and the eventual
-    /// blur then committed it: `shouldCommit(draft: oldOverride, committed: default)` is true, so
-    /// `setPath` wrote the override back and Reset silently undid itself. Reset has to win.
+    /// Reset and the rediscovery it starts, landing while the Location field still has focus.
+    /// Clicking a macOS button doesn't blur a text field, so the restored default arrives with
+    /// `isEditing: true`. Declined as typing, the field would keep showing the cleared override and
+    /// the next blur would write it back, silently undoing Reset. Reset has to win.
     @Test func testResetSurvivesARediscoveryThatLandsWhileTheFieldStillHasFocus() {
         let override = "/Volumes/Archive/iCloud"
         var draft = ProviderPathDraft()
         draft.adopt(override)
 
         draft.reset(toEffective: override)
-        // Discovery answers while the field is still focused — the case the Reset button always
-        // produces, since it never takes focus away from the field beside it.
+        // Discovery answers while the field is still focused, as it always does after Reset,
+        // which never takes focus from the field beside it.
         draft.adoptExternalChange(to: iCloudDefault, isEditing: true)
         #expect(draft.value == iCloudDefault)
 
-        // The two things the blur that follows must NOT do: restore the override the user just
-        // cleared, or commit an empty string (logged as "User cleared custom path mapping" for a
-        // provider whose mapping was just reset — the spurious line the blank field used to emit).
+        // The blur that follows must neither restore the override just cleared nor commit an
+        // empty string (logged as "User cleared custom path mapping").
         #expect(!draft.value.isEmpty)
         #expect(!ProviderFieldEdit.shouldCommit(draft: draft.value, committed: iCloudDefault))
     }
 
-    /// The precision half of the rule above: the reset only outranks the editing guard while the
-    /// field still shows what Reset left there. A user who pressed Reset and then began typing a
-    /// replacement path is editing again, so a discovery pass landing mid-word must still be
-    /// declined — otherwise the fix for Reset would reintroduce the very draft-clobbering the
-    /// `isEditing` guard exists to prevent.
+    /// The reset outranks the editing guard only while the field still shows what Reset left. A
+    /// user who then starts typing is editing again, so a discovery pass landing mid-word is still
+    /// declined.
     @Test func testTypingAfterResetRestoresTheEditingGuard() {
         var draft = ProviderPathDraft()
         draft.adopt("/Volumes/Archive/iCloud")

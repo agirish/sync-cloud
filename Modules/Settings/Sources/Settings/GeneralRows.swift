@@ -7,17 +7,12 @@ import SwiftUI
 /// The four General preferences the guided setup sheet offers under *More options*, and the two of
 /// them that carry a state machine.
 ///
-/// **Extracted so setup and Settings ▸ General are the same controls, not two spellings of them.**
-/// Two of the four are more than a stored boolean: launch-at-login is an `SMAppService` round-trip
-/// with an echo guard between the toggle and the service, and the notification toggle has to ask
-/// macOS for permission on the way on and say so when it is refused. A second copy of either in
-/// setup would be a second implementation of a state machine that took several attempts to get
-/// right the first time.
+/// Shared so setup and Settings ▸ General are the same controls. Launch-at-login is an
+/// `SMAppService` round-trip with an echo guard, and the notification toggle asks macOS for
+/// permission and says when it is refused; a second copy would be a second state machine.
 ///
-/// The rows keep their `Toggle` titles exactly as they were, so
-/// `SettingsSearchTests.everyControlLabelInTheTabSourcesIsIndexed` still finds them — and this file
-/// sits directly in `Sources/Settings/`, because that scan reads one level of the directory and
-/// nothing below it.
+/// `SettingsSearchTests.everyControlLabelInTheTabSourcesIsIndexed` reads the `Toggle` titles, and
+/// only one level of `Sources/Settings/`, so this file must stay directly in it.
 
 /// Launch at login, with the service round-trip and its approval hint. The state machine lives in
 /// `LoginItemController.shared`, so this row and any other control (setup's row, an Ask Claude
@@ -48,8 +43,8 @@ public struct LaunchAtLoginRow: View {
         }
     }
         .task { loginItem.refresh() }
-        // Approving the login item happens in System Settings, so this footer's hint goes stale
-        // exactly while the tab is still open. Coming back to the app re-activates it.
+        // Approval happens in System Settings, so the hint goes stale while the tab is open;
+        // coming back to the app refreshes it.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             loginItem.refresh()
         }
@@ -98,17 +93,15 @@ public struct NotifyInBackgroundRow: View {
     }
 }
 
-/// The four rows together, for setup's *More options*.
-///
-/// **The notification toggle really does request permission here**, because it is the Settings row
-/// — a copy that only wrote the key would leave a user who turned it on during setup waiting for
-/// notifications that were never authorised.
+/// The four rows together, for setup's *More options*. The notification toggle requests permission
+/// here too, because it is the Settings row: one that only wrote the key would wait for
+/// notifications never authorised.
 public struct GeneralRows: View {
     @AppStorage(GeneralSettings.warnBeforeQuitKey) private var warnBeforeQuit: Bool = true
     @AppStorage(GeneralSettings.restoreLastFocusKey) private var restoreLastFocus: Bool = true
 
-    /// No `SettingsManager`: all four of these are stored preferences, and two of them talk to the
-    /// system rather than to the app. Taking a manager it never reads would say otherwise.
+    /// No `SettingsManager`: all four are stored preferences, and two talk to the system, not the
+    /// app.
     public init() {}
 
     public var body: some View {

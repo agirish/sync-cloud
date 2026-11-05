@@ -3,12 +3,12 @@ import Events
 import Foundation
 import Sync
 
-/// Changes a setting from outside Settings — an Ask Claude card (TE290 step 4a) — the way Settings
-/// changes it: through its owner, with the same side effect, so nothing is stored without it.
+/// Changes a setting from outside Settings, such as an Ask Claude card, the way Settings changes
+/// it: through its owner, with the same side effect, so nothing is stored without it.
 ///
 /// `SettingsManager` never re-reads the preferences it writes, so a setting it owns is set on the
-/// manager, never on the key. The side effects step 0a moved out of the views are called here too:
-/// notification permission, the running log level, Column widths' question, the login item.
+/// manager, never on the key. The views' side effects run here too: notification permission, the
+/// running log level, Column widths' question, the login item.
 @MainActor
 public struct SettingsWriter {
 
@@ -48,7 +48,7 @@ public struct SettingsWriter {
     }
 
     /// The settings a write applies only once the sources are discovered again: reading one
-    /// straight after its write still gives the old value (TE290 step 9).
+    /// straight after its write still gives the old value.
     public static let appliedByDiscovery: Set<String> = ["sources.name", "sources.path", "sources.openAt"]
 
     /// Writes `value` to the setting `id` (for `target`, when it belongs to one).
@@ -99,7 +99,7 @@ public struct SettingsWriter {
             // SettingsManager refuses to switch off the last source, silently.
             if settings.isEnabled(target) != on { return .refused("Your only source can’t be turned off.") }
 
-        // A source's name, path and Open at (TE290 step 9), as Settings' rows set them.
+        // A source's name, path and Open at, as Settings' rows set them.
         case ("sources.name", .string(let name)):
             guard let settings, let target, settings.availableProviders.contains(where: { $0.id == target }) else {
                 return .refused("Say which source.")
@@ -133,7 +133,7 @@ public struct SettingsWriter {
         case ("general.launchAtLogin", .bool(let on)):
             setLoginItem(on)
 
-        // Stored keys whose views did more than store them (step 0a).
+        // Stored keys whose views do more than store them.
         case ("general.notifyInBackground", .bool(let on)):
             defaults.set(on, forKey: GeneralSettings.notifyOnBackgroundCompletionKey)
             if on {
@@ -223,8 +223,8 @@ public struct SettingsWriter {
         }
     }
 
-    /// Text Claude offers for a field (TE290 step 9), held to what Settings would take: one line
-    /// of up to 64 characters, with no control or direction-changing characters.
+    /// Text Claude offers for a field, held to what Settings would take: one line of up to 64
+    /// characters, with no control or direction-changing characters.
     public static func acceptsClaudesText(_ text: String) -> Bool {
         text.count <= 64 && !text.unicodeScalars.contains { scalar in
             CharacterSet.controlCharacters.contains(scalar) || (0x202A...0x202E).contains(scalar.value)

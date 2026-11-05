@@ -1,36 +1,31 @@
 import Design
 import Foundation
 
-/// What Settings asks before a control throws away something one click cannot bring back (HR).
+/// What Settings asks before a control throws away something one click can't bring back: a folder
+/// source's Remove, the ignored items' and kept names' Clear All, the saved suggestions' Clear,
+/// "All columns" for column widths, and Hidden from Claude's Remove. None touches the user's
+/// files. Most forget choices made by hand; saved suggestions return, but the next Refine pays
+/// Claude again; Hidden from Claude's Remove widens what Claude may see. They ask as Reset Setup,
+/// Reset All Settings and Clear Log do.
 ///
-/// **Five controls did it on one click**: a folder source's Remove, the ignored items' and the kept
-/// names' Clear All, the saved suggestions' Clear, and choosing "All columns" for column widths.
-/// None of them touches the user's files. Four forget choices made by hand, which come back only
-/// by making them again; the saved suggestions come back on their own, but the next Refine pays
-/// Claude again for every file to get them. Reset Setup, Reset All Settings and Clear Log already
-/// asked; these ask the same way.
-///
-/// **A sixth asks the same way** (decision IP): Hidden from Claude's Remove. It forgets nothing
-/// by hand, but it is the one removal that widens what Claude may see, and it was one click.
-///
-/// The words live here, beside one another, so the six read as one voice; each control's gate is
-/// beside the control. Public so a control outside Settings — an Ask Claude card (TE290) — asks
-/// in the same words; of the gates, only Column widths' (`ColumnResizeChoice`) is public so far.
+/// The words live here together so they read as one voice; each gate sits beside its control.
+/// Public so a control outside Settings, such as an Ask Claude card, asks in the same words; of
+/// the gates, only Column widths' (`ColumnResizeChoice`) is public so far.
 public struct RemovalPrompt: Equatable, Sendable {
     public let messageText: String
     public let informativeText: String
     public let confirmTitle: String
 
-    /// The standard alert: Cancel is the default, and the destructive button takes no Return key —
-    /// the same alert Reset All Settings… and Clear Log ask with.
+    /// The standard alert: Cancel is the default, and the destructive button takes no Return key,
+    /// as in Reset All Settings… and Clear Log.
     @MainActor public func ask() -> Bool {
         NativeAlerts.confirmIrreversible(messageText: messageText,
                                          informativeText: informativeText,
                                          confirmTitle: confirmTitle)
     }
 
-    /// Ask, and only then act. Taking the confirmer is what makes the decision reachable from a
-    /// test — a button's closure is not — and keeps a control from acting by forgetting to ask.
+    /// Ask, and only then act. Taking the confirmer lets a test reach the decision, and keeps a
+    /// control from acting by forgetting to ask.
     /// - Returns: Whether `act` ran.
     @discardableResult
     public static func actIfConfirmed(confirm: () -> Bool, act: () -> Void) -> Bool {
@@ -73,8 +68,8 @@ public struct RemovalPrompt: Equatable, Sendable {
             confirmTitle: "Clear All")
     }
 
-    /// Intelligence ▸ Saved suggestions ▸ Clear. Says the cost, because that is the part of this
-    /// clear nobody would guess: the next Refine pays Claude again for every file.
+    /// Intelligence ▸ Saved suggestions ▸ Clear. Says the cost nobody would guess: the next Refine
+    /// pays Claude again for every file.
     public static func clearSavedSuggestions(count: Int) -> RemovalPrompt {
         RemovalPrompt(
             messageText: count == 1 ? "Clear 1 saved suggestion?"

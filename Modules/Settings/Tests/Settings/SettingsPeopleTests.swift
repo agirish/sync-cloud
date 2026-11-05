@@ -3,8 +3,8 @@ import Testing
 import Sync
 @testable import Settings
 
-/// TE290 step 9, part 2: People on a card, through the store Settings edits — a person as one
-/// value for undo, the order as one value, and Settings' own refusals.
+/// People on a card, through the store Settings edits: a person as one value for undo, the order
+/// as one value, and Settings' own refusals.
 @MainActor
 @Suite struct SettingsPeopleTests {
 

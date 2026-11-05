@@ -3,25 +3,16 @@ import Sync
 import Testing
 @testable import Settings
 
-/// Where "Look for Names" reads from — and that it no longer depends on a scan having run.
-///
-/// The button was offered whenever a profile was loaded, which is every launch, but the root it
-/// read was the last Filing scan's provider root, which exists only after a To File scan in the
-/// same session. `look()` bailed silently on the nil, so the button did nothing for anyone who
-/// opened Settings before running a scan — the user's report was "no longer seems to work", and
-/// `~/sync-cloud.log` had one `People: read` line from the day the feature shipped and none in
-/// the four weeks since. The profile's own root is the tree its folder paths are relative to,
-/// and it is there whenever the profile is.
+/// Where "Look for Names" reads from: the profile's own root, the tree its folder paths are
+/// relative to, which exists whenever the profile does. The last Filing scan's provider root
+/// exists only after a To File scan in the same session, so reading it would leave the button
+/// silently doing nothing on most launches.
 struct PeopleLookRootTests {
 
-    /// The recorded root, tilde-expanded — the same resolution every other reader of the profile
-    /// uses, so the folders the scanner appends to it are the folders the survey walked.
-    ///
-    /// Measured while mutation-testing this: `URL(fileURLWithPath:)` expands a leading `~` on its
-    /// own, so dropping the explicit `expandingTildeInPath` is an equivalent program and this
-    /// test cannot tell the two apart. It is kept for consistency with the other readers, not
-    /// because the URL needs it. What the test DOES catch is a root that ignores the profile —
-    /// the home directory, say — which fails both expectations.
+    /// The recorded root, tilde-expanded as every other reader of the profile does it, so the
+    /// folders the scanner appends are the ones the survey walked. Fails if the root ignores the
+    /// profile. `URL(fileURLWithPath:)` expands `~` itself, so dropping `expandingTildeInPath`
+    /// passes too.
     @Test func theLookRootIsTheProfilesOwnTree() {
         let profile = FolderProfile(profileId: "t", root: "~/Documents", folders: [:],
                                     personTokens: [])
@@ -33,11 +24,10 @@ struct PeopleLookRootTests {
         #expect(PeopleList.lookRoot(for: absolute).path == "/Volumes/Archive/Docs")
     }
 
-    /// The regression, pinned at the source: `PeopleList` takes no provider root from the engine
-    /// and `look()` derives its root from the profile it already has. A behavioural test cannot
-    /// press the button — `look()` is private and `@State` has no storage off-screen — so this
-    /// asserts the shape that made the button dead is gone, bounded to the one declaration and
-    /// failing loudly if that declaration moves.
+    /// Pinned at the source: `PeopleList` takes no provider root from the engine and `look()`
+    /// derives its root from the profile. A test can't press the button (`look()` is private and
+    /// `@State` has no storage off-screen), so this scans the one declaration, failing loudly if it
+    /// moves.
     @Test func lookForNamesNoLongerWaitsOnAFilingScan() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -54,7 +44,7 @@ struct PeopleLookRootTests {
                 "PeopleList reads a provider root again — that is the scan-dependent value that left the button dead")
         #expect(declaration.contains("Self.lookRoot(for: profile)"),
                 "look() no longer resolves its root from the profile")
-        // And the caller of `filingLastProviderRoot` that fed it is gone from the tab.
+        // And the tab doesn't feed it `filingLastProviderRoot`.
         let tab = try #require(source.range(of: "struct PeopleSettingsTab: View {"))
         let tabDeclaration = String(source[tab.upperBound...].prefix(1_500))
         #expect(!tabDeclaration.contains("filingLastProviderRoot"),

@@ -3,14 +3,13 @@ import Foundation
 @testable import Settings
 import Sync
 
-/// Provider discovery must not report "you have no cloud accounts" when what actually happened is
-/// "I could not read the folder they live in".
+/// Provider discovery must not report "no cloud accounts" when it could not read the folder they
+/// live in.
 ///
-/// `discoverProviders` **publishes over** `availableProviders`, so an empty answer from a failed
-/// listing does not merely go unnoticed — it removes every Dropbox / Google Drive / OneDrive the
-/// user has, and leaves the always-present iCloud entry behind to make the result look plausible.
-/// The `if let enumerator = …` that used to guard this had an else-branch the filesystem never
-/// reaches: `FileManager.enumerator(at:)` is non-nil for a directory it cannot list.
+/// `discoverProviders` publishes over `availableProviders`, so an empty answer from a failed
+/// listing would remove every Dropbox, Google Drive and OneDrive account, leaving iCloud behind
+/// to look plausible. `FileManager.enumerator(at:)` is non-nil even for a directory it can't list,
+/// so a nil check can't catch this.
 @Suite struct CloudStorageRootReadabilityTests {
 
     // MARK: The lister, against a real directory
@@ -42,11 +41,10 @@ import Sync
     }
 
     @Test func anAbsentRootIsAlsoAnHonestEmptyAnswer() throws {
-        // A Mac that has never mounted a cloud account has no ~/Library/CloudStorage at all. This is
-        // why the root is stat'ed before it is listed: the enumerator's error handler fires for a
-        // MISSING directory exactly as it does for an unreadable one (measured: NSFileNoSuchFileError
-        // 260 vs NSFileReadNoPermissionError 257), so keying off the handler alone would report a
-        // failure on every such Mac.
+        // A Mac that never mounted a cloud account has no ~/Library/CloudStorage. The root is
+        // stat'ed before listing because the enumerator's error handler fires for a missing
+        // directory just as for an unreadable one, so the handler alone would report a failure on
+        // every such Mac.
         let root = try makeRoot("absent")
         try FileManager.default.removeItem(at: root)
         let accounts = SettingsManager.cloudStorageFolders(at: root)
@@ -60,12 +58,11 @@ import Sync
             try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
             try? FileManager.default.removeItem(at: root)
         }
-        // Real accounts are in there — the whole point is that the listing cannot see them.
+        // Real accounts are in there; the point is that the listing can't see them.
         try FileManager.default.createDirectory(at: root.appendingPathComponent("Dropbox"),
                                                 withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: root.path)
-        // The fixture is only meaningful if the directory really did become unlistable here; a
-        // process that could still read it would make every assertion below pass vacuously.
+        // The directory must really be unlistable, or every check below passes vacuously.
         try #require((try? FileManager.default.contentsOfDirectory(atPath: root.path)) == nil)
 
         let accounts = SettingsManager.cloudStorageFolders(at: root)
@@ -95,7 +92,7 @@ import Sync
         #expect(found.contains("Dropbox"))
         #expect(found.contains("OneDrive-Personal"))
 
-        // The CloudStorage folder becomes unreadable. Discovery learns nothing — it must not
+        // The CloudStorage folder becomes unreadable. Discovery learns nothing, so it must not
         // conclude the accounts are gone.
         readable.value = false
         await settings.discoverProviders()
@@ -104,9 +101,8 @@ import Sync
 
     @MainActor
     @Test func aReadableRootWithNothingInItStillRemovesTheAccounts() async {
-        // The other direction, and the one that decides whether the guard above is a fix or an
-        // outage: a user who really does unlink every account must see them go. Only an UNREADABLE
-        // root is refused, and a root that lost its accounts is readable and empty.
+        // The other direction: a user who unlinks every account must see them go. Only an
+        // unreadable root is refused; a root that lost its accounts is readable and empty.
         let test = TestDefaults()
         let mounted = Mutable(true)
         let settings = SettingsManager(
@@ -123,17 +119,16 @@ import Sync
         mounted.value = false
         await settings.discoverProviders()
         #expect(!settings.availableProviders.map(\.id).contains("Dropbox"))
-        // iCloud is synthesized rather than discovered, so it stays — that is what makes a
-        // truncated list look plausible, and why the guard above matters.
+        // iCloud is synthesized, not discovered, so it stays; that is what makes a truncated list
+        // look plausible.
         #expect(settings.availableProviders.map(\.id) == ["iCloud"])
     }
 
     @MainActor
     @Test func anUnreadableRootStillPublishesEverythingItDidLearn() async {
-        // The failure is confined to the one thing the listing is evidence about. A pass that
-        // cannot read the root still re-stats every provider's path, and that answer must reach
-        // the UI: the earlier shape REFUSED THE WHOLE PUBLISH, so a provider whose folder had been
-        // deleted went on showing a valid badge for as long as the root stayed unreadable.
+        // The failure is confined to what the listing is evidence about. A pass that can't read the
+        // root still re-stats every provider's path, and that must reach the UI, or a deleted
+        // folder keeps a valid badge for as long as the root stays unreadable.
         let test = TestDefaults()
         let readable = Mutable(true)
         let dropboxIsValid = Mutable(true)
@@ -153,20 +148,18 @@ import Sync
         dropboxIsValid.value = false
         await settings.discoverProviders()
 
-        // Still listed — the unreadable root is no evidence the account is gone …
+        // Still listed: the unreadable root is no evidence the account is gone …
         #expect(settings.availableProviders.map(\.id).contains("Dropbox"))
-        // … and the fact the pass DID establish is published rather than discarded with it.
+        // … and what the pass did establish is published, not discarded.
         #expect(settings.pathValidity["Dropbox"] == false,
                 "a stale validity badge outlived the pass that disproved it")
     }
 
     @MainActor
     @Test func addingAFolderSourceWhileTheRootIsUnreadableKeepsTheAccountsToo() async {
-        // The case a provider COUNT could not see. `availableProviders` holds folder sources
-        // alongside the discovered accounts, so "fewer than before" stopped being a reliable sign
-        // that accounts had been dropped: lose one account and gain one folder source and the
-        // count is unchanged. `addFolderSource` calls `discoverProviders()` itself, so this is the
-        // ordinary sequence rather than a contrived one.
+        // A provider count can't see this case: `availableProviders` holds folder sources too, so
+        // losing an account while gaining a folder source leaves the count unchanged.
+        // `addFolderSource` calls `discoverProviders()` itself, so this is the ordinary sequence.
         let test = TestDefaults()
         let readable = Mutable(true)
         let settings = SettingsManager(
@@ -192,7 +185,7 @@ import Sync
 
     @MainActor
     @Test func removingAFolderSourceWhileTheRootIsUnreadableStillTakesEffect() async {
-        // The same count rule in the other direction: a legitimate shrink, refused.
+        // The other direction: a count rule would refuse this legitimate shrink.
         let test = TestDefaults()
         let readable = Mutable(true)
         let settings = SettingsManager(

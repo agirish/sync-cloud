@@ -2,18 +2,13 @@ import Testing
 import Foundation
 @testable import Settings
 
-/// **The seed offers the cloud accounts the last discovery found, so a restored pane can find its
-/// source before discovery has run.**
+/// The seed offers the cloud accounts the last discovery found, so a restored pane can find its
+/// source before discovery has run.
 ///
-/// `SettingsManager.init` seeds `availableProviders` synchronously so the app can start before the
-/// first off-main discovery publishes. It seeded `cloudStorageFolders: []` — iCloud and the
-/// persisted folder sources, and no cloud account at all — so a pane restored onto Google Drive,
-/// Dropbox or OneDrive named a provider `enabledProviders` did not contain, and its launch refresh
-/// was skipped with a warning on EVERY launch.
-///
-/// That was not a race discovery sometimes won: the empty list is in the constructor, so the miss
-/// was guaranteed for anyone whose pane is pinned to a cloud account. iCloud never tripped it
-/// because iCloud is a constant the seed always adds.
+/// `SettingsManager.init` seeds `availableProviders` synchronously, before the first off-main
+/// discovery publishes. Without the recorded accounts, a pane restored onto Google Drive, Dropbox
+/// or OneDrive would name a provider `enabledProviders` lacks and skip its launch refresh on every
+/// launch. iCloud is always seeded, so it can't show the problem.
 @Suite struct CloudAccountSeedTests {
 
     private let key = "lastKnownAccountFolders"
@@ -55,9 +50,8 @@ import Foundation
                 "the seed invented a cloud account nothing had ever discovered: \(seeded)")
     }
 
-    /// The record is what makes the seed possible, so discovery has to write it — and write it on
-    /// every readable pass, not only when the set changes: what has to survive the quit is "what
-    /// did we last actually see", which a change-guard would skip for an unchanged pass.
+    /// Discovery writes the record the seed reads, on every readable pass, not only when the set
+    /// changes: what must survive the quit is what was last seen.
     @MainActor
     @Test func aReadableDiscoveryRecordsWhatItSaw() async {
         let test = TestDefaults()
@@ -76,10 +70,9 @@ import Foundation
         #expect(test.defaults.stringArray(forKey: key) == ["/CloudStorage/Dropbox"])
     }
 
-    /// **An unreadable root must not erase the record**, for the same reason it must not shrink the
-    /// published list: it is not evidence the accounts are gone. Before this was persisted the
-    /// fallback could not work on the first pass after launch at all, because the in-memory value
-    /// started empty every time.
+    /// An unreadable root must not erase the record, nor shrink the published list: it is no
+    /// evidence the accounts are gone. The record being persisted is what lets the fallback work on
+    /// the first pass after launch.
     @MainActor
     @Test func anUnreadableRootLeavesTheRecordAlone() async {
         let test = TestDefaults()

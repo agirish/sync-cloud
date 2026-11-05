@@ -4,8 +4,8 @@ import Design
 import Sync
 @testable import Settings
 
-/// TE290 step 5: Revert puts a setting back only while it still holds what the chat set, asks
-/// first when that raises Claude's reach, and is recorded and told to an open chat.
+/// Revert puts a setting back only while it still holds what the chat set, asks first when that
+/// raises Claude's reach, and is recorded and told to an open chat.
 @MainActor
 @Suite struct SettingsRevertTests {
 
@@ -80,8 +80,8 @@ import Sync
         #expect(rig.defaults.bool(forKey: AskClaudePrivacy.readsFilesKey))
     }
 
-    /// TE290 step 8: a list edit goes back one item at a time, while the item still is (or
-    /// isn't) there; putting back a hidden folder's unhide asks first.
+    /// A list edit goes back one item at a time, while the item still is (or isn't) there;
+    /// putting back a hidden folder's unhide asks first.
     @Test func aListEditIsRevertedWhileItStillApplies() {
         let rig = Rig(#function); defer { rig.done() }
         let settings = SettingsManager(userDefaults: rig.defaults)
@@ -108,7 +108,7 @@ import Sync
         #expect(AskClaudePrivacy.hiddenFolders(in: rig.defaults) == ["/Users/me/Medical"])
     }
 
-    /// TE290 review: a Revert line never names a folder hidden from Claude, even one hidden since.
+    /// A Revert line never names a folder hidden from Claude, even one hidden since.
     @Test func aRevertLineNeverNamesAHiddenFolder() throws {
         let rig = Rig(#function); defer { rig.done() }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("SettingsRevertTests-\(UUID().uuidString)")
@@ -156,7 +156,7 @@ import Sync
         #expect(lines == ["They put Source name for a source hidden from you back to a name hidden from you with Revert in Activity."])
     }
 
-    /// TE290 review: a person's edit goes back as that person; an added person isn't taken out here.
+    /// A person's edit goes back as that person; an added person isn't taken out here.
     @Test func aPersonsEditIsRevertedAndAnAddIsNot() throws {
         let rig = Rig(#function); defer { rig.done() }
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("SettingsRevertTests-people-\(UUID().uuidString)")

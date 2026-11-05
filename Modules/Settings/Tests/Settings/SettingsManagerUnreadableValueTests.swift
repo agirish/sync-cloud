@@ -3,18 +3,13 @@ import Foundation
 @testable import Settings
 import Sync
 
-/// The five sibling properties of `folderSources` share its read-tolerantly-then-write-
-/// unconditionally shape without its salvage: a stored value this build
-/// cannot read is treated as the default, and the user's next edit of that setting writes the
-/// default-derived value over the original — destroying it with nothing in the log to explain why
-/// (five disabled providers become one; a newer build's sort choice vanishes after a downgrade
-/// edit).
-///
-/// `SettingsManager.readFolderSources` is the house pattern, and `readSetting` carries it to
-/// the siblings — what these pin: an unreadable stored value is preserved
-/// under `<key>.unreadable` and reported, BEFORE any write can destroy it. The tolerant in-memory
-/// fallback itself is correct and is asserted here too — the defect was only that the original was
-/// not kept.
+/// The five sibling properties of `folderSources` read tolerantly and write unconditionally: a
+/// stored value this build can't read is treated as the default, and the user's next edit writes
+/// the default-derived value over the original (five disabled providers become one; a newer
+/// build's sort choice vanishes after a downgrade). `readSetting` carries
+/// `SettingsManager.readFolderSources`' salvage to them: an unreadable value is preserved under
+/// `<key>.unreadable` and reported before any write can destroy it. The in-memory fallback to
+/// the default is asserted too.
 @Suite struct SettingsManagerUnreadableValueTests {
 
     @MainActor
@@ -22,8 +17,8 @@ import Sync
         SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
     }
 
-    /// disabledProviderIds is the sharpest of the siblings: a foreign-typed value silently
-    /// re-enables every provider the user turned off, and the next toggle persists that.
+    /// disabledProviderIds is the sharpest case: a foreign-typed value silently re-enables every
+    /// provider the user turned off, and the next toggle persists that.
     @MainActor
     @Test func aForeignTypedDisabledProviderListIsPreservedNotDestroyed() {
         let test = TestDefaults()
@@ -47,8 +42,8 @@ import Sync
     }
 
     /// The scalar shape: an unrecognized raw value (a newer build's case, after a downgrade) falls
-    /// back safely, but the next time the user touches the setting the newer build's choice is
-    /// silently gone. Preserving the raw original under the sibling key keeps the round trip.
+    /// back safely, but the user's next touch would silently drop the newer build's choice.
+    /// Preserving the raw original under the sibling key keeps the round trip.
     @MainActor
     @Test func anUnrecognizedSortOptionIsPreservedNotDestroyed() {
         let test = TestDefaults()
@@ -82,8 +77,7 @@ import Sync
 
     // MARK: The seam's own edges, driven directly like `readFolderSources`' suite drives it
 
-    /// A readable value decodes and leaves no backup — the salvage must not be reached for
-    /// ordinary data.
+    /// A readable value decodes and leaves no backup: ordinary data never reaches the salvage.
     @MainActor
     @Test func aReadableValueStillDecodesWithNoBackup() {
         let test = TestDefaults()
@@ -110,8 +104,8 @@ import Sync
                 "a fresh install wrote a backup of nothing")
     }
 
-    /// The step that actually destroys the original: not the read, the NEXT write. With the value
-    /// preserved, the didSet's overwrite of the main key is no longer the end of it.
+    /// The step that would destroy the original is the next write, not the read. With the value
+    /// preserved, the didSet's overwrite of the main key loses nothing.
     @MainActor
     @Test func theDidSetOverwriteNoLongerDestroysTheOriginal() {
         let test = TestDefaults()

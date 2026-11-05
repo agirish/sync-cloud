@@ -7,24 +7,19 @@ import Sync
 
 /// The kept-names list in Settings ▸ Organize: the inventory of "I meant that name" decisions.
 ///
-/// Keeping and un-keeping were both already reachable from a pane row's context menu, so no keep
-/// was ever a one-way door — but a kept name draws no badge, so nothing on screen led anywhere and
-/// the only way to answer "what have I kept?" was to walk your files. This list is that answer, and
-/// what it has to get right is the reverse trip: a name removed here must actually stop being kept,
-/// durably, or the list is a display that lies about what it does.
+/// A kept name draws no badge, so this list is the only place to see what has been kept. A name
+/// removed here must stop being kept, durably, or the list lies about what it does.
 ///
-/// Asserted against `remove(_:)` and `clearAll(confirm:)` — the two methods the row button and
-/// Clear All call — over a real `KeptNamesStore` on an injected defaults suite. That is the wiring from the
-/// view to the persisted set; what it does not reach is whether the buttons are connected to these
-/// methods, which nothing short of driving the rendered control could show.
+/// Asserted against `remove(_:)` and `clearAll(confirm:)`, the methods the row button and Clear
+/// All call, over a real `KeptNamesStore` on an injected suite. Only driving the rendered control
+/// could show that the buttons call these methods.
 @Suite struct KeptNamesSettingsTests {
 
     private func scratch(_ name: String) -> ScratchDefaults {
         ScratchDefaults("KeptNamesSettings-\(name)")
     }
 
-    /// Removing one row withdraws that keep and only that keep — and it survives the relaunch,
-    /// which is the whole point of the store being durable in the first place.
+    /// Removing one row withdraws that keep and only that one, and the removal survives a relaunch.
     @MainActor
     @Test func removingARowWithdrawsThatKeepFromThePersistedSet() {
         let defaults = scratch("remove")
@@ -38,9 +33,8 @@ import Sync
         #expect(store.isKept("report ") == false)
         #expect(store.isKept("Q3: final.pdf"), "removing one row must not disturb the others")
 
-        // A fresh store over the same defaults IS the relaunch. A removal that only cleared the
-        // in-memory set would leave the name flagged-as-kept again on next launch, with the badge
-        // still silenced and Organize still refusing to offer the rename.
+        // A fresh store over the same defaults is the relaunch. A removal that cleared only memory
+        // would leave the name kept on next launch, its badge silenced and its rename not offered.
         let reopened = KeptNamesStore(userDefaults: defaults)
         #expect(reopened.isKept("report ") == false)
         #expect(reopened.isKept("Q3: final.pdf"))
@@ -61,8 +55,8 @@ import Sync
         #expect(KeptNamesStore(userDefaults: defaults).names.isEmpty)
     }
 
-    /// The list renders the names the store holds, in the store's stable order — so two runs of
-    /// the same set do not shuffle the rows under the user's cursor mid-removal.
+    /// The list shows the store's names in a stable order, so rows don't shuffle under the cursor
+    /// mid-removal.
     @MainActor
     @Test func theListPresentsEveryKeptNameInAStableOrder() {
         let defaults = scratch("order")
@@ -75,14 +69,9 @@ import Sync
 
     // MARK: The section as laid out
 
-    /// Every assertion above calls a method; none of them build the view. This one lays the tab
-    /// out for real, with names in the store, so the rows and the Clear All are actually
-    /// constructed — a broken `body` would otherwise ship green.
-    ///
-    /// A populated tab must also be TALLER than an empty one. Height rather than a constant: the
-    /// section renders through `KeptNamesList`, and asserting "the list is longer when it has rows"
-    /// is the cheapest statement that the rows reached the screen at all rather than being built
-    /// and dropped.
+    /// Lays the tab out for real, with names in the store, so a broken `body` can't pass on the
+    /// method tests above. A populated tab must be taller than an empty one, the cheapest proof
+    /// the rows are drawn.
     @MainActor
     @Test func theSectionLaysOutItsRowsWhenNamesAreKept() {
         let defaults = scratch("layout")
@@ -101,8 +90,8 @@ import Sync
                 "three kept rows and a Clear All added \(populated - empty)pt — the rows are not being rendered")
     }
 
-    /// Text scale pinned, as `SettingsLayoutTests` does: `scaledFont` reads it from the environment,
-    /// so an unpinned measurement reports whatever text size the machine running the test has set.
+    /// Text scale pinned, as in `SettingsLayoutTests`: `scaledFont` reads it from the environment,
+    /// so unpinned it measures this machine's text size.
     @MainActor
     private func laidOutHeight(_ view: some View,
                                width: CGFloat = SettingsSheetMetrics.contentWidth(textScale: 1)) -> CGFloat {
@@ -113,11 +102,9 @@ import Sync
 
     // MARK: Findability
 
-    /// The control is at the bottom of the longest tab in Settings, so search is how it is
-    /// realistically reached — and almost none of the words a user would type appear in its label.
-    /// The section is titled "Kept names", but the decision is made through menu items worded
-    /// "Always Allow This Name" / "Stop Allowing This Name", and what sent the user looking is the
-    /// problem ("risky name", "trailing space") rather than the state they put it in.
+    /// The control sits at the bottom of Settings' longest tab, so search is how it is reached.
+    /// Users type the menu items' words ("Always Allow This Name") or the problem ("risky name",
+    /// "trailing space"), not the section title.
     @Test func keptNamesIsFindableByTheWordsItsControlUses() {
         for query in ["kept names", "always allow", "allow name", "stop allowing",
                       "risky name", "badge", "trailing space"] {
@@ -127,10 +114,8 @@ import Sync
         }
     }
 
-    /// It belongs on Organize, with the rename finding whose rows it suppresses — not on Sync
-    /// beside Ignored items. Both are durable sets with a per-row removal, which is why the list
-    /// follows that section's shape, but a keep answers Organize's risky-name chip, and landing on
-    /// the wrong tab of two that look alike is worse than landing on none.
+    /// It belongs on Organize, with the rename finding whose rows it suppresses, not on Sync
+    /// beside Ignored items, whose shape it shares: a keep answers Organize's risky-name chip.
     @Test func keptNamesLivesOnOrganizeRatherThanBesideIgnoredItems() {
         let entry = SettingsSearchIndex.all.first { $0.title == "Kept names" }
         #expect(entry?.tab == .filing, "Kept names points at \(entry?.tab.displayName ?? "nothing")")

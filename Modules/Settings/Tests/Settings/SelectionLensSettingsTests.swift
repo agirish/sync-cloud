@@ -4,11 +4,9 @@ import SwiftUI
 import Design
 @testable import Settings
 
-/// The Settings controls that host a selection lens (roadmap RD46): in Frosted and Clear the lens
-/// lands exactly where Solid draws today's marker.
-///
-/// Rendered with the lens probe (glass draws nothing offscreen — see `SelectionLensTests` in Design)
-/// and compared, box for box, with the Solid render's marker.
+/// The Settings controls that host a selection lens: in Frosted and Clear the lens lands exactly
+/// where Solid draws today's marker. Rendered with the lens probe, since glass draws nothing
+/// offscreen (see `SelectionLensTests` in Design), and compared box for box with Solid's marker.
 @MainActor
 @Suite(.serialized) struct SelectionLensSettingsTests {
 
@@ -27,8 +25,8 @@ import Design
             .background(Color.white)), size: size)
     }
 
-    /// The bounding box of the pixels matching `match` — in the rows `rows` spans when given, so a
-    /// colour painted elsewhere in the view cannot widen it.
+    /// The bounding box of the pixels matching `match`, within `rows` when given, so the same
+    /// colour elsewhere in the view can't widen it.
     static func box<V: View>(_ view: V, size: CGSize, appearance: SelectionLensAppearance,
                              rows: ClosedRange<CGFloat>? = nil, _ match: Pixel.Match) -> CGRect? {
         rig(view, size: size, appearance: appearance).box(rows: rows, match)
@@ -87,22 +85,21 @@ import Design
         AccentColorSection(selectedHue: hue, onSelect: { _ in })
     }
 
-    /// The halo as the probe draws it, in its two parts — measured raw: today's ring on its rim,
-    /// 40% black over the probe, about `(155, 16, 178)`; and inside it the 1pt gap left showing
-    /// before the swatch, the probe under the swatch's shadow, about `(221, 21, 254)` — short of
-    /// `Pixel.lensProbe`'s floor, so neither part is matched by it. No swatch is that magenta.
+    /// The halo as the probe draws it, in two parts, measured raw: today's ring on its rim, 40%
+    /// black over the probe, about `(155, 16, 178)`; and inside it the 1pt gap before the swatch,
+    /// the probe under the swatch's shadow, about `(221, 21, 254)`. Neither meets
+    /// `Pixel.lensProbe`'s floor, and no swatch is that magenta.
     nonisolated static let isRing: Pixel.Match = { r, g, b in (130...190).contains(r) && (150...205).contains(b) && g < 60 }
     nonisolated static let isGap: Pixel.Match = { r, g, b in r > 200 && b > 230 && g < 60 }
     nonisolated static let isHalo: Pixel.Match = { r, g, b in isRing(r, g, b) || isGap(r, g, b) }
 
-    /// The halo: a disc `outset` past the chosen swatch on every side, centred on it — and today's
-    /// ring gone from the swatch. The probe is drawn BEHIND the swatch, so its box is the halo's.
+    /// The halo: a disc `outset` past the chosen swatch on every side, centred on it, with today's
+    /// ring gone from the swatch. The probe is drawn behind the swatch, so its box is the halo's.
     ///
-    /// The swatch is found by its own colour as RENDERED — sampled 10pt above the halo's centre,
-    /// clear of the checkmark — and matched tightly, in the halo's rows only (the preview strip
-    /// below paints the accent too). A nominal colour with a loose tolerance does not work here:
-    /// today's ring is the accent under 40% black, and for Green the render's colour shift put
-    /// that within ±0.12 of the nominal value, so the ring counted as swatch.
+    /// The swatch is found by its rendered colour, sampled 10pt above the halo's centre clear of
+    /// the checkmark, and matched tightly within the halo's rows (the preview strip below paints the
+    /// accent too). A nominal colour with a loose tolerance would count today's ring, the accent
+    /// under 40% black, as swatch for some hues.
     @Test(.machinePinned(.pixelSampling), arguments: [LiquidGlassHue.blue, .green, .rose])
     func theHaloRingsTheChosenSwatch(hue: LiquidGlassHue) throws {
         let row = Self.accentRow(hue)
@@ -129,7 +126,7 @@ import Design
     }
 
     @Test func theHaloIsNeverTinted() {
-        // It rings a colour, so it must not wear one — at Tint 100 as at 0.
+        // It rings a colour, so it must not wear one, at Tint 100 as at 0.
         #expect(AccentColorSection.lensStyle.markerOpacity == 0)
         #expect(SelectionLensRule.tintOpacity(markerOpacity: AccentColorSection.lensStyle.markerOpacity,
                                               hue: .rose, tint: 1) == 0)

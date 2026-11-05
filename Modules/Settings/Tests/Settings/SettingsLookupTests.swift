@@ -4,8 +4,8 @@ import Design
 import Sync
 @testable import Settings
 
-/// Pins what Ask Claude's settings tool answers (TE290 step 2): matching by the words someone
-/// would use, values read from their owners, and the privacy lines it never crosses.
+/// Pins what Ask Claude's settings tool answers: matching by the words someone would use, values
+/// read from their owners, and the privacy lines it never crosses.
 @MainActor
 @Suite struct SettingsLookupTests {
 
@@ -23,8 +23,8 @@ import Sync
 
     private func suiteName(_ test: String = #function) -> String { "SettingsLookupTests.\(test).\(UUID().uuidString)" }
 
-    /// TE290 review: a card and its Undo get a hidden folder's real value; only the words for
-    /// Claude leave it out. The placeholder was once both, and an Undo wrote it back as a folder.
+    /// A card and its Undo get a hidden folder's real value; only the words for Claude leave it
+    /// out. Given the placeholder, an Undo would write it back as a folder.
     @Test func aHiddenFolderIsRealForTheCardAndHiddenForClaude() async throws {
         let name = suiteName()
         let defaults = UserDefaults(suiteName: name)!
@@ -60,7 +60,7 @@ import Sync
     @Test func findReturnsAtMostEight() async {
         let name = suiteName(); defer { wipeDefaultsSuite(name) }
         let (lookup, _) = lookup(name)
-        // "settings" is in nearly every haystack's id or tab.
+        // Single vowels match nearly every entry, so only the cap limits the result.
         let lines = await lookup.find("a e i o u").components(separatedBy: "\n")
         #expect(lines.count <= SettingsLookup.findLimit)
     }

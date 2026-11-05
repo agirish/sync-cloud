@@ -4,9 +4,9 @@ import Design
 import Sync
 @testable import Settings
 
-/// Holds the settings catalog (TE290 step 1) to the Settings it describes. A control added or
-/// renamed in Settings, a default changed in a view, or a help text reworded fails here until the
-/// catalog says the same — which is what lets Ask Claude trust it.
+/// Holds the settings catalog to the Settings it describes. A control added or renamed in Settings,
+/// a default changed in a view, or a help text reworded fails here until the catalog says the same,
+/// which is what lets Ask Claude trust it.
 @MainActor
 @Suite struct SettingsCatalogTests {
 
@@ -163,8 +163,8 @@ import Sync
     }
 
     @Test func everyOneWaySyncControlIsCatalogued() throws {
-        // One-Way Sync's view lives in FileExplorer, which the search index's scan never reads; its
-        // two pickers went unlisted for that reason.
+        // One-Way Sync's view lives in FileExplorer, which the search index's scan never reads, so
+        // its controls are checked here.
         let file = Self.sourcesDirectory
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("FileExplorer/Sources/FileExplorer/OneWaySyncSettingsView.swift")
@@ -190,8 +190,8 @@ import Sync
         }
     }
 
-    /// What `get` tells Claude it may change itself, the writer can set: Size & spacing has no value
-    /// of its own, so it was Direct while every set of it was refused.
+    /// What `get` tells Claude it may change itself, the writer can set. An entry with no value of
+    /// its own (like Size & spacing) must not be Direct, or every set of it is refused.
     @Test func whatClaudeMayChangeItselfCanBeWritten() {
         for entry in SettingsCatalog.all where entry.tier == .direct || entry.tier == .directWhenTightening {
             #expect(SettingsWriter.canWrite(entry), "\(entry.id) is \(entry.tier) but can’t be written")
@@ -231,8 +231,8 @@ import Sync
     }
 
     @Test func aModelOrStyleChangeCarriesOnInTheChatAndHidingStartsANewOne() throws {
-        // TE292 HT/HX: the open chat carries on under a new model or style; a hidden folder still
-        // starts a new one, so what Claude saw of it goes.
+        // The open chat carries on under a new model or style; hiding a folder still starts a new
+        // one, so what Claude saw of it goes.
         for id in ["intelligence.askClaudeModel", "intelligence.answers"] {
             #expect(try #require(SettingsCatalog.entry(id)).effects.contains(.newChat) == false, "\(id)")
         }

@@ -1,24 +1,17 @@
 import Testing
 @testable import Settings
 
-/// Pins the rule that keeps the five numeric Settings pickers honest.
-///
-/// The bug: each picker bound straight to its stored value with a hand-spelled `.tag(…)` per row.
-/// A persisted value that isn't one of those tags — written by an older build's option set, a
-/// `defaults write`, or a hand-edited plist — renders the control with NO selection while
-/// continuing to govern every scan, and the user's first click on that blank-looking picker
-/// silently replaces a setting they never knowingly chose.
-///
-/// These tests are about the *widening*: the offered rows are left exactly as they were (an
-/// unrecognized value must not reshuffle a list the user knows), and an unrecognized value gains
-/// its own row instead of being coerced onto a neighbouring one.
+/// Pins the rule that keeps the five numeric Settings pickers honest. A persisted value that isn't
+/// one of a picker's tags (from an older build's option set, a `defaults write`, or a hand-edited
+/// plist) would render the control with no selection while still governing every scan, and the
+/// user's first click would silently replace it. So an unrecognized value gains its own row,
+/// never coerced onto a neighbour, and the offered rows stay exactly as they were.
 @Suite struct SettingsPickerOptionsTests {
 
     // MARK: - The offered rows are unchanged
 
-    /// Every picker still offers exactly the values and labels it shipped with when the stored
-    /// value is one of them. This is the guard against "fixing" the blank-picker bug by quietly
-    /// rewriting the menus.
+    /// Every picker offers exactly its own values and labels when the stored value is one of them,
+    /// so the widening never quietly rewrites the menus.
     @Test func recognizedValuesLeaveTheOfferedRowsExactlyAsTheyWere() {
         #expect(SettingsPickerOptions.dateTolerance(including: 1).map(\.value) == [0, 1, 2, 5, 60])
         #expect(SettingsPickerOptions.dateTolerance(including: 1).map(\.label)
@@ -43,8 +36,8 @@ import Testing
 
     // MARK: - An unrecognized stored value gets a row
 
-    /// The finding, one picker at a time: whatever is persisted, some row carries it — which is
-    /// exactly the condition SwiftUI needs to render a selection at all.
+    /// One picker at a time: whatever is persisted, some row carries it, which SwiftUI needs to
+    /// render a selection at all.
     @Test func everyPickerCarriesAnUnrecognizedStoredValue() {
         #expect(SettingsPickerOptions.dateTolerance(including: 3).contains { $0.value == 3 })
         #expect(SettingsPickerOptions.minFileSize(including: 51_200).contains { $0.value == 51_200 })
@@ -53,17 +46,15 @@ import Testing
         #expect(SettingsPickerOptions.totalBudget(including: 7.5).contains { $0.value == 7.5 })
     }
 
-    /// The extra row is *added*, never substituted: the count grows by one and every original
-    /// option survives. Coercing the stored value onto a neighbour would be the same data loss the
-    /// blank picker caused, just one click earlier.
+    /// The extra row is added, never substituted: the count grows by one and every original option
+    /// survives. Coercing the stored value onto a neighbour would lose it just the same.
     @Test func theStoredValueIsAddedRatherThanReplacingAnOfferedOption() {
         let widened = SettingsPickerOptions.dateTolerance(including: 3)
         #expect(widened.count == 6)
         #expect(widened.map(\.value) == [0, 1, 2, 3, 5, 60])
     }
 
-    /// Inserted in value order, so the menu still reads as an ascending scale rather than dumping
-    /// the odd value at the end.
+    /// Inserted in value order, so the menu still reads as an ascending scale.
     @Test func theExtraRowIsSortedIntoPlace() {
         #expect(SettingsPickerOptions.overlapThreshold(including: 0.65).map(\.value)
             == [0.5, 0.6, 0.65, 0.7, 0.8, 0.9])
@@ -73,9 +64,8 @@ import Testing
         #expect(SettingsPickerOptions.totalBudget(including: 500).map(\.value).last == 500)
     }
 
-    /// The extra row is labeled by the same formatter as its neighbours, so the menu speaks one
-    /// vocabulary. A row reading "3.0" next to "2 seconds" would announce the value as a glitch
-    /// rather than as a setting.
+    /// The extra row is labeled by the same formatter as its neighbours: "3.0" next to "2 seconds"
+    /// would read as a glitch rather than a setting.
     @Test func theExtraRowUsesTheSameVocabularyAsItsNeighbours() {
         #expect(SettingsPickerOptions.dateTolerance(including: 3).first { $0.value == 3 }?.label == "3 seconds")
         #expect(SettingsPickerOptions.dateTolerance(including: 120).first { $0.value == 120 }?.label == "2 minutes")
@@ -86,8 +76,8 @@ import Testing
         #expect(SettingsPickerOptions.totalBudget(including: 500).first { $0.value == 500 }?.label == "$500")
     }
 
-    /// `Picker` keys its rows by tag, so two rows sharing a value would collide — the widening
-    /// must never fire for a value the list already offers, including the zero/"off" sentinels.
+    /// `Picker` keys its rows by tag, so two rows sharing a value would collide: the widening must
+    /// never fire for a value the list already offers, including the zero/"off" sentinels.
     @Test func aRecognizedValueNeverProducesADuplicateRow() {
         for stored in [0.0, 1, 2, 5, 60] {
             let rows = SettingsPickerOptions.dateTolerance(including: stored)
@@ -100,13 +90,13 @@ import Testing
 
     // MARK: - Labels
 
-    /// A value can arrive from `defaults write`, which will happily store a huge or non-finite
-    /// number. The label must not trap trying to shorten it.
+    /// `defaults write` can store a huge or non-finite number, and the label must not trap trying
+    /// to shorten it.
     @Test func hostileStoredValuesStillProduceARow() {
         for stored in [1e300, -5, Double.nan, .infinity] {
             let rows = SettingsPickerOptions.monthlyBudget(including: stored)
-            // NaN compares false against everything, so it lands at the end rather than in order —
-            // still present, which is all that matters for the picker to show something.
+            // NaN compares false against everything, so it lands at the end rather than in order,
+            // but it is present, which is what the picker needs.
             #expect(rows.contains { $0.value == stored || ($0.value.isNaN && stored.isNaN) })
             #expect(rows.allSatisfy { !$0.label.isEmpty })
         }
@@ -119,8 +109,8 @@ import Testing
         #expect(SettingsPickerOptions.trimmed(0) == "0")
     }
 
-    /// 0.6 is not exactly representable, so the percent label rounds before trimming — otherwise
-    /// the perfectly ordinary 60% row would read "60.00000000000001%".
+    /// 0.6 isn't exactly representable, so the percent label rounds before trimming, or the 60%
+    /// row would read "60.00000000000001%".
     @Test func percentLabelSurvivesBinaryFloatingPoint() {
         #expect(SettingsPickerOptions.percentLabel(0.6) == "60%")
         #expect(SettingsPickerOptions.percentLabel(0.07) == "7%")

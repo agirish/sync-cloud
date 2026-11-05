@@ -4,12 +4,9 @@ import Foundation
 import Sync
 
 /// The one-time move of stored folder positions from documents-rooted sources to account-rooted
-/// ones.
-///
-/// Every test here fixes a specific way the move can be silently wrong. "Silently" is the operative
-/// word: a rebased path that comes out malformed does not throw — `PathBoundary.join` hands back
-/// the bare root for anything with a leading slash, so the whole failure mode is *panes quietly
-/// opening at the top of an account*, which reads as lost work rather than as a bug.
+/// ones. Each test pins a way the move can be silently wrong: a malformed rebased path doesn't
+/// throw, since `PathBoundary.join` hands back the bare root for anything with a leading slash, so
+/// panes just open at the top of an account, which reads as lost work rather than a bug.
 @MainActor
 struct RootsMigrationTests {
 
@@ -17,9 +14,9 @@ struct RootsMigrationTests {
 
     static let cloudStorage = "/Users/u/Library/CloudStorage"
 
-    /// The providers as discovery produced them AT THIS MIGRATION'S VERSION, with no `openAt`
-    /// override applied — the input the migration is specified against. iCloud rooted at
-    /// `~/Documents` and landing on itself, which is what `applyAtLaunch` freezes; see there.
+    /// The providers as discovery produced them at this migration's version, with no `openAt`
+    /// override applied: the input the migration is specified against. iCloud is rooted at
+    /// `~/Documents` and lands on itself, as `applyAtLaunch` freezes it.
     static func discovered(_ accountFolders: [String] = ["OneDrive-Personal", "Dropbox"]) -> [CloudProvider] {
         SettingsManager.mapProviders(
             cloudStorageFolders: accountFolders.map { URL(fileURLWithPath: "\(cloudStorage)/\($0)") },
@@ -48,22 +45,17 @@ struct RootsMigrationTests {
         let plan = RootsMigration.plan(discovered: Self.discovered(), legacyOverrides: [:])
         #expect(plan.prefixes["OneDrive-Personal"] == "Documents")
         #expect(plan.prefixes["Dropbox"] == "Documents")
-        // Nothing to persist: the prefix IS the discovered default, so writing an override would
-        // make an untouched install look customized and leave Reset with nothing to reset.
+        // Nothing to persist: the prefix is the discovered default, and an override would make an
+        // untouched install look customized.
         #expect(plan.openAtOverrides.isEmpty)
         #expect(plan.rootOverrides.isEmpty)
     }
 
-    /// **An empty stored Location is no Location, and the consequence of reading it as one is a
-    /// source with no root at all.**
-    ///
-    /// `overridesByProviderId` deliberately does not filter empty values — it cannot, because the
-    /// landing-folder key uses `""` as a real answer — so an empty `path_override_` arrives here as
-    /// a legacy root of `""`. That relativizes under nothing, takes the "somewhere else entirely"
-    /// branch, and is written back out as a `root_override_` of `""`: a provider whose `rootPath`
-    /// is empty, which Settings shows as invalid and which no pane can open. Old builds cleared the
-    /// key rather than storing an empty string, so this guards a shape that should not exist — and
-    /// a one-shot migration is the worst place to discover that it does.
+    /// An empty stored Location is no Location. `overridesByProviderId` can't filter empty values,
+    /// because the landing-folder key uses `""` as a real answer, so an empty `path_override_`
+    /// arrives here as a legacy root of `""`. Adopted, it would become a `root_override_` of `""`: a
+    /// provider with an empty `rootPath` that no pane can open. Unlikely, but a one-shot migration
+    /// gets no second try.
     @Test("An empty stored Location is treated as absent rather than as a root")
     func anEmptyLegacyOverrideIsNotAdopted() {
         let plan = RootsMigration.plan(discovered: Self.discovered(),
@@ -84,9 +76,9 @@ struct RootsMigrationTests {
     @Test("iCloud's root does not move, so nothing of iCloud's is rebased")
     func iCloudIsUntouched() {
         let plan = RootsMigration.plan(discovered: Self.discovered(), legacyOverrides: [:])
-        // Absent from `prefixes`, not present-and-empty: `prefixes` carries only the sources that
-        // actually move, so `prefixes.isEmpty` can mean "nothing to do". `handled` is what says the
-        // source was looked at — and it has to say so, or a later pass would plan it again.
+        // Absent from `prefixes`, not present and empty: `prefixes` holds only sources that move,
+        // so `prefixes.isEmpty` can mean "nothing to do". `handled` records that the source was
+        // looked at, or a later pass would plan it again.
         #expect(plan.prefixes["iCloud"] == nil)
         #expect(plan.handled.contains("iCloud"))
         #expect(plan.rootRemap["/Users/u/Documents"] == nil)
@@ -98,8 +90,8 @@ struct RootsMigrationTests {
             discovered: Self.discovered(["GoogleDrive-a@b.com"]),
             legacyOverrides: ["GoogleDrive-a@b.com": "\(Self.cloudStorage)/GoogleDrive-a@b.com/My Drive"])
         #expect(plan.prefixes["GoogleDrive-a@b.com"] == "My Drive")
-        // Differs from the discovered default, so it IS persisted — otherwise the next discovery
-        // would move this user's panes a level deeper than where they left them.
+        // Differs from the discovered default, so it is persisted, or the next discovery would
+        // move the panes a level deeper than where they were left.
         #expect(plan.openAtOverrides["GoogleDrive-a@b.com"] == "My Drive")
     }
 
@@ -109,22 +101,18 @@ struct RootsMigrationTests {
                                        legacyOverrides: ["OneDrive-Personal": "/Volumes/Backup/Work"])
         #expect(plan.rootOverrides["OneDrive-Personal"] == "/Volumes/Backup/Work")
         #expect(plan.openAtOverrides["OneDrive-Personal"] == "")
-        // No prefix: there is no discovered root containing that path, so no stored position of
-        // this source is measured from anywhere that moved.
+        // No prefix: no discovered root contains that path, so none of this source's stored
+        // positions are measured from anywhere that moved.
         #expect(plan.prefixes["OneDrive-Personal"] == nil)
         #expect(plan.handled.contains("OneDrive-Personal"))
-        // Named specifically rather than asserting the whole map is empty — the fixture also has a
-        // Dropbox, whose root moves normally, and an `isEmpty` here would pass only by accident of
-        // which providers the fixture happens to carry.
+        // Named keys, not `isEmpty`: the fixture's Dropbox moves normally, so the map isn't empty.
         #expect(plan.rootRemap["\(Self.cloudStorage)/OneDrive-Personal/Documents"] == nil)
         #expect(plan.rootRemap["/Volumes/Backup/Work"] == nil)
     }
 
     // MARK: - The stamp
 
-    /// Measured through the tab strip, which is the store this used to check through the
-    /// per-pane focus path — a key the app stopped reading, so the migration stopped moving it.
-    /// Any rebased store answers this; the strip is the one whose entries carry a relative path.
+    /// Measured through the tab strip, a rebased store whose entries carry a relative path.
     @Test("Running twice changes nothing the second time — App.init can run more than once")
     func theStampMakesItIdempotent() throws {
         let test = TestDefaults()
@@ -135,8 +123,8 @@ struct RootsMigrationTests {
         #expect(try Self.firstTabPath(test.defaults) == "Documents/Family")
 
         #expect(Self.migrate(test.defaults) == .alreadyDone)
-        // The tell for a missing stamp is a DOUBLE prefix, which is exactly the shape that survives
-        // a naive re-run and points every pane at a folder that does not exist.
+        // A missing stamp shows as a double prefix, which points every pane at a folder that
+        // doesn't exist.
         #expect(try Self.firstTabPath(test.defaults) == "Documents/Family")
     }
 
@@ -158,16 +146,15 @@ struct RootsMigrationTests {
         #expect(try Self.firstTabPath(test.defaults) == "Documents/Family")
     }
 
-    /// One tab strip entry, as the app stores it — the vehicle for the stamp and defer cases above.
+    /// One tab strip entry, as the app stores it, for the stamp and defer cases above.
     static func oneTab(providerId: String, relativePath: String) -> String {
         """
         [{"providerId":"\(providerId)","relativePath":"\(relativePath)","stackDepth":0,"pinned":false}]
         """
     }
 
-    /// The first stored tab's relative path, parsed rather than string-matched: `JSONSerialization`
-    /// decides its own slash escaping, and a `contains` over the raw string would be asserting that
-    /// choice instead of the path.
+    /// The first stored tab's relative path, parsed rather than string-matched, because
+    /// `JSONSerialization` chooses its own slash escaping.
     static func firstTabPath(_ defaults: UserDefaults) throws -> String {
         let raw = try #require(defaults.string(forKey: RootsMigration.leftTabsKey))
         let entries = try #require(
@@ -178,33 +165,28 @@ struct RootsMigrationTests {
 
     // MARK: - What the CLI asks
 
-    /// **The read the CLI refuses on, and it must not be "is the stamp missing".**
-    ///
-    /// The CLI shares the app's defaults domain, so an un-migrated legacy Location reads under the
-    /// new meaning and points a scan — or a `sync`'s mass copy — at a different tree than the user
-    /// chose. It refuses rather than migrating, because migrating from a terminal would rewrite tab
-    /// strips and pins possibly while the app is running against the same domain.
-    ///
-    /// The narrowness is the part with teeth: a fresh install is unstamped and has nothing to move,
-    /// and answering "pending" there would refuse every CLI run on a machine that has no problem.
+    /// The read the CLI refuses on, which must not be just "is the stamp missing". The CLI shares
+    /// the app's defaults domain, so an unmigrated legacy Location would point a scan, or a `sync`'s
+    /// mass copy, at a tree the user didn't choose. It refuses rather than migrating, since the app
+    /// may be running against the same domain. A fresh install is unstamped with nothing to move,
+    /// and must not be refused.
     @Test("Only an unstamped domain that actually holds legacy state is reported as pending")
     func legacyStateIsReportedOnlyWhenThereIsSome() {
         let test = TestDefaults()
         let key = "\(SettingsManager.legacyPathOverrideKeyPrefix)OneDrive-Personal"
 
-        // Unstamped and empty — a fresh install. Nothing to migrate, so nothing to refuse over.
+        // Unstamped and empty, a fresh install: nothing to migrate, nothing to refuse over.
         #expect(RootsMigration.legacyStateAwaitingMigration(
             defaults: test.defaults, domainName: test.suiteName).isEmpty)
 
-        // Unstamped WITH a legacy Location: this is the case that reads wrong, and it names the
-        // source so the message can too.
+        // Unstamped with a legacy Location: the case that reads wrong, named by source so the
+        // message can name it too.
         test.defaults.set("/Volumes/Backup/Work", forKey: key)
         #expect(RootsMigration.legacyStateAwaitingMigration(
             defaults: test.defaults, domainName: test.suiteName) == ["OneDrive-Personal": "/Volumes/Backup/Work"])
 
-        // Once the app has migrated, the same key is still there — the migration is additive and
-        // deliberately never rewrites it — and the CLI must stop refusing anyway. Asserting the key
-        // survives is what makes that a real claim rather than a tautology.
+        // After the app migrates, the key is still there (the migration never rewrites it) and the
+        // CLI must stop refusing anyway. Asserting the key survives keeps that from being vacuous.
         Self.migrate(test.defaults, legacyOverrides: ["OneDrive-Personal": "/Volumes/Backup/Work"])
         #expect(test.defaults.string(forKey: key) == "/Volumes/Backup/Work")
         #expect(RootsMigration.legacyStateAwaitingMigration(
@@ -231,23 +213,19 @@ struct RootsMigrationTests {
         #expect(entries[0]["relativePath"] as? String == "Documents/Family/Photos")
         #expect(entries[1]["relativePath"] as? String == "Legal")
         #expect(entries[2]["relativePath"] as? String == "Documents")
-        // The column stack is counted from the END of the path, so prefixing must not disturb it.
+        // The column stack is counted from the end of the path, so prefixing must not disturb it.
         #expect(entries[0]["stackDepth"] as? Int == 1)
         #expect(entries[0]["pinned"] as? Bool == true)
-        // The maintenance lines write this same strip. A Codable round-trip would have dropped
-        // whatever they know that this build does not.
+        // The maintenance lines write this same strip; a Codable round-trip would drop fields this
+        // build doesn't know.
         #expect(entries[2]["aFieldFromAnotherBuild"] as? Int == 7)
     }
 
     // MARK: - Payloads the migration must survive rather than corrupt
 
-    /// **A tab on a source the plan says nothing about is left exactly as it is.**
-    ///
-    /// An id can be unknown for two reasons that look identical here: the source was removed from
-    /// Settings, or it is signed out and this launch could not see it. The second is why leaving the
-    /// entry alone is the only safe answer — a later launch settles that source and moves this tab
-    /// then, and `handledProviderIds` is what stops it moving twice. Prefixing an unknown id now
-    /// would be unrecoverable, since nothing records that it was guessed.
+    /// A tab on a source the plan doesn't cover is left exactly as it is. The source may be removed,
+    /// or just signed out this launch; a later launch settles it and moves the tab then, and
+    /// `handledProviderIds` stops it moving twice. Prefixing on a guess would be unrecoverable.
     @Test("A tab naming a source the plan does not cover is left untouched")
     func anUnknownProviderIdOnATabIsLeftAlone() throws {
         let test = TestDefaults()
@@ -267,13 +245,10 @@ struct RootsMigrationTests {
                 "an unknown source's tab was rebased on a prefix that is not its own")
     }
 
-    /// A tab strip present under the wrong TYPE is named, not skipped in silence.
-    ///
-    /// `PaneTabsStore` only ever writes a string, so this arrives from a build that does not exist
-    /// yet or a hand-edited plist — but the answer matters more than the odds, because the
-    /// migration is one-shot: a strip it passes over is a strip nothing will ever come back for.
-    /// A garbage STRING was already reported through `unreadable`; a non-string value fell through
-    /// `string(forKey:)` and read as absent, which is the one outcome that says nothing at all.
+    /// A tab strip stored under the wrong type is named, not skipped in silence. `PaneTabsStore`
+    /// only writes strings, so this takes a hand-edited plist or a future build, but the migration
+    /// is one-shot and nothing comes back for a strip it passes over. `string(forKey:)` reads a
+    /// non-string as absent, so it must be reported like a garbage string.
     @Test("A strip stored under the wrong type is reported, not silently passed over")
     func aTabStripOfTheWrongTypeIsReportedAsUnreadable() {
         let test = TestDefaults()
@@ -283,11 +258,9 @@ struct RootsMigrationTests {
                 "the log line does not name the strip it could not read: \(line ?? "nil")")
     }
 
-    /// A Favorites entry that is not exactly `root\0relative` is carried across verbatim.
-    ///
-    /// The separator is a NUL, so an entry with none — or with two — is not a shape this code can
-    /// reason about, and rewriting it on a guess would destroy the only copy. Every malformed
-    /// entry keeps its place in the order, which is the half a `compactMap` would quietly lose.
+    /// A Favorites entry that isn't exactly `root\0relative` is carried across verbatim: with no
+    /// NUL, or two, rewriting it on a guess would destroy the only copy. It also keeps its place in
+    /// the order, which a `compactMap` would lose.
     @Test("A malformed Favorites entry keeps its exact bytes and its position")
     func aFavoritesEntryWithTheWrongNumberOfHalvesIsCarriedAcross() {
         let test = TestDefaults()
@@ -307,11 +280,9 @@ struct RootsMigrationTests {
                 "the well-formed entry did not move: \(out?[1] ?? "nil")")
     }
 
-    /// Two accounts of the SAME provider type each take their own prefix.
-    ///
-    /// They share a type, a default `openAt` and a discovery rule, and differ only by account
-    /// folder — which is exactly the shape a per-type rather than per-source plan would collapse.
-    /// This developer runs two Google Drive accounts, so it is the ordinary case here, not an edge.
+    /// Two accounts of the same provider type each take their own prefix. They share a type, a
+    /// default `openAt` and a discovery rule and differ only by account folder, which a per-type
+    /// plan would collapse. Two Google Drive accounts is an ordinary setup.
     @Test("Two accounts of one provider type are planned separately")
     func twoAccountsOfTheSameTypeEachGetTheirOwnPrefix() {
         let plan = RootsMigration.plan(
@@ -343,8 +314,8 @@ struct RootsMigrationTests {
             try JSONSerialization.jsonObject(with: encoded) as? [String: [[String: Any]]])
         let moved = try #require(out["\(Self.cloudStorage)/OneDrive-Personal"])
         #expect(moved.first?["relativePath"] as? String == "Documents/Family")
-        // The clock survives: a dropped `visitedAt` would silently sort every migrated recent to
-        // the end of the sidebar's one global list.
+        // The clock survives: a dropped `visitedAt` would sort every migrated recent to the end of
+        // the sidebar's one global list.
         #expect(moved.first?["visitedAt"] as? Double == 12345.5)
         #expect(out[oldRoot] == nil)
         // iCloud's root did not move, so its pins are carried across untouched.
@@ -360,8 +331,8 @@ struct RootsMigrationTests {
         Self.migrate(test.defaults)
         #expect(test.defaults.stringArray(forKey: RootsMigration.favoriteOrderKey) == [
             "\(Self.cloudStorage)/OneDrive-Personal\u{0}Documents/Family",
-            // Untouched, and KEPT: this list is the sequence, so dropping an entry reorders the
-            // section rather than merely losing one row.
+            // Untouched and kept: this list is the sequence, so dropping an entry reorders the
+            // section rather than just losing a row.
             "/Users/u/Documents\u{0}Legal",
         ])
     }
@@ -385,9 +356,8 @@ struct RootsMigrationTests {
 
     @Test("No rebased path can begin with a separator, whatever it started as")
     func rebasingCannotProduceALeadingSlash() {
-        // The failure this guards is invisible at the call site: `PathBoundary.join` returns the
-        // bare root for a relative path starting with `/`, so a malformed rebase opens every
-        // affected pane at the top of the account with nothing logged and nothing thrown.
+        // `PathBoundary.join` returns the bare root for a relative path starting with `/`, so a
+        // malformed rebase opens panes at the top of the account with nothing logged or thrown.
         for input in ["", "/", "Family", "/Family", "Family/", "//Family//Photos//"] {
             let out = RootsMigration.rebased(input, under: "Documents")
             #expect(!out.hasPrefix("/"), "\(input) rebased to \(out)")
@@ -410,9 +380,8 @@ struct RootsMigrationTests {
                              discovered: Self.discovered(["GoogleDrive-a@b.com"]),
                              legacyOverrides: ["GoogleDrive-a@b.com": legacy])
 
-        // v3.x and v2.x share this defaults domain and read this key as their Location. Someone who
-        // tries this build and reinstalls the last release must find their settings as they left
-        // them — so the migration reads it and writes beside it, never over it.
+        // Older release lines share this defaults domain and read this key as their Location, so
+        // reinstalling one must find the settings as they were: the migration writes beside it.
         #expect(test.defaults.string(forKey: key) == legacy)
         #expect(test.defaults.string(
             forKey: SettingsManager.openAtOverrideKeyPrefix + "GoogleDrive-a@b.com") == "My Drive")
@@ -425,12 +394,10 @@ struct RootsMigrationTests {
         Self.migrate(test.defaults, accountFolders: ["GoogleDrive-a@b.com"],
                      legacyOverrides: ["GoogleDrive-a@b.com": legacy])
 
-        // The whole migration rests on this identity: root + openAt names the folder the old single
-        // path named. Everything stored as an ABSOLUTE path — automations, Organize's scope, every
-        // cache — is left alone precisely because of it, so if this ever stops holding, those are
-        // all silently wrong and nothing here would say so. (The ignore sets are NOT in that list:
-        // they are stored root-RELATIVE, which is why they are migrated. See
-        // `ignoredItemsAreRebasedByTheLeftSourcesPrefix`.)
+        // The migration rests on this identity: root + openAt names the folder the old single path
+        // named. Everything stored as an absolute path (automations, Organize's scope, caches) is
+        // left alone because of it, and would be silently wrong if it broke. The ignore sets are
+        // root-relative, so they are migrated (`ignoredItemsAreRebasedByTheAnchorSourcesPrefix`).
         let manager = SettingsManager(autoDiscover: false, userDefaults: test.defaults,
                                       overridesDomainName: test.suiteName,
                                       cloudStorageLister: { .read([]) },
@@ -446,12 +413,11 @@ struct RootsMigrationTests {
 
     /// The `relativePath` of the first entry of a stored strip.
     ///
-    /// Decoded rather than string-matched: `JSONSerialization` writes `/` as `\/`, so a
-    /// `contains("Documents/Taxes")` on the raw string is false for a strip that is perfectly
-    /// correct. (Harmless in production — every reader here is a JSON decoder, which unescapes it.)
+    /// Decoded rather than string-matched: `JSONSerialization` writes `/` as `\/`, so a raw
+    /// `contains("Documents/Taxes")` fails on a correct strip. Every production reader decodes it.
     static func firstTabPath(_ defaults: UserDefaults, _ key: String) throws -> String {
         let raw = try #require(defaults.string(forKey: key))
-        // One `#require` per statement — nested, the macro expands recursively and does not compile.
+        // One `#require` per statement: nested, the macro expands recursively and won't compile.
         let data = try #require(raw.data(using: .utf8))
         let entries = try #require(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
         return try #require(entries.first?["relativePath"] as? String)
@@ -460,7 +426,7 @@ struct RootsMigrationTests {
     @Test("A source that is signed out at migration time is picked up by a later launch, not lost")
     func anUnmountedSourceIsMigratedWhenItComesBack() throws {
         let test = TestDefaults()
-        // A tab on an account that is not mounted right now — an ordinary state, not an exotic one.
+        // A tab on an account that isn't mounted right now, an ordinary state.
         test.defaults.set(#"[{"providerId":"OneDrive-Work","relativePath":"Clients/Acme"}]"#,
                           forKey: RootsMigration.leftTabsKey)
         test.defaults.set(#"[{"providerId":"Dropbox","relativePath":"Taxes"}]"#,
@@ -470,9 +436,8 @@ struct RootsMigrationTests {
         let first = Self.migrate(test.defaults, accountFolders: ["Dropbox"])
         #expect(first != .alreadyDone)
         #expect(try Self.firstTabPath(test.defaults, RootsMigration.rightTabsKey) == "Documents/Taxes")
-        // The tell for the bug this replaced: the stamp must NOT be set while a source the stored
-        // state names has never been planned. Setting it made the loss permanent — the account came
-        // back a week later and every one of its tabs was a level too high, silently.
+        // The stamp must not be set while a source the stored state names is unplanned, or the
+        // account would come back later with every tab silently a level too high.
         #expect(test.defaults.integer(forKey: RootsMigration.stampKey) == 0)
         #expect(try Self.firstTabPath(test.defaults, RootsMigration.leftTabsKey) == "Clients/Acme")
 
@@ -485,28 +450,21 @@ struct RootsMigrationTests {
         #expect(test.defaults.integer(forKey: RootsMigration.stampKey) == RootsMigration.currentStamp)
     }
 
-    /// **A folder source in a pane or a tab must not hold the fast exit open forever.**
+    /// A folder source in a pane or a tab must not hold the fast exit open forever. `outstanding`
+    /// is every id the stored state mentions minus every id the plan settled, and waiting is right
+    /// for a signed-out account. But `applyAtLaunch` maps only CloudStorage accounts and iCloud,
+    /// since a folder source is its own root with nothing to migrate, so a selected or tabbed
+    /// folder source would never be handled and the stamp never written.
     ///
-    /// `outstanding` is "every id the stored state mentions, minus every id this plan settled", and
-    /// the wait it implies is right for an account that is signed out — it will be there on some
-    /// later launch. A folder source will not: `applyAtLaunch` maps only the CloudStorage accounts
-    /// and iCloud, deliberately, because a folder source is its own root and always was and there
-    /// is nothing about it to migrate. So its id can never enter `handled`, while
-    /// `referencedProviderIds` picks it straight out of `selectedLeftProviderId` and the tab
-    /// strips — and the stamp is then never written on any install that has one selected or tabbed,
-    /// which is an entirely ordinary configuration.
-    ///
-    /// Two things go wrong and neither says anything. The launch pays for a `~/Library/CloudStorage`
-    /// listing every single time, forever, which is the one cost the stamp exists to buy off. And
-    /// `legacyStateAwaitingMigration` gates on the stamp, so a machine that also carries a legacy
-    /// Location has its CLI refuse **permanently**, telling the user to launch the app to migrate —
-    /// which they have, and which can never clear it.
+    /// Silently, every launch would then pay for a `~/Library/CloudStorage` listing, and with a
+    /// legacy Location the CLI would refuse permanently, since `legacyStateAwaitingMigration` gates
+    /// on the stamp.
     @Test("A folder source is settled, not waited for")
     func aFolderSourceDoesNotHoldTheStampOpen() {
         let test = TestDefaults()
         let folderId = FolderSource.idPrefix + "F4008545-0F87-4E94-A355-9795214B2246"
-        // Exactly the shape this developer's own install is in: the left pane on a folder source,
-        // the right on an account, and a tab strip naming the folder source too.
+        // A common setup: the left pane on a folder source, the right on an account, and a tab
+        // strip naming the folder source too.
         test.defaults.set(folderId, forKey: RootsMigration.leftProviderKey)
         test.defaults.set("Dropbox", forKey: RootsMigration.rightProviderKey)
         test.defaults.set(Self.oneTab(providerId: folderId, relativePath: "Notes"),
@@ -516,9 +474,8 @@ struct RootsMigrationTests {
 
         #expect(test.defaults.integer(forKey: RootsMigration.stampKey) == RootsMigration.currentStamp,
                 "the fast exit was left open by a source that will never appear in the discovered list")
-        // And the folder source's own stored position is untouched: it is its own root, and the
-        // migration has nothing to say about it. A "settled" that quietly rebased it would be a
-        // worse bug than the one above.
+        // And the folder source's stored position is untouched: it is its own root, so settling it
+        // must not rebase it.
         #expect((try? Self.firstTabPath(test.defaults)) == "Notes",
                 "the folder source's tab was rebased — it is its own root and did not move")
         if case .migrated(_, _, let outstanding, _) = outcome {
@@ -544,9 +501,8 @@ struct RootsMigrationTests {
         let account = "\(Self.cloudStorage)/OneDrive-Personal"
         let plan = RootsMigration.plan(discovered: Self.discovered(),
                                        legacyOverrides: ["OneDrive-Personal": account])
-        // Without this the discovered default `Documents` applies and every pane, tab and new tab
-        // lands a level BELOW where the user deliberately put themselves — reading as "the app
-        // forgot my setting". `""` is a real landing folder, so it is written rather than skipped.
+        // Otherwise the discovered default `Documents` applies and every pane and tab lands a level
+        // below where the user put it. `""` is a real landing folder, so it is written.
         #expect(plan.openAtOverrides["OneDrive-Personal"] == "")
         #expect(plan.prefixes["OneDrive-Personal"] == nil)
         #expect(plan.handled.contains("OneDrive-Personal"))
@@ -557,8 +513,8 @@ struct RootsMigrationTests {
         let plan = RootsMigration.plan(
             discovered: Self.discovered(),
             legacyOverrides: ["OneDrive-Personal": "\(Self.cloudStorage)/OneDrive-Personal/Reports/"])
-        // `Reports/` and `Reports` are two different tabs for one folder once the value rides out
-        // through `openAtIfReachable` into a pane's focus — and the slash survives every join.
+        // `Reports/` and `Reports` would be two tabs for one folder once the value reaches a pane
+        // through `openAtIfReachable`, and the slash survives every join.
         #expect(plan.openAtOverrides["OneDrive-Personal"] == "Reports")
         #expect(plan.prefixes["OneDrive-Personal"] == "Reports")
     }
@@ -577,11 +533,10 @@ struct RootsMigrationTests {
     @Test("A Location inside a DIFFERENT account cannot claim that account's remap key")
     func aLocationAimedAtAnotherAccountBecomesItsOwnRootInstead() throws {
         let test = TestDefaults()
-        // Re-pointing an account's Location was deliberately unrestricted, so this is reachable:
-        // OneDrive-Personal aimed at Dropbox's documents folder. It is also the only shape in which
-        // two sources could ever name one legacy root — and it does NOT collide, because a path
-        // inside one account folder is outside every other, so it takes the no-containing-root
-        // branch. That is what makes `rootRemap` an assignment rather than a merge.
+        // A Location could point anywhere, so this is reachable: OneDrive-Personal aimed at
+        // Dropbox's documents folder, the only way two sources name one legacy root. It doesn't
+        // collide: a path inside one account folder is outside every other, so it takes the
+        // no-containing-root branch, which lets `rootRemap` be an assignment rather than a merge.
         let shared = "\(Self.cloudStorage)/Dropbox/Documents"
         let pins = [shared: [["relativePath": "Invoices", "pinned": true]]]
         test.defaults.set(try JSONSerialization.data(withJSONObject: pins),
@@ -594,14 +549,12 @@ struct RootsMigrationTests {
 
         Self.migrate(test.defaults, legacyOverrides: ["OneDrive-Personal": shared])
 
-        // Two statements: a `#require` nested inside another expands recursively and the compiler
-        // rejects it outright.
+        // Two statements: a nested `#require` expands recursively and won't compile.
         let encoded = try #require(test.defaults.data(forKey: RootsMigration.pinnedByRootKey))
         let out = try #require(
             JSONSerialization.jsonObject(with: encoded) as? [String: [[String: Any]]])
-        // The pin follows Dropbox, whose key it genuinely was. OneDrive-Personal shared that key
-        // before this change too — the store has never been able to tell the two apart — so this
-        // takes nothing away that the split created.
+        // The pin follows Dropbox, whose key it was. The store could never tell the two sources'
+        // pins apart under that key, so OneDrive-Personal loses nothing it had.
         #expect(out["\(Self.cloudStorage)/Dropbox"]?.count == 1)
         #expect(out[shared] == nil)
     }
@@ -616,27 +569,22 @@ struct RootsMigrationTests {
 
         Self.migrate(test.defaults)
 
-        // These are stored PANE-ROOT-relative, so a widened root silently re-points every one of
-        // them at a different file one level up. The bad direction is un-ignoring by accident:
-        // Sync All then acts on a file the user deliberately excluded.
+        // Stored pane-root-relative, so a widened root would re-point each at a different file a
+        // level up, un-ignoring by accident: Sync All would act on a file the user excluded.
         #expect(test.defaults.stringArray(forKey: key)?.sorted()
             == ["Documents/Archive/big.zip", "Documents/Scratch"])
     }
 
-    /// **The prefix comes from the id the key names FIRST, not from whichever id happens to have
-    /// one** — because that first id is the source `IgnoredItemsStore` quotes these entries
-    /// against (`FileSyncManager.ignoreAnchorIsLeft`), and a migration that moves them into any
-    /// other frame writes strings the app will read against a root they were never rebased onto.
-    ///
-    /// The two rules agree for every pair of cloud accounts, which is why the distinction needs a
-    /// pair where they do not: a folder source sorting ahead of an account. The folder source is
-    /// its own root and did not move, so its coordinate system is unchanged and the entries are
-    /// already right — while "the first id that HAS a prefix" would find the account's `Documents`
-    /// and push every entry a level down into a folder the anchor knows nothing about.
+    /// The prefix comes from the id the key names first, not whichever id has one:
+    /// `IgnoredItemsStore` reads the entries against that first source
+    /// (`FileSyncManager.ignoreAnchorIsLeft`). The two rules agree for any pair of cloud accounts,
+    /// so this uses a folder source sorting ahead of an account. The folder source didn't move, so
+    /// its entries are already right; "the first id with a prefix" would push them a level down
+    /// into the account's `Documents`.
     @Test("An ignore set anchored on a source that did not move is left exactly as it is")
     func ignoredItemsFollowTheKeysLeadingIdEvenWhenItDidNotMove() {
         let test = TestDefaults()
-        // "Aaa-folder" sorts ahead of "OneDrive-Personal", so it is what `pairKey` names first.
+        // "Aaa-folder" sorts ahead of "OneDrive-Personal", so `pairKey` names it first.
         let key = "ignoredItems_v1_Aaa-folder|OneDrive-Personal"
         test.defaults.set(["Archive/big.zip"], forKey: key)
 
@@ -649,8 +597,8 @@ struct RootsMigrationTests {
     @Test("A pair whose roots did not move keeps its ignore entries exactly as they are")
     func ignoredItemsForAnUnmovedPairAreLeftAlone() {
         let test = TestDefaults()
-        // iCloud's root did not move and a folder source is its own root, so nothing in this pair's
-        // coordinate system changed — rebasing would be the corruption here.
+        // Neither root moved (iCloud's stays, a folder source is its own), so rebasing would
+        // corrupt these.
         let key = "ignoredItems_v1_iCloud|folder-abc"
         test.defaults.set(["Archive/big.zip"], forKey: key)
 
@@ -665,9 +613,8 @@ struct RootsMigrationTests {
     func nothingStoredMeansNothingMoved() {
         let test = TestDefaults()
         let line = Self.migrate(test.defaults).logLine
-        // The first draft described the PLAN, so an install with no stored state at all announced
-        // that its positions "were moved down into (Dropbox → Documents, …)" — naming folders it
-        // had never held a position in. A count the reader can check is the point of the line.
+        // The line reports what moved, not the plan: an install with no stored state must not be
+        // told its positions "moved down into" folders it never held a position in.
         #expect(line?.contains("no stored folder positions to move") == true)
         #expect(line?.contains("moved down into") == false)
     }
@@ -677,8 +624,8 @@ struct RootsMigrationTests {
         let test = TestDefaults()
         test.defaults.set("{not json", forKey: RootsMigration.leftTabsKey)
         let line = Self.migrate(test.defaults).logLine
-        // Present-and-unreadable is not the same as absent, and it is the case that loses data in
-        // silence: the strip stays measured from the old root and every tab on it opens elsewhere.
+        // Present and unreadable isn't absent: the strip stays measured from the old root and every
+        // tab on it opens elsewhere, so it must be reported.
         #expect(line?.contains(RootsMigration.leftTabsKey) == true)
         #expect(line?.contains("could not be read") == true)
     }
@@ -689,22 +636,21 @@ struct RootsMigrationTests {
     func applyAtLaunchReadsOnlyItsOwnPersistentDomain() {
         let test = TestDefaults()
         let legacyKey = SettingsManager.legacyPathOverrideKeyPrefix + "OneDrive-Personal"
-        // The registration domain is the honest stand-in for a stray NSGlobalDomain key: it is in
-        // `dictionaryRepresentation()` and answers `string(forKey:)`, and it is NOT in
-        // `persistentDomain(forName:)`. So this passes only if the read is scoped — and a fresh
-        // install, whose persistent domain is nil, is exactly when a `?? dictionaryRepresentation()`
-        // fallback would honour it.
+        // The registration domain stands in for a stray NSGlobalDomain key: it answers
+        // `string(forKey:)` but isn't in `persistentDomain(forName:)`, so this passes only if the
+        // read is scoped. A fresh install has a nil persistent domain, exactly when a
+        // `?? dictionaryRepresentation()` fallback would honour it.
         test.defaults.register(defaults: [legacyKey: "/Volumes/Elsewhere"])
         #expect(test.defaults.string(forKey: legacyKey) == "/Volumes/Elsewhere")
 
         RootsMigration.applyAtLaunch(defaults: test.defaults, domainName: test.suiteName,
                                      lister: { Self.accounts() })
 
-        // Adopted, it would have become a root override pinning the source at /Volumes/Elsewhere —
-        // permanently, since the migration is the only writer of that key.
+        // Adopted, it would become a root override pinning the source at /Volumes/Elsewhere for
+        // good, since the migration is that key's only writer.
         #expect(test.defaults.string(
             forKey: SettingsManager.rootOverrideKeyPrefix + "OneDrive-Personal") == nil)
-        // And the ordinary discovered move still happened, so this is not passing by doing nothing.
+        // And the ordinary move still happened, so this isn't passing by doing nothing.
         #expect(test.defaults.stringArray(forKey: RootsMigration.handledProviderIdsKey)?
             .contains("OneDrive-Personal") == true)
     }
@@ -720,8 +666,8 @@ struct RootsMigrationTests {
         Self.migrate(test.defaults)
 
         let merged = test.defaults.dictionary(forKey: RootsMigration.destinationRecentsKey) as? [String: [String]]
-        // `DestinationRecents.load` does not trim on read, so a merge that overran the cap would
-        // leave more entries than the store's own writer could ever produce.
+        // `DestinationRecents.load` doesn't trim on read, so an overrun merge would leave more
+        // entries than the store's own writer could produce.
         #expect(merged?[new]?.count == DestinationRecents.limit)
         #expect(merged?[old] == nil)
     }

@@ -2,12 +2,12 @@ import Design
 import SwiftUI
 
 /// The accent swatches for an Ask Claude settings card: Settings' own discs, in rows of six at
-/// 24 pt in 32 pt slots — 212 pt wide, so the eleven fit a 240 pt card in two rows. Settings' row of 32 pt
-/// swatches with names under them is about 440 pt wide.
+/// 24 pt in 32 pt slots. That is 212 pt wide, so the eleven fit a 240 pt card in two rows, where
+/// Settings' named row would need about 440 pt.
 ///
-/// No names under the discs — there's no room for "Graphite" in a 32 pt slot — so each disc names
-/// itself in a tooltip and to VoiceOver, and the line under the grid names the current one. No
-/// selection lens either: a card is outside any lens host, so the chosen disc wears today's ring.
+/// No names under the discs, since "Graphite" doesn't fit a 32 pt slot: each disc names itself in
+/// a tooltip and to VoiceOver, and the line under the grid names the current one. No selection
+/// lens either: a card is outside any lens host, so the chosen disc wears a plain ring.
 public struct AccentSwatchGrid: View {
     let hues: [LiquidGlassHue]
     let selected: LiquidGlassHue?

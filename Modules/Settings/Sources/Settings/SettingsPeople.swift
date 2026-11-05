@@ -1,12 +1,12 @@
 import Foundation
 import Sync
 
-/// People on an Ask Claude card (TE290 step 9, part 2): a person's fields, their place in the
-/// list, and Add Person, through the `PeopleStore` Settings edits.
+/// People on an Ask Claude card: a person's fields, their place in the list, and Add Person,
+/// through the `PeopleStore` Settings edits.
 ///
-/// **A person is one value.** An edit, its undo and its Changed from Chat line hold the whole
-/// person (`encode`), so an undo puts back exactly who they were, and only while they are still
-/// who the card made them. The list's order is one value too: its ids, in order.
+/// A person is one value: an edit, its undo and its Changed from Chat line hold the whole person
+/// (`encode`), so an undo puts back exactly who they were, and only while they are still who the
+/// card made them. The list's order is one value too: its ids, in order.
 @MainActor
 public struct SettingsPeople {
     public var store: PeopleStore?
@@ -32,9 +32,9 @@ public struct SettingsPeople {
 
     // MARK: Values, for undo and the record
 
-    /// A person as one stored value; "" when there is no such person. Keys sorted: without it,
-    /// older Foundations order them differently from one encode to the next, and an unchanged
-    /// person would read as changed since.
+    /// A person as one stored value; "" when there is no such person. Keys sorted, because older
+    /// Foundations can order them differently per encode and an unchanged person would read as
+    /// changed.
     public static func encode(_ person: Person?) -> String {
         guard let person else { return "" }
         let fields = Fields(displayName: person.displayName, relationship: person.relationship,
@@ -44,8 +44,9 @@ public struct SettingsPeople {
         return (try? encoder.encode(fields)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
     }
 
-    /// Whether two stored values are the same person, or the same order: by their fields, so a
-    /// value recorded with its keys in another order still matches.
+    /// Whether two stored values are the same person, by their fields, so a value recorded with
+    /// its keys in another order still matches. Anything that isn't a person (an order) compares
+    /// as text.
     public static func same(_ a: String, _ b: String) -> Bool {
         let decoder = JSONDecoder()
         guard let first = try? decoder.decode(Fields.self, from: Data(a.utf8)),
@@ -109,7 +110,7 @@ public struct SettingsPeople {
         return (added, nil)
     }
 
-    /// Move Up or Move Down; false at either end.
+    /// Move Up or Move Down; refused at either end.
     public func move(_ id: String, up: Bool) -> SettingsWriter.Outcome {
         if let refusal { return .refused(refusal) }
         return store?.move(id: id, up: up) == true ? .done : .refused("They’re already at the \(up ? "top" : "bottom").")

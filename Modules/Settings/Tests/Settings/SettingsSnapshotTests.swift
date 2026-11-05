@@ -4,50 +4,38 @@ import SwiftUI
 import Testing
 @testable import Settings
 
-/// Visual snapshot net over the Settings module — the Appearance tab's accent section as it
-/// ships. Machine-pinned image comparisons live here, marked `.machinePinned(.referenceImages)`
-/// so CI excludes them the same way it excludes the other three packages' snapshot suites (see
-/// Modules/Design/Tests/DesignTests/SNAPSHOTS.md for the re-record workflow and the
-/// single-machine caveat).
+/// Visual snapshot net over the Settings module: the Appearance tab's accent section as it ships.
+/// Marked `.machinePinned(.referenceImages)` so CI excludes it like the other packages' snapshot
+/// suites (Modules/Design/Tests/DesignTests/SNAPSHOTS.md has the re-record workflow).
 ///
-/// The painted-pixel and caption assertions that pin the accent PAIRING stay in
-/// `AccentPreviewTests`. They are NOT machine-independent — this doc used to say they were —
-/// they sample a live renderer, so they carry `.machinePinned(.pixelSampling)` and CI keeps
-/// running them only because the runner is the recording machine.
+/// The pixel and caption assertions on the accent pairing live in `AccentPreviewTests`. They
+/// sample a live renderer, so they are not machine-independent either and carry
+/// `.machinePinned(.pixelSampling)`.
 @MainActor
 @Suite(.serialized, .machinePinned(.referenceImages)) struct SettingsSnapshotTests {
 
-    /// The section as it ships: eleven swatches, the preview strip, and the caption — at the real
-    /// content width, in both appearances.
+    /// The section as it ships, swatches, preview strip and caption, at the real content width in
+    /// both appearances. Amber and Cyan are the lightest accents, the ones `AccentFill` deepens
+    /// most; Indigo and Graphite come back untouched. `.none` is absent: it resolves the machine's
+    /// system accent, so the reference would not be portable.
     ///
-    /// Four hues, chosen so the reference shows the on-accent pairing across the deepening range:
-    /// Amber and Cyan are the two lightest accents (the ones `AccentFill` moves furthest, and the
-    /// ones where a raw-accent regression would be unmistakable), Indigo and Graphite are dark
-    /// enough to come back untouched. `.none` is deliberately absent — it resolves the machine's
-    /// system accent, which would make this reference non-portable.
-    ///
-    /// What this reference does and does not protect, measured rather than assumed (the caveat
-    /// `countPillFreshnessStates` records for the same reason): swapping the deepened fill for the
-    /// raw accent DOES fail it — the colour change is far past the 0.99/0.98 tolerance. Changing
-    /// the strip's internal spacing by 4pt does NOT: one small capsule shifting inside a 583×700
-    /// frame is a smaller share of the pixels than the tolerance absorbs. Geometry here is pinned
-    /// by `SettingsLayoutTests`' laid-out height and by the size check in `AccentPreviewTests`'
-    /// `noneStillPaintsALegibleButton`, not by this image.
+    /// Swapping the deepened fill for the raw accent fails this; a few points of spacing inside
+    /// the strip does not, being under the tolerance. Geometry is pinned by `SettingsLayoutTests`
+    /// and `AccentPreviewTests`' `noneStillPaintsALegibleButton`, not by this image.
     @MainActor
     @Test func accentSectionSnapshot() {
         assertViewSnapshot(
             of: AccentSectionSpecimen(),
-            // 700 clears four sections at their measured 163pt pitch plus the page's own padding.
-            // Sized deliberately, not generously: the frame is fixed, so a section growing past it
-            // would be silently cropped out of the reference rather than failing it.
+            // 700 clears four sections at their measured 163pt pitch plus the page padding. Not
+            // generous on purpose: a section growing past a fixed frame is cropped, not failed.
             size: CGSize(width: SettingsSheetMetrics.contentWidth(textScale: 1), height: 700),
             named: "accent-section")
     }
 
     private struct AccentSectionSpecimen: View {
         var body: some View {
-            // Pitch and padding from the same metrics `SettingsPage` draws with, so the specimen
-            // keeps rendering the section in its real habitat instead of a stale copy of it.
+            // Pitch and padding from the metrics `SettingsPage` draws with, so the specimen stays
+            // true to the real page.
             VStack(alignment: .leading, spacing: SettingsSheetMetrics.sectionPitch) {
                 ForEach([LiquidGlassHue.amber, .cyan, .indigo, .graphite]) { hue in
                     AccentColorSection(selectedHue: hue, onSelect: { _ in })

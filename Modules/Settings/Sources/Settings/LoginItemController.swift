@@ -3,18 +3,12 @@ import Events
 import ServiceManagement
 
 /// Launch at login, owned once for the app: the switch's value, the approval hint, and the
-/// `SMAppService` round-trip with its echo guard (TE290 step 0a).
+/// `SMAppService` round-trip with its echo guard. One instance, so setup's row, Settings' row and
+/// an Ask Claude card all drive one state machine against the one service. A user's flip arrives
+/// as `setFromUser`.
 ///
-/// **Moved out of `LaunchAtLoginRow` so every control drives one state machine.** The row used to
-/// hold all of this in `@State`, so setup's row and Settings' row each ran their own guard against
-/// the one service, and anything that is not that view (an Ask Claude card, TE290) could only write
-/// the switch by mounting a second copy. The logic is the row's, line for line; what changed is
-/// where it lives and that a user's flip arrives as `setFromUser` rather than through `onChange`.
-///
-/// **A programmatic set still reaches the guard the way `onChange` did.** SwiftUI delivered the
-/// row's `onChange` for its own writes too, after `adoptedStatus` had run in the same turn, and the
-/// guard dismissed them as echoes (with a debug line). `publish` keeps that order: write, adopt,
-/// then hand the change to the same handler, so the guard and the log see exactly what they saw.
+/// Ordering: a programmatic set goes through `publish`, which writes, lets the guard adopt the
+/// value, then hands the change to the same handler, so the guard dismisses it as an echo.
 @MainActor
 public final class LoginItemController: ObservableObject {
 
@@ -22,7 +16,7 @@ public final class LoginItemController: ObservableObject {
     public static let shared = LoginItemController()
 
     /// Mirrors `SMAppService.mainApp.status`; a pending approval counts as on. Not seeded at init:
-    /// the status getter is a synchronous XPC call, which must not run on the main thread —
+    /// the status getter is a synchronous XPC call that must not run on the main thread, so
     /// `refresh()` reads it detached.
     @Published public private(set) var isOn = false
 
@@ -37,16 +31,15 @@ public final class LoginItemController: ObservableObject {
     /// The service calls, a seam so a test can stand in for `SMAppService`.
     let service: LoginItemService
 
-    /// The last round-trip started, kept so a test can await it instead of polling — a polled
-    /// wait on the main actor times out when other suites hold it. Nil until one starts, which is
-    /// also how a test sees that a status read started none.
+    /// The last round-trip started, so a test can await it instead of polling, which times out
+    /// when other suites hold the main actor. Nil until one starts, so a test can also see none did.
     private(set) var lastRoundTrip: Task<Void, Never>?
 
     init(service: LoginItemService = .live) {
         self.service = service
     }
 
-    /// A user's flip of the switch: the row's `onChange`, now called directly.
+    /// A user's flip of the switch.
     public func setFromUser(_ enabled: Bool) {
         guard enabled != isOn else { return }
         isOn = enabled
@@ -55,11 +48,9 @@ public final class LoginItemController: ObservableObject {
 
     /// Reflects the real service state into the switch and the approval hint.
     ///
-    /// Dated against the echo guard: this runs when a row appears and on EVERY app re-activation,
-    /// so without the epoch check a cmd-tab away and back mid-gesture published a service state
-    /// that predated the user's flip, moving the switch out from under the running round-trip.
-    /// That call then settled against the "moved" switch and drove the service back, losing a
-    /// registration that had succeeded.
+    /// Dated against the echo guard, because this runs on every app re-activation: without the
+    /// epoch check, a cmd-tab mid-gesture would publish a status older than the user's flip, and
+    /// the running round-trip would then drive the service back, losing a successful registration.
     /// - Returns: The read, so a caller can await it.
     @discardableResult
     public func refresh() -> Task<Void, Never> {
@@ -71,21 +62,20 @@ public final class LoginItemController: ObservableObject {
         }
     }
 
-    /// What the row's `onChange` did with every change of the switch, user's or programmatic.
+    /// Handles every change of the switch, user's or programmatic.
     private func handleChange(to enabled: Bool) {
         guard echo.shouldStartRoundTrip(for: enabled, at: .now) else {
             // Echo of a programmatic set, or a gesture the in-flight call will carry in its
-            // `settle`. Logged because the second case is the one shape of this guard the user
-            // can FEEL — the switch moves and nothing happens — and with no line here a guard
-            // stuck shut was invisible in the log by construction.
+            // `settle`. Logged because the user can feel the second case (the switch moves and
+            // nothing happens), and a guard stuck shut would otherwise leave no trace.
             Logger.shared.debug("Launch-at-login: no round-trip started for \(enabled) (echo, or one already in flight)")
             return
         }
         updateLoginItem(enabled)
     }
 
-    /// A programmatic write: set, let the guard adopt it in the same turn, then deliver the change
-    /// as `onChange` would have — only when the value actually moved.
+    /// A programmatic write: set, let the guard adopt it in the same turn, then handle the change,
+    /// only when the value actually moved.
     private func publish(_ value: Bool) {
         let old = isOn
         isOn = value
@@ -93,16 +83,15 @@ public final class LoginItemController: ObservableObject {
         if old != value { handleChange(to: value) }
     }
 
-    /// Publishes just the approval hint, leaving the switch where the user put it. Used when a
-    /// failing round-trip's status re-read is the freshest thing known but the switch has already
-    /// moved on — `applyState` would overwrite that move.
+    /// Publishes just the approval hint, leaving the switch where the user put it: for a failing
+    /// round-trip's status re-read when the switch has already moved on, which `applyState` would
+    /// overwrite.
     private func applyApprovalHint(_ status: SMAppService.Status) {
         needsApproval = (status == .requiresApproval)
     }
 
     /// Publishes a freshly read service status. `adoptedStatus` rather than `markApplied`: this
-    /// write TAKES the switch, so any round-trip whose claim had already expired must stop
-    /// speaking for it — see `adoptedStatus`.
+    /// write takes the switch, so a round-trip whose claim has expired stops speaking for it.
     private func applyState(_ status: SMAppService.Status) {
         needsApproval = (status == .requiresApproval)
         publish(status == .enabled || status == .requiresApproval)
@@ -111,15 +100,14 @@ public final class LoginItemController: ObservableObject {
     /// Registers or unregisters the login item, reverting the switch to the real service state on
     /// failure so no control claims a state the system rejected.
     private func updateLoginItem(_ enabled: Bool) {
-        // Synchronously, before the `Task` is even scheduled: two changes must not both pass
+        // Synchronously, before the `Task` is scheduled, so two changes can't both pass
         // `shouldStartRoundTrip` and start a call apiece.
         let token = echo.beginRoundTrip(at: .now)
         lastRoundTrip = Task {
             do {
                 let awaitsApproval = try await applyOffMain(enabled)
-                // A superseded settle (nil) owns nothing, so it publishes nothing: this hint was
-                // sampled off-main and lands an actor hop later, and whatever superseded the call
-                // — a fresher status read, a later gesture — knows better than it does.
+                // A superseded settle (nil) publishes nothing: this hint was sampled off-main an
+                // actor hop ago, and whatever superseded the call knows better.
                 guard let followUp = echo.settle(
                     token: token, applied: enabled, toggle: isOn, succeeded: true) else { return }
                 needsApproval = awaitsApproval
@@ -128,8 +116,8 @@ public final class LoginItemController: ObservableObject {
                 }
                 perform(followUp, status: nil)
             } catch {
-                // Logged before the ownership test: the call really did fail, and that is worth a
-                // line whether or not this round-trip still speaks for the switch.
+                // Logged before the ownership test: the call failed whether or not this round-trip
+                // still speaks for the switch.
                 Logger.shared.error("Failed to \(enabled ? "register" : "unregister") launch-at-login item: \(error.localizedDescription)")
                 let status = await readStatusOffMain()
                 guard let followUp = echo.settle(
@@ -159,8 +147,8 @@ public final class LoginItemController: ObservableObject {
         return await Task.detached(priority: .userInitiated) { service.status() }.value
     }
 
-    /// Runs the status check plus register/unregister round-trip detached — all three are
-    /// synchronous XPC calls. Returns whether the item now awaits approval in Login Items.
+    /// Runs the status check and register/unregister detached, since all are synchronous XPC
+    /// calls. Returns whether the item now awaits approval in Login Items.
     private func applyOffMain(_ enabled: Bool) async throws -> Bool {
         let service = service
         return try await Task.detached(priority: .userInitiated) {

@@ -1,13 +1,13 @@
 import Foundation
 import Sync
 
-/// What Ask Claude's `settings` tool answers (TE290 step 2): find a setting by the words someone
-/// would use, read its value, default, choices and what it does, and list what differs from the
-/// defaults. Text for Claude, built from `SettingsCatalog` and each setting's owner.
+/// What Ask Claude's `settings` tool answers: find a setting by the words someone would use, read
+/// its value, default, choices and what it does, and list what differs from the defaults. Text for
+/// Claude, built from `SettingsCatalog` and each setting's owner.
 ///
-/// **Privacy is applied here, not by the caller.** The API key is only ever "saved" or "not
+/// Privacy is applied here, not by the caller: the API key is only ever "saved" or "not
 /// saved", Hidden from Claude is a count, and a path on the Never show Claude list is named as
-/// hidden — so no route through this type can hand Claude what those settings protect.
+/// hidden, so no route through this type hands Claude what those settings protect.
 @MainActor
 public struct SettingsLookup {
 
@@ -43,9 +43,9 @@ public struct SettingsLookup {
     public var isHidden: (String) -> Bool
     /// Launch at login lives in macOS, and is read off the main thread.
     public var loginItemIsOn: () async -> Bool
-    /// Changed from Chat (TE290 step 5), newest first and through the hidden filter.
+    /// Changed from Chat, newest first and through the hidden filter.
     public var changesFromChat: () -> [SettingsChange]
-    /// The people a People card can name (TE290 step 9).
+    /// The people a People card can name.
     public var people: () -> [Person]
 
     public init(defaults: UserDefaults, settings: SettingsManager?, keyIsSaved: @escaping () -> Bool,

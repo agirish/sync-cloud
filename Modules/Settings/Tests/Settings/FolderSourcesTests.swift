@@ -5,9 +5,9 @@ import Testing
 import Sync
 @testable import Settings
 
-/// Folder sources in Settings (roadmap 1a): the curated list of plain folders, merged into
-/// `availableProviders` so every downstream surface — panes, the lens workspaces, the diff engine, the CLI — gets
-/// one for free, and the four things the roadmap flagged as likely to bite.
+/// Folder sources in Settings: the curated list of plain folders, merged into `availableProviders`
+/// so every downstream surface (panes, the lens workspaces, the diff engine, the CLI) gets them
+/// for free, plus the edges most likely to bite: duplicates, removal, moves and name rules.
 @Suite struct FolderSourcesTests {
 
     @MainActor
@@ -25,9 +25,8 @@ import Sync
 
     // MARK: mapProviders — the merge
 
-    /// Folder sources land AFTER every cloud account, as a block, in the order they were added.
-    /// That ordering is what keeps the existing picker visually untouched: nobody's iCloud row
-    /// moves because they added a folder.
+    /// Folder sources land after every cloud account, as a block, in the order added, so no
+    /// account row moves because a folder was added.
     @Test func folderSourcesSortAfterEveryCloudAccount() {
         let providers = SettingsManager.mapProviders(
             cloudStorageFolders: [dropboxAccount],
@@ -59,9 +58,8 @@ import Sync
         #expect(folder.imageName == "folder.fill")
     }
 
-    /// Renaming works on a folder source exactly as it does on a cloud account: same override key
-    /// prefix, same clearing rule. It is the ONE place the two kinds share machinery, so it is
-    /// worth pinning that the folder's default name is what comes back when the override clears.
+    /// Renaming a folder source works as on a cloud account: same override key prefix, same
+    /// clearing rule. Clearing the override brings back the folder's own name.
     @Test func aFolderSourceHonorsANameOverride() {
         func mapped(_ override: String?) -> CloudProvider {
             SettingsManager.mapProviders(
@@ -103,14 +101,12 @@ import Sync
 
         let reopened = manager(defaults)
         #expect(reopened.folderSources.map(\.id) == [id])
-        // Seeded before discovery even runs, like the iCloud provider is — so nothing renders a
-        // list that is missing the user's folders for the first frame.
+        // Seeded before discovery runs, like iCloud, so no first frame lacks the user's folders.
         #expect(reopened.availableProviders.contains { $0.id == id })
     }
 
-    /// Nested and overlapping sources are legitimate, but two rows for ONE folder are just a
-    /// duplicate the user then has to tell apart by name. Adding an existing path SELECTS it —
-    /// and the id coming back is what lets "Choose Folder…" still point the pane at it.
+    /// Nested sources are fine, but two rows for one folder are a duplicate. Adding an existing
+    /// path selects it, and the returned id lets "Choose Folder…" still point the pane at it.
     @MainActor
     @Test func addingAFolderThatIsAlreadyASourceSelectsItInsteadOfDuplicating() async {
         let defaults = TestDefaults()
@@ -126,10 +122,9 @@ import Sync
         #expect(settings.folderSources.count == 1)
     }
 
-    /// The duplicate check must hold on the SECOND add too, with no discovery in between.
-    /// `discoverProviders` is async and stats network-backed mounts, so `availableProviders` can
-    /// lag `folderSources` by however long that takes — and a check that consults only the
-    /// published list would mint a second row for one folder in exactly that window.
+    /// The duplicate check holds with no discovery in between. `discoverProviders` is async and
+    /// stats network mounts, so `availableProviders` can lag `folderSources`; a check against only
+    /// the published list would mint a second row in that window.
     @MainActor
     @Test func addingTwiceWithoutWaitingForDiscoveryStillSelects() {
         let defaults = TestDefaults()
@@ -142,8 +137,8 @@ import Sync
         #expect(settings.folderSources.count == 1)
     }
 
-    /// Nesting is still allowed — `~` and `~/Projects` are both reasonable sources, and
-    /// `inferredType` resolves the overlap. Only an EXACT repeat is refused.
+    /// Nesting is allowed: `~` and `~/Projects` are both reasonable sources, and `inferredType`
+    /// resolves the overlap. Only an exact repeat is refused.
     @MainActor
     @Test func nestedFoldersAreStillTwoSources() async {
         let defaults = TestDefaults()
@@ -157,17 +152,16 @@ import Sync
         #expect(settings.folderSources.count == 2)
     }
 
-    /// A discovered account already knows things about its folder that a folder source would
-    /// throw away — its name rules, its date behaviour. Adding its root selects the account.
+    /// A discovered account knows things a folder source would throw away, such as its name rules
+    /// and date behaviour, so adding its root selects the account.
     @MainActor
     @Test func addingACloudProvidersOwnRootSelectsThatProvider() async {
         let defaults = TestDefaults()
         let settings = manager(defaults, cloudStorage: [dropboxAccount])
         await settings.discoverProviders()
 
-        // The account folder, which IS Dropbox's root now. (The `Documents` inside it is an
-        // ordinary folder within the source, and adding that as its own row is legitimate — nested
-        // sources are allowed, and it is no longer any source's root.)
+        // The account folder, which is Dropbox's root. (Its `Documents` is an ordinary folder
+        // within the source, and adding it as its own row is a legitimate nested source.)
         let id = settings.addFolderSource(path: "/Users/u/Library/CloudStorage/Dropbox")
 
         #expect(id == "Dropbox")
@@ -191,9 +185,8 @@ import Sync
 
         #expect(settings.folderSources.isEmpty)
         #expect(settings.availableProviders.contains { $0.id == id } == false)
-        // Re-adding the same folder mints a new id, so a leftover name override could not attach
-        // to it — but a leftover DISABLED entry keyed to the old id would sit in the persisted set
-        // forever, and the set is what `canDisable` counts against.
+        // Re-adding mints a new id, so a leftover name override can't attach, but a leftover
+        // disabled entry would sit in the persisted set forever, and `canDisable` counts that set.
         #expect(settings.disabledProviderIds.contains(id) == false)
         #expect(defaults.defaults.string(forKey: "name_override_\(id)") == nil)
     }
@@ -213,9 +206,8 @@ import Sync
 
     // MARK: Moving one
 
-    /// A folder source's stored path IS its path — there is no discovered default for an override
-    /// to sit on top of. Writing one would leave the list holding the old path and the provider
-    /// the new one, and Remove would clear only one of them.
+    /// A folder source's stored path is its path; there's no discovered default for an override
+    /// to sit on. An override would leave two paths, and Remove would clear only one.
     @MainActor
     @Test func movingAFolderSourceRewritesTheListRatherThanAddingAnOverride() async {
         let defaults = TestDefaults()
@@ -236,9 +228,8 @@ import Sync
 
     // MARK: Moving one onto a folder that is already taken
 
-    /// The other door onto "one folder gets one row". `addFolderSource` refuses to mint a second
-    /// row for one folder by selecting the first; `setPath` shipped with no check at all, so
-    /// editing a Location was a way to make exactly the duplicate the add door prevents.
+    /// The other door onto "one folder gets one row": `addFolderSource` selects the existing row,
+    /// and `setPath` must refuse, or editing a Location makes the duplicate the add door prevents.
     @MainActor
     @Test func movingAFolderSourceOntoAnotherSourcesFolderIsRefused() async {
         let defaults = TestDefaults()
@@ -252,15 +243,13 @@ import Sync
         #expect(outcome == .refusedDuplicate(existingId: projects))
         #expect(settings.folderSources.count == 2, "still two sources, not two rows for one folder")
         #expect(settings.rootPath(for: archive) == "/Users/u/Archive", "and the refused one did not move")
-        // The refusal has to survive a relaunch too — i.e. nothing was written on the way out.
-        // No tildes here: these fixtures live under `/Users/u`, which is nobody's real home, so
-        // `FolderSource.abbreviated` has nothing to fold.
+        // Nothing was written, so the refusal survives a relaunch. No tildes: `/Users/u` is
+        // nobody's real home, so `FolderSource.abbreviated` has nothing to fold.
         #expect(manager(defaults).folderSources.map(\.path)
                 == ["/Users/u/Projects", "/Users/u/Archive"])
     }
 
-    /// Case-insensitivity holds on this door as well: the default macOS volume makes these one
-    /// folder, so spelling the collision differently must not slip past.
+    /// Case-insensitive here too: on the default macOS volume these are one folder.
     @MainActor
     @Test func movingOntoAnotherSourcesFolderIsRefusedCaseInsensitively() async {
         let defaults = TestDefaults()
@@ -274,10 +263,8 @@ import Sync
         #expect(settings.rootPath(for: archive) == "/Users/u/Archive")
     }
 
-    /// A cloud account knows things about its folder that a plain folder source would throw away —
-    /// its name rules, its date behaviour. `addFolderSource` refuses to shadow one; so must this.
-    /// Left unchecked, a Location edit was a way to get a `.localFolder` row over a real account,
-    /// silently swapping that account's ruleset for the folder default.
+    /// `addFolderSource` refuses to shadow a cloud account, and so must this: a `.localFolder` row
+    /// over a real account would silently swap its ruleset for the folder default.
     @MainActor
     @Test func movingAFolderSourceOntoACloudAccountsRootIsRefused() async {
         let defaults = TestDefaults()
@@ -294,8 +281,8 @@ import Sync
                 "the account keeps its own ruleset — the shadowing row is what would have taken it")
     }
 
-    /// The skip that makes the check usable: a source necessarily names its own folder, so without
-    /// `ignoring:` every edit would refuse itself. Re-spelling a path in place still lands.
+    /// A source names its own folder, so without `ignoring:` every edit would refuse itself.
+    /// Re-spelling a path in place still lands.
     @MainActor
     @Test func respellingASourcesOwnPathIsNotRefusedAsADuplicateOfItself() async {
         let defaults = TestDefaults()
@@ -307,8 +294,7 @@ import Sync
         #expect(settings.folderSources.first?.path == "/users/u/projects")
     }
 
-    /// Nesting stays legitimate on this door too — only an exact repeat is refused, exactly as on
-    /// the add door. `~` and `~/Projects` are both reasonable things to point a source at.
+    /// Nesting is allowed on this door too; only an exact repeat is refused, as on the add door.
     @MainActor
     @Test func movingAFolderSourceUnderAnotherSourceIsStillAllowed() async {
         let defaults = TestDefaults()
@@ -322,9 +308,8 @@ import Sync
         #expect(settings.folderSources.count == 2)
     }
 
-    /// Re-pointing a discovered ACCOUNT is deliberately left unrestricted. The invariant is about
-    /// folder sources; refusing to let someone aim Dropbox at a folder they had also added would be
-    /// a new rule rather than this fix, and `setPath` says so.
+    /// Re-pointing a discovered account is deliberately unrestricted: the invariant is about folder
+    /// sources, and `setPath` says so.
     @MainActor
     @Test func repointingACloudAccountOntoAFolderSourceIsStillAllowed() async {
         let defaults = TestDefaults()
@@ -373,8 +358,8 @@ import Sync
                 "turning the folder check off must not disarm the cloud accounts")
     }
 
-    /// The pre-existing over-report fallback, preserved: an id that resolves to nothing is checked
-    /// against OneDrive, so a name that would break a sync never passes unflagged.
+    /// An id that resolves to nothing is checked against OneDrive, so a name that would break a
+    /// sync never passes unflagged.
     @MainActor
     @Test func anUnresolvableSourceStillOverReports() {
         let defaults = TestDefaults()
@@ -400,10 +385,9 @@ import Sync
 
     // MARK: Reset All Settings
 
-    /// `resetAllSettings` clears the defaults domain but what `SettingsResetKeeps` names, which takes the curated folder list
-    /// with it. That is defensible, and the confirmation now says so — what must not happen is the
-    /// list surviving in memory while its persistence is gone, which would resurrect the folders
-    /// on the next write and lose them on the next launch.
+    /// `resetAllSettings` clears the defaults domain except what `SettingsResetKeeps` names, so the
+    /// folder list goes too, as the confirmation says. The in-memory list must go with it, or the
+    /// next write resurrects the folders and the next launch loses them.
     @MainActor
     @Test func resetAllSettingsClearsTheFolderListAndSaysSo() async {
         let defaults = TestDefaults()
@@ -423,9 +407,8 @@ import Sync
 
     // MARK: Findability
 
-    /// The tab is titled "Sources" now and the section headings are "Cloud providers" / "Local
-    /// folders", so someone who thinks in the old vocabulary — or in none of it — still has to
-    /// land here.
+    /// The tab is "Sources", with sections "Cloud providers" and "Local folders"; someone
+    /// searching in other words must still land here.
     @Test func addingAFolderIsFindableByTheWordsSomeoneWouldType() {
         for query in ["add folder", "local", "folder", "providers", "sources", "home folder"] {
             let results = filterSettings(SettingsSearchIndex.all, query: query)
@@ -450,12 +433,8 @@ import Sync
 
     // MARK: The tab as laid out
 
-    /// Every assertion above calls a method; none of them build the view. This one lays the tab
-    /// out for real, so the folder rows, the Add Folder button and the ruleset picker are actually
-    /// constructed — a broken `body` would otherwise ship green.
-    ///
-    /// Height rather than a constant: a populated tab must be taller than an empty one, which is
-    /// the cheapest statement that the rows reached the screen rather than being built and dropped.
+    /// Lays the tab out for real, so a broken `body` can't pass on the method tests above. A
+    /// populated tab must be taller than an empty one, the cheapest proof the rows are drawn.
     @MainActor
     @Test func theTabLaysOutTheFolderRowsItIsGiven() async {
         let defaults = TestDefaults()
@@ -475,9 +454,8 @@ import Sync
                 "three folder rows added \(populated - empty)pt — they are not being rendered")
     }
 
-    /// Rows are collapsed by default and that is the point: this tab grows with every account the
-    /// Mac has plus every folder added, and an expanded row carries a Location field and three
-    /// buttons. Expanding one must actually add that height.
+    /// Rows are collapsed by default because the tab grows with every account and folder, and an
+    /// expanded row carries a Location field and three buttons. Expanding one must add that height.
     @MainActor
     @Test func expandingARowRevealsItsLocationControls() async {
         let defaults = TestDefaults()
@@ -497,8 +475,8 @@ import Sync
                 "expanding added \(expanded - collapsed)pt — the Location controls are not appearing")
     }
 
-    /// Text scale pinned, as `SettingsLayoutTests` does: `scaledFont` reads it from the
-    /// environment, so an unpinned measurement reports whatever text size this machine has set.
+    /// Text scale pinned, as in `SettingsLayoutTests`: `scaledFont` reads it from the environment,
+    /// so unpinned it measures this machine's text size.
     @MainActor
     private func laidOutHeight(_ view: some View,
                                width: CGFloat = SettingsSheetMetrics.contentWidth(textScale: 1)) -> CGFloat {

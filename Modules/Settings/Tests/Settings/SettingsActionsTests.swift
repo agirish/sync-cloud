@@ -5,8 +5,8 @@ import Events
 import Sync
 @testable import Settings
 
-/// TE290 step 10: the buttons a card presses ask in Settings' words, run Settings' own code, and
-/// say what they did.
+/// The buttons a card presses ask in Settings' words, run Settings' own code, and say what they
+/// did.
 @MainActor
 @Suite struct SettingsActionsTests {
 
@@ -71,7 +71,7 @@ import Sync
         #expect(await actions.run("people.lookForNames", target: nil) == .refused("That button is in Settings."))
     }
 
-    /// TE290 review: Clear All asked about one pair of sources clears nothing once another is open.
+    /// Clear All asked about one pair of sources clears nothing once another pair is open.
     @Test func clearAllRefusesOnceThePairHasChanged() async throws {
         let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
         let sync = FileSyncManager()

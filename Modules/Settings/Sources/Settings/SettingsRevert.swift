@@ -1,8 +1,8 @@
 import Foundation
 import Sync
 
-/// Revert, on a Changed from Chat row in Activity ▸ History (TE290 step 5): a value goes back only
-/// while it is still the one set there, so Revert never overwrites a later change.
+/// Revert, on a Changed from Chat row in Activity ▸ History: a value goes back only while it is
+/// still the one set there, so Revert never overwrites a later change.
 ///
 /// Revert is its own row in the record, isn't on any ⌘Z stack, and is told to Claude in an open
 /// chat (`didRevert`). One that would raise Claude's spending or access asks once more first.
@@ -96,7 +96,7 @@ public enum SettingsRevert {
         return .done
     }
 
-    /// A list edit (TE290 step 8): one item, in or out, put back while it still is.
+    /// A list edit: one item, in or out, put back while it still is.
     private static func listState(_ change: SettingsChange, lists: SettingsLists?) -> State {
         guard let lists, let item = change.target, let after = change.to.map({ $0 == "true" }) else { return .none }
         guard let now = lists.contains(change.setting, scoped: item), now == after else { return .changedSince }
@@ -111,7 +111,7 @@ public enum SettingsRevert {
             return .refused("\(change.name) has changed since, so it isn’t put back.")
         }
         let words = SettingsLists.edit(change.setting, SettingsLists.shown(change.setting, item), present: !after, isHidden: isHidden)
-        // Showing a folder to Claude again asks in Settings' words (decision IP).
+        // Showing a folder to Claude again asks in Settings' words.
         let shown = SettingsLists.shown(change.setting, item)
         let question = change.setting == "intelligence.hidden"
             ? RemovalPrompt.showToClaude(named: (shown as NSString).lastPathComponent, isFolder: true)

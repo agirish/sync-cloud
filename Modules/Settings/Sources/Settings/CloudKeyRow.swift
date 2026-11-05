@@ -6,9 +6,7 @@ import Sync
 
 /// Which shape the Anthropic key row is wearing.
 ///
-/// Split out as a value so the row's behaviour is assertable without rendering it — the states
-/// are what the whole control is, and getting the transitions wrong is how the old row ended up
-/// with no labelled way to replace a key.
+/// A value, so the row's states and transitions can be asserted without rendering it.
 enum CloudKeyRowState: Equatable {
     /// No key stored: the entry field, and nothing to reveal or remove.
     case empty
@@ -21,8 +19,7 @@ enum CloudKeyRowState: Equatable {
     case replacing
 
     static func resolve(hasStoredKey: Bool, isRevealed: Bool, isReplacing: Bool) -> CloudKeyRowState {
-        // Replacing wins over everything: the user asked for the field, so the field is what
-        // they get even though a key is still stored (and even if it was on screen a moment ago).
+        // Replacing wins: the user asked for the field, even with a key stored or on screen.
         if isReplacing { return .replacing }
         guard hasStoredKey else { return .empty }
         return isRevealed ? .revealed : .stored
@@ -40,15 +37,8 @@ enum CloudKeyRowState: Equatable {
 }
 
 /// The Anthropic API key control: a stored key (masked, with a reveal eye) or the entry field,
-/// plus Test, Replace…, Remove and the status line.
-///
-/// It used to be one `SecureField` whose placeholder flipped to "•••• key saved", with Save /
-/// Test / Clear beside it. Replacing the key worked — type a new one and press Save — but
-/// nothing said so, `Clear` (which deletes) was the only labelled way out, and there was no way
-/// to check *which* key was stored.
-///
-/// Lifted out of `FilingSettingsTab` because it owns five pieces of state and all of the Keychain
-/// contact in Settings; leaving it inline meant none of that could be exercised on its own.
+/// plus Test, Replace…, Remove and the status line. Its own view because it owns five pieces of
+/// state and all of Settings' Keychain contact, which can then be exercised on their own.
 struct CloudKeyRow: View {
     @State private var apiKeyField: String
     @State private var hasStoredKey: Bool
@@ -60,18 +50,16 @@ struct CloudKeyRow: View {
     /// Whether the row is in entry mode over a stored key.
     @State private var isReplacingKey: Bool
 
-    /// Answers "is a key stored?" when the row appears. Injectable because the default reaches
-    /// the real login Keychain, which a render or a test must not depend on — and because
-    /// `onAppear` would otherwise overwrite any state a caller passed in.
+    /// Answers "is a key stored?" when the row appears. Injectable because the default reaches the
+    /// real login Keychain, and because `onAppear` would otherwise overwrite a caller's state.
     private let probeStoredKey: () -> Bool
 
     /// Asks before Remove deletes the key. Injectable for the same reason as `probeStoredKey`: the
     /// default is a modal alert, which a render or a test must not raise.
     private let confirmRemoveKey: @MainActor () -> Bool
 
-    /// Starting state. The app uses the defaults — the row seeds itself from the Keychain on
-    /// appear — and callers that need a particular state (previews, layout checks) pass one in
-    /// along with a matching probe.
+    /// Starting state. The app uses the defaults and the row seeds itself from the Keychain on
+    /// appear; previews and layout checks pass a state with a matching probe.
     init(
         hasStoredKey: Bool = false,
         revealedKey: String? = nil,
@@ -87,12 +75,9 @@ struct CloudKeyRow: View {
         self.confirmRemoveKey = confirmRemoveKey
     }
 
-    /// Remove as one step: ask, and only then delete. Static and confirmer-taking so the decision
-    /// is reachable without mounting the row — a button's closure is not — and so the button
-    /// cannot delete without asking by forgetting to.
-    ///
-    /// **Remove deleted the Keychain item on one click.** It sits beside Replace… and Test, and
-    /// what it deletes cannot be read back from anywhere in SyncCloud.
+    /// Remove as one step: ask, and only then delete. **Never delete on one click**: the button
+    /// sits beside Replace… and Test, and the key can't be recovered from SyncCloud. Static and
+    /// confirmer-taking so tests reach the decision without mounting the row.
     /// - Returns: Whether the key was removed.
     @discardableResult
     static func removeIfConfirmed(confirm: () -> Bool, remove: () -> Void) -> Bool {
@@ -133,25 +118,20 @@ struct CloudKeyRow: View {
             }
         }
         .onAppear {
-            // The default probe is `isConfigured`, not `hasKey`: the resting state only needs to
-            // know whether a key is stored, and reading the secret here is what used to make
-            // opening this tab raise the Keychain password prompt.
+            // The default probe is `isConfigured`, not `hasKey`: reading the secret here would
+            // raise the Keychain password prompt just for opening the tab.
             hasStoredKey = probeStoredKey()
         }
-        // Belt and braces over the fact that leaving the tab already destroys this state: a
-        // revealed secret must not outlive the view that put it on screen.
+        // Belt and braces, since leaving the tab already destroys this state: a revealed secret
+        // must not outlive the view that showed it.
         .onDisappear { revealedKey = nil }
     }
 
     // MARK: - The two shapes
 
-    /// A stored key: masked or revealed, then the actions.
-    ///
-    /// Masked, the key sits on one line beside the buttons. Revealed, it takes the full width and
-    /// the buttons drop beneath it — because beside four buttons the box is ~330pt, and a real
-    /// key is ~108 characters, so *no* line count fits one there. A reveal that shows you half
-    /// the key isn't a reveal. The wider shape only exists while the key is on screen; the
-    /// resting state stays the single row it was.
+    /// A stored key: masked or revealed, then the actions. Masked, the key sits on one line beside
+    /// the buttons. Revealed, it takes the full width and the buttons drop beneath it: beside four
+    /// buttons the box is ~330pt, too narrow for a ~108-character key at any line count.
     @ViewBuilder private var storedKeyRow: some View {
         if state.showsSecret {
             VStack(alignment: .leading, spacing: 8) {
@@ -173,18 +153,16 @@ struct CloudKeyRow: View {
             if let revealedKey {
                 Text(revealedKey)
                     .scaledFont(.system(.callout, design: .monospaced))
-                    // A ceiling, not a target: a ~108-character key takes two lines of the full
-                    // width, and the third is headroom so a longer one grows instead of losing
-                    // its middle. Middle truncation is the backstop past that, and it keeps the
-                    // prefix and tail — the parts that identify which key this is.
+                    // A ceiling: a ~108-character key takes two lines, and the third lets a longer
+                    // one grow. Past that, middle truncation keeps the prefix and tail, which
+                    // identify the key.
                     .lineLimit(3)
                     .truncationMode(.middle)
                     .fixedSize(horizontal: false, vertical: true)
                     // Selectable, so the key can also be taken by hand rather than by Copy.
                     .textSelection(.enabled)
             } else {
-                // A fixed run of dots, not one per character: the real key is ~100 characters and
-                // drawing one dot each would publish its length for nothing.
+                // A fixed run of dots, not one per character, which would publish the key's length.
                 Text(String(repeating: "•", count: 16))
                     .foregroundStyle(.secondary)
             }
@@ -243,20 +221,17 @@ struct CloudKeyRow: View {
                     Button("Cancel") {
                         isReplacingKey = false
                         apiKeyField = ""
-                        // The verdict described the candidate, which is now discarded. Left
-                        // standing it reappears above the STORED key's row as though it were
-                        // about that key — so "Key rejected (401)" from a mistyped replacement
-                        // ends up accusing the key that is actually saved and working.
-                        // `Replace…` clears it on the way in for the same reason.
+                        // The verdict was about the discarded candidate; left standing it would
+                        // show above the stored key's row as if about that key. `Replace…`
+                        // clears it on the way in for the same reason.
                         keyTestResult = nil
                     }
                 }
             }
             .controlSize(.small)
 
-            // Only while replacing. On first run the status line below already says what happens
-            // without a key, and the section's own caption already says the key lives in the
-            // Keychain — a third grey sentence in the same stack is just noise.
+            // Only while replacing. On first run the status line and the section caption already
+            // say what this would.
             if isReplacingKey {
                 Text("Saving replaces the key currently in your Keychain.")
                     .scaledFont(.subheadline)
@@ -269,9 +244,8 @@ struct CloudKeyRow: View {
         Button { Task { await testKey() } } label: {
             if testingKey { ProgressView().controlSize(.small) } else { Text("Test") }
         }
-        // In the entry field, Test checks what you typed, so it needs something typed — including
-        // while replacing, where an empty field would otherwise silently test the OLD stored key
-        // (and prompt for it) in the middle of replacing it.
+        // In the entry field, Test checks what was typed, so it needs something typed. While
+        // replacing, an empty field would otherwise test the old stored key and prompt for it.
         .disabled(testingKey || (state.isEntry && !canSave))
         .help(testHelp)
     }
@@ -322,8 +296,8 @@ struct CloudKeyRow: View {
 
     private func saveTypedKey() {
         let status = AnthropicKeychain.store(apiKeyField)
-        // Confirming the write landed only needs the item to exist — reading it back would
-        // prompt for permission immediately after the user typed the key in.
+        // Confirming the write only needs the item to exist; reading it back would prompt for
+        // permission right after the user typed the key.
         hasStoredKey = AnthropicKeychain.isConfigured
         revealedKey = nil
         let after = Self.afterSave(typed: apiKeyField, status: status, stored: hasStoredKey,
@@ -333,19 +307,11 @@ struct CloudKeyRow: View {
         keyTestResult = after.failure.map { .invalid($0) }
     }
 
-    /// What the row shows after a Save: on success, the stored key; on a refused write, the entry
-    /// field **still holding what was typed**, with the refusal said under it.
-    ///
-    /// A keychain write can fail (locked or denied keychain, an MDM policy). The status line
-    /// otherwise fell back to "No key yet", which reads as though nothing had been typed rather
-    /// than as a refused write. `.invalid` renders its message verbatim; `.failed` prefixes
-    /// "Couldn't reach Anthropic", which would misattribute a local refusal to the network.
-    ///
-    /// **The typed key survives a refusal (FR58).** The field was cleared whatever the status, so
-    /// a refused Save threw away the only copy of the new key — and, with the old delete-then-add
-    /// replace, the stored one too. Replacing stays in entry mode for the same reason: leaving it
-    /// would swap the field for the stored key's row and hide what was typed. Static, so the
-    /// decision is reachable without mounting the row.
+    /// What the row shows after a Save: on success, the stored key; on a refused write (locked or
+    /// denied keychain, an MDM policy), the entry field **still holding what was typed**, since it
+    /// is the only copy, with the refusal said under it. Replacing stays in entry mode so the
+    /// typed key stays visible. The failure is `.invalid`, shown verbatim; `.failed` would blame
+    /// the network. Static, so tests reach it without mounting the row.
     static func afterSave(typed: String, status: OSStatus, stored: Bool,
                           wasReplacing: Bool) -> (field: String, isReplacing: Bool, failure: String?) {
         if status == errSecSuccess, stored { return ("", false, nil) }
@@ -353,16 +319,9 @@ struct CloudKeyRow: View {
                 "The Keychain refused to store the key (status \(status)). Unlock your login keychain and try again.")
     }
 
-    /// Deletes the key — and confirms it actually went, rather than assuming.
-    ///
-    /// A Keychain delete can be refused exactly as a write can (locked keychain, denied prompt, an
-    /// MDM policy). This used to set `hasStoredKey = false` unconditionally, so a refused delete
-    /// left the row reading "No key yet — cloud suggestions fall back to the on-device model",
-    /// while the key was still in the Keychain, still being used by every scan, and back in the UI
-    /// at the next launch. That is the mirror image of the invisible failure `saveTypedKey` reports
-    /// — and the worse direction, because the user believes a secret is gone when it is not.
-    ///
-    /// `isConfigured`, not `hasKey`: confirming the item is gone must not ask for the secret.
+    /// Deletes the key and confirms it went. A delete can be refused like a write (locked keychain,
+    /// denied prompt, MDM policy); assuming success would tell the user a secret is gone while
+    /// every scan still uses it.
     private func removeKey() {
         let refusal = APIKeyRemoval.remove()
         apiKeyField = ""
@@ -370,20 +329,19 @@ struct CloudKeyRow: View {
         isReplacingKey = false
         hasStoredKey = refusal != nil
         // `.invalid` renders its message verbatim; `.failed` would prefix "Couldn't reach
-        // Anthropic" and misattribute a local refusal to the network. Same choice as `saveTypedKey`.
+        // Anthropic" and blame the network for a local refusal. As in `saveTypedKey`.
         keyTestResult = refusal.map { .invalid($0) }
     }
 
-    /// Reads the secret — the one place in Settings that deliberately does, and so the one place
-    /// that may raise the Keychain prompt. A refusal is reported rather than swallowed: a row
-    /// that went blank after Reveal would read as "there is no key".
+    /// Reads the secret: the one place in Settings that does, so the one that may raise the
+    /// Keychain prompt. A refusal is reported, since a row gone blank would read as "no key".
     private func revealKey() {
         switch AnthropicKeychain.readOutcome() {
         case .found(let key):
             revealedKey = key
             keyTestResult = nil
         case .notConfigured:
-            // The item went away behind our back — removed in Keychain Access, or a profile change.
+            // The item went away behind our back: removed in Keychain Access, or a profile change.
             hasStoredKey = false
             revealedKey = nil
         case .unreadable(let status):
@@ -392,22 +350,20 @@ struct CloudKeyRow: View {
         }
     }
 
-    /// Copies the revealed key, then clears the pasteboard a minute later — but only if nothing
-    /// else has written to it since, which `changeCount` is the only reliable way to know.
-    /// Clearing unconditionally would wipe whatever the user copied in the meantime.
+    /// Copies the revealed key, then clears the pasteboard a minute later, but only if
+    /// `changeCount` says nothing else wrote to it meanwhile; otherwise it would wipe the user's
+    /// own copy.
     ///
-    /// Marked concealed, which the sixty-second wipe does not make redundant: clipboard-history
-    /// apps snapshot the pasteboard the instant it changes, so without the marker the key is
-    /// already archived in a third-party database before the timer has a chance to run — and the
-    /// general pasteboard is also what Universal Clipboard relays to nearby devices.
-    /// `org.nspasteboard.ConcealedType` is the convention password managers publish for exactly
-    /// this, and well-behaved clipboard managers skip anything carrying it.
+    /// Marked `org.nspasteboard.ConcealedType`, the password managers' convention, because
+    /// clipboard-history apps snapshot the pasteboard the instant it changes, long before the wipe,
+    /// and well-behaved ones skip concealed items. Universal Clipboard also relays the general
+    /// pasteboard to nearby devices.
     private func copyRevealedKey() {
         guard let revealedKey else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        // Declared BEFORE the string is written: a manager watching `changeCount` reads the types
-        // as soon as it sees a change, so the marker has to already be on the item.
+        // **Declare the marker before the string**: a manager watching `changeCount` reads the
+        // types as soon as it sees a change.
         pasteboard.setData(Data(), forType: .init("org.nspasteboard.ConcealedType"))
         pasteboard.setString(revealedKey, forType: .string)
         let stamp = pasteboard.changeCount
@@ -418,10 +374,8 @@ struct CloudKeyRow: View {
         }
     }
 
-    /// Validates the key in the field (or, if empty, the stored key) with a free Console call.
-    ///
-    /// A revealed key is preferred over re-reading the Keychain: the user has already answered
-    /// the prompt once, and asking again for the same secret in the same sitting is noise.
+    /// Validates the key in the field (or, if empty, the stored key) with a free Console call. A
+    /// revealed key is used over re-reading the Keychain, so the prompt isn't asked twice.
     private func testKey() async {
         let typed = apiKeyField.trimmingCharacters(in: .whitespacesAndNewlines)
         let key = typed.isEmpty ? (revealedKey ?? AnthropicKeychain.read() ?? "") : typed

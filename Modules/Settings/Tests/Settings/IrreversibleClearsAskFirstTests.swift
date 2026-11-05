@@ -4,14 +4,12 @@ import Testing
 
 /// Removing the API key, and both spend Clears, ask first.
 ///
-/// **Each one acted on a single click.** Remove deleted the Keychain item, which nothing in
-/// SyncCloud can read back; Clear (Settings ▸ Intelligence) and Clear History (the Organize lens's
-/// spend sheet) reset what both budget caps count against, the $5 backstop included. Sync History's
-/// Clear History was the only one of the kind that asked.
+/// Remove deletes the Keychain item, which nothing in SyncCloud can read back; Clear (Settings ▸
+/// Intelligence) and Clear History (the Organize lens's spend sheet) reset what both budget caps
+/// count against, the $5 backstop included.
 ///
-/// The decisions are pinned on the static gates — a button's closure cannot be reached from a test
-/// — and the last test holds each button to its gate, so a revert cannot leave the gates tested
-/// and unused.
+/// The decisions are pinned on the static gates, since a button's closure can't be reached from a
+/// test, and the last test holds each button to its gate so the gates can't be tested but unused.
 @MainActor
 @Suite struct IrreversibleClearsAskFirstTests {
 
@@ -41,9 +39,8 @@ import Testing
         #expect(prompt.confirmTitle == "Remove Key")
     }
 
-    /// **Each button goes through its gate.** Scanned rather than driven: a SwiftUI `Button`'s
-    /// action cannot be reached from a test, and this is the half that connects the shipping
-    /// button to the decision tested above.
+    /// Each button goes through its gate. Scanned, not driven, because a SwiftUI `Button`'s action
+    /// can't be reached from a test; this connects the shipping button to the decisions above.
     @Test func everyIrreversibleClearGoesThroughItsGate() throws {
         let repo = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()

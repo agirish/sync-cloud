@@ -4,34 +4,23 @@ import SwiftUI
 import Testing
 @testable import Settings
 
-/// Pins what the Appearance tab's accent preview is FOR: showing the accent pairing the app
-/// actually ships.
+/// Guards that the Appearance tab's accent preview shows the pairing the app actually ships.
 ///
-/// The trap this suite exists to catch is a specific one, and it is attractive rather than
-/// obvious. `LiquidGlassHue` offers two accents — the raw `accentColor` and the deepened
-/// `accentFillColor` — and the raw one renders a brighter, livelier capsule. It is also the one
-/// that strands a white label at 2.68:1 on Green and 2.20:1 on Amber, which is why every filled
-/// surface in the app takes the deepened value (see `AccentFill`). A preview built by eye, or a
-/// later refactor "simplifying" `accentFillColor` to `accentColor`, would show users a pairing the
-/// app cannot render — worse than showing them nothing.
+/// `LiquidGlassHue` has two accents: the raw `accentColor` looks livelier but strands a white
+/// label below AA on Green and Amber, so every filled surface takes the deepened `accentFillColor`
+/// (see `AccentFill`). A preview using the raw one would show a pairing the app can't render.
 ///
-/// So the fill is measured in PAINTED PIXELS rather than by reading the property back. Asserting
-/// `strip.someColor == hue.accentFillColor` would only prove the view holds the value; it would
-/// not notice a `.opacity()`, a `.disabled()` dimming or a second fill drawn on top, and all three
-/// change what the user is actually shown. `AccentFill.deepened` is also a DYNAMIC colour, so two
-/// calls are not `==` to begin with.
+/// The fill is measured in painted pixels, not read back, so an `.opacity()`, a dimming or a fill
+/// drawn on top is caught too. `AccentFill.deepened` is dynamic, so two calls aren't `==` anyway.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct AccentPreviewTests {
 
-    /// Every hue but `.none`. `.none` resolves `Color.accentColor` — the machine's System Settings
-    /// accent — so its exact value is not a property of this code. It gets its own case below,
-    /// asserting the guarantees that hold for ANY input instead.
+    /// Every hue but `.none`, which resolves the machine's system accent, so its value isn't this
+    /// code's. Its own case below checks what holds for any input.
     private static let fixedHues = LiquidGlassHue.allCases.filter { $0 != .none }
 
-    /// The hues `AccentFill` actually deepens. On the other five the raw and deepened accents are
-    /// the same colour by construction (already dark enough to carry white), so "the preview did
-    /// not use the raw accent" is unfalsifiable there — naming them keeps the suite honest about
-    /// which cases can really tell the two apart.
+    /// The hues `AccentFill` actually deepens. On the others raw and deepened are the same colour,
+    /// so only these can tell the two apart.
     private static let deepenedHues: [LiquidGlassHue] = [.cyan, .teal, .green, .amber, .coral, .rose]
 
     // MARK: Rendering
@@ -59,12 +48,9 @@ import Testing
 
     /// The pixel at a point, in points rather than backing pixels.
     ///
-    /// The re-tag is load-bearing and cost an hour: the window renders into an sRGB backing store,
-    /// so the rep's samples ARE sRGB — but `colorAt` hands them back labelled
-    /// `NSCalibratedRGBColorSpace`, and calling `usingColorSpace(.sRGB)` on that CONVERTS
-    /// already-correct values, lightening every one of them (deepened Blue read back as 0.221 /
-    /// 0.534 / 0.916 instead of 0.175 / 0.445 / 0.895 — close enough to the raw accent to look
-    /// like a real defect in the view). Re-tagging keeps the samples and fixes only the label.
+    /// **Re-tag, never convert.** The backing store is sRGB, but `colorAt` labels its samples
+    /// calibrated RGB; `usingColorSpace(.sRGB)` would convert already-correct values and lighten
+    /// them, enough to pass for the raw accent. Re-tagging keeps the samples and fixes the label.
     private func paint(_ rep: NSBitmapImageRep, _ point: CGPoint, in size: CGSize) -> NSColor? {
         let sx = CGFloat(rep.pixelsWide) / size.width
         let sy = CGFloat(rep.pixelsHigh) / size.height
@@ -73,17 +59,15 @@ import Testing
                        blue: px.blueComponent, alpha: px.alphaComponent)
     }
 
-    /// The transfer button's fill, sampled 5pt inside its leading edge at the vertical centre —
-    /// inside the capsule (whose leftmost point at mid-height is the strip's 10pt padding) and
-    /// well clear of the label, which starts 12pt further in.
+    /// The transfer button's fill, sampled 5pt inside its leading edge at mid-height: inside the
+    /// capsule (which starts at the strip's 10pt padding) and clear of the label.
     private func buttonFill(_ hue: LiquidGlassHue, _ appearance: NSAppearance.Name) -> NSColor? {
         let (rep, size) = renderStrip(hue, appearance)
         return paint(rep, CGPoint(x: 15, y: size.height / 2), in: size)
     }
 
-    /// The count pill's fill, sampled 5pt inside its TRAILING edge — the pill is the strip's last
-    /// element, so its capsule ends at the strip's 10pt trailing padding, and its own 10pt padding
-    /// keeps the label out of the sample.
+    /// The count pill's fill, sampled 5pt inside its trailing edge: the pill is last, ending at
+    /// the strip's 10pt padding, and its own padding keeps the label out of the sample.
     private func pillFill(_ hue: LiquidGlassHue, _ appearance: NSAppearance.Name) -> NSColor? {
         let (rep, size) = renderStrip(hue, appearance)
         return paint(rep, CGPoint(x: size.width - 15, y: size.height / 2), in: size)
@@ -102,8 +86,8 @@ import Testing
         return Double((hi + 0.05) / (lo + 0.05))
     }
 
-    /// Resolves a SwiftUI `Color` the way the render does, in a pinned appearance — `accentFillColor`
-    /// is dynamic, so it must be asked in an appearance or it answers for whatever is current.
+    /// Resolves a SwiftUI `Color` in a pinned appearance: `accentFillColor` is dynamic, so unasked
+    /// it answers for whatever appearance is current.
     private func resolve(_ color: Color, _ appearance: NSAppearance.Name) -> NSColor {
         var out: NSColor?
         NSAppearance(named: appearance)!.performAsCurrentDrawingAppearance {
@@ -112,12 +96,9 @@ import Testing
         return out ?? NSColor(color)
     }
 
-    /// Distance between two colours in sRGB components, for "is this the same paint" checks.
-    ///
-    /// Both sides are converted first, and that is not belt-and-braces: `NSColor.white` is a
-    /// GRAY-space colour, and asking a gray colour for `redComponent` does not return 1 — it
-    /// throws. The samples arriving here are already sRGB-tagged, so for those the conversion is
-    /// the no-op it looks like.
+    /// Largest sRGB component difference between two colours, for "same paint" checks. Both sides
+    /// are converted first because `NSColor.white` is gray-space, and asking it for `redComponent`
+    /// throws. For the already-sRGB samples the conversion is a no-op.
     private func distance(_ a: NSColor, _ b: NSColor) -> CGFloat {
         guard let x = a.usingColorSpace(.sRGB), let y = b.usingColorSpace(.sRGB) else { return .infinity }
         return max(abs(x.redComponent - y.redComponent),
@@ -126,14 +107,9 @@ import Testing
 
     // MARK: The pairing
 
-    /// The button and the pill both paint `accentFillColor` — the DEEPENED accent.
-    ///
-    /// Tolerance is 0.02 per component: the fill is composited over the strip's ground and through
-    /// a `compositingGroup`, so the painted value is the fill itself rather than a blend, but 8-bit
-    /// quantisation still moves the last digit.
-    /// Looped rather than `@Test(arguments:)` because `LiquidGlassHue` is not `Sendable` and so
-    /// cannot cross into a parameterized case. Every expectation names its hue, so a failure still
-    /// says which one broke.
+    /// The button and the pill both paint `accentFillColor`, the deepened accent. The 0.02
+    /// tolerance absorbs 8-bit quantisation. Looped, not `@Test(arguments:)`, because
+    /// `LiquidGlassHue` isn't `Sendable`; each expectation names its hue.
     @MainActor
     @Test func previewPaintsTheDeepenedAccent() async throws {
         for hue in Self.fixedHues {
@@ -150,27 +126,21 @@ import Testing
         }
     }
 
-    /// …and specifically NOT the raw accent, on the six hues where the two actually differ.
+    /// …and not the raw accent, on the hues where the two differ; elsewhere an equality check
+    /// passes either way.
     ///
-    /// Separate from the case above because it is the one that can catch the swap: on Blue or
-    /// Indigo the raw and deepened accents are the same colour, so an equality check there passes
-    /// either way. This is where the guard has teeth.
-    ///
-    /// **The count pill is the assertion that matters, and the button alone would be a fake.**
-    /// Mutation-testing this suite turned up exactly that: feeding the strip `accentColor`
-    /// everywhere still leaves the BUTTON correct, because `ActionBarButtonStyle` deepens its own
-    /// tint for `.primary` (`fill = AccentFill.deepened(tint)`) and repairs the mistake on the way
-    /// to the screen. `SemanticCapsuleStyle.onAccent` has no such repair — it paints the fill it is
-    /// handed — so the pill is the one surface where the raw accent actually reaches the user, and
-    /// a version of this test that sampled only the button passed the mutation it exists to catch.
+    /// The count pill is the assertion that matters: `ActionBarButtonStyle` deepens its own
+    /// `.primary` tint, so the button stays right even when fed `accentColor`, while
+    /// `SemanticCapsuleStyle.onAccent` paints what it is handed. Feeding the strip `accentColor`
+    /// must fail on the pill.
     @MainActor
     @Test func previewRejectsTheRawAccent() async throws {
         for hue in Self.deepenedHues {
             for appearance in [NSAppearance.Name.aqua, .darkAqua] {
                 let raw = resolve(hue.accentColor, appearance)
                 let deepened = resolve(hue.accentFillColor, appearance)
-                // The premise: on these hues the two really are different paints, so the assertions
-                // below are falsifiable. If AccentFill ever stops deepening one, this says so.
+                // The premise: on these hues the two are different paints, so the checks below can
+                // fail. If `AccentFill` stops deepening one, this says so.
                 #expect(distance(raw, deepened) > 0.02,
                         "\(hue.displayName): raw and deepened accents are the same colour — this case proves nothing.")
 
@@ -185,9 +155,8 @@ import Testing
         }
     }
 
-    /// The promise the whole deepening exists to keep, measured on the pixels the preview actually
-    /// shows rather than on the palette: the white label clears WCAG AA on both chips, every hue,
-    /// both appearances.
+    /// What the deepening exists for, measured on painted pixels: the white label clears WCAG AA
+    /// on both chips, every hue, both appearances.
     @MainActor
     @Test func whiteLabelClearsAAOnWhatIsPainted() async throws {
         for hue in Self.fixedHues {
@@ -204,8 +173,8 @@ import Testing
         }
     }
 
-    /// `onAccentLabelColor` is white for every hue — the other half of the pairing, and the half a
-    /// refactor could quietly change without moving a single fill.
+    /// `onAccentLabelColor` is white for every hue: the other half of the pairing, which a change
+    /// could move without touching a fill.
     @Test func theOnAccentLabelIsWhiteForEveryHue() {
         for hue in LiquidGlassHue.allCases {
             let label = NSColor(hue.onAccentLabelColor).usingColorSpace(.sRGB)!
@@ -215,24 +184,18 @@ import Testing
 
     // MARK: The "None" hue
 
-    /// `.none` is the case most likely to look broken, so it is asserted rather than assumed: it
-    /// defers to the system accent, so the strip must still paint a real, opaque, legible button —
-    /// not an invisible one, and not a transparent hole showing the ground through it.
-    ///
-    /// The exact colour is the machine's business, so what is pinned are the guarantees that hold
-    /// for any input: fully opaque, distinct from the ground behind it, and carrying white at AA.
+    /// `.none` defers to the system accent, so the strip must still paint a real button. The
+    /// colour is the machine's, so this pins what holds for any input: opaque, distinct from the
+    /// ground, and carrying white at AA.
     @MainActor
     @Test func noneStillPaintsALegibleButton() async throws {
         let white = NSColor.white.usingColorSpace(.sRGB)!
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             let (rep, size) = renderStrip(.none, appearance)
 
-            // FIRST: the button is actually there. Every hue lays the strip out identically — the
-            // two chips carry the same text regardless — so `.none`'s strip must measure the same
-            // as a fixed hue's. Without this the pixel checks below are hollow: drop the button
-            // for `.none` and the pill simply slides into the leading position, where it answers
-            // the sample point with an accent capsule of its own and every assertion still passes.
-            // Mutation-testing caught precisely that.
+            // First, the button is there: every hue lays the strip out the same, so `.none`'s must
+            // measure like a fixed hue's. Without this, dropping the button lets the pill slide
+            // under the sample point and every pixel check still passes.
             let (_, reference) = renderStrip(.blue, appearance)
             #expect(abs(size.width - reference.width) < 0.5 && abs(size.height - reference.height) < 0.5,
                     "None laid out at \(size) against \(reference) for a fixed hue — a chip is missing.")
@@ -251,9 +214,8 @@ import Testing
 
     // MARK: Caption
 
-    /// The caption follows the neighbouring sections' idiom — name the value, then say what it
-    /// does — and `.none` gets a sentence of its own rather than the generic one, because "None.
-    /// Used for filled controls…" under a visibly coloured button would read as a bug.
+    /// The caption names the value, then what it does, like the neighbouring sections. `.none`
+    /// gets its own sentence: the generic one under a visibly coloured button reads as a bug.
     @Test func theCaptionNamesTheChoiceAndItsUses() {
         #expect(AccentColorSection.caption(for: .cyan)
                 == "Cyan. Used for filled controls, selection, and the seam chrome.")
@@ -261,25 +223,21 @@ import Testing
 
         let none = AccentColorSection.caption(for: .none)
         #expect(none.hasPrefix("None. "))
-        // "macOS accent" rather than "macOS accent color": the claim being pinned is that the
-        // caption attributes the visible colour to the system accent, and this sentence is on a
-        // one-line height budget (see `caption(for:)`), so it must be free to drop a word
-        // without failing a test that never cared about that word.
+        // "macOS accent", not "macOS accent color": the caption has a one-line budget (see
+        // `caption(for:)`) and must be free to drop a word this test doesn't care about.
         #expect(none.contains("macOS accent"),
                 "None's caption must explain why a coloured button is still showing: \(none)")
-        // The claim an earlier caption got wrong: selection FOLLOWS the system accent under
-        // `.none` — the pane wash paints `glassHue.accentColor`, which for `.none` IS
-        // `Color.accentColor` (`FileTreeView.rowSelectionBackground`). What goes away is the
-        // glass background tint, not the wash on selected rows.
+        // Under `.none` selection follows the system accent: the pane wash paints
+        // `glassHue.accentColor`, which is `Color.accentColor` there
+        // (`FileTreeView.rowSelectionBackground`). Only the glass tint goes away.
         #expect(none.contains("selection"),
                 "None's caption must say selection follows the macOS accent too: \(none)")
         #expect(!none.lowercased().contains("no wash") && !none.contains("get no"),
                 "None's caption is claiming the panes lose their selection wash again: \(none)")
     }
 
-    /// The spoken label takes the same `.none` branch the sighted caption does: "None accent on a
-    /// filled button" is the exact self-contradiction `caption(for:)` exists to avoid, and it was
-    /// still being spoken to the one audience that could not see the strip explain itself.
+    /// The spoken label takes the caption's `.none` branch too: "None accent on a filled button"
+    /// contradicts itself, and a VoiceOver user can't see the strip to make sense of it.
     @Test func thePreviewLabelSpeaksTheSystemAccentForNone() {
         let none = AccentPreviewStrip.accessibilityLabel(for: .none)
 
@@ -294,15 +252,11 @@ import Testing
                 == "Preview: Cyan accent on a filled button and a count pill.")
     }
 
-    // The image snapshot of the full accent section lives in `SettingsSnapshotTests`, marked
-    // `.machinePinned(.referenceImages)` so CI excludes it along with the other packages'
-    // reference-image suites.
+    // The accent section's image snapshot is in `SettingsSnapshotTests`, marked
+    // `.machinePinned(.referenceImages)` so CI excludes it.
     //
-    // The pixel assertions above are NOT machine-independent, which this comment used to
-    // claim: they read painted pixels back out of a live renderer via `colorAt(`, so a
-    // different renderer can fail them for machine reasons. They are marked
-    // `.machinePinned(.pixelSampling)` and still run on CI, which is sound only while the
-    // runner IS the recording machine. The distinction from the snapshot above is the cost of
-    // being wrong, not machine-independence: a drifted PNG fails everywhere at once, while
-    // these assertions are coarse enough to survive small renderer differences.
+    // The pixel checks above read a live renderer, so another renderer can fail them for machine
+    // reasons. They are `.machinePinned(.pixelSampling)` and still run on CI, which is sound only
+    // while the runner is the recording machine; they are coarse enough to survive small
+    // renderer differences, where a drifted PNG fails at once.
 }

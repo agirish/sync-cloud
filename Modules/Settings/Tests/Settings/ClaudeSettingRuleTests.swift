@@ -3,8 +3,8 @@ import Foundation
 import Sync
 @testable import Settings
 
-/// Pins which changes Claude may make itself (TE290 step 4c): look-and-feel either way; its own
-/// reach only lower, and never to a limit at or below what is already spent.
+/// Pins which changes Claude may make itself: look-and-feel either way; its own reach only lower,
+/// and never to a limit at or below what is already spent.
 @MainActor
 @Suite struct ClaudeSettingRuleTests {
 

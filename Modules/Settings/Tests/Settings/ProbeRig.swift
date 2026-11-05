@@ -4,14 +4,11 @@ import Testing
 import Design
 
 /// The one offscreen harness for the selection-lens and chrome-glass suites in this target: a view
-/// in a borderless sRGB window, held for the rig's lifetime, read back as raw bytes.
-///
-/// **Why one.** Each suite had grown its own render-and-box helper — about a dozen across the four
-/// test targets — and they drifted: some read `colorAt` (about 250 ms a frame, slow enough that a
-/// sampled animation showed three frames), some dropped the window after layout so `.sRGB` and
-/// `.aqua` stopped applying, some forgot the colour space. Mirrored per test target, as
-/// `LayoutPumpWait` is, because the packages share no test-support module — the first copy is
-/// `Modules/Design/Tests/DesignTests/ProbeRig.swift`; keep them in step.
+/// in a borderless sRGB window, held for the rig's lifetime, read back as raw bytes. One harness so
+/// every suite keeps the window alive (or `.sRGB` and `.aqua` stop applying), sets the colour
+/// space, and reads raw bytes rather than slow `colorAt`. Mirrored per test target, as
+/// `LayoutPumpWait` is, because the packages share no test-support module; the first copy is
+/// `Modules/Design/Tests/DesignTests/ProbeRig.swift`. Keep them in step.
 @MainActor
 final class ProbeRig<Root: View> {
     let host: NSHostingView<Root>
@@ -54,11 +51,11 @@ final class ProbeRig<Root: View> {
 enum Pixel {
     typealias Match = @Sendable (_ r: UInt8, _ g: UInt8, _ b: UInt8) -> Bool
 
-    /// The lens probe, `(1, 0, 1)`. The raw bytes are exact sRGB — measured `255, 0, 255` — and the
-    /// `(1, 0.25, 1)` older comments quote was `colorAt(…).usingColorSpace(.sRGB)` shifting them on
-    /// the way out. Loose on purpose: anti-aliased edges, and the films a test is checking for.
+    /// The lens probe, `(1, 0, 1)`, which reads back as raw `255, 0, 255`. Converting through
+    /// `colorAt(…).usingColorSpace(.sRGB)` shifts it. Loose on purpose, for anti-aliased edges and
+    /// the films a test checks for.
     static let lensProbe: Match = { r, g, b in r > 229 && g < 115 && b > 229 }
-    /// Chrome glass's probe, `(0, 1, 1)` — raw `0, 255, 255`.
+    /// Chrome glass's probe, `(0, 1, 1)`: raw `0, 255, 255`.
     static let chromeProbe: Match = { r, g, b in r < 115 && g > 229 && b > 229 }
 
     /// Within `tolerance` (0...255) of `color` on every channel.
@@ -70,10 +67,9 @@ enum Pixel {
         }
     }
 
-    /// Whether `rep` is laid out the way every reader here reads it: 8-bit integer samples, colour
-    /// first. **Says so as a test failure when it is not** — every reader would otherwise answer
-    /// "nothing matched", and each "draws nothing" test in these suites would pass on a capture it
-    /// never read.
+    /// Whether `rep` is laid out as every reader here reads it: 8-bit integer samples, colour
+    /// first. Records a test failure when it isn't, or every reader would answer "nothing matched"
+    /// and each "draws nothing" test would pass on a capture it never read.
     @discardableResult
     static func check(_ rep: NSBitmapImageRep, sourceLocation: SourceLocation = #_sourceLocation) -> Bool {
         let readable = rep.bitmapData != nil && rep.samplesPerPixel >= 3 && rep.bitsPerSample == 8
@@ -121,8 +117,8 @@ enum Pixel {
         return n
     }
 
-    /// How many pixels inside `rect` (in points) match — a marker's own box, read apart from the
-    /// same colour anywhere else in the render.
+    /// How many pixels inside `rect` (in points) match: a marker's own box, apart from the same
+    /// colour elsewhere in the render.
     static func count(_ rep: NSBitmapImageRep, width: CGFloat, in rect: CGRect, _ match: Match) -> Int {
         guard check(rep), let data = rep.bitmapData else { return 0 }
         let scale = CGFloat(rep.pixelsWide) / width
@@ -138,12 +134,12 @@ enum Pixel {
         return n
     }
 
-    /// Near-white and near-black ink — a label's two inks, on a fill and on glass.
+    /// Near-white and near-black ink: a label's two inks, on a fill and on glass.
     static let whiteInk: Match = { r, g, b in r > 240 && g > 240 && b > 240 }
     static let blackInk: Match = { r, g, b in r < 70 && g < 70 && b < 70 }
 
-    /// The colour at `point` (in points), as bytes — black for a capture `check` rejects, so a
-    /// reader of it fails rather than traps.
+    /// The colour at `point` (in points), as bytes. Black for a capture `check` rejects, so a reader
+    /// fails rather than traps.
     static func at(_ rep: NSBitmapImageRep, width: CGFloat, _ point: CGPoint) -> (UInt8, UInt8, UInt8) {
         guard check(rep), let d = rep.bitmapData else { return (0, 0, 0) }
         let scale = CGFloat(rep.pixelsWide) / width
@@ -153,7 +149,7 @@ enum Pixel {
         return (d[p], d[p + 1], d[p + 2])
     }
 
-    /// One box per run of ROWS holding `match` — a column of separate markers, read apart.
+    /// One box per run of rows holding `match`: a column of separate markers, read apart.
     static func rowRuns(_ rep: NSBitmapImageRep, width: CGFloat, _ match: Match) -> [CGRect] {
         guard check(rep), let data = rep.bitmapData else { return [] }
         let scale = CGFloat(rep.pixelsWide) / width
@@ -178,7 +174,7 @@ enum Pixel {
         return boxes
     }
 
-    /// One box per run of COLUMNS holding `match`, within `rows` — controls side by side, read apart.
+    /// One box per run of columns holding `match`, within `rows`: controls side by side, read apart.
     static func columnRuns(_ rep: NSBitmapImageRep, width: CGFloat, rows: ClosedRange<CGFloat>? = nil,
                            _ match: Match) -> [CGRect] {
         guard check(rep), let data = rep.bitmapData else { return [] }

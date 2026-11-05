@@ -3,10 +3,10 @@ import Foundation
 @testable import Settings
 import Sync
 
-/// Pins that provider path/name overrides are read from the app's own defaults domain only.
-/// `dictionaryRepresentation()` merges the whole search list (NSGlobalDomain included), so a
-/// stray key elsewhere in the list that happens to start with `path_override_` /
-/// `name_override_` must not be honored when the owning domain's name is passed in.
+/// Pins that provider root, landing-folder and name overrides are read from the app's own defaults
+/// domain only. `dictionaryRepresentation()` merges the whole search list (NSGlobalDomain
+/// included), so a stray `root_override_` or `name_override_` key elsewhere in it must not be
+/// honored when the owning domain's name is passed in.
 @Suite struct OverrideDomainScopingTests {
 
     @MainActor
@@ -15,11 +15,9 @@ import Sync
 
         // A real override, persisted to the suite's own domain.
         test.defaults.set("/real/override", forKey: "root_override_OneDrive-Work")
-        // Keys visible only via the merged search list — a second suite added with
-        // addSuite(named:) stands in for NSGlobalDomain: its keys appear in this instance's
-        // dictionaryRepresentation() but not in the suite's own persistentDomain. (Per-instance,
-        // unlike register(defaults:), whose registration domain is process-global and would
-        // leak into the other, parallel-running Settings tests.)
+        // A second suite added with addSuite(named:) stands in for NSGlobalDomain: its keys appear
+        // in dictionaryRepresentation() but not in the suite's own persistentDomain. Not
+        // register(defaults:), whose domain is process-global and would leak into parallel tests.
         let globalStandIn = TestDefaults()
         globalStandIn.defaults.set("/global/evil", forKey: "root_override_Dropbox")
         globalStandIn.defaults.set("Evil Name", forKey: "name_override_Dropbox")
@@ -44,19 +42,15 @@ import Sync
         #expect(byId["Dropbox"]?.rootPath == "/CloudStorage/Dropbox")
         #expect(byId["Dropbox"]?.displayName == "Dropbox")
 
-        // **And the two "is this customized?" predicates agree with what actually applied.** They
-        // read the same keys for a different purpose — whether the row shows a Reset, and what the
-        // reset logs — and they used to read them through `userDefaults.string(forKey:)`, i.e. the
-        // merged search list. So the stray key above answered TRUE here while `mapProviders`
-        // correctly ignored it: Dropbox's row offered to reset a root it did not have, and taking
-        // the offer logged a reset of a key that was never this install's. Two readers of one key
-        // with two scoping rules, which is the exact defect the scoped read exists to prevent.
+        // The "is this customized?" predicates must agree with what applied. They decide whether
+        // the row offers Reset; read through the merged list, the stray key would offer to reset a
+        // root Dropbox doesn't have.
         #expect(settings.hasRootOverride(for: "OneDrive-Work"))
         #expect(!settings.hasRootOverride(for: "Dropbox"))
     }
 
-    /// The same scoping, for the landing folder — whose key is the one where `""` is a real stored
-    /// value, so "is there a key" is the only question that can be asked about it.
+    /// The same scoping for the landing folder, where `""` is a real stored value, so "is there a
+    /// key" is the only question that can be asked.
     @MainActor
     @Test func testSearchListOnlyOpenAtKeysDoNotLookLikeAChoice() async throws {
         let test = TestDefaults()
@@ -86,10 +80,9 @@ import Sync
                 "Dropbox's row claims a landing folder the user chose, from a key this install does not own")
     }
 
-    /// Fresh-install hole: a suite nothing was ever persisted to has NO persistent domain
-    /// (`persistentDomain(forName:)` returns nil). That must read as "no overrides" — not fall
-    /// back to the merged search list, which would honor a stray NSGlobalDomain key precisely
-    /// when the app owns no keys of its own.
+    /// On a fresh install the suite has no persistent domain (`persistentDomain(forName:)` is nil).
+    /// That must read as "no overrides", not fall back to the merged list, which would honor a
+    /// stray NSGlobalDomain key exactly when the app owns no keys.
     @MainActor
     @Test func testEmptyOwnDomainMeansNoOverridesNotSearchListFallback() async throws {
         // Nothing is ever written to the suite's own domain in this test.
@@ -100,7 +93,7 @@ import Sync
         globalStandIn.defaults.set("Evil Name", forKey: "name_override_Dropbox")
         test.defaults.addSuite(named: globalStandIn.suiteName)
 
-        // Precondition of the hole being tested: the suite really has no persistent domain yet.
+        // Precondition: the suite really has no persistent domain yet.
         #expect(test.defaults.persistentDomain(forName: test.suiteName) == nil)
 
         let settings = SettingsManager(
@@ -117,8 +110,8 @@ import Sync
         #expect(dropbox?.displayName == "Dropbox")
     }
 
-    /// Without a domain name (bare injected suite), the merged-list fallback keeps overrides
-    /// working — the pre-existing injectability contract for callers that can't name a domain.
+    /// Without a domain name (a bare injected suite), overrides are read from the merged list, for
+    /// callers that can't name a domain.
     @MainActor
     @Test func testNilDomainNameFallsBackToMergedList() async throws {
         let test = TestDefaults()

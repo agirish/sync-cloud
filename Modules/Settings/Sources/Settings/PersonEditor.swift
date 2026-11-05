@@ -4,15 +4,12 @@ import SwiftUI
 
 /// Add or edit one person on the list.
 ///
-/// **The editor's real job is teaching, not data entry.** Two fields would have been enough to
-/// store a person; what a user cannot guess is *why* the full names matter — that "Daughter Father"
-/// resolves to one person only because the phrase is listed, and that without it a shared surname
-/// makes two people out of one document. So the sheet shows, live, what the draft would match and
-/// which of its words are that person's alone. Editing a name and watching "shared with 3 others"
-/// disappear is the explanation; a paragraph of help text is not.
+/// The editor's real job is teaching. A user can't guess why full names matter: "Daughter Father"
+/// resolves to one person only because the phrase is listed, and without it a shared surname makes
+/// two people out of one document. So the sheet shows, live, what the draft would match and which
+/// of its words are that person's alone.
 ///
-/// One sheet for both jobs, distinguished by `isNew`, the same way `AutomationRuleEditor` handles
-/// new-versus-existing rules.
+/// One sheet for adding and editing, told apart by `isNew`, as in `AutomationRuleEditor`.
 struct PersonEditor: View {
     let isNew: Bool
     let roster: [Person]
@@ -20,9 +17,8 @@ struct PersonEditor: View {
     let onCancel: () -> Void
 
     @State private var draft: Person
-    /// The two add-fields. Internal rather than private so a test can stage the state that loses an
-    /// edit — a name typed and not yet committed with ⏎ — which is otherwise unreachable without
-    /// driving a window.
+    /// The two add-fields. Internal so a test can stage a name typed but not committed with ⏎,
+    /// which is otherwise unreachable without driving a window.
     @State var fullNameDraft = ""
     @State var aliasDraft = ""
     @FocusState private var nameFieldFocused: Bool
@@ -142,11 +138,9 @@ struct PersonEditor: View {
         }
     }
 
-    /// What this draft would actually match, recomputed as it is typed.
-    ///
-    /// Built against the **rest of the roster**, so the shared-word warning is true: whether
-    /// "elder" is distinctive is a fact about the whole list, not about this person, and a preview
-    /// that judged them in isolation would say every word was theirs alone.
+    /// What this draft would actually match, recomputed as it is typed. Built against the rest of
+    /// the roster, because whether "elder" is distinctive is a fact about the whole list: judged
+    /// alone, every word would look like theirs.
     private var matchPreview: some View {
         let facts = previewFacts
         return VStack(alignment: .leading, spacing: 8) {
@@ -167,9 +161,8 @@ struct PersonEditor: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if !facts.sharedWords.isEmpty {
-                    // Amber only when the sharing actually costs something. Every member of a
-                    // family shares a word with somebody; saying so in the alarm colour on every
-                    // person is how a caution stops being read.
+                    // Amber only when the sharing costs something: every family member shares a
+                    // word with somebody, and a caution on everyone stops being read.
                     Label(sharedLine(facts),
                           systemImage: facts.isAttributable ? "info.circle" : "exclamationmark.triangle")
                         .scaledFont(.subheadline)
@@ -191,9 +184,8 @@ struct PersonEditor: View {
             .kerning(0.4)
     }
 
-    /// The saved values as removable chips. Flow-wrapped rather than a column: these are short and
-    /// there are rarely more than four, and a stack of one-line rows made the sheet scroll for
-    /// nothing.
+    /// The saved values as removable chips, flow-wrapped: they are short and rarely more than four,
+    /// and a column of rows would make the sheet scroll.
     private func chips(_ values: [String], remove: @escaping (String) -> Void) -> some View {
         FlowLayout(spacing: 6) {
             ForEach(values, id: \.self) { value in
@@ -228,8 +220,8 @@ struct PersonEditor: View {
 
     // MARK: - Logic, kept `nonisolated static` so tests can reach it without a window
 
-    /// A person needs a name and nothing else. Everything below it is evidence, and a record with
-    /// no evidence is still worth keeping — it is how a folder gets recognised as theirs at all.
+    /// A person needs a name and nothing else. The rest is evidence, and a record without any is
+    /// still how a folder gets recognised as theirs.
     nonisolated static func canSave(displayName: String) -> Bool {
         !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -239,16 +231,12 @@ struct PersonEditor: View {
         Self.folding(draft, pendingFullName: fullNameDraft, pendingAlias: aliasDraft)
     }
 
-    /// Fold a half-typed add-field into the record.
+    /// Fold a half-typed add-field into the record: a name typed but not committed with ⏎ is still
+    /// an edit, and **Save must not discard it**, the likeliest way to lose work in this sheet.
     ///
-    /// **A `nonisolated static` function rather than logic inside `assembled`, because the state it
-    /// reads is unreachable from a test otherwise**: `@State` has no storage outside a rendered
-    /// view, so assigning `fullNameDraft` on a constructed editor and reading `assembled` back
-    /// returns the initial value and the test passes for the wrong reason. The rule under test is
-    /// here; the view only supplies its inputs.
-    ///
-    /// The rule itself: a name typed but not committed with ⏎ is still an edit the user made, and
-    /// pressing Save must not discard it — the single most likely way to lose work in this sheet.
+    /// Static rather than inside `assembled` because `@State` has no storage outside a rendered
+    /// view: a test that set `fullNameDraft` and read `assembled` would see the initial value and
+    /// pass for the wrong reason.
     nonisolated static func folding(_ person: Person, pendingFullName: String,
                                     pendingAlias: String) -> Person {
         var out = person
@@ -291,9 +279,8 @@ struct PersonEditor: View {
                                       profile: nil, memory: nil)
     }
 
-    /// The shared-word line. Phrased from ``PersonFilingFacts/sharedSummary`` so the row's tooltip
-    /// and this cannot describe the same fact differently, with the consequence appended only when
-    /// there is one.
+    /// The shared-word line, from ``PersonFilingFacts/sharedSummary`` so it and the row's tooltip
+    /// say the same thing, with the consequence appended when there is one.
     private func sharedLine(_ facts: PersonFilingFacts) -> String {
         let head = "Shared with others on this list: " + facts.sharedSummary
         return facts.isAttributable
@@ -304,9 +291,8 @@ struct PersonEditor: View {
 
 /// A minimal wrapping stack for the chips.
 ///
-/// Written here rather than reached for from Design because the one existing chip row
-/// (`TokenChipsRow`) is a single non-wrapping line built for rule tokens — a person with four name
-/// forms overflows it, and widening that type would change every rule card that uses it.
+/// Not Design's `TokenChipsRow`, a single non-wrapping line built for rule tokens: four name forms
+/// overflow it, and widening it would change every rule card.
 struct FlowLayout: Layout {
     var spacing: CGFloat = 6
 

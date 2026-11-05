@@ -3,16 +3,10 @@ import Testing
 import Sync
 @testable import Settings
 
-/// **The diagnostic that explains the engine, checked against the engine.**
-///
-/// `PeopleTester.swift` was 136 lines with no assertion anywhere: the surface is reachable only
-/// from `SettingsView` and an env-gated render probe, so its rules were shipped on inspection. That
-/// matters more here than in most views, because a diagnostic that disagrees with the thing it
-/// describes is worse than no diagnostic — it teaches the user a rule the app does not have.
-///
-/// One line in `consequence` had already been through that: counting `matches` rather than distinct
-/// people made `Mom - Granny Elder Passport.pdf` report "2 people are named, so no folder is
-/// refused", while `detect` returns one person and the cross-person veto does fire.
+/// `PeopleTester`, the diagnostic that explains the engine, checked against the engine. A
+/// diagnostic that disagrees with what it describes is worse than none: it teaches the user a rule
+/// the app doesn't have. The surface is reachable only from `SettingsView` and an env-gated render
+/// probe, so these tests are its only check.
 @Suite struct PeopleTesterTests {
 
     static func household() -> [Person] {
@@ -48,12 +42,9 @@ import Sync
 
     // MARK: - The tester agrees with the engine
 
-    /// **The documented defect, as a test.** "Mom" and "Granny Elder" both name one person, so
-    /// `explain` returns two matches and `detect` returns one id. Counting rows here made the panel
-    /// announce that no folder is refused — about a filename for which the veto fires.
-    ///
-    /// Asserted against `detect` rather than against the sentence alone, so the two cannot drift:
-    /// the count in the words has to be the count the engine acts on.
+    /// "Mom" and "Granny Elder" both name one person, so `explain` returns two matches and `detect`
+    /// one id. Counting matches would announce that no folder is refused, for a filename the veto
+    /// fires on. Asserted against `detect`, so the count in the words is the one the engine acts on.
     @Test func aPersonMatchedTwiceIsStillOnePerson() throws {
         let registry = PersonRegistry(people: Self.household())
         let stem = PeopleTester.stem(of: "Mom - Granny Elder Passport.pdf")
@@ -70,9 +61,8 @@ import Sync
         #expect(said == "Prefers their 3 folders.")
     }
 
-    /// …and the count it does print is the number of DISTINCT people, not of matches. Three
-    /// household members in one filename is an ordinary scanned document, and "Two people are
-    /// named" about three of them is simply wrong.
+    /// The count it prints is of distinct people, not matches, and isn't assumed to be two: three
+    /// household members in one filename is an ordinary scanned document.
     @Test func severalPeopleAreCountedNotAssumedToBeTwo() {
         let registry = PersonRegistry(people: Self.household())
         let stem = PeopleTester.stem(of: "Father Elder Daughter Father Granny Elder - scan.pdf")
@@ -94,10 +84,9 @@ import Sync
         #expect(said == "Daughter has no folders recorded yet, so this changes nothing.")
     }
 
-    /// The two halves of the consequence, which are what make the panel worth reading: the folders
-    /// preferred, and the folders refused on somebody else's behalf. With nobody else holding
-    /// folders there is nothing to refuse, and claiming otherwise would describe a veto that cannot
-    /// fire.
+    /// The consequence's two halves: the folders preferred, and the folders refused on somebody
+    /// else's behalf. With nobody else holding folders there is nothing to refuse, and saying
+    /// otherwise would describe a veto that can't fire.
     @Test func theRefusalHalfAppearsOnlyWhenThereIsSomeoneToRefuse() {
         let registry = PersonRegistry(people: Self.household())
         let stem = PeopleTester.stem(of: "Daughter Father - OCI.pdf")
@@ -117,8 +106,8 @@ import Sync
             factsById: Self.factsById([("daughter", 2), ("granny", 4), ("father", 9)]))
         #expect(twoOthers == "Prefers their 2 folders; refuses the other 2 people’s.")
 
-        // A person on the roster with no folders is not somebody to refuse — there is nothing of
-        // theirs to keep this document out of.
+        // A person with no folders isn't somebody to refuse: there is nothing of theirs to keep
+        // this document out of.
         let othersButEmpty = PeopleTester.consequence(
             of: stem, registry: registry,
             factsById: Self.factsById([("daughter", 2), ("granny", 0)]))
@@ -134,8 +123,8 @@ import Sync
                 == "Prefers their 1 folder.")
     }
 
-    /// A filename naming nobody has no consequence to report — the panel says "names nobody"
-    /// instead, which is a different line.
+    /// A filename naming nobody has no consequence to report; the panel's "names nobody" is a
+    /// different line.
     @Test func aFilenameNamingNobodyHasNoConsequence() {
         #expect(PeopleTester.consequence(of: PeopleTester.stem(of: "Utility Bill.pdf"),
                                          registry: PersonRegistry(people: Self.household()),
@@ -144,10 +133,8 @@ import Sync
 
     // MARK: - The question the engine is actually asked
 
-    /// **The extension is stripped before anything is matched**, because that is what the veto
-    /// matches on. Testing the raw string would answer a question the engine never asks — and an
-    /// extension that happens to be somebody's name is not a hypothetical: the panel is where a
-    /// user goes to find out why a file went somewhere odd.
+    /// The extension is stripped before anything is matched, because the veto matches the stem.
+    /// Testing the raw string would answer a question the engine never asks.
     @Test func theExtensionIsNotPartOfTheName() {
         #expect(PeopleTester.stem(of: "Daughter Father - OCI.pdf") == "Daughter Father - OCI")
         #expect(PeopleTester.stem(of: "no-extension") == "no-extension")
@@ -156,8 +143,8 @@ import Sync
 
     // MARK: - What the rows say
 
-    /// A phrase match and a token match are described differently, because *which* one fired is the
-    /// counter-intuitive part the panel exists to show.
+    /// A phrase match and a token match read differently, because which one fired is the surprising
+    /// part the panel exists to show.
     @Test func aPhraseMatchAndATokenMatchReadDifferently() {
         let registry = PersonRegistry(people: Self.household())
         let phrase = PersonMatch(personId: "daughter", form: "Daughter Father",
@@ -171,8 +158,8 @@ import Sync
                 "a phrase and a token read identically — the row no longer shows which rule fired")
     }
 
-    /// The absorbed line, which is the whole reason full names are worth entering: "Father" in
-    /// "Daughter Father" does not name Father.
+    /// The absorbed line, the reason full names are worth entering: "Father" in "Daughter Father"
+    /// doesn't name Father.
     @Test func anAbsorbedWordSaysWhoItWouldHaveNamed() {
         let registry = PersonRegistry(people: Self.household())
         let absorbed = AbsorbedWord(word: "father", wouldHaveNamed: "father",
@@ -181,8 +168,8 @@ import Sync
                 == "“father” would have named Father on its own — “Daughter Father” claimed it first.")
     }
 
-    /// An id the roster does not answer to falls back to the id rather than drawing a blank — the
-    /// panel is a diagnostic, so an unresolvable id is information.
+    /// An id the roster doesn't know is shown as the id rather than a blank: in a diagnostic, an
+    /// unresolvable id is information.
     @Test func anUnknownIdIsShownRatherThanDroppped() {
         #expect(PeopleTester.displayName("ghost", in: PersonRegistry(people: Self.household()))
                 == "ghost")

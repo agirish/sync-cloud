@@ -3,10 +3,9 @@ import Foundation
 @testable import Settings
 import Sync
 
-/// **The user's own source order**, which the Browse sidebar drags and everything else reads.
-///
-/// One order rather than a sidebar-local one: a sidebar and a pane-header dropdown showing the same
-/// eleven accounts in two different sequences is the drift that makes a user distrust both.
+/// The user's own source order, which the Browse sidebar drags and everything else reads. One
+/// order, not a sidebar-local one: a sidebar and a pane-header dropdown listing the same accounts
+/// in two sequences make a user distrust both.
 @Suite struct SourceOrderTests {
 
     private func provider(_ id: String, _ name: String) -> CloudProvider {
@@ -18,8 +17,8 @@ import Sync
          provider("drive-emp", "Drive"), provider("onedrive", "OneDrive")]
     }
 
-    /// No stored order — every install before the first drag — is discovery order, untouched.
-    /// This is what makes the feature safe without a migration or a seed.
+    /// No stored order (every install before the first drag) means discovery order, untouched,
+    /// which makes the feature safe without a migration or a seed.
     @Test func anEmptyOrderLeavesDiscoveryOrderAlone() {
         #expect(SettingsManager.inUserOrder(discovered, order: []).map(\.id)
                 == ["icloud", "dropbox", "drive-emp", "onedrive"])
@@ -31,24 +30,22 @@ import Sync
         #expect(out.map(\.id) == ["onedrive", "drive-emp", "dropbox", "icloud"])
     }
 
-    /// **A newly connected account appends** rather than jumping to the front. A sort that gave
-    /// unranked ids a default rank of 0 would put every new account at the top, which is where a
-    /// user would least expect a source they did not add on purpose.
+    /// A newly connected account appends rather than jumping to the front, where a user would
+    /// least expect it. Fails if unranked ids get a default rank of 0.
     @Test func anAccountTheOrderHasNeverSeenGoesToTheEnd() {
         let out = SettingsManager.inUserOrder(discovered, order: ["onedrive", "icloud"])
         #expect(out.map(\.id) == ["onedrive", "icloud", "dropbox", "drive-emp"])
     }
 
-    /// An id naming a source that is gone — an account signed out, a folder source removed — is
+    /// An id naming a source that is gone (an account signed out, a folder source removed) is
     /// ignored rather than leaving a hole.
     @Test func aStaleIdInTheOrderIsIgnored() {
         let out = SettingsManager.inUserOrder(discovered, order: ["ghost", "dropbox"])
         #expect(out.map(\.id) == ["dropbox", "icloud", "drive-emp", "onedrive"])
     }
 
-    /// **The unnamed tail keeps a stable order between launches.** Swift's sort is not stable, so a
-    /// single `sorted(by:)` over an optional rank would let the newest accounts shuffle on every
-    /// launch — invisible in one run and obvious over a week.
+    /// The unnamed tail keeps a stable order between launches. Swift's sort is not stable, so a
+    /// single `sorted(by:)` over an optional rank would let the newest accounts shuffle.
     @Test func theUnnamedTailDoesNotShuffleBetweenRuns() {
         let answers = Set((0..<40).map { _ in
             SettingsManager.inUserOrder(discovered, order: ["onedrive"]).map(\.id).joined(separator: ">")
@@ -65,9 +62,8 @@ import Sync
         #expect(out.count == discovered.count)
     }
 
-    /// An order naming every id in the list it already has changes nothing — the case that must not
-    /// trigger a publish, since re-rendering every observer for no change is what the no-op guard
-    /// in `discoverProviders` exists to prevent.
+    /// An order naming every id in the sequence it already has changes nothing, so the no-op guard
+    /// in `discoverProviders` publishes nothing.
     @Test func anOrderMatchingTheCurrentSequenceIsTheIdentity() {
         let out = SettingsManager.inUserOrder(discovered, order: discovered.map(\.id))
         #expect(out.map(\.id) == discovered.map(\.id))

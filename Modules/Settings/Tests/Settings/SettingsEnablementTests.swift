@@ -1,22 +1,13 @@
 import Testing
 
-/// The rule a whole feature went missing behind: **a control that turns something on must never
-/// be gated on that thing being on.**
-///
-/// Intelligence's Claude section shipped for exactly one build with a single
-/// `.disabled(!cloudControlsEnabled)` over the section, where `cloudControlsEnabled` is
-/// `useAI && useCloud`. That swept in the toggle that sets `useCloud`, and `useCloud` defaults to
-/// false — so the cloud path could not be switched on at all, by anyone, ever. It was invisible
-/// to all 215 tests in this package, because a SwiftUI control's disabled state is not observable
-/// from a unit test; it took rendering the tab to a PNG and looking at it.
-///
-/// So the two gates are static functions rather than one inline expression, and this is what
-/// holds them apart. It cannot see the `.disabled` modifiers themselves — nothing here can — but
-/// it can see the two rules disagree in the one state that matters, which is what the bug was.
+/// A control that turns something on must never be gated on that thing being on. A single
+/// `.disabled(!cloudControlsEnabled)` (`useAI && useCloud`) over Intelligence's Claude section would
+/// sweep in the toggle that sets `useCloud`, which defaults to false, so the cloud path could never
+/// be switched on. A control's disabled state isn't observable from a unit test, so the two gates
+/// are static functions and this suite checks they disagree in the state that matters.
 @Suite struct CloudGateTests {
 
-    /// The state the defect lived in: AI on, cloud not yet turned on. The toggle MUST be live —
-    /// it is the only way out of this state.
+    /// AI on, cloud not yet turned on: the toggle must be live, as the only way out of this state.
     @Test func theCloudToggleIsLiveInTheStateItExistsToLeave() {
         #expect(IntelligenceSettingsTab.cloudToggleEnabled(useAI: true),
                 "the cloud toggle is disabled while cloud is off — the paid path cannot be enabled")
@@ -24,9 +15,8 @@ import Testing
                 "the key and model are live before cloud refining is turned on")
     }
 
-    /// The gates are genuinely different functions, not two names for one expression. Without
-    /// this, someone folding `cloudToggleEnabled` back into `cloudControlsEnabled` — which is a
-    /// tidy-looking simplification — reintroduces the defect exactly.
+    /// The gates are different functions, not two names for one expression. Folding
+    /// `cloudToggleEnabled` into `cloudControlsEnabled` looks tidy and must fail here.
     @Test func theTwoGatesDisagreeSomewhere() {
         let states = [(true, true), (true, false), (false, true), (false, false)]
         let disagreements = states.filter { useAI, useCloud in
@@ -41,9 +31,8 @@ import Testing
                 """)
     }
 
-    /// The other half: with on-device AI off there is no cloud path at all, so nothing in the
-    /// section is operable. Without this the suite would pass against a `cloudToggleEnabled` that
-    /// simply returned `true`.
+    /// With on-device AI off there is no cloud path, so nothing in the section is operable. Without
+    /// this the suite would pass against a `cloudToggleEnabled` that returned `true`.
     @Test func nothingCloudIsOperableWithoutOnDeviceAI() {
         #expect(!IntelligenceSettingsTab.cloudToggleEnabled(useAI: false))
         #expect(!IntelligenceSettingsTab.cloudControlsEnabled(useAI: false, useCloud: true))

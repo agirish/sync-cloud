@@ -3,15 +3,13 @@ import Foundation
 @testable import Settings
 import Sync
 
-/// `SettingsManager.cloudCoverage` — the **call site** of the rule that a disabled provider still
+/// `SettingsManager.cloudCoverage`: the call site of the rule that a disabled provider still
 /// counts as coverage.
 ///
-/// `FileLocationTests` proves `FileLocation.coverage` honours the rule when it is handed the full
-/// provider list. That says nothing about which list this property actually hands it, and the call
-/// site is where the rule is easiest to lose: `enabledProviders` sits right next to
-/// `availableProviders`, reads like the obviously-correct one, and swapping them compiles, passes
-/// every existing test, and silently reports every file in a switched-off provider as having only
-/// one copy. A helper proved correct against a list nobody passes it proves nothing.
+/// `FileLocationTests` proves `FileLocation.coverage` honours the rule given the full list; this
+/// checks which list the property hands it. `enabledProviders` sits next to `availableProviders`
+/// and reads as right, and swapping them would report every file in a switched-off provider as
+/// having only one copy.
 @MainActor
 @Suite struct CloudCoverageTests {
 
@@ -43,9 +41,8 @@ import Sync
             in: coverage) == false)
     }
 
-    /// **The rule.** Switching a provider off in Settings does not move its folder off the disk, so
-    /// a file inside it still has a second copy. Mutation seam: change `cloudCoverage` to read
-    /// `enabledProviders` and this fails.
+    /// Switching a provider off doesn't move its folder off the disk, so a file inside it still has
+    /// a second copy. Making `cloudCoverage` read `enabledProviders` must fail this.
     @Test func aDisabledProvidersFolderIsStillCoverage() async {
         let test = TestDefaults()
         let manager = await settings(test.defaults)
@@ -59,8 +56,8 @@ import Sync
                 "a switched-off provider stopped counting as coverage — every file inside it now reports as having only one copy")
     }
 
-    /// A folder source the user added is never coverage, through this property as through the
-    /// classifier — it is the thing being asked about, not a cloud.
+    /// A folder source the user added is never coverage, here as in the classifier: it is the
+    /// thing being asked about, not a cloud.
     @Test func aFolderSourceIsNotCoverageHereEither() async {
         let test = TestDefaults()
         let manager = await settings(test.defaults)

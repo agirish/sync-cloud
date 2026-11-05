@@ -4,12 +4,10 @@ import SwiftUI
 
 /// What the roster governs across the whole tree, and the people it does not reach.
 ///
-/// **The gap is the actionable half, and it is normally empty.** A survey records a person axis
-/// from the folder names it found; a value no one on the roster answers to is somebody with folders
-/// and no record — documents naming them are attributed to nobody, and the cross-person rule cannot
-/// protect those folders. On a tree whose roster is complete this finds nothing, so the section says
-/// so plainly rather than showing an empty space: "everyone in your tree is accounted for" is
-/// itself worth reading once.
+/// The gap is the actionable half, and normally empty. A person-axis value from the survey that no
+/// one on the roster answers to is somebody with folders and no record: documents naming them are
+/// attributed to nobody, and the cross-person rule can't protect those folders. With a complete
+/// roster the section says so rather than showing an empty space.
 struct PeopleOverviewRow: View {
     @Environment(\.colorScheme) private var colorScheme
     let overview: PeopleOverview
@@ -28,10 +26,8 @@ struct PeopleOverviewRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Label(unclaimedLine(person), systemImage: "person.badge.questionmark")
                         .scaledFont(.subheadline)
-                        // **The one actionable line in People, and it measured 1.38:1.** Bare
-                        // caution is `Color.yellow`; as a sentence on the near-white sheet it is
-                        // barely there. Everywhere else in the app a caution is a fill behind a
-                        // wash — this is prose, so it takes the ink treatment instead.
+                        // The one actionable line in People. Bare caution yellow is 1.38:1 as
+                        // prose on the near-white sheet, so it takes the ink treatment, not a fill.
                         .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.caution))
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
@@ -57,12 +53,8 @@ struct PeopleOverviewRow: View {
         .padding(.top, 4)
     }
 
-    /// **Grouped, like every other count this app prints.** Raw interpolation rendered "holding
-    /// 1204 filed documents" two panels away from `RestructureLens.cleanMessage`'s "Checked 3,013
-    /// folders" — same app, same kind of number, two formats. On a real tree this one is four
-    /// digits, so the difference is on screen rather than theoretical.
-    /// The coverage sentence, for the test that asserts its NUMBER FORMAT — which is a property of
-    /// the string and invisible to the render probes beside it.
+    /// The coverage sentence, for the test that asserts its counts are grouped ("1,204") like every
+    /// other count the app prints; render probes can't see number format.
     var coverageLineForTesting: String { coverageLine }
 
     private var coverageLine: String {

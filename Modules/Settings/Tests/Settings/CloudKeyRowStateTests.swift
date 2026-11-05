@@ -3,12 +3,8 @@ import Foundation
 import Security
 @testable import Settings
 
-/// Pins the Anthropic key row's four states and what each one offers.
-///
-/// The old row had three controls and no states: one `SecureField` whose placeholder flipped to
-/// "•••• key saved", with Save / Test / Clear. Replacing a key worked — type a new one, press
-/// Save — but nothing said so, and `Clear` (which deletes) was the only labelled way out. The
-/// states are the fix, so they are what is worth asserting.
+/// Pins the Anthropic key row's four states and what each one offers, so replacing a key is a
+/// labelled mode and deleting it is never the only way out.
 @Suite struct CloudKeyRowStateTests {
 
     @Test func noStoredKeyIsTheEntryField() {
@@ -39,8 +35,8 @@ import Security
         #expect(state.offersRemove)
     }
 
-    /// The whole point of Replace…: it is a mode, entered on purpose, with a way back out —
-    /// not an unlabelled side-effect of typing into a field that looked empty.
+    /// Replace… is a mode, entered on purpose, with a way back out, not a side effect of typing
+    /// into a field that looked empty.
     @Test func replacingIsTheEntryFieldEvenThoughAKeyIsStored() {
         let state = CloudKeyRowState.resolve(hasStoredKey: true, isRevealed: false, isReplacing: true)
 
@@ -49,8 +45,8 @@ import Security
         #expect(!state.offersRemove, "Cancel is the way out of entry, not Remove")
     }
 
-    /// Replacing wins over a revealed key. Reveal then Replace… must not leave the old secret on
-    /// screen underneath the field the user is about to type the new one into.
+    /// Replacing wins over a reveal, so the old secret isn't left on screen under the field the
+    /// new one is typed into.
     @Test func replacingWinsOverAReveal() {
         let state = CloudKeyRowState.resolve(hasStoredKey: true, isRevealed: true, isReplacing: true)
 
@@ -58,8 +54,8 @@ import Security
         #expect(!state.showsSecret)
     }
 
-    /// A stale `isRevealed` cannot resurrect a key that is no longer stored — Remove clears both
-    /// flags, but the resolution must not depend on that having happened in the right order.
+    /// A stale `isRevealed` can't show a key that is no longer stored. Remove clears both flags,
+    /// but the resolution must not depend on the order it does so.
     @Test func revealCannotOutliveTheStoredKey() {
         let state = CloudKeyRowState.resolve(hasStoredKey: false, isRevealed: true, isReplacing: false)
 
@@ -67,9 +63,8 @@ import Security
         #expect(!state.showsSecret)
     }
 
-    /// **A refused Save keeps the typed key in the field (FR58)** — the field was cleared whatever
-    /// the status, so the only copy of the new key went with the refusal. Replacing stays in entry
-    /// mode, or the stored key's row would hide the field. A landed Save still clears it.
+    /// A refused Save keeps the typed key in the field, since it is the only copy, and stays in
+    /// entry mode, or the stored key's row would hide the field. A landed Save clears it.
     @Test func aRefusedSaveKeepsTheTypedKeyAndTheField() throws {
         let refused = CloudKeyRow.afterSave(typed: "sk-ant-new", status: errSecInteractionNotAllowed,
                                             stored: true, wasReplacing: true)

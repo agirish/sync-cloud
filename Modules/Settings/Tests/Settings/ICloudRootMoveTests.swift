@@ -3,14 +3,13 @@ import Foundation
 @testable import Settings
 import Sync
 
-/// **The v5.3 move of iCloud's root from `~/Documents` up to the iCloud Drive container**, and what
-/// happens to everything stored relative to the old root.
+/// The move of iCloud's root from `~/Documents` up to the iCloud Drive container, and what happens
+/// to everything stored relative to the old root.
 ///
-/// The same silent failure the first migration's tests describe applies: a rebased path that comes
-/// out wrong does not throw, it opens a pane at the top of the account and reads as lost work. The
-/// new hazards are this move's own — a Mac whose iCloud Drive does not link `Documents` in at all,
-/// where the old root is not in the cloud and must be KEPT rather than moved; and the stored
-/// landing override, which is measured from the old root and has to gain the prefix too.
+/// A wrongly rebased path doesn't throw: it opens a pane at the top of the account and reads as
+/// lost work. This move's own hazards: a Mac whose iCloud Drive doesn't link `Documents` in, where
+/// the old root isn't in the cloud and must be kept; and the stored landing override, measured
+/// from the old root, which must gain the prefix too.
 @MainActor
 struct ICloudRootMoveTests {
 
@@ -49,7 +48,7 @@ struct ICloudRootMoveTests {
     @Test("A stored landing override was measured from the old root and gains the prefix too")
     func aLandingOverrideIsRebased() {
         #expect(Self.plan(openAtOverride: "Family").plan.openAtOverrides["iCloud"] == "Documents/Family")
-        // `""` is a real stored value — the root — and under the new root it would land at the
+        // `""` is a real stored value, the root, and under the new root it would land at the
         // container. It becomes the folder it named.
         #expect(Self.plan(openAtOverride: "").plan.openAtOverrides["iCloud"] == "Documents")
     }
@@ -59,8 +58,8 @@ struct ICloudRootMoveTests {
         let planned = Self.plan(links: [:])
         #expect(planned.decision == .keepOldRootAsOverride)
         #expect(planned.plan.rootOverrides["iCloud"] == Self.oldRoot)
-        // The discovered landing is Documents now; under the kept root that is a folder that is
-        // not there. The old default — the root — is written so the new one cannot apply.
+        // The discovered landing is Documents, which under the kept root isn't there. The old
+        // default, the root, is written so the new one can't apply.
         #expect(planned.plan.openAtOverrides["iCloud"] == "")
         #expect(planned.plan.prefixes.isEmpty)
         #expect(planned.plan.rootRemap.isEmpty)
@@ -78,8 +77,8 @@ struct ICloudRootMoveTests {
     }
 
     /// The first migration may not have settled a hand-typed Location yet (an unreadable
-    /// CloudStorage defers it, not this). One that names `~/Documents` is no override at all and
-    /// the move proceeds; any other is the root it will be pinned to, and nothing here moves.
+    /// CloudStorage defers it). One naming `~/Documents` is no override and the move proceeds; any
+    /// other is the root it will be pinned to, and nothing moves.
     @Test("A legacy Location is an override only when it names somewhere else")
     func aLegacyLocationElsewhereIsLeftForTheFirstMigration() {
         #expect(Self.plan(legacyPathOverride: "/Volumes/Backup/Docs").decision
@@ -163,8 +162,8 @@ struct ICloudRootMoveTests {
         #expect(test.defaults.integer(forKey: RootsMigration.iCloudRootMoveStampKey) == 1)
     }
 
-    /// The two migrations, in the order the app runs them, against an install from before either:
-    /// the first leaves iCloud where it found it, the second moves it — once.
+    /// The two migrations, in the app's order, on an install from before either: the first leaves
+    /// iCloud where it is, the second moves it, once.
     @Test("After the first migration's frozen mapping, the second moves iCloud exactly once")
     func theTwoMigrationsCompose() throws {
         let test = TestDefaults()

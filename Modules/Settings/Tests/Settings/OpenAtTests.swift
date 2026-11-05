@@ -4,15 +4,12 @@ import Foundation
 import Sync
 
 /// The landing folder a source opens panes at: choosing one, refusing one, clearing one, and
-/// degrading when the chosen folder stops existing.
+/// degrading when the chosen folder stops existing. `SettingsDiscoveryTests` covers what
+/// `landingPath` composes to; this covers what happens when a user picks a folder.
 ///
-/// This is the only genuinely new decision logic the roots split added to `SettingsManager`, and it
-/// shipped with none of its own coverage — `SettingsDiscoveryTests` asserts what `landingPath`
-/// composes to, which is a different question from what happens when a user picks a folder.
-///
-/// Real directories throughout, because two of the four branches are about the filesystem: the
-/// symlink fallback exists for what `NSOpenPanel` hands back on a firmlinked home directory, and
-/// the degrade exists for a folder that was renamed out from under a stored preference.
+/// Real directories throughout, because two branches are about the filesystem: the symlink
+/// fallback is for what `NSOpenPanel` hands back on a firmlinked home directory, and the degrade is
+/// for a folder renamed out from under a stored preference.
 @MainActor
 struct OpenAtTests {
 
@@ -35,8 +32,8 @@ struct OpenAtTests {
         func wipe() { try? FileManager.default.removeItem(at: base) }
     }
 
-    /// A manager holding one folder-shaped source rooted at `tree.root`, with whatever `openAt`
-    /// override is on disk applied — the same composition discovery performs.
+    /// A manager holding one folder-shaped source rooted at `tree.root`, with any stored `openAt`
+    /// override applied, as discovery does.
     static func manager(_ test: TestDefaults, _ tree: Tree,
                         validator: @escaping @Sendable (String) -> Bool = { _ in true })
     -> SettingsManager {
@@ -72,9 +69,8 @@ struct OpenAtTests {
         let manager = Self.manager(test, tree)
 
         #expect(manager.setOpenAt(tree.root.path, for: "Acct") == .changed)
-        // `""` is a real landing folder — "open at the top of the account" — and an ABSENT key means
-        // "use the discovered default", which for this source is `Documents`. Storing nothing here
-        // would silently put the user back where they navigated away from.
+        // `""` is a real landing folder, the top of the account; an absent key means the
+        // discovered default (`Documents` here). Storing nothing would undo the user's choice.
         #expect(test.defaults.string(forKey: SettingsManager.openAtOverrideKeyPrefix + "Acct") == "")
         #expect(manager.hasOpenAtOverride(for: "Acct"))
     }
@@ -85,8 +81,8 @@ struct OpenAtTests {
         let tree = try Tree(); defer { tree.wipe() }
         let manager = Self.manager(test, tree)
 
-        // Its own case. It used to borrow `.refusedDuplicate(existingId:)` and pass the asking
-        // source's own id, which reads as "that folder is already this very source's folder".
+        // Its own case, not `.refusedDuplicate(existingId:)`, which would read as "that folder
+        // already belongs to this source".
         #expect(manager.setOpenAt(tree.outside.path, for: "Acct") == .refusedOutsideRoot)
         #expect(test.defaults.string(forKey: SettingsManager.openAtOverrideKeyPrefix + "Acct") == nil)
     }
@@ -101,8 +97,8 @@ struct OpenAtTests {
 
         let through = link.appendingPathComponent("Documents/Reports").path
         #expect(manager.setOpenAt(through, for: "Acct") == .changed)
-        // Resolved for the TEST only: a folder reached through a link is genuinely inside the root
-        // it resolves into, and the stored value is still measured from the root the source has.
+        // Resolved only for the containment check: the stored value is still measured from the
+        // source's own root.
         #expect(test.defaults.string(forKey: SettingsManager.openAtOverrideKeyPrefix + "Acct")
             == "Documents/Reports")
     }
@@ -113,18 +109,14 @@ struct OpenAtTests {
         let tree = try Tree(); defer { tree.wipe() }
         let manager = Self.manager(test, tree)
 
-        // `.unchanged` is what the picker reads as success, so this returned "fine" for a source
-        // that had been dropped from the list while its row was on screen: the panel closed, the
-        // pick vanished, and nothing on screen or in the log said why.
+        // The picker reads `.unchanged` as success, so returning it for a source dropped while its
+        // row is on screen would lose the pick with no word on screen or in the log.
         #expect(manager.setOpenAt(tree.reports.path, for: "NotDiscovered") == .refusedUnknownSource)
     }
 
-    /// A manager that has actually RUN a discovery pass over `tree.root` as a CloudStorage account,
-    /// so `landingValidity` holds a measured answer rather than nothing.
-    ///
-    /// The degrade fires on positive evidence of absence, so a test that assigns `availableProviders`
-    /// directly cannot reach it at all — it would assert against the pre-measurement window instead
-    /// and pass for the wrong reason.
+    /// A manager that has run a discovery pass over `account` as a CloudStorage account, so
+    /// `landingValidity` holds a measured answer. The degrade fires only on positive evidence of
+    /// absence, which assigning `availableProviders` directly never produces.
     static func discoveredManager(_ test: TestDefaults, _ account: URL,
                                   validator: @escaping @Sendable (String) -> Bool) async
     -> SettingsManager {
@@ -146,16 +138,15 @@ struct OpenAtTests {
         try FileManager.default.createDirectory(at: landing, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
 
-        // Everything exists except the landing folder — the shape left behind by renaming it in
-        // Finder, which is the state this degrade is for.
+        // Everything exists except the landing folder, as after renaming it in Finder.
         let manager = await Self.discoveredManager(test, account, validator: { $0 != landing.path })
 
         #expect(manager.openAtIfReachable(for: "OneDrive-Acct") == "")
         #expect(manager.landingPath(for: "OneDrive-Acct") == account.path)
-        // The stored preference is NOT cleared by the degrade: the folder may come back, and a
-        // reader that rewrote it here would destroy the choice on the first bad read.
+        // The degrade keeps the stored preference: the folder may come back, and rewriting it here
+        // would destroy the choice on the first bad read.
         #expect(manager.openAt(for: "OneDrive-Acct") == "Documents")
-        // And the row that explains it has both halves of its evidence — root there, landing not.
+        // The row that explains it has both halves of its evidence: root there, landing not.
         #expect(manager.isPathValid(for: "OneDrive-Acct"))
         #expect(!manager.isLandingValid(for: "OneDrive-Acct"))
     }
@@ -166,17 +157,17 @@ struct OpenAtTests {
         let tree = try Tree(); defer { tree.wipe() }
         test.defaults.set("Documents/Reports",
                           forKey: SettingsManager.openAtOverrideKeyPrefix + "Acct")
-        // `availableProviders` assigned with no validity pass behind it — the launch window between
-        // discovery publishing the list and the off-main pass that stats it.
+        // `availableProviders` with no validity pass behind it: the launch window between discovery
+        // publishing the list and the off-main pass that stats it.
         let manager = Self.manager(test, tree)
 
-        // The degrade must fire on positive evidence of ABSENCE, never on the absence of evidence:
-        // reading "no entry" as "gone" seeds every pane at the account root for that window, which
-        // is exactly when a wrong folder gets saved back as the last-open one.
+        // The degrade fires on evidence of absence, never on absence of evidence: reading "no
+        // entry" as "gone" would seed every pane at the account root in the very window when a
+        // wrong folder gets saved back as the last-open one.
         #expect(manager.openAtIfReachable(for: "Acct") == "Documents/Reports")
         #expect(manager.landingPath(for: "Acct") == tree.reports.path)
-        // And the Settings row says nothing, because it warns only when it also has positive
-        // evidence about the root — so the two readers' opposite defaults never contradict on screen.
+        // The Settings row warns only on positive evidence about the root, so it says nothing here
+        // and the two readers' opposite defaults never contradict on screen.
         #expect(!manager.isPathValid(for: "Acct"))
     }
 
@@ -193,8 +184,8 @@ struct OpenAtTests {
         manager.setOpenAtRelative("Documents/Reports", for: "Acct")
         #expect(manager.hasOpenAtOverride(for: "Acct"))
         manager.resetOpenAt(for: "Acct")
-        // Removed, not set to the default: an absent key is what makes discovery supply the
-        // per-type default, so writing `Documents` here would re-pin the very thing Reset undoes.
+        // Removed, not set to the default: an absent key lets discovery supply the per-type default,
+        // so writing `Documents` would re-pin what Reset undoes.
         #expect(test.defaults.string(forKey: SettingsManager.openAtOverrideKeyPrefix + "Acct") == nil)
     }
 
@@ -205,9 +196,8 @@ struct OpenAtTests {
         let manager = Self.manager(test, tree)
 
         #expect(!manager.hasRootOverride(for: "Acct"))
-        // Only `RootsMigration` writes this in production, for a legacy Location outside the
-        // account. With no reader, Settings showed it as the account's one true root and offered
-        // nothing to clear it — permanent, since nothing else touches the key.
+        // Only `RootsMigration` writes this, for a legacy Location outside the account. Settings
+        // must report it and offer a way to clear it, since nothing else touches the key.
         test.defaults.set("/Volumes/Backup/Work",
                           forKey: SettingsManager.rootOverrideKeyPrefix + "Acct")
         #expect(manager.hasRootOverride(for: "Acct"))
@@ -216,18 +206,14 @@ struct OpenAtTests {
         #expect(!manager.hasRootOverride(for: "Acct"))
     }
 
-    /// **The "Choose…" panel opens at the folder panes actually open at, not at the stored one.**
-    ///
-    /// A source scan, because `NSOpenPanel` is not startable from a test — and the claim is about
-    /// which expression seeds `panel.directoryURL`, which is exactly what a scan can see.
+    /// The "Choose…" panel opens at the folder panes actually open at, not at the stored one. A
+    /// source scan, because `NSOpenPanel` can't be started from a test and the claim is about which
+    /// expression seeds `panel.directoryURL`.
     ///
     /// `provider.landingPath` joins root and `openAt` unconditionally; `settings.landingPath(for:)`
-    /// degrades to the root when that folder is no longer there. Seeding from the first opens the
-    /// panel on a path that does not exist, so macOS drops the user wherever it last was — very
-    /// likely outside this root, which means their first pick is refused by the containment rule
-    /// this panel exists to help them satisfy, with a message about a root they were never shown.
-    /// `SetupSheet.seedWalkRoot` had the identical bug and carries the identical note; this row was
-    /// the second copy.
+    /// degrades to the root when that folder is gone. Seeded from the first, the panel opens on a
+    /// missing path, macOS drops the user wherever it last was, likely outside this root, and their
+    /// first pick is refused by the containment rule. `SetupSheet.seedWalkRoot` has the same rule.
     @Test("The landing-folder picker is seeded through the manager, not through the value type")
     func theOpenAtPanelIsSeededFromTheReachableLanding() throws {
         let url = URL(fileURLWithPath: #filePath)
@@ -241,10 +227,8 @@ struct OpenAtTests {
                                  "cannot find selectOpenAtDirectory — this test is checking a name that no longer exists")
         let tail = source[start.upperBound...]
         let end = try #require(tail.range(of: "\n    }"), "cannot find the end of selectOpenAtDirectory")
-        // **Comments stripped first, and that is not fussiness.** The fix in this very function
-        // names `provider.landingPath` in prose, to say what it is NOT doing — so a scan over the
-        // raw text finds the mention, fails, and teaches the next reader to delete the explanation
-        // in order to get to green.
+        // Comments stripped first: the function names `provider.landingPath` in prose to say what
+        // it doesn't do, and a raw scan would fail on that mention.
         let body = String(tail[..<end.lowerBound])
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { $0.contains("//") ? $0[..<$0.range(of: "//")!.lowerBound] : $0 }

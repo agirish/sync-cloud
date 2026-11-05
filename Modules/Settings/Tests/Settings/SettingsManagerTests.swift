@@ -14,14 +14,13 @@ import Sync
         #expect(settings.availableProviders.first?.id == "iCloud")
     }
 
-    // testPathOverrides was removed 2026-08-22: a strict subset of
-    // SettingsDiscoveryTests.testSetPathResetPathRoundTripWithoutGlobalState (which also asserts
-    // the defaults key), with the iCloud-specific angle covered by the seed test below, including
-    // the override surviving a subsequent discovery.
+    // Path overrides are covered by
+    // SettingsDiscoveryTests.testSetPathResetPathRoundTripWithoutGlobalState, and the iCloud case,
+    // including the override surviving discovery, by the seed test below.
 
-    /// The init-time seed must consult the persisted iCloud path/name overrides (and compute
-    /// validity against the effective path), exactly like discovery does — otherwise anything
-    /// rendered pre-discovery flashes the default path, default name, and a wrong badge.
+    /// The init-time seed applies the persisted iCloud path and name overrides, and computes
+    /// validity against the effective path, as discovery does; otherwise anything rendered before
+    /// discovery flashes the default path, default name and a wrong badge.
     @Test @MainActor func testInitSeedHonorsPersistedICloudOverrides() async {
         let test = TestDefaults()
         let overridePath = "/Volumes/External/iCloudDocs"
@@ -32,8 +31,8 @@ import Sync
             autoDiscover: false,
             userDefaults: test.defaults,
             cloudStorageLister: { .read([]) },
-            // Only the override path exists on "disk": the badge must be valid immediately,
-            // proving validity was computed against the effective path, not the default.
+            // Only the override path exists on "disk", so a valid badge right away shows validity
+            // was computed against the effective path, not the default.
             pathValidator: { $0 == overridePath })
 
         #expect(settings.availableProviders.map(\.id) == ["iCloud"])

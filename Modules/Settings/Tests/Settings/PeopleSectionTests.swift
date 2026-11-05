@@ -5,29 +5,18 @@ import Sync
 import Testing
 @testable import Settings
 
-/// The People section: the store's editing rules, and the layout claims the rows make.
+/// The People section: the store's editing rules, and the layout claims the rows make. The store
+/// tests matter most: a roster is persisted state, and "it worked in the window" says nothing about
+/// what a relaunch reads back.
 ///
-/// The store tests are the important half — a roster is persisted state, and "it worked in the
-/// window" says nothing about what a relaunch reads back.
-///
-/// **`.machinePinned(.pixelSampling)`** — `ink` below reads painted pixels back out of a live
-/// renderer (`bitmapImageRepForCachingDisplay` + `cacheDisplay` + `colorAt`), which is the declared
-/// meaning of that reason, so this suite has to stand down wherever its siblings do. It shipped as
-/// a bare `@Suite`, the same gap `855d76e5` closed on `PeopleDuplicateIdTests` next door. There is
-/// no consequence while CI is this Mac and excludes only `referenceImages,liveProfile` — the day
-/// the runner moves, the undeclared suite is the one still sampling an uncalibrated renderer while
-/// every suite that declared itself correctly steps aside.
-///
-/// The trait goes on the whole suite, as every pinned suite in this repo applies it, which does
-/// take the fourteen members that sample nothing — the store and registry tests, and the source
-/// scan — down with it. Only `theUnreadableRosterNotePaintsItsMessage` reaches `ink`. That is the
-/// accepted cost of the one-token declaration: a per-test gate is the shape a renamer forgets,
-/// which is the gap `MachinePinnedReason` was minted to close.
+/// `.machinePinned(.pixelSampling)` because `ink` reads painted pixels back with `colorAt`. Only
+/// `theUnreadableRosterNotePaintsItsMessage` samples, but the trait covers the whole suite, as every
+/// pinned suite does, so the rest stand down with it.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct PeopleSectionTests {
 
-    /// The real household, which is the fixture worth testing against: three of these people share
-    /// a surname with a fourth's given name.
+    /// A household whose names overlap: Father's given name is Daughter's surname, and his surname
+    /// is Granny's.
     static func household() -> [Person] {
         [Person(id: "father", displayName: "Father", relationship: "me",
                 fullNames: ["Father Elder"]),
@@ -44,8 +33,8 @@ import Testing
 
     // MARK: - The store
 
-    /// **A relaunch is the only proof an edit was saved.** A fresh store over the same directory is
-    /// that relaunch — the same shape `KeptNamesSettingsTests` uses.
+    /// A relaunch is the only proof an edit was saved. A fresh store over the same directory stands
+    /// in for one, as in `KeptNamesSettingsTests`.
     @Test func addingAPersonSurvivesARelaunch() throws {
         let dir = scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -62,8 +51,8 @@ import Testing
         #expect(reopened.source == .file)
     }
 
-    /// Editing keeps the id, and that is load-bearing: a folder's `axes.person` and every rule that
-    /// will key on a person resolve through it, so a rename must not orphan them.
+    /// Editing keeps the id: a folder's `axes.person` and every rule keyed on a person resolve
+    /// through it, so a rename must not orphan them.
     @Test func renamingAPersonKeepsTheirIdentity() throws {
         let dir = scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -103,8 +92,8 @@ import Testing
         #expect(store.people.map(\.id) == ["uncle", "uncle-2"])
     }
 
-    /// Blank and duplicate entries are refused rather than stored — a roster with `""` in its
-    /// `fullNames` matches everything or nothing depending on the matcher's mood.
+    /// Blank and duplicate entries are refused, not stored: a `""` in `fullNames` would match
+    /// everything or nothing depending on the matcher.
     @Test func blanksAndDuplicatesAreCleanedAway() throws {
         let store = PeopleStore(people: [])
         #expect(store.add(displayName: "   ") == nil)
@@ -114,8 +103,8 @@ import Testing
         #expect(p.fullNames == ["Daughter Father"])
     }
 
-    /// **A seeded roster is not the user's until they touch it**, and the file is what records
-    /// that. Nothing is written on load — the file appears on the first edit.
+    /// A seeded roster isn't the user's until they touch it, and the file records that: nothing is
+    /// written on load, and the file appears on the first edit.
     @Test func aSeededRosterWritesNothingUntilItIsEdited() {
         let dir = scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -131,8 +120,8 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: store.fileURL.path))
     }
 
-    /// The registry recompiles on every edit — a stale matcher would attribute documents through a
-    /// household the user has already corrected.
+    /// The registry recompiles on every edit, or it would attribute documents through a household
+    /// the user has already corrected.
     @Test func theRegistryFollowsAnEdit() {
         let store = PeopleStore(people: Self.household())
         #expect(store.registry.detect(in: "Mom - passport.pdf") == ["granny"])
@@ -163,14 +152,12 @@ import Testing
         #expect(facts.uniqueWords == ["daughter"])
         #expect(facts.sharedWords.map(\.word) == ["father"])
         #expect(facts.sharedWords.first?.othersSharing == 1)
-        // Longest first — the order they are TRIED in, which is what makes the line an explanation
-        // rather than a list.
+        // Longest first, the order they are tried in, so the line explains rather than lists.
         #expect(facts.matchedForms == ["Daughter Father", "Daughter"])
     }
 
     /// An alias resolves the folder to its owner, so `Family/Mom` counts toward Granny. Without the
-    /// alias map this row would report zero folders for her — the visible face of the bug the
-    /// registry was built to fix.
+    /// alias map her row would report zero folders.
     @Test func anAliasedFolderCountsTowardItsOwner() throws {
         let registry = PersonRegistry(people: Self.household())
         let entry = FolderProfileEntry(path: "Family/Mom", role: .personBucket, naming: nil,
@@ -184,15 +171,10 @@ import Testing
         #expect(facts.folders == ["Family/Mom"])
     }
 
-    /// **A full name attributes a person who has no distinctive word of their own.**
-    ///
-    /// Father shares both his words: `father` is three other people's surname and `elder` is
-    /// three others' too. He is nonetheless perfectly attributable, because "Father Elder" is
-    /// matched as a phrase — so the row must not tell him to add a full name he already has.
-    ///
-    /// This is pinned because the first version of the section judged on unique words alone and
-    /// rendered **all seven** of a real household in amber; the caution meant nothing, and a
-    /// mutation reverting the fix went unnoticed until this test existed.
+    /// A full name attributes a person with no distinctive word of their own. Father shares both
+    /// his words (`father` is Daughter's surname, `elder` is Granny's), but "Father Elder" matches
+    /// as a phrase, so his row must not ask for a full name he has. Judging on unique words alone
+    /// would put most of a real household in amber, and the caution would mean nothing.
     @Test func aFullNameMakesSomeoneAttributableWithoutAUniqueWord() throws {
         let registry = PersonRegistry(people: Self.household())
         let father = try #require(registry.people.first { $0.id == "father" })
@@ -201,7 +183,7 @@ import Testing
         #expect(!facts.hasAnyUniqueWord, "fixture drifted — he is supposed to share every word")
         #expect(facts.isAttributable, "“Father Elder” names him; the row would nag him to add it")
 
-        // And the state the caution IS for: one shared word, no full name, nothing to match on.
+        // And the state the caution is for: one shared word, no full name, nothing to match on.
         let stranded = PersonRegistry(people: Self.household()
                                       + [Person(id: "elder-2", displayName: "Elder")])
         let other = try #require(stranded.people.first { $0.id == "elder-2" })
@@ -210,7 +192,7 @@ import Testing
         #expect(!strandedFacts.isAttributable)
     }
 
-    /// On a machine with no survey the facts are honestly empty rather than wrong.
+    /// With no survey the facts are empty rather than wrong.
     @Test func withNoProfileTheFactsReportNoFolders() throws {
         let registry = PersonRegistry(people: Self.household())
         let daughter = try #require(registry.people.first { $0.id == "daughter" })
@@ -222,7 +204,7 @@ import Testing
 
     // MARK: - The editor's own rules
 
-    /// A name is the only requirement — everything else is evidence, and a person with none is
+    /// A name is the only requirement: everything else is evidence, and a person with none is
     /// still worth recording.
     @Test func onlyANameIsRequiredToSave() {
         #expect(PersonEditor.canSave(displayName: "Daughter"))
@@ -230,12 +212,10 @@ import Testing
         #expect(!PersonEditor.canSave(displayName: "   "))
     }
 
-    /// **A name typed but not yet added with ⏎ must not vanish on Save.** This is the single most
-    /// likely way to lose an edit in this sheet, and the editor folds the pending field in instead.
-    ///
-    /// Tested through `folding` rather than by setting the view's `@State`: that has no storage
-    /// outside a rendered view, so the obvious version of this test read back the initial value and
-    /// passed with the rule deleted.
+    /// A name typed but not yet added with ⏎ must not vanish on Save, the likeliest way to lose an
+    /// edit in this sheet; the editor folds the pending field in. Tested through `folding`, because
+    /// `@State` has no storage outside a rendered view and a test setting it would read back the
+    /// initial value.
     @Test func aPendingNameIsKeptWhenSaveIsPressed() {
         let person = Person(id: "daughter", displayName: "Daughter")
         let folded = PersonEditor.folding(person, pendingFullName: "Daughter Father",
@@ -253,11 +233,9 @@ import Testing
     // MARK: - The unreadable-roster warning is actually on screen
 
     /// Ink drawn by `view` at `width`, counted as pixels differing from the window background.
-    ///
-    /// **Pixels, because room is not paint.** A height comparison would pass against a note that
-    /// reserved space and drew nothing, which is the failure this file's neighbours keep meeting.
-    /// Light appearance with an opaque background fill, for the reason `PeopleRenderProbe` gives:
-    /// without it a render decodes as white-on-transparent and reads as an empty view.
+    /// Pixels, because a height comparison would pass against a note that reserved space and drew
+    /// nothing. Light appearance on an opaque fill, as in `PeopleRenderProbe`, or the render reads
+    /// as white on transparency.
     private func ink(_ view: some View, width: CGFloat) -> Int {
         let subject = view.frame(width: width)
             .background(Color(nsColor: .windowBackgroundColor))
@@ -279,19 +257,11 @@ import Testing
         return painted
     }
 
-    /// **The claim is split in two because a whole-list render cannot carry it, and the first
-    /// attempt at one passed with the wiring deleted.** Comparing a readable list against an
-    /// unreadable one measures `sourceNote` as well: it swaps "Saved in people.json" for the much
-    /// longer "Suggested from your folder names…" whenever the roster is seeded, which is *always*
-    /// true in the unreadable case. That difference alone cleared the threshold, so the test
-    /// reported the warning present while `PeopleList` no longer drew it — a measurement adjacent
-    /// to the claim, which is the shape this codebase keeps meeting.
-    ///
-    /// So: this asserts the note **paints**, and `theUnreadableRosterNoteIsWiredIntoTheList`
-    /// asserts it is **reached**. Neither alone is the claim; together they are.
-    /// **The control is the same Label with no message**, and it has to be: a bare threshold on the
-    /// note's own ink passed with the `Text` emptied, because the warning triangle alone paints
-    /// hundreds of pixels. The icon is not the claim — the sentence is.
+    /// The unreadable-roster note paints its message; `theUnreadableRosterNoteIsWiredIntoTheList`
+    /// checks it is reached. A whole-list render can't carry the claim: an unreadable roster is
+    /// always seeded, so `sourceNote` swaps in a longer sentence and that alone clears a threshold.
+    /// The control is the same Label with no message, because the warning triangle alone paints
+    /// hundreds of pixels.
     @Test func theUnreadableRosterNotePaintsItsMessage() {
         let width = SettingsSheetMetrics.contentWidth(textScale: 1)
         let note = ink(PeopleList.unreadableRosterNote, width: width)
@@ -304,11 +274,9 @@ import Testing
                 "the warning is little more than its icon (\(note) vs \(iconOnly)) — its message is not being drawn")
     }
 
-    /// The other half: the note is reached from `PeopleList.body`, under the store's own flag.
-    ///
-    /// Source-level because SwiftUI cannot be driven from here and the render above cannot isolate
-    /// this branch. Bounded to `body` by its closing brace and failing loudly if the declaration
-    /// moves, so a rename cannot quietly empty the haystack.
+    /// The other half: the note is reached from `PeopleList.body`, under the store's own flag. A
+    /// source scan, because the render above can't isolate this branch. Bounded to `body` and
+    /// failing loudly if the declaration moves, so a rename can't empty the haystack.
     @Test func theUnreadableRosterNoteIsWiredIntoTheList() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

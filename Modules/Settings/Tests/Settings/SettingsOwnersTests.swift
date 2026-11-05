@@ -7,9 +7,9 @@ import Events
 @testable import Settings
 import Sync
 
-/// Pins the work moved out of Settings views into callable owners (TE290 step 0a): the login-item
-/// round-trip, the log level's running logger, and the API key's confirmed removal. Each used to
-/// be reachable only by mounting its view.
+/// Pins the Settings work that lives in callable owners rather than views: the login-item round
+/// trip, the log level's running logger, and the API key's confirmed removal, each testable
+/// without mounting a view.
 @MainActor
 @Suite struct SettingsOwnersTests {
 
@@ -89,8 +89,8 @@ import Sync
     }
 
     @Test func aPendingApprovalReadsAsOnWithTheHint() async {
-        // A pending item is the read that would REGISTER if it slipped past the echo guard as a
-        // gesture (an enabled one would not: `register` is skipped for it).
+        // A pending item is the read that would register if it slipped past the echo guard as a
+        // gesture (an enabled one wouldn't: `register` is skipped for it).
         let fake = FakeLoginService(status: .requiresApproval)
         let controller = LoginItemController(service: fake.service)
 

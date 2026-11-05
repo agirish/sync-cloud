@@ -3,10 +3,9 @@ import Foundation
 @testable import Settings
 import Sync
 
-/// Coverage for the Sync/Advanced-tab settings added with the expanded Settings surface:
-/// persistence round-trips for date tolerance, scan-time verification, remembered ignores,
-/// and ignore patterns; pattern add/remove normalization; the delete-confirmation default;
-/// and the full reset.
+/// Coverage for the Sync and Advanced tab settings: persistence round-trips for date tolerance,
+/// scan-time verification, remembered ignores and ignore patterns; pattern add/remove
+/// normalization; the delete-confirmation default; and the full reset.
 @Suite struct SyncBehaviorSettingsTests {
 
     @MainActor
@@ -120,9 +119,9 @@ import Sync
         #expect(test.defaults.string(forKey: "root_override_iCloud") == nil)
     }
 
-    /// The reset keeps what `SettingsResetKeeps` names — the Never show Claude list, the spending
-    /// limits, the spend records, Automations and saved signatures — and takes the rest of what Claude was set to, which used to
-    /// go with the whole domain: every folder he had hidden was shown to Claude again.
+    /// The reset keeps what `SettingsResetKeeps` names (the Never show Claude list, spending
+    /// limits, spend records, rules and saved signatures) and resets the rest, including what
+    /// Claude was set to. Losing the hidden list would show every hidden folder to Claude again.
     @MainActor
     @Test func testResetAllSettingsKeepsTheHiddenListLimitsAndSpend() {
         let test = TestDefaults()
@@ -166,7 +165,7 @@ import Sync
         // roots marks.
         #expect(kept.count == 17, "\(kept.sorted())")
 
-        // Key by key, so the hidden list is there at every change the reset makes — a reader on
+        // Key by key, so the hidden list is there at every change the reset makes and a reader on
         // another thread never sees it gone. Removing the domain and writing it back would not be.
         let hiddenMissing = CallCounter()
         let changes = CallCounter()
@@ -206,13 +205,13 @@ import Sync
         #expect(defaults.object(forKey: "sourceOrder") == nil)
         #expect(changes.count > 1)
         #expect(hiddenMissing.count == 0)
-        // The read switch changed, so whatever caches what Claude may see is told — by this reset:
-        // the other tests' resets, running beside this one, post for their own stores.
+        // The read switch changed, so whatever caches what Claude may see is told, once: other
+        // tests' resets running beside this one post for their own stores.
         #expect(privacyPosts.count == 1)
     }
 
-    /// Given a store but no domain name, the reset clears that store's keys. It listed the app's
-    /// own domain instead and removed those names from the store, so a key the store alone held stayed.
+    /// Given a store but no domain name, the reset clears that store's own keys. Fails if it lists
+    /// the app's domain instead, leaving a key only the store holds.
     @MainActor
     @Test func testResetAllSettingsWithNoDomainNameClearsTheStoreItWasGiven() {
         let test = TestDefaults()

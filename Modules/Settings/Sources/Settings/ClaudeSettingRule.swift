@@ -1,13 +1,13 @@
 import Foundation
 import Sync
 
-/// Which changes Claude may make itself, with the settings tool's `set` (TE290 step 4c). Every
-/// other change is their click on a card.
+/// Which changes Claude may make itself, with the settings tool's `set`. Every other change is
+/// their click on a card.
 ///
-/// **Look-and-feel, or tightening its own reach.** A Direct setting changes either way. A Direct
-/// when tightening one changes only the way that lowers Claude's spending or access — reading
-/// off, a lower limit — and never to a limit at or below what is already spent, which would stop
-/// it at once: that is turning it off, and turning off is theirs. Raising is always their click.
+/// A Direct setting changes either way. A Direct-when-tightening one changes only the way that
+/// lowers Claude's spending or access (reading off, a lower limit), and never to a limit at or
+/// below what is already spent: that would stop it at once, which is turning it off, and turning
+/// off is theirs. Raising is always their click.
 public enum ClaudeSettingRule {
 
     /// Why Claude may not change `entry` from `current` to `value` itself, or nil when it may.

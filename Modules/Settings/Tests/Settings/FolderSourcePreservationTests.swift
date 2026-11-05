@@ -3,13 +3,12 @@ import Testing
 import Sync
 @testable import Settings
 
-/// **The user's curated source list was decoded with `try? … ?? []` — no log, no backup.**
+/// An unreadable folder-source list is kept, not silently decoded as empty.
 ///
-/// And the loss was invisible twice over. `init` assigns the property directly, so the `didSet`
-/// that persists it does not fire: nothing is written at launch and Settings simply looks like a
-/// fresh install. The first add, remove or path edit then fires it and writes the empty-based list
-/// over the bytes that were still on disk — so the only copy of a hand-curated list disappears at
-/// the moment the user opens the panel to ask where it went.
+/// `init` assigns the property directly, so the persisting `didSet` doesn't fire at launch and
+/// Settings just looks like a fresh install. The first add, remove or path edit then writes the
+/// empty-based list over the bytes on disk, so without a backup the only copy of a hand-curated
+/// list goes the moment the user opens the panel to look for it.
 @MainActor
 @Suite struct FolderSourcePreservationTests {
 
@@ -27,8 +26,8 @@ import Sync
                 "the only copy of the user's list was dropped")
     }
 
-    /// **The step that actually destroyed it.** Reading is not what overwrote the bytes — the next
-    /// write did. With the payload preserved, that write can no longer be the end of it.
+    /// The next write, not the read, is what overwrites the bytes; the preserved copy must survive
+    /// it.
     @Test func aLaterWriteDoesNotDestroyThePreservedCopy() throws {
         let defaults = freshDefaults()
         let corrupt = Data("{ half a write".utf8)
@@ -41,7 +40,7 @@ import Sync
         #expect(defaults.data(forKey: "folderSources.unreadable") == corrupt)
     }
 
-    /// A first launch has no bytes and must not report anything — absent is not unreadable.
+    /// A first launch has no bytes and must not report anything: absent is not unreadable.
     @Test func anAbsentListIsSimplyEmpty() {
         let defaults = freshDefaults()
         #expect(SettingsManager.readFolderSources(from: defaults).isEmpty)
@@ -49,7 +48,7 @@ import Sync
                 "a fresh install wrote a backup of nothing")
     }
 
-    /// And a readable list still decodes — the guard must not be reached for ordinary data.
+    /// A readable list still decodes, with no backup written.
     @Test func aReadableListStillDecodes() throws {
         let defaults = freshDefaults()
         let sources = [FolderSource.new(path: "~/Archive")]
@@ -58,8 +57,8 @@ import Sync
         #expect(defaults.data(forKey: "folderSources.unreadable") == nil)
     }
 
-    /// A re-launch on a still-corrupt store must not rewrite the same payload every time — the
-    /// backup is the bytes, not a log of attempts.
+    /// A relaunch on a still-corrupt store must not rewrite the backup: it is the bytes, not a log
+    /// of attempts.
     @Test func rereadingDoesNotRewriteTheBackup() throws {
         let defaults = freshDefaults()
         defaults.set(Data("{ half".utf8), forKey: "folderSources")

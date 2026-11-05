@@ -7,10 +7,9 @@ import SwiftUI
 /// Settings ▸ Readability ▸ Column widths — the choice between sizing Columns one column at a time
 /// and all together.
 ///
-/// Choosing "All columns" is a promise about what the columns look like, not only about what the next
-/// drag does: they are one width. So the choice itself releases every column that was sized on its
-/// own; leaving them would draw one wide column under "All columns" until some later drag happened to
-/// release it, which reads as the setting not working.
+/// "All columns" promises the columns are one width, not only what the next drag does, so the
+/// choice itself releases every column sized on its own. Otherwise one wide column would sit under
+/// "All columns" until a later drag released it, which reads as the setting not working.
 @MainActor
 @Suite struct ColumnWidthsSettingTests {
 
@@ -24,9 +23,9 @@ import SwiftUI
         return found
     }
 
-    /// Mounted, and chosen through the control's own action — the binding the picker really has,
-    /// rather than a restatement of it. Paired with the opposite choice, which must leave the widths
-    /// alone: a setter that cleared on every write would pass the first half.
+    /// Mounted, and chosen through the control's own action, so it tests the picker's real binding.
+    /// Paired with the opposite choice, which must leave the widths alone: a setter that cleared on
+    /// every write would pass the first half.
     @Test func choosingAllColumnsPutsEveryColumnBackToOneWidth() async throws {
         let test = TestDefaults("column-widths-setting")
         test.defaults.set(ColumnResizeMode.eachColumn.rawValue, forKey: ColumnResizeMode.defaultsKey)
@@ -69,10 +68,9 @@ import SwiftUI
         #expect(asked == [1], "All columns did not ask about the one column sized on its own: \(asked)")
     }
 
-    /// **Declined, the choice changes nothing — on screen too.** The setting and the widths stay,
-    /// and the picker goes back to "Each column": the setter writes nothing, so without the rebuild
-    /// the segment the click lit stayed lit over a setting that never moved (measured offscreen
-    /// before the fix — selected segment 1, stored mode "each").
+    /// Declined, the choice changes nothing, on screen too: the setting and widths stay, and the
+    /// picker goes back to "Each column". The setter writes nothing, so without a rebuild the
+    /// clicked segment would stay lit over a setting that never moved.
     @Test func decliningAllColumnsLeavesTheSettingTheWidthsAndThePicker() async throws {
         let test = TestDefaults("column-widths-decline")
         test.defaults.set(ColumnResizeMode.eachColumn.rawValue, forKey: ColumnResizeMode.defaultsKey)
@@ -120,9 +118,8 @@ import SwiftUI
         #expect(shown.selectedSegment == 0, "the picker shows All columns over a setting still at Each column")
     }
 
-    /// **The row fits the narrowest column the sheet can offer, at the largest text size** — the
-    /// real control in the real tab, not a copy of it. The segments were kept to two short words for
-    /// this column; this is what says they still fit it, whole and unsqueezed, beside their label.
+    /// The real row fits the narrowest column the sheet offers, at the largest text size: the
+    /// two-word segments stay whole and unsqueezed beside their label.
     @Test func theColumnWidthsRowFitsTheNarrowestColumnAtTheLargestText() async throws {
         let test = TestDefaults("column-widths-fit")
         let tinyWindow = CGSize(width: SettingsSheetMetrics.floorSize.width + SettingsSheetMetrics.hostMargin,

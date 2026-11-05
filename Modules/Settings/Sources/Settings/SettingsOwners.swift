@@ -5,17 +5,15 @@ import Security
 import Sync
 import UserNotifications
 
-// The work a few Settings controls used to do inside their views, moved where any control can call
-// it (TE290 step 0a). Each is the view's code, unchanged; the views now call these. Anything that
-// changes the same setting without mounting the view — an Ask Claude card — calls them too, so the
-// setting can't be stored without its side effect.
+// The side effects of a few Settings controls, kept outside their views so anything that changes
+// the same setting without mounting the view (an Ask Claude card) calls them too, and the setting
+// can't be stored without its side effect.
 
 /// "Notify when operations finish in the background" needs macOS's permission to post.
 public enum BackgroundNotificationPermission {
 
-    /// Asks macOS for permission, as turning the switch on does. Reports whether it was DENIED —
-    /// the one state where the feature looks enabled but can never fire. A denied request used to
-    /// vanish, leaving the switch on and the user waiting for notifications that never come.
+    /// Asks macOS for permission, as turning the switch on does. Reports whether it was denied:
+    /// the one state where the switch is on but no notification can ever come.
     public static func request(report: @escaping @MainActor (_ denied: Bool) -> Void) {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
             Task { @MainActor in report(!granted) }
@@ -54,10 +52,10 @@ public enum LogLevelSetting {
 /// Intelligence ▸ Claude API key ▸ Remove.
 public enum APIKeyRemoval {
 
-    /// Deletes the key and confirms it actually went, rather than assuming. A Keychain delete can
-    /// be refused exactly as a write can (locked keychain, denied prompt, an MDM policy); a row
-    /// that then read "No key yet" would leave the user believing a secret is gone when it is not.
-    /// `isConfigured`, not `hasKey`: confirming the item is gone must not ask for the secret.
+    /// Deletes the key and confirms it went. A Keychain delete can be refused like a write (locked
+    /// keychain, denied prompt, MDM policy), and a row reading "No key yet" would then claim a
+    /// secret is gone when it is not. `isConfigured`, not `hasKey`: the check must not ask for the
+    /// secret.
     /// - Returns: Why the key is still stored, or nil when it is gone.
     public static func remove(from store: KeychainStore = SecItemKeychainStore()) -> String? {
         let status = AnthropicKeychain.delete(from: store)
@@ -66,8 +64,8 @@ public enum APIKeyRemoval {
     }
 }
 
-/// Intelligence ▸ Claude API key ▸ Save, from an Ask Claude card (TE290 step 7): the same write
-/// Settings' row makes, and the same check that it landed.
+/// Intelligence ▸ Claude API key ▸ Save, from an Ask Claude card: the same write Settings' row
+/// makes, and the same check that it landed.
 public enum APIKeySaving {
 
     /// Stores `key` in the Keychain, replacing any saved one in place (a refused write leaves the
@@ -83,15 +81,14 @@ public enum APIKeySaving {
     }
 }
 
-/// Readability ▸ Column widths. **Asks first when "All columns" would release columns sized on
-/// their own** — their widths are erased, and choosing "Each column" again does not bring them
-/// back. With nothing sized on its own there is nothing to lose, so it does not ask. The rule
-/// `ReadabilitySettingsTab` applies, here so a control outside the tab applies it too.
+/// Readability ▸ Column widths. Asks first when "All columns" would release columns sized on
+/// their own: their widths are erased, and choosing "Each column" again does not bring them back.
+/// With none, there is nothing to lose and it doesn't ask. `ReadabilitySettingsTab`'s rule, here so
+/// a control outside the tab applies it too.
 public enum ColumnResizeChoice {
 
-    /// What to store, decided before anything is: write the result only when it is non-nil.
-    /// Taking the stored values `inout` wrote both back even on Cancel — a write of the same value
-    /// is still a defaults change other windows react to.
+    /// What to store, decided before anything is: write the result only when it is non-nil. Even
+    /// a write of the same value on Cancel is a defaults change other windows react to.
     /// - Returns: The mode and widths to store, or nil when declined.
     public static func choose(_ raw: String, overrides: ColumnWidthOverrides,
                               confirm: () -> Bool) -> (mode: String, overrides: ColumnWidthOverrides)? {

@@ -5,45 +5,28 @@ import Sync
 import Testing
 @testable import Settings
 
-/// Pins the promise the sidebar layout was built to keep: the Appearance tab fits its opening
-/// without scrolling, and the sheet never outgrows the window it is centered in.
+/// Pins the promise the sidebar layout keeps: the must-fit tabs fit their opening without
+/// scrolling, and the sheet never outgrows the window it is centered in. Heights are measured from
+/// the laid-out view (`NSHostingView.fittingSize`), not computed from the constants that feed it:
+/// constants agreeing with each other prove nothing about what SwiftUI lays out.
 ///
-/// The height is measured from the LAID-OUT view (`NSHostingView.fittingSize`), not computed
-/// from the constants that feed it — the constants agreeing with each other proves nothing about
-/// what SwiftUI actually lays out. The shipped grouped-Form version measured 884pt into a 436pt
-/// opening, which is how a control ended up cut in half by the sheet's bottom edge.
+/// Appearance carries the detailed budget, because it reads only `@AppStorage`, so its height is a
+/// property of the layout rather than the machine's data. The other must-fit tabs are checked by
+/// `everyMustFitTabFitsTheClampedOpening`. The exempt tabs and their reasons live in one place,
+/// ``SettingsView/SettingsTab/exemptFromFitGuard``, and
+/// `everyTabIsEitherFitTestedOrExplicitlyExempt` holds `mustFitTabs` to `allCases` minus that set.
+/// General is measured too: its SMAppService reads are in `.task`, which an offscreen
+/// `NSHostingView` driven by `layoutSubtreeIfNeeded` never fires.
 ///
-/// Appearance carries the detailed budget — it is the tab that motivated the change and the
-/// tallest one that can be made to fit (`appearanceIsTheTallestTabThatMustFit`), and it reads
-/// nothing but `@AppStorage`, so its height is a property of the layout rather than of the
-/// machine's data. But it is no longer the only tab with a fit assertion: the sheet shrank 58pt
-/// for every tab, so General, Sync, Duplicates and Advanced are checked too
-/// (`everyMustFitTabFitsTheClampedOpening`).
-///
-/// The excluded tabs, and each one's reason, are recorded in ONE place — `SettingsTab`'s
-/// ``SettingsView/SettingsTab/exemptFromFitGuard`` — and `everyTabIsEitherFitTestedOrExplicitlyExempt`
-/// holds `mustFitTabs` to be exactly `allCases` minus that set. This paragraph used to restate the
-/// three reasons, which made it the third copy of a list that had already gone stale once: the old
-/// Organize kept a "long by nature" exemption after the split made it short. Read them there.
-/// General was previously excluded as well, on the grounds
-/// that it "reaches for SMAppService on appear, which a `swift test` host can block on".
-/// Measured, that does not bite in this harness: the reads are in `.task`, which an offscreen
-/// `NSHostingView` driven only by `layoutSubtreeIfNeeded` never fires. It is measured here like
-/// the rest.
-///
-/// **Organize is exempt as of 2026-08-13, and it is the reason to distrust a fit fixture that
-/// passes `nil`.** It was in the fit list, built as `FilingSettingsTab(syncManager: nil)` — which
-/// renders a one-line placeholder where the app draws a row per kept name. The guard was green
-/// for the empty tab while a user with 17 kept names scrolled.
+/// Distrust a fit fixture that passes `nil`: `FilingSettingsTab(syncManager: nil)` renders a
+/// one-line placeholder where the app draws a row per kept name. So Organize is exempt, and
 /// `theOrganizeTabFitsItsOpeningWithNothingKept` and
-/// `theOrganizeTabOutgrowsItsOpeningOnceNamesAreKept` split what that entry was worth into the
-/// claim that is true and the claim that earns the exemption.
+/// `theOrganizeTabOutgrowsItsOpeningOnceNamesAreKept` carry what is true and what earns the
+/// exemption.
 ///
-/// The RAIL is measured as well (`theRailFitsItsOpening`). It shares the tabs' opening but is
-/// sized by the tab COUNT rather than by any tab's contents, so every assertion above is blind
-/// to it — which is exactly how Tidy could split into two rail rows without a single test moving.
-/// Since the rail gained a scroller, what that test measures is `SettingsRail.TabList` rather
-/// than the rail itself; the reason is on the test.
+/// The rail is measured too (`theRailFitsItsOpening`): it shares the tabs' opening but is sized
+/// by the tab count, so the tab assertions are blind to it. Since the rail scrolls, that test
+/// measures `SettingsRail.TabList`; the reason is on the test.
 @Suite struct SettingsLayoutTests {
 
     /// The content column: the sheet minus the rail and the divider between them.
@@ -53,18 +36,16 @@ import Testing
 
     @MainActor
     private func laidOutHeight(_ view: some View, width: CGFloat, scale: CGFloat = 1) -> CGFloat {
-        // The text scale is pinned rather than inherited: `scaledFont` reads it from the
-        // environment, so an unpinned measurement would silently report whatever text size the
-        // machine running the test happens to have set.
+        // The text scale is pinned: `scaledFont` reads it from the environment, so an unpinned
+        // measurement would report whatever text size the machine has set.
         let host = NSHostingView(rootView: view.environment(\.appFontScale, scale).frame(width: width))
         host.layoutSubtreeIfNeeded()
         return host.fittingSize.height
     }
 
-    /// The width a view wants when nothing constrains it — its intrinsic width. Deliberately
-    /// unconstrained, unlike `laidOutHeight`: the question is how wide the text WANTS to be, so
-    /// that it can be compared against the column it has to fit in. Constraining it first would
-    /// make the measurement agree with the constraint no matter how wide the text was.
+    /// The width a view wants when nothing constrains it, its intrinsic width. Unconstrained,
+    /// unlike `laidOutHeight`, so it can be compared with the column it must fit: constrained, it
+    /// would agree with the constraint however wide the text was.
     @MainActor
     private func laidOutWidth(_ view: some View, scale: CGFloat) -> CGFloat {
         let host = NSHostingView(rootView: view.environment(\.appFontScale, scale))
@@ -72,7 +53,7 @@ import Testing
         return host.fittingSize.width
     }
 
-    /// The margin Appearance has left at one text size — positive means it fits.
+    /// The margin Appearance has left at one text size; positive means it fits.
     @MainActor
     private func appearanceMargin(at scale: CGFloat) -> CGFloat {
         let height = laidOutHeight(AppearanceSettingsTab(),
@@ -81,13 +62,9 @@ import Testing
         return SettingsSheetMetrics.contentOpening(textScale: scale) - height
     }
 
-    /// The opening's margin over the **tallest** must-fit tab, whichever that is.
-    ///
-    /// Named for the property rather than for a tab, because the tab it happens to be has already
-    /// changed once: `baseSize` was sized against Appearance until Size & spacing moved out of it
-    /// into Readability, at which point Appearance shrank by ~190pt and the sheet was carrying
-    /// that much dead air over every tab. A helper naming Appearance would have kept passing and
-    /// kept measuring the wrong thing.
+    /// The opening's margin over the tallest must-fit tab, whichever that is. Named for the
+    /// property, not a tab, because which tab is tallest changes as tabs are reorganized, and a
+    /// helper naming one would keep passing while measuring the wrong tab.
     @MainActor
     private func tallestMustFitMargin(at scale: CGFloat) -> CGFloat {
         let test = TestDefaults("tallest-\(scale)")
@@ -102,41 +79,31 @@ import Testing
         return SettingsSheetMetrics.contentOpening(textScale: scale) - tallest
     }
 
-    /// A 1280×800-class display's window, spelled out so the fixture is an argument rather than
-    /// a magic number: an 800pt-tall screen loses 24pt to the menu bar and ~36pt to the window's
-    /// title bar, leaving ~740pt of window content — which is what `ContentView.settingsOverlay`'s
-    /// `GeometryReader` hands to `SettingsView` as `availableSize`.
+    /// A 1280×800-class display's window: an 800pt screen loses 24pt to the menu bar and ~36pt to
+    /// the title bar, leaving ~740pt, which `ContentView.settingsOverlay`'s `GeometryReader` hands
+    /// to `SettingsView` as `availableSize`.
     ///
-    /// **The Dock is deliberately excluded, and that limits what every test using this can
-    /// claim.** With a default bottom Dock (~75pt) the window is ~665pt, the opening ~572pt, and
-    /// Appearance's 634pt tab scrolls even at the default text size. So what is pinned here is
-    /// "a 1280×800 display with the Dock hidden or side-parked", not "a 1280×800 display".
-    /// Trimming the tab for the smallest configuration conceivable was rejected — the fix for a
-    /// bottom-Dock user is the scroll fallback, which `residualOverflowIsAbsorbedByScrolling`
-    /// checks degrades gracefully.
+    /// The Dock is excluded, so the tests using this pin "a 1280×800 display with the Dock hidden
+    /// or side-parked". A bottom Dock shrinks the window further, and for that user the answer is
+    /// the scroll fallback (`residualOverflowIsAbsorbedByScrolling`), not a tab trimmed for the
+    /// smallest configuration.
     private static let smallDisplayWindow = CGSize(width: 1280, height: 800 - 24 - 36)
 
-    /// The window's own content floor — `ContentView`'s `.frame(minWidth: 810, minHeight: 560)`,
-    /// which `.windowResizability(.contentMinSize)` makes the smallest window there is. Repeated
-    /// as a literal because the Settings module cannot see `MacApp`; the same arrangement
-    /// `sheetClampsToTheSpaceTheHostHas` has always used, and the direction is safe — a floor
-    /// raised in `ContentView` without updating this only ever gives the sheet more room.
+    /// The window's own content floor, from `ContentView`'s `.frame(minWidth:minHeight:)`, which
+    /// `.windowResizability(.contentMinSize)` makes the smallest window there is. A literal because
+    /// the Settings module can't see `MacApp`, as in `sheetClampsToTheSpaceTheHostHas`. The drift
+    /// is safe: a floor raised in `ContentView` only gives the sheet more room.
     private static let windowFloor = CGSize(width: 804, height: 560)
 
-    /// The version string this branch's builds actually carry, mirroring `project.yml`'s
-    /// `CFBundleShortVersionString`. Kept in step by the release procedure in `RELEASE.md`, which
-    /// makes updating it part of cutting a release.
-    ///
-    /// It is written down rather than read from `Bundle.main` because under `swift test`
-    /// `Bundle.main` is the test host and has no version at all — the very blindness that let
-    /// the app ship "1.0" for twenty-odd releases with a green suite. A literal that a human
-    /// must change is the point: it is what gives `theVersionLineFitsTheRailOnOneLine` something
-    /// real to measure.
+    /// The version string this branch's builds carry, mirroring `project.yml`'s
+    /// `CFBundleShortVersionString`; `RELEASE.md` makes updating it part of cutting a release. A
+    /// literal because under `swift test` `Bundle.main` is the test host and has no version, which
+    /// would leave `theVersionLineFitsTheRailOnOneLine` nothing real to measure.
     private static let versionMarker = "7.1-dev"
 
-    /// The margin Appearance has left at one text size against a chosen accent hue, measured
-    /// through the tab's own `@AppStorage` via `.defaultAppStorage` — `UserDefaults.standard` is
-    /// never touched, so nothing is inherited from the machine or from a neighbouring test.
+    /// The margin Appearance has left at one text size with a chosen accent hue, set through the
+    /// tab's `@AppStorage` via `.defaultAppStorage`, so nothing is inherited from
+    /// `UserDefaults.standard` or a neighbouring test.
     @MainActor
     private func appearanceMargin(hue: LiquidGlassHue,
                                   at scale: CGFloat,
@@ -159,9 +126,9 @@ import Testing
                 "Appearance lays out at \(height)pt in a \(opening)pt opening — it scrolls again.")
     }
 
-    /// The early warning the flat "does it fit" check can't give: a caption gaining one line is
-    /// ~15pt, so a tab sitting 5pt under its opening is one copy edit from scrolling. If this
-    /// trips, either trim the tab or raise `SettingsSheetMetrics.baseSize.height` deliberately.
+    /// The early warning a flat "does it fit" check can't give: a caption gaining a line is ~15pt,
+    /// so a tab 5pt under its opening is one copy edit from scrolling. If this trips, trim the tab
+    /// or raise `SettingsSheetMetrics.baseSize.height` deliberately.
     @MainActor
     @Test func appearanceKeepsRoomForACopyEdit() async throws {
         let margin = appearanceMargin(at: 1)
@@ -169,32 +136,18 @@ import Testing
         #expect(margin >= 15, "Only \(margin)pt of slack left below the last control.")
     }
 
-    /// The UPPER bound on `baseSize` — the half of the 1280×800 fix that nothing pinned.
+    /// The upper bound on `baseSize`. The opening clears the tallest must-fit tab with room for a
+    /// copy edit and no more. A lower bound alone is met by any sheet large enough, including one
+    /// that overflows real displays, and a display that clamps the sheet can't see `baseSize`
+    /// grow at all.
     ///
-    /// `appearanceFitsA1280x800Display` cannot see this constant: on that fixture window both
-    /// the old 758 and the new 700 clamp to the same 692pt sheet, so the clamped opening is
-    /// identical either way and only the tab's chrome trims are guarded there. Reverting
-    /// `baseSize` to 758 left the whole suite green.
-    ///
-    /// `baseSize`'s own comment says the height is "chosen against a measurement, not a round
-    /// number": the opening clears the tallest must-fit tab with room for a copy edit and *no
-    /// more*. A lower bound alone (`appearanceKeepsRoomForACopyEdit`) only makes that half a
-    /// sentence — it is satisfied by any sheet large enough, including one so large it overflows
-    /// the displays real people use. 758 carried 79pt of dead air over a 634pt tab, and that
-    /// dead air is exactly what pushed the sheet past a 1280×800 ceiling.
-    ///
-    /// Two copy edits of slack is the limit. Past that the sheet is being sized by a round
-    /// number again, and the right response is to lower `baseSize` — not to widen this bound.
+    /// Two copy edits of slack is the limit. Past that, lower `baseSize`; don't widen this bound.
     @MainActor
     @Test func theSheetIsSizedAgainstTheTallestTabItMustFit() async throws {
         let margin = tallestMustFitMargin(at: 1)
 
-        // **Measured over every must-fit tab rather than a named one.** This used to assert
-        // against Appearance and was paired with a second test claiming Appearance was the
-        // tallest; both were true until Size & spacing moved out of Appearance into Readability,
-        // at which point Appearance fell to 472pt and Sync (557pt) became the tab the sheet is
-        // really sized by. A pair of tests naming the wrong tab is worse than one measuring the
-        // property, so the identity claim is gone and this took over both halves of it.
+        // Measured over every must-fit tab rather than a named one, since which tab is tallest
+        // moves as tabs change.
         #expect(margin <= 30,
                 "The opening carries \(margin)pt over the tallest must-fit tab — baseSize has stopped being sized against that measurement.")
         // The other half, so a `baseSize` lowered too far fails here rather than in a fit test
@@ -203,18 +156,11 @@ import Testing
                 "The opening clears the tallest must-fit tab by only \(margin)pt — one copy edit from scrolling.")
     }
 
-    /// The fit at EVERY text size, not just the default — the gap that let the clipping this
-    /// layout was built to fix come back.
-    ///
-    /// A tab's height is not proportional to the text scale: only the type scales, while the
-    /// padding, spacing and control heights are fixed points. So a sheet scaled by the full
-    /// `FontSize.scale` shrinks faster than its contents do. At Small (0.9) the sheet gave up 69pt
-    /// of opening while Appearance gave back 12, and the tab measured 592pt into 578.6 — the last
-    /// control cut in half, exactly the failure the rail replaced a grouped `Form` to stop.
-    /// `resolvedSize` floors the scale at 1 for that reason; this is what proves it.
-    ///
-    /// Asserted per size rather than at the extremes: the two ends are not the only rungs, and a
-    /// failure names which one broke.
+    /// The fit at every text size, not just the default. A tab's height isn't proportional to the
+    /// text scale: only the type scales, while padding, spacing and control heights are fixed. A
+    /// sheet scaled down by the full `FontSize.scale` would shrink faster than its contents and clip
+    /// the last control, so `resolvedSize` floors the scale at 1, and this proves it. Asserted per
+    /// size, so a failure names the one that broke.
     @MainActor
     @Test(arguments: FontSize.allCases)
     func appearanceFitsEveryTextSize(_ size: FontSize) async throws {
@@ -225,22 +171,12 @@ import Testing
     }
 
     /// Readability fits a 1280×800 display at every text size.
-    ///
-    /// **The gap this closes is the pointed one.** `everyMustFitTabFitsTheClampedOpening` measures
-    /// every tab, but only at scale 1, and the per-size sweep beside it measures only Appearance —
-    /// so the tab whose entire reason for existing is large text was the one tab never checked AT
-    /// large text. Its content is the tallest of any must-fit tab's, and it grows with the setting
-    /// it sets: the preset tiles, the detent labels and the preview all scale.
-    ///
-    /// **Measured, so the margin is a fact rather than an impression:** 404pt of 583 at 90%,
-    /// 432 of 579 at 100%, 461 of 636 at 125%, 477 of 632 at 135%. Comfortable at every rung —
-    /// the content grows about 73pt across the range while the sheet grows faster, so the tab
-    /// gets *easier* at large text, not harder. That is worth knowing before anyone treats this
-    /// as a tight bound and trims the tab to satisfy it.
-    ///
-    /// Recorded as which sizes fit rather than asserting all four, so it stays honest in both
-    /// directions — if a section is added and Largest stops fitting, this says so rather than
-    /// silently becoming a weaker claim.
+    /// `everyMustFitTabFitsTheClampedOpening` runs at scale 1 only and the per-size sweep covers
+    /// only Appearance, while Readability exists for large text and grows with it: the preset
+    /// tiles, detent labels and preview all scale.
+    /// The sheet grows faster than the content, so the margin is comfortable at every size; don't
+    /// treat this as a tight bound and trim the tab for it. Asserted as the list of sizes that fit,
+    /// so a failure names them.
     @MainActor
     @Test func readabilityFitsASmallDisplayAtEveryTextSize() async throws {
         let fitting = FontSize.allCases.filter { size in
@@ -260,34 +196,18 @@ import Testing
                 """)
     }
 
-    /// The fit against a SMALL display's CLAMPED opening — the assertion whose absence let the
-    /// 688 → 758 raise ship a regression: every other fit test here passes `available: nil`, so
-    /// the sheet they measure against grows in lockstep with `baseSize` and no raise can ever
-    /// fail them. On a 1280×800-class display the sheet cannot grow; `resolvedSize` clamps it to
-    /// the window, and at 758 the Appearance tab (674pt) scrolled inside the ~647pt opening that
-    /// clamp produces. This is the upper bound: however `baseSize` moves, the tab must fit the
-    /// opening a small display can actually give it.
-    ///
-    /// The arithmetic, spelled out so the fixture is an argument rather than a magic number:
-    /// an 800pt-tall screen loses 24pt to the menu bar and ~36pt to the window's title bar,
-    /// leaving ~740pt of window content — which is what `ContentView.settingsOverlay`'s
-    /// `GeometryReader` hands to `SettingsView` as `availableSize`. `resolvedSize` then keeps
-    /// `hostMargin` (48pt) of air around the sheet, and the opening loses the title row and its
-    /// divider. Dock excluded deliberately: hidden or side-parked docks are common on 800pt
-    /// panels, and a bottom dock only shrinks the window further — the fix for that user is the
-    /// scroll fallback, not a sheet trimmed for the smallest configuration conceivable.
+    /// The fit against a small display's clamped opening. Fit tests passing `available: nil`
+    /// measure a sheet that grows with `baseSize`, so no raise can fail them; on a 1280×800-class
+    /// display `resolvedSize` clamps the sheet to the window instead. However `baseSize` moves, the
+    /// tab must fit what a small display can give it: the window in `smallDisplayWindow`, less
+    /// `hostMargin` around the sheet, the title row and its divider.
     @MainActor
     @Test func appearanceFitsA1280x800Display() async throws {
         let window = Self.smallDisplayWindow
         let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: window)
-        // **A 1280×800 window no longer clamps the sheet at all**, and that is the finding, not
-        // a lost subject. `baseSize` came down from 704 to 624 when Size & spacing moved out of
-        // Appearance into its own tab: Appearance fell to 472pt, the tallest must-fit tab became
-        // Sync at 557pt, and the sheet was carrying 102pt of dead air over it. At 624 the whole
-        // sheet fits this display outright, so the clamped and unclamped openings are the same
-        // number. The test keeps measuring the display rather than the clamp — if `baseSize` ever
-        // grows back past what this window can hold, the equality below becomes a `<` again and
-        // the height assertion is what starts failing.
+        // At today's `baseSize` the whole sheet fits this display, so the clamped and unclamped
+        // openings are equal. The test measures the display, not the clamp: if `baseSize` grows
+        // past what this window holds, the height assertion is what fails.
         #expect(opening <= SettingsSheetMetrics.contentOpening(textScale: 1),
                 "a 1280×800 window opening is somehow larger than the unclamped one")
 
@@ -298,20 +218,12 @@ import Testing
                 "Appearance lays out at \(height)pt but a 1280×800 display's clamped opening is \(opening)pt — it scrolls on small screens.")
     }
 
-    /// Every accent hue, because the caption is part of the layout and one hue's is longer.
-    ///
-    /// `AppearanceSettingsTab` reads the hue from `@AppStorage` defaulting to `.blue`, so every
-    /// other fit test in this file measures the SHORT caption. `.none` needs a sentence of its
-    /// own — a swatch labelled "None" over a visibly coloured button has to explain itself — and
-    /// at 121 characters that sentence wrapped to a second line, ~13pt the tab did not have. It
-    /// put a `.none` user's tab at exactly its clamped opening, zero margin, and no test could
-    /// see it: the caption and the sheet-fitting work landed thirty seconds apart, neither aware
-    /// of the other.
-    ///
-    /// Parameterised over `allCases` rather than pinning `.none` as "the worst case", so a
-    /// future hue with a long `displayName` is covered by construction. Over the raw VALUES
-    /// because `LiquidGlassHue` is not `Sendable` and so cannot cross into a test argument;
-    /// resolving it inside keeps a failure naming the hue that broke.
+    /// Every accent hue, because the caption is part of the layout and some hues' are longer.
+    /// `AppearanceSettingsTab` defaults to `.blue`, so the other fit tests measure the short
+    /// caption, while `.none` needs a sentence explaining a "None" swatch over a coloured button,
+    /// and a wrapped line costs ~13pt. Over `allCases`, so a future hue with a long caption is
+    /// covered. Over raw values because `LiquidGlassHue` isn't `Sendable` and can't be a test
+    /// argument; resolving it inside keeps the failure naming the hue.
     @MainActor
     @Test(arguments: LiquidGlassHue.allCases.map(\.rawValue))
     func appearanceFitsEveryAccentHue(_ rawValue: String) async throws {
@@ -326,25 +238,15 @@ import Testing
                 "Appearance overflows a 1280×800 display's clamped opening by \(-clamped)pt with the \(rawValue) accent.")
     }
 
-    /// The clamped opening at every TEXT SIZE — the case `appearanceFitsEveryTextSize` cannot
-    /// cover, because it passes `available: nil` and so measures Larger against a 910pt sheet
-    /// that a 1280×800 display can never produce. That is vacuous for exactly the configuration
-    /// the clamped-opening work was about.
+    /// The clamped opening at every text size, which `appearanceFitsEveryTextSize` can't cover: it
+    /// passes `available: nil`, so it measures the large sizes against a sheet a 1280×800 display
+    /// can never produce.
     ///
-    /// **The honest measured result, and the one place the residual is recorded.** On a 1280×800
-    /// display (Dock hidden or side-parked, per `smallDisplayWindow`) Appearance fits at Small
-    /// and at the Default text size, and does NOT fit at Large (~10pt over) or Larger (~55pt
-    /// over). This is a floor, not a bug to trim away: the sheet is capped at ~692pt by the
-    /// display while the tab's type grows 15–30%, so closing a 55pt gap would mean deleting
-    /// controls, and both of the alternatives are worse — a sheet sized for this case would
-    /// carry dead air on every normal display (which is the defect `baseSize` was just bounded
-    /// against), and `floorSize` cannot help because the clamp comes from the window, not the
-    /// floor. Large text on a small display genuinely has less room; scrolling is the correct
-    /// degradation and `SettingsPage` already does it.
-    ///
-    /// Written as a boundary rather than a one-sided assertion so it stays honest in both
-    /// directions: if a trim ever makes Large fit, this fails and asks for the note above to be
-    /// updated, and if Default ever stops fitting it fails loudly.
+    /// If a tab ever outgrows a small display at large text, that is a floor rather than a bug:
+    /// the sheet is capped by the display while the type grows, and a sheet sized for this case
+    /// would carry dead air everywhere else. Scrolling is the right degradation, and `SettingsPage`
+    /// does it. Asserted as the exact list of sizes that fit, so a change in either direction
+    /// fails and the list is updated deliberately.
     @MainActor
     @Test func theClampedOpeningFitsTheSmallerTextSizesOnly() async throws {
         let fitting = FontSize.allCases.filter { size in
@@ -356,26 +258,15 @@ import Testing
                                                                  available: Self.smallDisplayWindow)
         }
 
-        // **Every size fits now, and that is a real change rather than a loosened bound.** This
-        // recorded [Small, Default] when Appearance carried Text size and List density and stood
-        // at ~660pt. Moving them into Readability took it to 472pt, and lowering `baseSize` to
-        // match the new tallest tab left the sheet fitting a 1280×800 display outright — so
-        // Appearance now clears its opening at Largest too.
-        //
-        // Still written as an equality rather than "at least Small and Default", for the reason
-        // it always was: a boundary that stays true in BOTH directions is the only kind you can
-        // tell is not vacuous. If a section is added back to this tab and Largest stops fitting,
-        // this fails and asks for the note to be rewritten.
+        // Every size fits at today's `baseSize`. An equality, not "at least these", so it can't go
+        // vacuous: if a section is added and Largest stops fitting, this fails.
         #expect(fitting == FontSize.allCases,
                 "Appearance fits a 1280×800 display at \(fitting.map(\.displayName)) — the residual recorded on this test is out of date.")
     }
 
-    /// The residual degrades by SCROLLING, not by clipping — the thing a fit test cannot say.
-    ///
-    /// `SettingsPage` is a `ScrollView`, so content taller than its opening scrolls. What could
-    /// still go wrong is the sheet itself outgrowing the window, which would put the overflow
-    /// behind the screen edge where no scroll gesture reaches it. `resolvedSize` is what
-    /// prevents that, at every text size, on the display where the overflow actually happens.
+    /// Overflow degrades by scrolling, not clipping, which a fit test can't say. `SettingsPage`
+    /// scrolls, but a sheet outgrowing the window would put the overflow past the screen edge where
+    /// no scroll reaches. `resolvedSize` prevents that at every text size on a small display.
     @Test func residualOverflowIsAbsorbedByScrolling() {
         for size in FontSize.allCases {
             let sheet = SettingsSheetMetrics.resolvedSize(textScale: size.scale,
@@ -390,9 +281,8 @@ import Testing
         }
     }
 
-    /// The rule the case above rests on, stated directly so a regression names the cause rather
-    /// than only the symptom: the sheet grows with the text setting and never shrinks below its
-    /// base size.
+    /// The rule the case above rests on, stated directly so a regression names the cause: the
+    /// sheet grows with the text setting and never shrinks below its base size.
     @Test func theSheetNeverShrinksBelowItsBaseSize() {
         for size in FontSize.allCases {
             let resolved = SettingsSheetMetrics.resolvedSize(textScale: size.scale, available: nil)
@@ -403,33 +293,24 @@ import Testing
         }
     }
 
-    /// Intelligence is long by nature (four sections, from the on-device toggles to the saved
-    /// suggestions) and is expected to scroll, so there is no fit to assert. What this pins is
-    /// that it can be laid out AT ALL: it used to read the Anthropic key out of the Keychain in
-    /// `onAppear`, which blocked this host — and, in the app, put a password prompt on screen for
-    /// anyone who merely opened the tab. If that read comes back, this test stops finishing.
+    /// Intelligence is long by nature (four sections) and expected to scroll, so there is no fit to
+    /// assert. This pins that it lays out at all without reading the Anthropic key from the
+    /// Keychain, which would block this host and, in the app, put a password prompt on screen for
+    /// anyone who opened the tab. If that read comes back, this test stops finishing.
     ///
-    /// **It follows `CloudKeyRow`, and `CloudKeyRow` has now moved twice** — onto the Organize tab
-    /// when Tidy split, and onto Intelligence when Organize did. This is still the tab with a
-    /// Keychain call one `onAppear` away, and the hazard got slightly larger with the move: the
-    /// row is drawn unconditionally here (disabled when the cloud toggles are off) rather than
-    /// only when cloud filing is switched on, so its `onAppear` now runs for every visitor to the
-    /// tab rather than only for users who had already opted in. `AnthropicKeychain.isConfigured`
-    /// is an existence check that never reads the secret, which is what makes that safe — and
-    /// this test is what would notice if it stopped being.
+    /// `CloudKeyRow` is drawn unconditionally here (disabled when the cloud toggles are off), so
+    /// its `onAppear` runs for every visitor. That is safe only because
+    /// `AnthropicKeychain.isConfigured` checks existence without reading the secret.
     @MainActor
     @Test func intelligenceLaysOutWithoutReachingForTheKeychain() async throws {
         let height = laidOutHeight(IntelligenceSettingsTab(syncManager: nil), width: Self.contentWidth)
 
         #expect(height > 0)
 
-        // **And the exemption is falsifiable.** `height > 0` is true of anything that lays out at
-        // all, so until now nothing could see whether this tab still deserved its line in
-        // `exemptFromFitGuard` — a tab going short and keeping a stale "long by nature" exemption
-        // is the exact failure that set was created to stop, and Organize had already done it once.
-        // Measured on the fit guard's own terms — the clamped width and opening of a 1280×800
-        // display, as `everyMustFitTabFitsTheClampedOpening` uses — so the two answers are
-        // comparable. If this ever fails, the exemption is what should go, not this line.
+        // And the exemption is falsifiable: a tab that went short must not keep a stale "long by
+        // nature" line in `exemptFromFitGuard`. Measured on the fit guard's terms (a 1280×800
+        // display's clamped width and opening, as `everyMustFitTabFitsTheClampedOpening` uses). If
+        // this fails, drop the exemption, not this line.
         let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: Self.smallDisplayWindow)
         let clampedHeight = laidOutHeight(
             IntelligenceSettingsTab(syncManager: nil),
@@ -440,44 +321,21 @@ import Testing
 
     // MARK: - The other tabs
 
-    /// The tabs that must fit, and the height each lays out at.
+    /// The tabs that must fit, and the view each is measured as. `SettingsTab.exemptFromFitGuard`
+    /// names the others (Providers, People, Organize, Intelligence) with their reasons, and
+    /// `everyTabIsEitherFitTestedOrExplicitlyExempt` holds this list to `allCases` minus that set.
+    /// The list is hand-built, since a tab's fixture can't be derived from the case, but its
+    /// membership is checked, so a new tab must appear here or take a recorded exemption.
     ///
-    /// Which tabs are ABSENT is no longer recorded only here: `SettingsTab.exemptFromFitGuard`
-    /// names them (Providers, People, Intelligence) with each one's reason, and
-    /// `everyTabIsEitherFitTestedOrExplicitlyExempt` holds this list to be exactly `allCases`
-    /// minus that set. This list stays hand-built — a tab's fixture (its manager, its
-    /// environment) cannot be derived from the case — but its *membership* is now checked, so a
-    /// new tab has to either appear here or take a recorded exemption; it cannot slip in
-    /// unguarded, which is exactly how the old Organize kept a stale "long by nature" exemption
-    /// after the split made it short.
-    ///
-    /// Duplicates joined the list when it split off Tidy: three `@AppStorage` rows and a caption,
-    /// so its height is a property of the layout like Appearance's, and nothing about it excuses
-    /// it from fitting.
-    ///
-    /// **Organize joined this list when the engine and the roster moved out, and left again on
-    /// 2026-08-13 — because the entry was measuring a view no user has.** The reasoning that put
-    /// it here was "what is left is an inbox path, a signpost row and the kept-names list, which
-    /// with no engine attached is a fixed note". The last clause is the bug: the fixture was
-    /// `FilingSettingsTab(syncManager: nil)`, so it took the tab's `else` branch and measured
-    /// `KeptNamesList.nothingKeptNote` — one line — while the branch a real user gets is an
-    /// unbounded `ForEach` over the kept names. Measured, the tab outgrows the opening at the 17th
-    /// kept name, so the guard was green for a tab that scrolls. It now sits in
-    /// `exemptFromFitGuard` beside `people`, whose list has exactly the same shape, and the two
-    /// tests below carry what the entry was worth: the empty state still has to fit, and the
-    /// exemption still has to be earned.
-    ///
-    /// **The general rule this leaves behind:** a fixture that passes `nil` for the dependency the
-    /// tab's list comes from measures the empty state. `sync` and `advanced` also take
-    /// `syncManager: nil` and belong here anyway — neither draws a row per anything; their nil
-    /// branches change what a control reports, not how many controls there are. That is the
-    /// question to ask of a new entry, and `theOrganizeTabOutgrowsItsOpeningOnceNamesAreKept` is
-    /// what a wrong answer looks like when it is caught.
+    /// A fixture that passes `nil` for the dependency a tab's list comes from measures the empty
+    /// state. Organize is exempt for that reason: with `syncManager: nil` it measures
+    /// `KeptNamesList.nothingKeptNote`, one line, where users get a row per kept name. `sync` and
+    /// `advanced` also take `syncManager: nil` but belong here: neither draws a row per anything.
+    /// Ask that question of a new entry.
     @MainActor
     private func mustFitTabs(_ settings: SettingsManager) -> [(SettingsView.SettingsTab, AnyView)] {
-        // **Non-nil closures, or the new sections are not measured.** Both setup buttons are
-        // drawn only when their closure is there, so a tab built with nils measures a tab without
-        // them — which is how Advanced's reset section went unmeasured for as long as it did.
+        // Non-nil closures, or sections go unmeasured: the setup and reset buttons are drawn only
+        // when their closure is there.
         [(.general, AnyView(GeneralSettingsTab(onRunSetup: {}).environmentObject(settings))),
          (.appearance, AnyView(AppearanceSettingsTab())),
          (.readability, AnyView(ReadabilitySettingsTab(confirmReleasingColumnWidths: { _ in false }))),
@@ -490,19 +348,17 @@ import Testing
     // MARK: - Organize: the tab whose height is its user's data
 
     /// An Organize tab carrying `count` kept names, laid out through the real store the tab reads.
-    ///
-    /// The defaults suite is a scratch `TestDefaults`, wiped plist and all once the store and the
-    /// manager holding it let go: `KeptNamesStore` persists to whatever `UserDefaults` it is
-    /// handed, and a fixture that reached `.standard` would both inherit the machine's kept names
-    /// and write test junk into a domain shared with the user's other projects.
+    /// The suite is a scratch `TestDefaults`, wiped once the store and manager let go:
+    /// `KeptNamesStore` persists to whatever it is handed, and `.standard` would inherit the
+    /// machine's kept names and take test junk.
     @MainActor
     private func organizeTab(keptNames count: Int,
                              _ body: (AnyView) -> Void) {
         let test = TestDefaults("keptNames-\(count)")
 
         let store = KeptNamesStore(userDefaults: test.defaults)
-        // Short, single-line names on purpose: a name long enough to wrap would make the row cost
-        // more than a row, and the claim being measured is about the row COUNT.
+        // Short, single-line names: a wrapping name would cost more than a row, and the claim is
+        // about the row count.
         for index in 0..<count { store.keep("kept name \(index).pdf") }
         let manager = FileSyncManager()
         manager.keptNamesStore = store
@@ -510,18 +366,10 @@ import Testing
         body(AnyView(FilingSettingsTab(syncManager: manager)))
     }
 
-    /// What the fit guard's Organize entry was actually measuring, kept — and labelled.
-    ///
-    /// The tab's fixed chrome (the inbox row, the signpost row, both captions and the Kept names
-    /// header) IS layout-shaped, and it fitting is worth pinning: it is what a new user sees, and
-    /// a caption gaining two lines here is the ordinary way a tab starts scrolling. What this does
-    /// not claim — and what an unnamed entry in `mustFitTabs` silently did — is that *the tab*
-    /// fits. The name is the fix: a reader can tell which of the two claims is being made.
-    ///
-    /// Built through a real store with nothing kept, not through `syncManager: nil`. Both render
-    /// `nothingKeptNote`, but only this one is a state a user can be in, and routing the fixture
-    /// through the same branch the app uses is what stops this test from drifting back into
-    /// measuring the placeholder.
+    /// Organize's fixed chrome fits: the inbox row, the signpost row, both captions and the Kept
+    /// names header. It is what a new user sees, and a caption gaining lines is how a tab starts
+    /// scrolling. The name says what it claims: the empty state fits, not the tab. Built through a
+    /// real store with nothing kept, not `syncManager: nil`, so it uses the app's branch.
     @MainActor
     @Test func theOrganizeTabFitsItsOpeningWithNothingKept() async throws {
         let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: Self.smallDisplayWindow)
@@ -535,19 +383,11 @@ import Testing
         }
     }
 
-    /// The other half, and the one that makes the exemption honest: with a plausible number of
-    /// kept names the tab really does outgrow its opening, so `filing`'s line in
-    /// `exemptFromFitGuard` is a measurement rather than a label.
-    ///
-    /// Same falsifiability `intelligenceLaysOutWithoutReachingForTheKeychain` gives its tab: if
-    /// somebody bounds the list — a scroll view around it, a "show first N", a fixed max height —
-    /// this fails, and the answer is to drop the exemption and put Organize back in `mustFitTabs`,
-    /// not to raise the number here.
-    ///
-    /// **The numbers, measured at the clamped width (583pt) into the clamped opening (647pt):**
-    /// 280pt with nothing kept, then 23pt a row — 16 names fit with 9pt to spare, 17 do not. The
-    /// fixture is 25, comfortably past the knee at 845pt, and the second assertion pins that the
-    /// growth does not stop there rather than trusting one sample.
+    /// The other half: with a plausible number of kept names the tab outgrows its opening, so
+    /// `filing`'s line in `exemptFromFitGuard` is a measurement, not a label. If the list is ever
+    /// bounded (a scroll view, "show first N", a max height), this fails: drop the exemption and put
+    /// Organize back in `mustFitTabs`, don't raise the number. Twenty-five names is well past where
+    /// the tab starts scrolling, and the second check pins that growth continues past it.
     @MainActor
     @Test func theOrganizeTabOutgrowsItsOpeningOnceNamesAreKept() async throws {
         let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: Self.smallDisplayWindow)
@@ -566,11 +406,8 @@ import Testing
                 "50 kept names lay out at \(doubled)pt against 25 names' \(populated)pt — the list has stopped growing with the data, so the tab's height is no longer the user's.")
     }
 
-    /// The completeness guard on the list above: every tab is either measured or explicitly
-    /// exempted, and never both. Before this, three tabs were absent from `mustFitTabs` with
-    /// their reasons recorded only in a comment — true, but nothing a new tab could ever fail.
-    /// A tenth case that joins neither list now fails here by name; one that joins both is a
-    /// stale exemption and fails too.
+    /// Every tab is either measured or explicitly exempted, never both. A new tab that joins
+    /// neither list fails here by name; one in both is a stale exemption and fails too.
     @MainActor
     @Test func everyTabIsEitherFitTestedOrExplicitlyExempt() async throws {
         let test = TestDefaults()
@@ -591,14 +428,8 @@ import Testing
                 "\(unaccounted.map(\.displayName).sorted()) are neither fit-tested in mustFitTabs nor exempted in SettingsTab.exemptFromFitGuard — decide, and record the decision.")
     }
 
-    /// EVERY tab that must fit, against the opening a 1280×800 display actually gives.
-    ///
-    /// The gap this closes: the suite asserted a fit for Appearance alone, while the 758 → 700
-    /// change shrank the opening by 58pt for all six tabs. The chrome trims gave each tab back
-    /// only ~18–26pt of that, so every other tab came out a net 32–40pt WORSE off than before —
-    /// and if Sync or Advanced had been within that of its old opening it would now scroll with
-    /// nothing to say so. (Measured, they are not: Sync and Advanced sit far under. That is the
-    /// answer this test exists to keep true, not a reason it was unnecessary.)
+    /// Every must-fit tab, against the opening a 1280×800 display gives, so shrinking the sheet for
+    /// one tab can't make another scroll unnoticed.
     @MainActor
     @Test func everyMustFitTabFitsTheClampedOpening() async throws {
         let test = TestDefaults()
@@ -629,20 +460,10 @@ import Testing
         #expect(larger.height > base.height)
     }
 
-    /// **At the window floor the clamp bites in BOTH axes — and this conclusion has now flipped
-    /// twice, which is why it is derived here rather than stated.**
-    ///
-    /// The floor was 760, `hostMargin` took 48 off it, and 712 was narrower than the 760 the sheet
-    /// wants: both axes clamped. The Editor workspace took the bar to five labels and the floor to
-    /// 810, leaving 762 — two points more than the sheet asks for — and width stopped being
-    /// clamped. Folding Storage into Organize took the bar back to four labels and the floor back
-    /// to **760**, so width is clamped again.
-    ///
-    /// **Neither state is asserted as a fact.** Both are read off `windowFloor − hostMargin` versus
-    /// `baseSize.width` at the top of the test, and the assertions follow whichever way that
-    /// comparison goes — so the next time the floor moves this test reports the new truth instead
-    /// of failing on the old one. The invariant that does not move is underneath: the sheet is
-    /// never larger than the space it is centred in, in either axis.
+    /// At the window floor the sheet is clamped to the space it has. Whether width clamps depends
+    /// on `windowFloor − hostMargin` against `baseSize.width`, and both move as the window and
+    /// sheet change, so the test derives which way it goes rather than stating it. The invariant
+    /// underneath: the sheet is never larger than the space it is centred in, in either axis.
     @Test func sheetClampsToTheSpaceTheHostHas() {
         let available = Self.windowFloor
         let cramped = SettingsSheetMetrics.resolvedSize(textScale: 1, available: available)
@@ -658,8 +479,7 @@ import Testing
         // Height always clamps at the floor: the sheet is taller than 512 at every text size.
         #expect(cramped.height == roomForHeight)
 
-        // Width follows the floor. Today 760 − 48 = 712 against a 760 base, so it clamps; at the
-        // 810 floor it did not. Asserted as a derivation so the flip is reported, not failed on.
+        // Width follows the floor, asserted as a derivation so a flip is reported, not failed on.
         if roomForWidth < SettingsSheetMetrics.baseSize.width {
             #expect(cramped.width == roomForWidth,
                     "the floor is narrower than the sheet's natural width and the width clamp is not biting")
@@ -668,8 +488,7 @@ import Testing
                     "the floor leaves room for the sheet's natural width, but it is being clamped anyway")
         }
 
-        // And the width clamp works at a window narrow enough to need it whatever the floor is
-        // doing — the assertion that survives every move of the number above.
+        // And the width clamp works at a window narrow enough to need it, whatever the floor.
         let narrow = CGSize(width: 700, height: available.height)
         let squeezed = SettingsSheetMetrics.resolvedSize(textScale: 1, available: narrow)
         #expect(squeezed.width == narrow.width - SettingsSheetMetrics.hostMargin)
@@ -677,8 +496,8 @@ import Testing
 
     @Test func sheetStopsShrinkingAtItsFloor() {
         // Below the floor the rail plus a usable content column stops being possible. The sheet
-        // stops shrinking and its content scrolls instead — overflowing a tiny window is better
-        // than a sheet too small to use.
+        // stops shrinking and its content scrolls: overflowing a tiny window beats a sheet too
+        // small to use.
         let tiny = SettingsSheetMetrics.resolvedSize(textScale: 1, available: CGSize(width: 200, height: 200))
 
         #expect(tiny == SettingsSheetMetrics.floorSize)
@@ -697,41 +516,20 @@ import Testing
 
     // MARK: - The rail
 
-    /// The RAIL has to fit too — the half of the sheet every other test here is blind to.
+    /// The rail has to fit too, and the tab tests are blind to it: it shares their opening but is
+    /// sized by one row per `SettingsTab` plus a hairline between `railGroups`, so a new tab can
+    /// grow it without moving the content column.
     ///
-    /// Every fit assertion above measures a tab against `contentOpening`, which is the height of
-    /// the column beside the rail. The rail sits in the same opening and is sized by a completely
-    /// different thing: one row per `SettingsTab` at ~33pt each, plus a hairline between each pair
-    /// of `railGroups`. Splitting Tidy into Organize and Duplicates took it from six rows to
-    /// seven, and no test could see that — the content column did not change height by one point,
-    /// so the whole suite stayed green while the rail grew.
+    /// The tabs sit in a `ScrollView` (`.basedOnSize`), which accepts any height, so
+    /// `SettingsRail`'s own `fittingSize` would pass by construction. This measures
+    /// `SettingsRail.TabList` against `SettingsRail.tabListOpening`, the space between the search
+    /// field and the version line, both laid out for real (`tabListMargin`). The claim: on a
+    /// 1280×800 display every tab is reachable without scrolling. Clamped for the same reason as
+    /// `appearanceFitsA1280x800Display`, and at every text size, because the rows grow with it.
     ///
-    /// **What this measures changed when the rail gained a scroller.** The tabs now sit in a
-    /// `ScrollView` (`.basedOnSize`, so it sits still whenever it fits), which accepts whatever
-    /// height it is offered — so `SettingsRail`'s own `fittingSize` can no longer answer "do the
-    /// tabs fit?" and an assertion resting on it would pass by construction forever. What is
-    /// measured instead is `SettingsRail.TabList` — the rows outside the scroller — against
-    /// `SettingsRail.tabListOpening`, the space between the search field and the version line.
-    /// Both of those are laid out for real rather than allowed for; see `tabListMargin`.
-    ///
-    /// The claim is therefore no longer "the rail is not clipped" (the scroller guarantees that)
-    /// but the stronger and more useful one: **on the display the tabs are budgeted against, every
-    /// tab is reachable without scrolling at all.** A rail that has to scroll on a 1280×800 screen
-    /// is a rail that has outgrown the design, and that is what this fails on.
-    ///
-    /// Measured against the SMALL display's clamped opening for the same reason
-    /// `appearanceFitsA1280x800Display` exists — an unclamped opening grows with `baseSize` and
-    /// so can never fail. At every text size, because the rows are text and grow with it.
-    ///
-    /// **The measured residual.** Nine rows and three group separators come to 312pt at the
-    /// default text size against a 559pt tab-list opening — 247pt of slack, room for roughly
-    /// seven more tabs. (Small 269pt, Large 223pt, Larger 191pt: the margin narrows with the text
-    /// size, as it should, and none of the four is close.) The rail is nowhere near its ceiling on
-    /// the display it is budgeted against. Where it binds hardest among the sizes a user can
-    /// actually make is the window's own floor — `theRailFitsTheSheetTheWindowFloorProduces`,
-    /// where the slack is down to 9.6pt at Larger. Below that is `floorSize` itself, which the
-    /// main window can no longer reach: `theRailIsWhatTheFloorSizedSheetRunsOutOf` keeps that
-    /// case honest for hosts smaller than this one.
+    /// There is plenty of slack here. It binds hardest at the window floor
+    /// (`theRailFitsTheWindowFloorAtTheSmallerTextSizesOnly`) and below it at `floorSize`
+    /// (`theRailIsWhatTheFloorSizedSheetRunsOutOf`).
     @MainActor
     @Test(arguments: FontSize.allCases)
     func theRailFitsItsOpening(_ size: FontSize) async throws {
@@ -746,37 +544,14 @@ import Testing
                 """)
     }
 
-    /// The smallest sheet a user can actually produce, which is no longer `floorSize`.
+    /// The smallest sheet a user can produce: the window's content floor (`windowFloor`, mirrored
+    /// from `ContentView`), which stops `resolvedSize` well above `floorSize`. This is the rail's
+    /// real worst case; `theRailIsWhatTheFloorSizedSheetRunsOutOf` covers smaller hosts.
     ///
-    /// `ContentView` gives the window an 810×560 content floor, so `resolvedSize` is clamped by the
-    /// window (762×512) and stops well above the floor `theRailIsWhatTheFloorSizedSheetRunsOutOf`
-    /// measures. The pair is a literal in `windowFloor` because the Settings module cannot see
-    /// `MacApp`; `sheetClampsToTheSpaceTheHostHas` reads the same constant, so there is one place
-    /// to correct rather than two — and a floor raised in `ContentView` without touching it only
-    /// ever makes this pass.
-    ///
-    /// This is the assertion the floor test cannot make: it records where the layout gives up,
-    /// which is a case the window no longer reaches, so on its own it would leave the rail's real
-    /// worst case unmeasured.
-    ///
-    /// **Measured slack at the floor, with ten tabs: 57.4pt at Small, 35.0 at Default, −8.0 at
-    /// Large, −25.4 at Largest.** It fits at the two smaller sizes and scrolls at the two larger
-    /// ones — the boundary this now records rather than a bound it fails.
-    ///
-    /// The previous version asserted it fit at every size, and its own note said what would end
-    /// that: *"Ten more points of rail (a tenth tab is ~32) and Larger goes to a scroll here
-    /// first."* The Readability tab is that tenth row, and it cost the predicted ~32pt.
-    ///
-    /// **The irony is worth stating rather than hiding**, because it is the strongest argument
-    /// against that tab: the tab that exists so somebody can enlarge the type is the row that
-    /// makes the rail scroll for the people who already have. What makes it acceptable is the
-    /// shape of the failure — the rail SCROLLS, visibly, and only at the 810×560 window floor.
-    /// Losing the bottom of a fixed rail is silent; this is not. On any larger window every row
-    /// is visible at every size (`theRailFitsItsOpening` covers the 1280×800 case).
-    ///
-    /// Written as a boundary true in both directions: if the rail is trimmed enough for Large to
-    /// fit again this fails and asks for the note to be updated, and if Default stops fitting it
-    /// fails loudly.
+    /// At the floor the tab list fits at the two smaller text sizes and scrolls at the two larger.
+    /// That is acceptable because the rail scrolls visibly, and only at the window's floor; on a
+    /// larger window every row is visible at every size (`theRailFitsItsOpening`). Asserted as the
+    /// exact list of sizes that fit, so a change either way fails and the list is updated.
     @MainActor
     @Test func theRailFitsTheWindowFloorAtTheSmallerTextSizesOnly() async throws {
         let fitting = FontSize.allCases.filter {
@@ -791,34 +566,14 @@ import Testing
                 """)
     }
 
-    /// Where the rail genuinely binds, recorded honestly rather than trimmed away — the same shape
-    /// as `theClampedOpeningFitsTheSmallerTextSizesOnly`, and for the same reason: a boundary that
-    /// stays true in BOTH directions beats a one-sided assertion nobody can tell is vacuous.
+    /// Where the rail binds, recorded rather than trimmed away, in the same shape as
+    /// `theClampedOpeningFitsTheSmallerTextSizesOnly`. `floorSize` is where `resolvedSize` stops
+    /// shrinking, for a host smaller than the main window can be. There the tab list overruns the
+    /// opening at every text size, from the tab count rather than the separators, so the rail
+    /// scrolls (`.basedOnSize`) instead of silently dropping its bottom rows.
     ///
-    /// `floorSize` is where `resolvedSize` stops shrinking (a window under ~570×428). **No user
-    /// can drag a window there any more** — `ContentView`'s floor is 810×560, which is what
-    /// `theRailFitsTheSheetTheWindowFloorProduces` measures instead, and it fits. What is left
-    /// here is the layout's own last stand: the size the sheet takes when a host offers it less
-    /// than the main window ever will. There the sheet is 380pt and the opening 335pt at the
-    /// default text size, and the rail is the part that runs out first.
-    ///
-    /// **Measured: the tab list overruns the floor-sized opening at every text size — by 42.6pt at
-    /// Small, 65.0pt at Default, 88.6pt at Large and 121.2pt at Larger.** At seven rows it fitted
-    /// at the first three and overran only at Larger, which is what made a non-scrolling rail
-    /// defensible then. Nine rows and three separators is what took Default across, and no amount
-    /// of trimming brings it back: a row is ~32pt so the two new ones cost ~63pt, while the
-    /// separators are only 27pt of it — deleting the grouping outright would still leave Default
-    /// ~38pt short. The overrun is the tab count, not the ornament.
-    ///
-    /// **So this is now a scroll, not a clip, and that is the whole point of the change.** The
-    /// rail's `ScrollView` is `.basedOnSize`: it sits still on any window where the tabs fit, and
-    /// in this one it lets the user reach the rows that do not. The failure mode it replaces was
-    /// silent — the bottom rows were not clipped mid-glyph, they were simply absent, with nothing
-    /// on screen saying a tab existed below the fold.
-    ///
-    /// This test exists to keep that trade visible: if the overrun ever reaches the point where
-    /// the scroller is doing real work on an ORDINARY window rather than a deliberately tiny one,
-    /// `theRailFitsItsOpening` is the one that fails. This one only pins where the boundary is.
+    /// This only pins where the boundary is; if scrolling is ever needed on an ordinary window,
+    /// `theRailFitsItsOpening` fails.
     @MainActor
     @Test func theRailIsWhatTheFloorSizedSheetRunsOutOf() async throws {
         // Smaller than `floorSize` in both axes, so `resolvedSize` returns the floor itself.
@@ -840,27 +595,22 @@ import Testing
                 """)
     }
 
-    /// The premise both rail tests rest on, stated so a failure names the cause: the tab list's
-    /// height is driven by the tab COUNT. Without this, deleting the `ForEach` in
-    /// `SettingsRail.TabList` would leave both of them comfortably green.
+    /// The premise the rail tests rest on: the tab list's height is driven by the tab count.
+    /// Deleting the `ForEach` in `SettingsRail.TabList` must fail here.
     @MainActor
     @Test func theRailGrowsWithTheTabCount() async throws {
         let measured = tabListHeight(at: 1)
         let rows = CGFloat(SettingsView.SettingsTab.allCases.count)
 
-        // A row is a `.callout` line (13pt) plus 7pt of inset above and below plus the 2pt gap —
-        // ~30pt at the floor. Nine of those is the bulk of the rail; anything much under that
-        // means the rows have stopped being laid out as rows.
+        // A row is a `.callout` line (13pt) plus 7pt of inset above and below plus the 2pt gap,
+        // ~30pt at least. Much less means the rows aren't being laid out as rows.
         #expect(measured >= rows * 30,
                 "the tab list lays out at \(measured)pt for \(Int(rows)) tabs — its rows are not being measured.")
     }
 
-    /// Every group in `railGroups` is drawn, and every tab belongs to exactly one.
-    ///
-    /// A tab added to the enum but not to a group would simply never appear in the rail — the
-    /// `ForEach` walks the groups, not `allCases` — and nothing else here would notice: the tab
-    /// would still have a display name, a symbol, search entries and a `content` arm. It would
-    /// just be unreachable by clicking.
+    /// Every tab belongs to exactly one group in `railGroups`. The rail's `ForEach` walks the
+    /// groups, not `allCases`, so a tab in no group would have a name, symbol, search entries and
+    /// content and still be unreachable by clicking.
     @Test func railGroupsCoverEveryTab() {
         let grouped = SettingsView.SettingsTab.railGroups.flatMap { $0 }
 
@@ -871,18 +621,14 @@ import Testing
                 """)
         #expect(grouped.count == SettingsView.SettingsTab.allCases.count,
                 "a tab appears in more than one rail group: \(grouped.map(\.rawValue))")
-        // Rail order is the enum's order. The groups are what the rail iterates, so a group list
-        // that reordered them would silently move rows without a single other test moving.
+        // Rail order is the enum's order; a group list that reordered them would move rows with no
+        // other test noticing.
         #expect(grouped == SettingsView.SettingsTab.allCases,
                 "the rail's group order no longer matches `allCases` — the rail rows are reordered")
     }
 
-    /// The separators really are drawn, and really do cost height.
-    ///
-    /// `railGroupsCoverEveryTab` passes just as well against a rail that ignores the grouping and
-    /// draws one flat run, which is the whole failure mode: the grouping is a visual claim, so
-    /// something has to measure the pixels it costs. One divider plus its air is ~7pt, so three
-    /// groups' worth is ~21pt the flat list would not pay.
+    /// The separators are drawn and cost height. `railGroupsCoverEveryTab` passes against a rail
+    /// that ignores the grouping and draws one flat run, so the grouping's cost is measured here.
     @MainActor
     @Test func theGroupSeparatorsAreReallyDrawn() {
         let grouped = tabListHeight(at: 1)
@@ -895,10 +641,9 @@ import Testing
                 """)
     }
 
-    /// The same rows the rail draws, without the group separators — the discriminator
-    /// `theGroupSeparatorsAreReallyDrawn` needs. Deliberately duplicates `TabList`'s stack rather
-    /// than taking a flag on it: a flag would let the real rail pass the test with its separators
-    /// switched off. Measured at 285pt against the grouped list's 312pt at the default text size.
+    /// The same rows the rail draws, without the group separators, for
+    /// `theGroupSeparatorsAreReallyDrawn`. Duplicates `TabList`'s stack rather than adding a flag
+    /// to it, which would let the real rail pass with its separators switched off.
     private struct FlatTabList: View {
         var body: some View {
             VStack(alignment: .leading, spacing: 2) {
@@ -916,32 +661,15 @@ import Testing
         }
     }
 
-    /// The version line has to fit the rail's WIDTH, which nothing measured until the marker got
-    /// longer than "1.0".
+    /// The version line fits the rail's width. The rail is fixed-width
+    /// (`SettingsSheetMetrics.railWidth`) and doesn't scroll, and the line has no `lineLimit`, so a
+    /// string too wide wraps to a second row, making the rail taller and splitting "SyncCloud" from
+    /// its number. Both halves are checked: the intrinsic width says how close to the edge the line
+    /// is, and the rail height says whether it wrapped.
     ///
-    /// Every other rail assertion is about height. This one is about width, and the rail's width
-    /// is FIXED (`SettingsSheetMetrics.railWidth`, 176pt) — it does not grow for its contents and
-    /// it does not scroll. The version line carries no `lineLimit`, so a string too wide for the
-    /// column does not clip or truncate: it WRAPS to a second row, quietly making the rail taller
-    /// and putting "SyncCloud" and its number on separate lines at the foot of the sidebar.
-    ///
-    /// Going from "1.0" to "3.0-dev" more than doubled the number's length, so this is measured
-    /// rather than reasoned about. Both halves are checked, because they fail differently: the
-    /// intrinsic width says how close to the edge the line is, and the rail height says whether
-    /// it actually wrapped.
-    ///
-    /// **The measured margin** (re-measured 2026-08-30 — the earlier figures had drifted at the two
-    /// larger sizes; `97154a32`, which changed the measured face, is the likely cause but was not
-    /// verified by rebuilding at the prior SHA). The line has 142pt to lay out in
-    /// (176pt of rail, less 8pt of rail inset and 9pt of row inset on each side). "SyncCloud
-    /// 3.0-dev" wants 86 / 95 / 115 / 123pt at Small / Default / Large / Largest — so the worst
-    /// case, Largest, keeps 19pt in hand, under three characters.
-    ///
-    /// **The ceiling is 19 characters including the "SyncCloud " prefix, and it is tighter than it
-    /// looks** — "SyncCloud 10.10-dev" is 19 characters and measures 136pt, but "SyncCloud
-    /// 100.10-dev" is 20 and measures 145pt, which WRAPS. The scheme in `RELEASE.md` stays clear as
-    /// long as MAJOR stays below 100; it is a two-character marker away from trouble, not the
-    /// comfortable margin the earlier note claimed. If a version does approach it, this test says so.
+    /// The line has `SettingsRail.versionTextWidth` to lay out in. At the largest text size that
+    /// holds about 19 characters including "SyncCloud ", so a version like "10.10-dev" fits and one
+    /// a character longer may wrap. If a version approaches it, this test says so.
     @MainActor
     @Test(arguments: FontSize.allCases)
     func theVersionLineFitsTheRailOnOneLine(_ size: FontSize) async throws {
@@ -955,16 +683,11 @@ import Testing
                 not scroll, so the line wraps onto a second row.
                 """)
 
-        // The width check above is the diagnosis; this is the symptom — measured against what a
-        // LINE costs rather than against an exact height. A one-character version cannot wrap, so
-        // it gives the unwrapped baseline; a wrap adds one bare `.caption2` line to it
-        // (`versionLineHeight`); anything below half of that is layout jitter.
-        //
-        // Jitter is why this is not an equality. It was one, and CI caught it: the runner laid
-        // the identical unwrapped line out at 326pt where this machine measured 328pt, and the
-        // test failed for a 2pt difference in the direction that means "did not wrap" (the marker
-        // was SHORTER than the one-character baseline). The rail's search field has been seen to
-        // move; see `versionLineHeight` for why "a line" must not include the line's padding.
+        // The width check is the diagnosis; this is the symptom, measured against what a line
+        // costs. A one-character version can't wrap, so it gives the baseline; a wrap adds one bare
+        // `.caption2` line (`versionLineHeight`); under half of that is layout jitter. Not an
+        // equality, because the same rail can lay out a couple of points differently on another
+        // host, and the search field's height varies under load.
         let unwrapped = railHeight(at: size.scale, version: "1")
         let oneLine = versionLineHeight(at: size.scale)
         let extra = railHeight(at: size.scale) - unwrapped
@@ -977,17 +700,10 @@ import Testing
                 """)
     }
 
-    /// Keeps `theVersionLineFitsTheRailOnOneLine` from going vacuous.
-    ///
-    /// Both of its assertions are "nothing bad happened" shapes, and the height half especially
-    /// so — if a wrapped line did not actually make `fittingSize.height` grow, comparing heights
-    /// would pass for every string ever written and nobody would know. Measured: a marker wide
-    /// enough to need a second row adds exactly one `.caption2` line (11 / 13 / 15 / 16pt at Small /
-    /// Default / Large / Largest), and one needing three rows adds two.
-    ///
-    /// This checks the same `oneLine / 2` threshold the other test uses, from the other side, so
-    /// the two together say the threshold DISCRIMINATES rather than merely that one side of it
-    /// holds: an unwrapped marker sits below it and a wrapped one sits above it.
+    /// Keeps `theVersionLineFitsTheRailOnOneLine` from going vacuous: if a wrap didn't grow
+    /// `fittingSize.height`, its height check would pass for any string. A marker needing a second
+    /// row adds one `.caption2` line. This checks the same `oneLine / 2` threshold from the other
+    /// side, so together they show it discriminates.
     @MainActor
     @Test func aVersionTooWideForTheRailReallyDoesWrapIt() async throws {
         let overlong = "9.9-dev-and-then-some"
@@ -1007,11 +723,9 @@ import Testing
                 """)
     }
 
-    /// The seam itself: the version line renders because `versionText` says so.
-    ///
-    /// Without this, re-inlining the `Bundle.main` read into `body` would leave both tests above
-    /// green — they would be measuring a rail with no version line at all, in a host that has no
-    /// version to give it, which is precisely the state this whole area was in before.
+    /// The seam: the version line renders because `versionText` says so. Re-inlining the
+    /// `Bundle.main` read into `body` would leave both tests above green, measuring a rail with no
+    /// version line in a host that has no version.
     @MainActor
     @Test func theRailDrawsNoVersionLineWithoutOne() async throws {
         #expect(railHeight(at: 1, version: nil) < railHeight(at: 1),
@@ -1022,15 +736,9 @@ import Testing
     }
 
     /// What a wrap of the version line costs: one bare `.caption2` line at `scale`, without the
-    /// 10pt of padding the rail puts around it — a second row adds the line, not the padding.
-    ///
-    /// **It was measured with the padding, and that went red on CI twice** (2026-10-18 at
-    /// `4f9b7ddb`, 2026-10-19 at `0964ce60`): `rail("1") − rail(nil)` is the line *plus* its
-    /// padding, 23pt at the default size, so half of it sat 1.5pt under the 13pt a real wrap adds
-    /// (0.5pt at Small). The rail's search field — a `TextField`, measured by AppKit — reads 1pt
-    /// taller now and then in a busy full-package run, and CI's 2pt on the baseline read the
-    /// overlong probe as "11pt against a 25pt line". Against the bare line the threshold is half
-    /// of 11–16pt, so both sides keep 5.5–8pt over 2pt of jitter. `docs/flaky-tests.md`: "A
+    /// padding the rail puts around it, since a second row adds the line, not the padding. With
+    /// the padding in, half the threshold would sit within the couple of points the rail's search
+    /// field varies by under load, and a real wrap could read as none. `docs/flaky-tests.md`: "A
     /// threshold measured with its padding in sits inside the jitter it was set against".
     @MainActor
     private func versionLineHeight(at scale: CGFloat) -> CGFloat {
@@ -1038,8 +746,8 @@ import Testing
                       width: SettingsRail.versionTextWidth, scale: scale)
     }
 
-    /// The rail as the APP lays it out — including the version line, which the host cannot
-    /// produce on its own (see `theRailFitsItsOpening`) and which is therefore injected.
+    /// The rail as the app lays it out, including the version line, which the test host can't
+    /// produce and is therefore injected.
     @MainActor
     private func railHeight(at scale: CGFloat, version: String? = Self.versionMarker) -> CGFloat {
         let rail = SettingsRail(selection: .constant(.general), query: .constant(""),
@@ -1047,8 +755,8 @@ import Testing
         return laidOutHeight(rail, width: SettingsRail.width, scale: scale)
     }
 
-    /// The tab rows' own height — the quantity the rail's scroller made `railHeight` unable to
-    /// report. Laid out at the rail's real width, since the rows are fixed to it.
+    /// The tab rows' own height, which the rail's scroller keeps `railHeight` from reporting. Laid
+    /// out at the rail's real width, since the rows are fixed to it.
     @MainActor
     private func tabListHeight(at scale: CGFloat) -> CGFloat {
         let list = SettingsRail.TabList(selection: .constant(.general), query: .constant(""),
@@ -1056,13 +764,9 @@ import Testing
         return laidOutHeight(list, width: SettingsRail.width, scale: scale)
     }
 
-    /// How much room the tab list has left in a given window — positive means every tab is
-    /// reachable without scrolling.
-    ///
-    /// The search field and the version line are MEASURED here rather than allowed for. That is
-    /// not fastidiousness: the previous residual recorded on `theRailIsWhatTheFloorSizedSheetRuns\
-    /// OutOf` was wrong in both directions precisely because it rested on a hand-estimated
-    /// version-line allowance that had never been checked against a rendered line.
+    /// How much room the tab list has left in a given window; positive means every tab is
+    /// reachable without scrolling. The search field and version line are measured, not estimated,
+    /// because a hand-estimated allowance can be wrong in either direction.
     @MainActor
     private func tabListMargin(at scale: CGFloat, available: CGSize) -> CGFloat {
         let searchField = laidOutHeight(SettingsSearchField(query: .constant("")),
@@ -1070,7 +774,7 @@ import Testing
         let versionLine = laidOutHeight(Text("SyncCloud \(Self.versionMarker)").scaledFont(.caption2)
                                             .padding(.top, 8).padding(.bottom, 2),
                                         width: SettingsRail.versionTextWidth, scale: scale)
-        // The premise: both really laid out. A zero here would silently inflate every margin.
+        // The premise: both really laid out. A zero would silently inflate every margin.
         #expect(searchField > 0 && versionLine > 0,
                 "the rail's search field or version line measured 0pt — this margin is fiction")
 
@@ -1082,8 +786,8 @@ import Testing
     }
 
     @Test func everyTabHasARailSymbol() {
-        // A tab added without a symbol would render an empty slot in the rail rather than fail
-        // to build — SF Symbol names are strings.
+        // A tab without a symbol would render an empty slot rather than fail to build: SF Symbol
+        // names are strings.
         for tab in SettingsView.SettingsTab.allCases {
             #expect(NSImage(systemSymbolName: tab.symbolName, accessibilityDescription: nil) != nil,
                     "\(tab.rawValue) has no SF Symbol named \(tab.symbolName)")
@@ -1092,16 +796,11 @@ import Testing
 
     // MARK: The widest segmented row
 
-    /// "Text size" is the widest of Appearance's segmented rows — four options where the others
-    /// have two or three — and it has to fit the narrowest column the sheet can offer, or its
-    /// labels truncate to "Sm…/De…/La…/La…" and the two Large sizes stop being tellable apart.
-    ///
-    /// The floored column is the worst case at EVERY text size, which is what makes one
-    /// measurement enough: the sheet only ever grows with the text scale, and it stops shrinking
-    /// at `floorSize` regardless.
-    ///
-    /// Measured from the LAID-OUT picker (`fittingSize`), unconstrained, so the number is what the
-    /// control WANTS rather than what a frame told it to be.
+    /// Readability's text size row (`SizePresetRow`, five tiles) has to fit the narrowest column
+    /// the sheet can offer, or its labels truncate and the large sizes can't be told apart. The
+    /// floored column is the worst case at every text size, since the sheet only grows with the
+    /// scale and stops shrinking at `floorSize`. Measured unconstrained (`fittingSize`), so the
+    /// number is what the control wants, not what a frame told it.
     @MainActor
     @Test func theTextSizeRowFitsTheNarrowestColumnTheSheetCanOffer() {
         // `floorSize` is where the sheet stops shrinking, so this window produces the narrowest
@@ -1116,22 +815,14 @@ import Testing
                 "the fixture window did not clamp the sheet — this would measure the easy case")
         let available = column - 2 * SettingsSheetMetrics.pagePaddingH
 
-        // **Measured at the LARGEST size, not the default.** The old segmented picker was
-        // font-invariant, so one measurement covered every setting; the preset row that replaced
-        // it is SwiftUI-drawn and really does grow with the text size it sets — which makes the
-        // worst case a user can reach the only one worth measuring.
+        // Measured at the largest size: the preset row is SwiftUI-drawn and grows with the text
+        // size it sets, so the worst case a user can reach is the one to measure.
         let wanted = laidOutSizePresetRowWidth(at: .extraLarge)
         #expect(wanted > 0, "the row laid out to nothing — the fixture measured no control")
 
-        // **The row shrinks its labels rather than truncating them**, so the bar is not "the
-        // ideal width fits" — it is "the ideal width fits once the labels have used the scaling
-        // headroom they are allowed". `fittingSize` reports the unconstrained ideal (412pt at
-        // Largest); `minimumScaleFactor` lets the tile text draw down to 70% of that before
-        // SwiftUI would start truncating, which is 288pt against the 307pt this column offers.
-        //
-        // Asserting the ideal alone would have failed a control that renders perfectly well, and
-        // asserting nothing would miss the case this exists for — five eleven-character words in
-        // a column built for a 260pt segmented picker.
+        // The row shrinks its labels rather than truncating them, so the bar is that the ideal
+        // width fits once the labels use their allowed scaling (`SizePresetRow.minimumLabelScale`).
+        // The ideal alone would fail a control that renders fine.
         let floor = wanted * SizePresetRow.minimumLabelScale
         #expect(floor <= available,
                 """
@@ -1147,17 +838,10 @@ import Testing
                 """)
     }
 
-    /// A segmented picker's width does not follow the app's text size.
-    ///
-    /// Measured, because the obvious expectation is the opposite one: `NSSegmentedControl` ignores
-    /// the SwiftUI font outright. The row is the same width at Small and at Largest, and stays so
-    /// under an explicit `.font(.system(size: 24))`. The only lever that moves it is `controlSize`
-    /// (`.large` → wider, `.small` → narrower), which Appearance does not set.
-    ///
-    /// **This used to be about the Text size picker, and it is now about Row spacing** — because
-    /// Text size stopped being a segmented control. That is the finding worth keeping: the fit
-    /// test above now measures its row at the largest size precisely because the preset row does
-    /// NOT have this property, and Row spacing is the one still relying on it.
+    /// A segmented picker's width doesn't follow the app's text size: `NSSegmentedControl` ignores
+    /// the SwiftUI font, even an explicit `.font(.system(size: 24))`. Only `controlSize` moves it,
+    /// and the tab doesn't set one. The Row spacing picker relies on this; the preset row doesn't
+    /// have it, which is why the fit test above measures at the largest size.
     @MainActor
     @Test func theSegmentedRowSpacingWidthDoesNotFollowTheAppTextSize() {
         let sizes = Set(FontSize.allCases.map { laidOutRowSpacingPickerWidth(at: $0) })
@@ -1167,8 +851,8 @@ import Testing
                 sizes. It used to be font-invariant — anything measuring it at one size has to be \
                 re-measured at \(FontSize.extraLarge.percent)%.
                 """)
-        // The fixture CAN see a font change, so the agreement above is a property of the control
-        // rather than of the harness: a plain Text through the same path grows by ~40pt.
+        // The fixture can see a font change, so the agreement above is the control's, not the
+        // harness's: a plain Text through the same path grows.
         let plain = { (size: FontSize) -> CGFloat in
             let host = NSHostingView(rootView: Text("Comfortable Compact").appFontSize(size))
             host.layoutSubtreeIfNeeded()
@@ -1178,12 +862,9 @@ import Testing
                 "the fixture does not scale anything at all — the invariance above proves nothing")
     }
 
-    /// A stored size outside the selectable range never reaches the slider.
-    ///
-    /// **Asserts what the SLIDER is fed**, not what `FontSize` would clamp to. The first version
-    /// of this test asserted the latter — true of the type whatever the control does with it — so
-    /// reverting the getter to the raw stored value left every assertion green. That is the whole
-    /// failure mode: a fixture whose expected value equals the fallback cannot fail.
+    /// A stored size outside the selectable range never reaches the slider. Asserts what the
+    /// slider is fed, not what `FontSize` would clamp to, which holds whatever the control does;
+    /// reverting the getter to the raw stored value must fail.
     @MainActor
     @Test func aStoredSizeOutsideTheRangeIsClampedBeforeItReachesTheControls() async throws {
         for stored in [-40, 0, 89, 200, 10_000] {
@@ -1210,10 +891,8 @@ import Testing
         }
     }
 
-    /// The slider actually uses the clamping seam.
-    ///
-    /// **A seam nothing calls is decoration**, and the pure functions above would keep passing
-    /// while the closure went back to reading `@AppStorage` raw. This is the half that notices.
+    /// The slider actually uses the clamping seam. The pure functions above would keep passing if
+    /// the closure went back to reading `@AppStorage` raw.
     @Test func theSliderReadsAndWritesThroughTheClamp() throws {
         let source = try String(
             contentsOf: URL(fileURLWithPath: #filePath)
@@ -1231,10 +910,8 @@ import Testing
                 "the text-size slider no longer writes through storedValue(forSlider:)")
     }
 
-    /// The preset row really does follow the app's text size — the premise the fit test leans on.
-    ///
-    /// Without this, `theTextSizeRowFitsTheNarrowestColumn…` measuring at Largest would be
-    /// measuring the same number as at Default and quietly proving nothing.
+    /// The preset row follows the app's text size, the premise the fit test leans on; otherwise
+    /// `theTextSizeRowFitsTheNarrowestColumn…` at Largest would measure the Default number.
     @MainActor
     @Test func thePresetRowGrowsWithTheTextSizeItSets() {
         let small = laidOutSizePresetRowWidth(at: .small)
@@ -1246,8 +923,8 @@ import Testing
                 """)
     }
 
-    /// Appearance's Row spacing row exactly as it ships — two options, labels hidden, the app
-    /// accent on the selection — laid out at `size` with no width constraint.
+    /// Readability's Row spacing row as it ships (labels hidden, the app accent on the selection),
+    /// laid out at `size` with no width constraint.
     @MainActor
     private func laidOutRowSpacingPickerWidth(at size: FontSize) -> CGFloat {
         struct RowSpacingRow: View {
@@ -1268,8 +945,8 @@ import Testing
         return host.fittingSize.width
     }
 
-    /// Appearance's size preset row exactly as it ships — five tiles, the named style — laid out
-    /// at `size` with no width constraint.
+    /// Readability's size preset row as it ships (five tiles, the named style), laid out at `size`
+    /// with no width constraint.
     @MainActor
     private func laidOutSizePresetRowWidth(at size: FontSize) -> CGFloat {
         struct PresetRow: View {
@@ -1288,32 +965,13 @@ import Testing
 
 // MARK: - The cloud-spend readout
 
-/// `FilingSpendReadout` replaced four `SettingsRow`s with a four-figure strip, and until this
-/// existed **only its empty branch had ever been exercised** — every render and every layout test
-/// ran against a `FilingSpendTotals()` with no scans, which draws one sentence and none of the
-/// figures. The whole point of the view was invisible to the suite.
-///
-/// That mattered because the strip is the one place in Settings where four values share a row.
-/// The figures were rendered and read back at three widths before this was written:
-///
-/// - the real column (547pt) — all four fit on one line with room to spare;
-/// - the worst realistic case (`~$128.40`, `91002.7k tok`, `412`, `Opus · 150 files · ~$2.41`) —
-///   also one line;
-/// - the narrowest column the sheet can ever offer (307pt, the floor-sized window) — "Cloud
-///   refines" and the last-refine value **wrap to two lines**, and nothing truncates. That is the
-///   intended degradation: each figure sits in a column the `HStack` proposes a real width to, so
-///   a `Text` too long for it wraps of its own accord.
-///
-/// The strip briefly carried a `.fixedSize(horizontal: false, vertical: true)` on the value,
-/// copied from `SettingsSection`'s caption where it is load-bearing. **Mutation says it was
-/// not**: `theStripWrapsRatherThanOverflowingTheNarrowestColumn` survived its removal, and
-/// rendering both variants at 307pt produced pixel-identical output. It is gone, along with the
-/// comment claiming the value would otherwise truncate — the caption needs it because it is a
-/// `Text` in a stack with `maxWidth: .infinity`, which is a different situation.
-///
-/// Geometry cannot tell "wrapped" from "truncated to …" — that distinction came from reading the
-/// pixels, and it is recorded here rather than asserted. What IS asserted is the part a test can
-/// hold: the populated branch draws something the empty branch does not.
+/// `FilingSpendReadout`, a strip of four figures sharing one row. With no scans it draws one
+/// sentence and none of the figures, so a fixture using `FilingSpendTotals()` measures only the
+/// empty state. Rendered and read back, all four figures fit one line at the real column, even
+/// with worst-case values; at the narrowest column the sheet offers, a label and the last-refine
+/// value wrap to two lines and nothing truncates, because the `HStack` proposes each figure a real
+/// width. Geometry can't tell wrapped from truncated, so that is recorded here, not asserted.
+/// What is asserted: the populated branch draws something the empty one doesn't.
 @Suite struct SpendReadoutTests {
 
     @MainActor
@@ -1323,7 +981,7 @@ import Testing
         return host.fittingSize.height
     }
 
-    /// The narrowest column the sheet can ever offer — the worst case at every text size, since
+    /// The narrowest column the sheet can ever offer: the worst case at every text size, since
     /// the sheet only grows with the scale and stops shrinking at `floorSize`.
     private static var narrowestColumn: CGFloat {
         let tiny = CGSize(width: SettingsSheetMetrics.floorSize.width + SettingsSheetMetrics.hostMargin,
@@ -1339,9 +997,8 @@ import Testing
         inputTokens: 300_000, outputTokens: 18_000,
         cacheReadTokens: 0, cacheCreationTokens: 0, estimatedCostUSD: 0.0312)
 
-    /// The gap this closes: with `scans == 0` the view draws a sentence and returns, so every
-    /// assertion that only ever saw the default `FilingSpendTotals()` was measuring the empty
-    /// state and calling it the readout.
+    /// With `scans == 0` the view draws a sentence and returns, so the figures need a populated
+    /// fixture to be measured at all.
     @MainActor
     @Test func theFiguresAppearOnlyOnceThereIsSpend() {
         let column = SettingsSheetMetrics.contentWidth(textScale: 1)
@@ -1357,19 +1014,9 @@ import Testing
                 """)
     }
 
-    // There is deliberately NO geometric test that the last-refine figure wraps rather than
-    // truncates, and the absence is the finding.
-    //
-    // Three were written and all three measured the neighbour instead of the subject. Comparing
-    // the whole strip wide-vs-narrow passes because the LABEL "Cloud refines" wraps too, whatever
-    // the value does — `.lineLimit(1)` on the value left it green. Varying the model name to
-    // lengthen the string does nothing either: `FilingSpendFormat.model` collapses
-    // "claude-haiku-4-5-20251001" to "Haiku", so the input never reaches the rendered text, and
-    // the two fixtures measured 44.0pt against 44.0pt.
-    //
-    // `fittingSize` cannot tell a wrapped line from a truncated one — a `Text` that clips to
-    // "Haiku · 148 fi…" and one that wraps to two lines both report a height the assertion is
-    // happy with. Only painted pixels distinguish them, which is how the wide/worst/narrow
-    // renders recorded on this suite were checked. A test that cannot fail for the reason its
-    // name gives is worse than no test: it reads as coverage of exactly the thing nobody checked.
+    // There is deliberately no geometric test that the last-refine figure wraps rather than
+    // truncates. `fittingSize` can't tell a wrapped line from a truncated one, a wide-vs-narrow
+    // comparison passes because the "Cloud refines" label wraps too, and lengthening the model
+    // name does nothing because `FilingSpendFormat.model` collapses it to "Haiku". Only painted
+    // pixels distinguish the two, so the renders recorded on this suite are the check.
 }

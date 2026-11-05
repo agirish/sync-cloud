@@ -2,9 +2,9 @@ import Design
 import SwiftUI
 import Sync
 
-/// Settings ▸ Organize ▸ Folder surveys: every cloud source and the survey that places its files
-/// (GK–GN, 2026-10-31) — the same choices as To File's survey menu, for sources To File has not
-/// looked at yet, and the one place a source's own survey is forgotten.
+/// Settings ▸ Organize ▸ Folder surveys: every cloud source and the survey that places its files.
+/// The same choices as To File's survey menu, for sources To File hasn't looked at yet, and the one
+/// place a source's own survey is forgotten.
 struct FolderSurveysSection: View {
     @ObservedObject var syncManager: FileSyncManager
     /// Cloud sources by name and the folder To File files into for each (its landing folder).

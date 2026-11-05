@@ -4,18 +4,16 @@ import Sync
 import Testing
 @testable import Settings
 
-/// Five Settings controls ask before they throw away choices one click cannot bring back (HR).
+/// Five Settings controls ask before they throw away choices one click can't bring back: a folder
+/// source's Remove (its name and switched-off state go with it), Sync's Clear All for ignored items,
+/// Organize's Clear All for kept names, Intelligence's Clear for saved suggestions (the next Refine
+/// pays Claude again for every file), and choosing "All columns" for column widths (the widths
+/// sized one at a time are erased, and "Each column" doesn't restore them). A sixth, Hidden from
+/// Claude's Remove, asks the same way because it widens what Claude may see.
 ///
-/// **Each acted on a single click**: a folder source's Remove (its name and switched-off state go
-/// with it), Sync's Clear All for ignored items, Organize's Clear All for kept names, Intelligence's
-/// Clear for saved suggestions (the next Refine pays Claude again for every file), and choosing
-/// "All columns" for column widths (the widths sized one at a time are erased, and choosing "Each
-/// column" again does not restore them). A sixth, Hidden from Claude's Remove, asks the same way
-/// (decision IP): it widens what Claude may see.
-///
-/// The decisions are pinned on the gates — a SwiftUI button's closure cannot be reached from a test
-/// — over real stores where a store exists, and the last test holds each control to its gate, so a
-/// revert cannot leave the gates tested and unused.
+/// The decisions are pinned on the gates, since a SwiftUI button's closure can't be reached from a
+/// test, over real stores where one exists. The last test holds each control to its gate, so the
+/// gates can't be tested and unused.
 @MainActor
 @Suite struct SettingsAsksBeforeRemovingTests {
 
@@ -69,7 +67,7 @@ import Testing
         #expect(removed)
         #expect(sourcesWhenAsked == 1, "the source went before the question")
         #expect(settings.folderSources.isEmpty)
-        // The question says where it opens is forgotten; the key used to outlive the source.
+        // The question says where it opens is forgotten, so the key must not outlive the source.
         #expect(defaults.defaults.string(forKey: "openAt_override_\(id)") == nil,
                 "Remove left where the source opens behind")
     }
@@ -100,8 +98,8 @@ import Testing
         #expect(order == ["ask", "clear"], "the ignored items went before the question: \(order)")
     }
 
-    /// **Clears the pair it asked about, or nothing.** The comparison can move to another pair
-    /// while the alert is up (a source removed meanwhile); a yes must not clear that pair instead.
+    /// Clears the pair it asked about, or nothing. The comparison can move to another pair while
+    /// the alert is up (a source removed meanwhile); a yes must not clear that pair instead.
     @Test func clearAllDoesNothingWhenTheComparedPairChangedWhileItAsked() {
         let store = IgnoredItemsStore(userDefaults: ScratchDefaults("AskFirst-ignored-pair"))
         store.activate(pairKey: IgnoredItemsStore.pairKey("a", "b"))
@@ -332,9 +330,9 @@ import Testing
 
     // MARK: The wiring
 
-    /// **Each control goes through its gate, and the gate asks with the standard alert.** Scanned
-    /// rather than driven: a SwiftUI control's action cannot be reached from a test, and this is
-    /// the half that connects the shipping control to the decisions tested above.
+    /// Each control goes through its gate, and the gate asks with the standard alert. Scanned, not
+    /// driven, since a SwiftUI control's action can't be reached from a test; this connects the
+    /// shipping control to the decisions tested above.
     @Test func everyControlGoesThroughItsGate() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -354,8 +352,8 @@ import Testing
         #expect(prompt.contains("NativeAlerts.confirmIrreversible("),
                 "the questions no longer ask with the standard irreversible alert")
 
-        // **Each deletion is called once in Settings, from inside its gate.** Counted rather than
-        // spelled, so a second, unasked call is caught however it is written.
+        // Each deletion is called once in Settings, from inside its gate. Counted, not spelled, so
+        // a second, unasked call is caught however it is written.
         #expect(count("removeFolderSource(id:", in: settings) == 1)
         #expect(settings.contains("RemovalPrompt.actIfConfirmed(confirm: confirm) { settings.removeFolderSource(id: id) }"))
         #expect(settings.contains("Self.removeFolderSourceIfConfirmed("), "a folder source's Remove no longer asks")
@@ -393,8 +391,8 @@ import Testing
                 "Hidden from Claude's Remove no longer asks")
     }
 
-    /// The source with every `//` comment removed — whole lines and trailing ones — so a call named
-    /// in a comment cannot stand in for the call. String literals are respected.
+    /// The source with every `//` comment removed, whole-line and trailing, so a call named in a
+    /// comment can't stand in for the call. String literals are respected.
     static func withoutComments(_ text: String) -> String {
         text.split(separator: "\n", omittingEmptySubsequences: false).map { line -> Substring in
             var inString = false

@@ -5,7 +5,7 @@ import Events
 import Sync
 @testable import Settings
 
-/// Pins how an Ask Claude card changes a setting (TE290 step 4a): through its owner, with the
+/// Pins how an Ask Claude card changes a setting: through its owner, with the
 /// side effect Settings' own control has, and only to a value the setting can hold.
 @MainActor
 @Suite struct SettingsWriterTests {
@@ -97,7 +97,7 @@ import Sync
         #expect(defaults.object(forKey: PaneViewMode.columnWidthOverridesDefaultsKey) == nil)
     }
 
-    /// TE290 step 9: a source's name and Open at, from a card, as Settings' rows set them.
+    /// A source's name and Open at, from a card, as Settings' rows set them.
     private func sources(_ name: String, _ defaults: UserDefaults, root: String) -> SettingsManager {
         let manager = SettingsManager(autoDiscover: false, userDefaults: defaults, overridesDomainName: name,
                                       cloudStorageLister: { .read([]) }, pathValidator: { _ in true })
@@ -141,7 +141,7 @@ import Sync
         #expect(!SettingsWriter.acceptsClaudesText("Work\u{202E}xob"))
     }
 
-    /// TE290 review: what Settings shows disabled, a card can't change either; and a card is never
+    /// What Settings shows disabled, a card can't change either; and a card is never
     /// offered for a setting the writer can't set.
     @Test func aSettingWhoseSwitchIsOffIsRefused() {
         let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }

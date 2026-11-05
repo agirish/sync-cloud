@@ -5,12 +5,9 @@ import Sync
 import Testing
 @testable import Settings
 
-/// Renders the People surfaces to PNGs on disk so they can be **looked at**.
-///
-/// Not a snapshot assertion: this exists because a green suite has repeatedly said nothing about
-/// whether a surface is legible, and the only fix that has ever worked is rendering it and reading
-/// the image back. Writes to `SYNCCLOUD_RENDER_DIR` and is skipped when that is unset, so it costs
-/// nothing in CI and never fails a run over a pixel.
+/// Renders the People surfaces to PNGs on disk so they can be looked at. Not a snapshot assertion:
+/// a green suite says nothing about whether a surface is legible. Writes to `SYNCCLOUD_RENDER_DIR`
+/// and is skipped when that is unset, so it costs nothing in CI and never fails a run over a pixel.
 @MainActor
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["SYNCCLOUD_RENDER_DIR"] != nil,
                 "set SYNCCLOUD_RENDER_DIR to write the People PNGs"))
@@ -32,10 +29,9 @@ struct PeopleRenderProbe {
          Person(id: "mother", displayName: "Mother", relationship: "wife",
                 fullNames: ["Mother Maiden", "Mother Inlaw Maiden", "Mother I Maiden",
                             "Mother Father"]),
-         // Just added, no full name yet, and their only word is somebody else's surname — the one
-         // state the amber line is for. Included so the render PROVES that line can appear; the
-         // first pass tinted all seven rows amber and the fix could otherwise have removed it
-         // entirely without the picture changing.
+         // Just added, no full name yet, and their only word is somebody else's surname: the one
+         // state the amber line is for, included so the render shows it can appear on one row
+         // and not the others.
          Person(id: "elder-2", displayName: "Elder")]
     }
 
@@ -50,9 +46,8 @@ struct PeopleRenderProbe {
             ("Family/Mom", "Mom", 12), ("Immigration/Passport/Granny", "Granny", 4),
             ("Family/Dad", "Dad", 9), ("Family/Uncle", "Uncle", 25),
             ("Work/Mother", "Mother", 31), ("Finance/US/Credit Accounts/Father", "Father", 88),
-            // Somebody the tree files for who is NOT on the roster — the gap the overview exists
-            // to surface. Included so the render proves that path draws; on the real tree there
-            // are none, so a fixture without one could never show it.
+            // Somebody the tree files for who isn't on the roster: the gap the overview surfaces.
+            // A real tree usually has none, so the fixture supplies one.
             ("Family/Ravi", "Ravi", 7), ("Immigration/Passport/Ravi", "Ravi", 2),
         ]
         for (path, person, docs) in plan {
@@ -77,9 +72,8 @@ struct PeopleRenderProbe {
         let dir = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SYNCCLOUD_RENDER_DIR"]!)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         for (variant, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-            // **A window-background fill, for the reason `SnapshotRendering` gives.** Without it the
-            // dark render is white text on transparency, which decodes to white-on-white and reads
-            // as "dark mode is broken" — it was my harness, not the view.
+            // A window-background fill, as in `SnapshotRendering`: without it the dark render is
+            // white text on transparency, which decodes to white on white.
             let subject = view
                 .frame(width: size.width)
                 .background(Color(nsColor: .windowBackgroundColor))
@@ -113,21 +107,19 @@ struct PeopleRenderProbe {
             .padding(16),
             size: CGSize(width: width, height: 0), name: "people-section")
 
-        // One row OPENED — the evidence, the caveat and the buttons that the shut row hides. Two
-        // rows, so the render shows the ordinary detail beside the amber one.
+        // Rows opened, showing the evidence, caveat and buttons a shut row hides. Two, so the
+        // ordinary detail sits beside the amber one.
         try write(
             VStack(alignment: .leading, spacing: 8) {
-                // An `onShowPerson` so the render carries "Show Their Files" — the app wires
-                // one; a nil here would render the row as tests see it, not as users do.
+                // An `onShowPerson`, as the app wires, so the render carries "Show Their Files".
                 PeopleList(store: store, profile: profile, memory: memory, vetoLog: log,
                            onShowPerson: { _ in }, initiallyExpanded: ["daughter", "elder-2"])
             }
             .padding(16),
             size: CGSize(width: width, height: 0), name: "people-section-open")
 
-        // The hand-arranged state: the row moved, and the way back under the list. Its own store,
-        // because `move` latches `orderIsCustom` for the life of the one it is called on and every
-        // render above is of a list nobody has arranged.
+        // The hand-arranged state: a row moved, and the way back under the list. Its own store,
+        // because `move` latches `orderIsCustom` for that store's life.
         let moved = PeopleStore(people: Self.roster())
         moved.move(id: "uncle", up: true)
         try write(
@@ -138,7 +130,7 @@ struct PeopleRenderProbe {
             .padding(16),
             size: CGSize(width: width, height: 0), name: "people-section-custom-order")
 
-        // The suggestion the learning sweep produces — the surface nobody has looked at yet.
+        // The suggestion the learning sweep produces.
         let suggestion = PersonNameSuggestion(personId: "granny", form: "Granny Elder",
                                               occurrences: 7,
                                               exampleFile: "Granny Elder - Resume, 2017.pdf")
@@ -150,8 +142,7 @@ struct PeopleRenderProbe {
             .padding(16),
             size: CGSize(width: width, height: 0), name: "people-suggestion")
 
-        // The tester WITH an answer on screen — the whole point of the surface, and unreachable
-        // by typing from a probe.
+        // The tester with an answer on screen, which a probe can't reach by typing.
         let facts = Dictionary(uniqueKeysWithValues: store.people.map {
             ($0.id, PersonFilingFacts.make(for: $0, registry: store.registry,
                                            profile: profile, memory: memory))
@@ -168,8 +159,7 @@ struct PeopleRenderProbe {
             .padding(16),
             size: CGSize(width: width, height: 0), name: "people-tester")
 
-        // The editor mid-edit: a person whose every word is shared, which is the state the sheet
-        // exists to explain.
+        // The editor mid-edit: a person whose every word is shared, the state the sheet explains.
         try write(
             PersonEditor(person: Person(id: "daughter", displayName: "Daughter",
                                         relationship: "daughter",

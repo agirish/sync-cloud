@@ -1,16 +1,16 @@
 import Foundation
 import Sync
 
-/// The four lists an Ask Claude card edits (TE290 step 8) — Ignored name patterns, Ignored
-/// items, Kept names, Hidden from Claude — through the owners Settings edits them with.
+/// The four lists an Ask Claude card edits (Ignored name patterns, Ignored items, Kept names,
+/// Hidden from Claude), through the owners Settings edits them with.
 ///
-/// **One item at a time, as a yes or no.** A card's edit is "this item is in the list" turned on
-/// or off, so its undo, its Changed from Chat line and its Revert hold that one item, never the
-/// whole list, and each goes back only while the item still is (or isn't) there.
+/// One item at a time, as a yes or no: a card's edit turns "this item is in the list" on or off,
+/// so its undo, its Changed from Chat line and its Revert hold that one item, and each goes back
+/// only while the item still is (or isn't) there.
 ///
-/// **Ignored items belong to a pair of sources.** An item's key carries the pair it was edited
-/// under (`scoped`), and reads as unknown under any other, so an Undo after switching pairs
-/// can't ignore a path in the wrong comparison.
+/// Ignored items belong to a pair of sources. An item's key carries the pair it was edited under
+/// (`scoped`) and reads as unknown under any other, so an Undo after switching pairs can't ignore
+/// a path in the wrong comparison.
 @MainActor
 public struct SettingsLists {
     public static let ids: Set<String> = ["sync.ignorePatterns", "sync.ignoredItems", "organize.keptNames", "intelligence.hidden"]
@@ -42,7 +42,7 @@ public struct SettingsLists {
         return pair + "\n" + item
     }
 
-    /// Whether the scoped item is in its list now; nil when that can't be told — the owner is
+    /// Whether the scoped item is in its list now; nil when that can't be told: the owner is
     /// missing, or the ignored item was edited under another pair.
     public func contains(_ id: String, scoped: String) -> Bool? {
         guard let item = unscoped(id, scoped), let items = items(id) else { return nil }

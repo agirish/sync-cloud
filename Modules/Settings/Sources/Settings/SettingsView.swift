@@ -22,28 +22,19 @@ public enum GeneralSettings {
     public static let confirmBeforeTransferKey = "confirmBeforeCopyMove"
 
     /// Bool (default true). When false, the tab strip each pane had when the app last quit is not
-    /// restored, so every pane opens with one tab at its source's landing folder.
-    ///
-    /// It used to govern a second, older thing as well — a single persisted focus path per pane —
-    /// and that is gone: the strip records a folder per tab, which is strictly more of the same
-    /// answer, and a pane with no strip now takes the source's own opening folder instead.
+    /// restored, so every pane opens with one tab at its source's landing folder. A pane with no
+    /// saved strip takes the source's own opening folder.
     public static let restoreLastFocusKey = "restoreLastFocusOnLaunch"
     /// Bool (default false). Posts a system notification when an operation banner lands
     /// while SyncCloud is not the active app. Read by `OperationNotifier`.
     public static let notifyOnBackgroundCompletionKey = "notifyOnBackgroundCompletion"
 
-    /// String (default "TODO"). The provider-root-relative folder where loose files pile up.
-    ///
-    /// **It names a folder; it no longer moves anything.** This used to be read in two places, and
-    /// the second one was the complaint: `ContentView.tidyRailRelativePath(for:)` opened Organize's
-    /// source rail on this folder, so a fresh install — where the key is unset and this default
-    /// applies — jumped the rail into `TODO` on the first switch to Organize. That is gone. What
-    /// reads it now is `ContentView.filingInboxFolder`, which resolves the path for Organize's
+    /// String (default "TODO"). The provider-root-relative folder where loose files pile up. It
+    /// names a folder and moves nothing: `ContentView.filingInboxFolder` resolves it for Organize's
     /// overview to offer as a one-click scope.
     ///
-    /// **Empty is a real value and means "no offer".** The Settings field shows `None` as its
-    /// placeholder rather than this default, so an emptied field cannot be mistaken for an
-    /// untouched one.
+    /// Empty is a real value and means "no offer". The Settings field shows `None` as its
+    /// placeholder rather than this default, so an emptied field can't pass for an untouched one.
     public static let filingInboxRelativePathKey = "filingInboxRelativePath"
 
     /// The delete-confirmation flag with its default-true semantics (a bare `bool(forKey:)`
@@ -70,38 +61,25 @@ public struct SettingsView: View {
     /// at window creation, so the raw values are stable. `CaseIterable` backs both the rail and the
     /// search index's "every entry points at a real tab" invariant.
     ///
-    /// `people` and `intelligence` are NEW CASES rather than renames of `filing`, and the
-    /// distinction matters. `providers` → "Sources" was a relabel: the same tab, reworded, so the
-    /// case kept its name and every stored `settingsSelectedTab` stayed valid. This is not that.
-    /// The people roster and the AI engine were *sections* of Organize that became tabs of
-    /// their own, so `filing` still exists and still means Organize — it is simply three sections
-    /// lighter. Renaming it would have made every stored "filing" resolve to a tab that no longer
-    /// holds what the user was last looking at.
+    /// Never rename a case: a label can change (`providers` shows as "Sources"), but the raw value
+    /// is what a stored `settingsSelectedTab` holds. A tab split out of another gets a new case,
+    /// so the old one keeps meaning what the user last looked at.
     ///
-    /// Adding cases is safe in the other direction too: the stored value is resolved through
-    /// `resolvingStored(_:)`, which falls back rather than trapping, so a build that predates
-    /// these two resolves their raw values to **Appearance** — the tab that depends on nothing.
-    /// `StoredTabResolutionTests` is what checks that; this paragraph previously named the wrong
-    /// tab and cited a test that did not exist, which is the reason the seam is there at all.
+    /// The stored value is resolved through `resolvingStored(_:)`, which falls back to Appearance
+    /// rather than trapping on a value this build doesn't know (`StoredTabResolutionTests`).
     public enum SettingsTab: String, CaseIterable, Sendable {
         case general
         case appearance
-        /// Text size and row spacing — how large the type is and how tightly the rows pack.
-        ///
-        /// **Its own tab rather than a section of Appearance, and the reason is measured.** The
-        /// two controls plus the preset row that summarises them, the detent labels that name the
-        /// shipped sizes, and the live preview that shows what row spacing actually does come to
-        /// ~875pt; Appearance's opening on a 1280×800 display is 647pt and was already running on
-        /// about 15pt of margin. Everything here is what Appearance had no room for — see
-        /// `ReadabilitySettingsTab`.
+        /// Text size and row spacing — how large the type is and how tightly the rows pack. Its
+        /// own tab because its controls and preview come to ~875pt, and Appearance's opening on a
+        /// 1280×800 display is 647pt. See `ReadabilitySettingsTab`.
         case readability
         case providers
-        /// The people the filing rules attribute documents to. Was Organize's last section.
+        /// The people the filing rules attribute documents to.
         case people
         case sync
-        /// Shown as "Organize". The case is named for `Workspace.filing`, not for the label, for
-        /// the reason that workspace keeps its own name: the label moved and the identity didn't,
-        /// and a tab whose case matches its workspace's is one grep away from the code it governs.
+        /// Shown as "Organize". Named for `Workspace.filing`, not the label, so the tab is one
+        /// grep away from the code it governs.
         case filing
         case duplicates
         /// The suggestion engine — on-device AI, the opt-in Claude path, and what that path costs.
@@ -114,39 +92,28 @@ public struct SettingsView: View {
             switch self {
             case .general: return "General"
             case .appearance: return "Appearance"
-            // "Readability", not "Text size" or "Display": both controls here serve how easily
-            // the app READS, and only one of them is text — row spacing is half the tab and is
-            // not type at all, so a name about text would send anyone hunting for the density
-            // control to the wrong row. "Display" was the other candidate and was dropped because
-            // in a Mac app it promises monitors, resolution and arrangement, none of which
-            // SyncCloud has. It sits directly under Appearance: how it looks, then how it reads.
+            // "Readability", not "Text size": row spacing is half the tab and isn't type. Not
+            // "Display" either, which in a Mac app promises monitors and resolution.
             case .readability: return "Readability"
-            // "Sources", not "Providers": the tab lists plain folders alongside the cloud accounts
-            // now, and a folder is not a provider — "Discovered providers" over a row saying
-            // ~/Projects was the tell. The case keeps its name so the stable `settingsSelectedTab`
-            // raw value, and every `selectedTab = .providers` deep link, are untouched.
+            // "Sources", not "Providers": the tab lists plain folders beside the cloud accounts,
+            // and a folder is not a provider. The case keeps its name for the stored raw value.
             case .providers: return "Sources"
             case .people: return "People"
             case .sync: return "Sync"
             case .filing: return "Organize"
             case .duplicates: return "Duplicates"
-            // Not "Claude" and not "AI & Cloud": the tab holds the free on-device pass as well as
-            // the paid one, so a vendor name would sit over a section that isn't theirs, and
-            // "Cloud" collides with Sources' cloud providers — a rail with two Clouds in it
-            // answers the wrong question first. The search index is what carries "API key" and
-            // "Anthropic" to this tab; see `SettingsSearchIndex`.
+            // Not "Claude": the tab holds the free on-device pass too. Not "AI & Cloud": "Cloud"
+            // collides with Sources' cloud providers. `SettingsSearchIndex` carries "API key" and
+            // "Anthropic" here.
             case .intelligence: return "Intelligence"
             case .advanced: return "Advanced"
             }
         }
 
-        /// The rail row's SF Symbol. Monochrome and outline-weight throughout: a rail of mixed
-        /// filled and outline glyphs reads as though the filled ones meant something.
-        ///
-        /// Organize and Duplicates take the glyphs their workspaces wear in the bar
-        /// (`Workspace.symbol`) rather than picking settings-only ones — the rail row and the bar
-        /// button are two ways into the same feature, and a second glyph for it would say they
-        /// weren't.
+        /// The rail row's SF Symbol. Outline weight throughout: mixed filled and outline glyphs
+        /// read as though the filled ones meant something. Organize and Duplicates use their
+        /// workspaces' glyphs (`Workspace.symbol`), since the row and the bar button reach the
+        /// same feature.
         public var symbolName: String {
             switch self {
             case .general: return "gearshape"
@@ -166,69 +133,36 @@ public struct SettingsView: View {
         /// Where the "set up cloud refine" offer on Organize's results deep-links to: the tab that
         /// holds the Claude toggle, the key and the model.
         ///
-        /// A named destination rather than `.intelligence` written at the call site, because the
-        /// call site is in `MacApp/` — which belongs to no SPM package, so only the app target
-        /// compiles it and no package test can reach it. A literal there that pointed at the tab
-        /// those controls used to live on would keep compiling and keep opening Settings; it would
-        /// simply open a tab with no cloud anything on it, and nothing would fail. This constant
-        /// is the seam that lets `theCloudRefineOfferLandsOnTheTabThatHoldsTheKey` check it.
+        /// Named here, not written at the call site, because that site is in `MacApp/`, which no
+        /// package test can reach. A wrong tab there would still compile and open Settings; this
+        /// constant lets `theCloudRefineOfferLandsOnTheTabThatHoldsTheKey` check it.
         public static let cloudRefineSetup: SettingsTab = .intelligence
 
-        /// The tabs the layout fit-guard (`SettingsLayoutTests`) deliberately does NOT hold to
-        /// "lays out inside the sheet's opening without scrolling". Every other tab is measured;
-        /// `everyTabIsEitherFitTestedOrExplicitlyExempt` derives the measured list from `allCases`
-        /// minus this set, so a new case cannot skip the guard silently — it either joins the
-        /// fit list or earns a line here.
+        /// The tabs the layout fit-guard (`SettingsLayoutTests`) does not hold to fitting the
+        /// sheet's opening without scrolling. `everyTabIsEitherFitTestedOrExplicitlyExempt`
+        /// measures `allCases` minus this set, so a new case either fits or earns a line here:
+        /// - `providers` grows with the Mac's provider and folder-source lists.
+        /// - `people` grows with the roster (`PeopleList` draws one row per person).
+        /// - `filing` grows with the kept-names list (`KeptNamesList`, one row per name), passing
+        ///   a 1280×800 display's opening at about the 17th name.
+        /// - `intelligence` is long by nature and expected to scroll.
         ///
-        /// Membership is a *property of the tab*, not an oversight, and each entry records its
-        /// reason:
-        /// - `providers` grows with the Mac's provider and folder-source lists — its height is a
-        ///   property of the machine's data, and its own header comment calls it "the one that
-        ///   legitimately keeps scrolling".
-        /// - `people` grows with the roster (`PeopleList` draws one row per person),
-        ///   so its height is the user's data too.
-        /// - `filing` grows with the kept-names list (`KeptNamesList` draws one row per kept
-        ///   name) — the same shape as `people`, down to the `if let store … else` fixed note,
-        ///   and now on the same side of the guard.
-        /// - `intelligence` is long by nature — four sections, from the on-device toggles to the
-        ///   saved suggestions — and is expected to scroll;
-        ///   `intelligenceLaysOutWithoutReachingForTheKeychain` pins that it lays out at all.
-        ///
-        /// **`filing` was fit-tested until 2026-08-13, and that guard was measuring the wrong
-        /// view.** Its fixture built the tab with no engine (`FilingSettingsTab(syncManager: nil)`),
-        /// which takes the `else` branch and renders `KeptNamesList.nothingKeptNote` — one line.
-        /// So the guard proved the EMPTY tab fits while a real user scrolled: measured against a
-        /// 1280×800 display's 647pt opening, the tab is 280pt with nothing kept and grows 23pt a
-        /// row, so it passes the opening at the **17th** kept name (16 names = 638pt, 17 = 661pt).
-        /// The lesson generalises past this tab: **a fit-guard fixture built with a nil dependency
-        /// measures the empty state**, so a tab whose list is unbounded belongs here no matter how
-        /// well its `else` branch fits.
-        ///
-        /// An exemption is a measured claim, not a label. Each entry above is held to it by a test
-        /// that fails if the tab stops being long — `intelligenceLaysOutWithoutReachingForTheKeychain`
-        /// for `intelligence`, `theOrganizeTabOutgrowsItsOpeningOnceNamesAreKept` for `filing` —
-        /// and the coverage the fit guard used to give Organize is kept, narrowed to what it
-        /// actually measured, by `theOrganizeTabFitsItsOpeningWithNothingKept`. A data-driven tab
-        /// that gains a bounded list, or a long tab that loses a section, should have its exemption
-        /// revisited rather than inherited: Organize kept a stale "long by nature" exemption through
-        /// the split that made it short, and no test asked again until it was re-measured by hand.
-        /// (`providers` and `people` carry no such falsifying measurement yet.)
+        /// **A fit-guard fixture built with a nil dependency measures only the empty state**, so a
+        /// tab with an unbounded list belongs here however well its `else` branch fits. Tests hold
+        /// two exemptions to their claim: `intelligenceLaysOutWithoutReachingForTheKeychain` and
+        /// `theOrganizeTabOutgrowsItsOpeningOnceNamesAreKept`. Organize's empty state is still
+        /// fit-tested, by `theOrganizeTabFitsItsOpeningWithNothingKept`. `providers` and `people`
+        /// have no such test yet. Revisit an exemption when a tab's shape changes.
         public static let exemptFromFitGuard: Set<SettingsTab> = [.providers, .people, .filing, .intelligence]
 
         /// The rail's rows in groups, separated by a hairline.
         ///
-        /// Nine flat rows read as a pile — the reason this exists — but the grouping is not free:
-        /// the rail is FIXED-HEIGHT and does not scroll, and each separator costs its own line
-        /// plus the air around it. `theRailFitsItsOpening` measures the real thing, separators
-        /// included, so a group added here has to be paid for out of the same budget the rows are.
-        ///
-        /// The cut lines are by *question asked*, not by feature: the app itself, then the nouns
-        /// in the user's world, then what a scan does, then the engine room. Membership is spelled
-        /// out rather than derived so that adding a case has to state which group it joins —
-        /// `railGroupsCoverEveryTab` fails on a case that names none.
+        /// Flat rows read as a pile, but the rail is fixed-height and doesn't scroll, so each
+        /// separator costs space; `theRailFitsItsOpening` measures the rail with them. Groups are by
+        /// question asked: the app itself, the user's world, what a scan does, the engine room.
+        /// Spelled out, not derived, so a new case must name its group (`railGroupsCoverEveryTab`).
         public static let railGroups: [[SettingsTab]] = [
-            // Readability joins the app's-own-chrome group, next to Appearance: how it looks,
-            // then how it reads.
+            // Readability sits next to Appearance: how it looks, then how it reads.
             [.general, .appearance, .readability],
             [.providers, .people],
             [.sync, .filing, .duplicates],
@@ -263,18 +197,14 @@ public struct SettingsView: View {
     private let onRunSetup: (() -> Void)?
     /// Forgets that setup has run, from Advanced.
     private let onResetSetup: (() -> Void)?
-    /// Hands a person to the app's gather — "everything that is Daughter's", the same surface ⌘K's
-    /// People rows reach. nil where there is no app behind the sheet (tests, previews), which
-    /// hides the button rather than offering one that does nothing.
+    /// Hands a person to the app's gather, the same surface ⌘K's People rows reach. nil where
+    /// there is no app behind the sheet (tests, previews), which hides the button.
     private let onShowPerson: ((Person) -> Void)?
-    /// Opens the app's Help book at a topic id. **A callback rather than a reach into `HelpBook`,
-    /// because the book lives in `MacApp` and this module cannot see it** — the same shape
-    /// `onShowPerson` uses to reach the gather, and for the same reason. nil in tests and previews,
-    /// which hides the pointer rather than offering one that does nothing.
+    /// Opens the app's Help book at a topic id. A callback because `HelpBook` lives in `MacApp`,
+    /// which this module can't see. nil in tests and previews, which hides the pointer.
     ///
-    /// Settings and Help are mutually exclusive overlays on one window (`ContentView`'s latch
-    /// chain), so the host closes this sheet on the way — the reader lands on the article, not on
-    /// an article behind a settings card.
+    /// Settings and Help are mutually exclusive overlays on one window, so the host closes this
+    /// sheet on the way and the reader lands on the article.
     private let onOpenHelp: ((String) -> Void)?
 
     /// The header search text. While non-empty it takes over the content area with a list of
@@ -297,9 +227,8 @@ public struct SettingsView: View {
     @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw: String = LiquidGlassHue.blue.rawValue
     private var selectedHue: LiquidGlassHue { LiquidGlassHue(rawValue: selectedHueRaw) ?? .blue }
 
-    /// The app's text-size setting. The sheet is sized in points but its contents are sized in
-    /// scaled type, so the sheet has to grow with the type or the taller tabs start scrolling
-    /// again at Large — the exact failure this layout exists to fix.
+    /// The app's text-size setting. The sheet is sized in points but its contents in scaled type,
+    /// so the sheet grows with the type or the taller tabs scroll at Large.
     @AppStorage(FontSize.defaultsKey) private var fontSizePercent: Int = FontSize.medium.percent
     private var fontSize: FontSize { FontSize(percent: fontSizePercent) }
 
@@ -332,7 +261,7 @@ public struct SettingsView: View {
         self.oneWaySync = oneWaySync
     }
 
-    /// Sync ▸ One-Way Sync (RD67): the app's, since its state lives above Settings.
+    /// Sync ▸ One-Way Sync, supplied by the app because its state lives above Settings.
     private let oneWaySync: AnyView?
 
     /// The sheet's size: see `SettingsSheetMetrics`, which owns the arithmetic.
@@ -354,17 +283,15 @@ public struct SettingsView: View {
                     .accessibilityLabel("Close settings")
             }
             .padding(.horizontal, 16)
-            // Fixed rather than padding-derived: the content opening below is computed as
-            // `height − headerHeight − 1`, and a header that sized itself would make that
-            // arithmetic — and every layout assertion resting on it — a guess.
+            // Fixed, not padding-derived: the content opening is computed as
+            // `height − headerHeight − 1`, and every layout assertion rests on that.
             .frame(height: SettingsSheetMetrics.headerHeight * fontSize.scale)
 
             Divider()
 
             HStack(spacing: 0) {
-                // Search and the tabs stand down the left — the macOS Settings convention, and
-                // the reason the content column gets its height back. Both used to be rows
-                // stacked above the content, costing 124pt before the first control.
+                // Search and the tabs stand down the left, the macOS Settings convention, so the
+                // content column keeps its full height.
                 SettingsRail(selection: $selectedTab, query: $searchQuery, hue: selectedHue)
                     .background(Color.primary.opacity(0.035))
 
@@ -376,7 +303,7 @@ public struct SettingsView: View {
         }
         .frame(width: sheetSize.width, height: sheetSize.height)
         // The sheet's switches, the Tint and text-size sliders and its checkboxes take the hue
-        // being picked here, not the Mac's accent (DS4) — and follow it as it changes.
+        // being picked here, not the Mac's accent, and follow it as it changes.
         .nativeControlAccent(selectedHue)
     }
 
@@ -476,20 +403,13 @@ struct SettingsSearchEntry: Identifiable, Sendable {
 /// because it is not a setting: the `SettingsSection` headers that only group other controls
 /// ("Conflicts", "Logging", "Inbox and rules"). Each is reached through a control it belongs to.
 ///
-/// It used to say "and the read-only readouts in Organize's Cloud spend section" as well. Those
-/// four rows are gone — `FilingSpendReadout` draws the figures now, and the section is Cost and
-/// limits on Intelligence — so the sentence described neither a tab nor a control that exists.
+/// Titles mirror the on-screen label, or extend it where the label alone would be ambiguous in
+/// the results ("Surface tint" for the section headed "Tint"). Keywords add the words people are
+/// likely to type instead.
 ///
-/// Titles mirror the on-screen label, or extend it where the label alone would be ambiguous in a
-/// results list that shows nothing but the title and its tab ("Surface tint" for the section
-/// headed "Tint"). Keywords add the words people are likely to type instead — synonyms, the value
-/// names, the feature they're after.
-///
-/// This is the single place to keep in sync when a control is added or renamed, and
-/// `SettingsSearchTests.everyControlLabelInTheTabSourcesIsIndexed` holds that: it scans the tab
-/// sources for control labels and fails on one that reaches nothing here. A control whose label
-/// the scan cannot see (a title built at runtime, a control vehicle it does not model) is still
-/// only as indexed as whoever adds it makes it.
+/// Keep this in sync when a control is added or renamed.
+/// `SettingsSearchTests.everyControlLabelInTheTabSourcesIsIndexed` fails on a control label that
+/// reaches nothing here, but can't see a title built at runtime.
 enum SettingsSearchIndex {
     static let all: [SettingsSearchEntry] = [
         // General
@@ -507,8 +427,7 @@ enum SettingsSearchIndex {
               keywords: ["quit", "warn", "confirm quit", "close", "exit"]),
 
         // Appearance
-        // "theme" lives here, not on Accent color: since the Theme control exists, that word
-        // means light/dark to users, and matching it on the accent row steered them wrong.
+        // "theme" lives here, not on Accent color: to users it means light/dark.
         .init(tab: .appearance, title: "Theme",
               keywords: ["theme", "light", "dark", "dark mode", "light mode", "appearance",
                          "system", "night", "follow macos"]),
@@ -519,18 +438,16 @@ enum SettingsSearchIndex {
                          "blur", "liquid glass", "material", "opaque", "see-through"]),
         .init(tab: .appearance, title: "Surface tint",
               keywords: ["tint", "wash", "color overlay", "vivid", "subtle"]),
-        // "solid" belongs to Glass effect now, not here: this control is shape only.
+        // "solid" belongs to Glass effect, not here: this control is shape only.
         .init(tab: .appearance, title: "Content surface style",
               keywords: ["surface", "unified", "cards", "pane background", "content surface"]),
-        // Three entries for one section: the group heading a search for "spacing" should land on,
-        // and the two controls inside it, which people look for by their own names. "List density"
-        // keeps its keywords even though the label now reads Row spacing — the word was on screen
-        // for four releases and searching for it must still find the control it named.
+        // Three entries for one section: the heading a search for "spacing" should land on, and
+        // the two controls inside it, which people look for by name. "list density" stays a
+        // keyword of Row spacing because users learned the control by that name.
         .init(tab: .readability, title: "Size & spacing",
               keywords: ["size", "spacing", "size and spacing", "preset", "presets", "scale",
                          "zoom", "how much fits", "bigger", "smaller", "readability", "legibility",
-                         // The tab moved out of Appearance; anyone who learned it there still
-                         // types "appearance" to find it.
+                         // Anyone who knows these controls as part of Appearance types that.
                          "appearance"]),
         .init(tab: .readability, title: "Text size",
               keywords: ["text size", "font", "font size", "type size", "bigger text", "larger text",
@@ -556,10 +473,8 @@ enum SettingsSearchIndex {
               keywords: ["rename", "name", "provider name", "custom name", "label"]),
         .init(tab: .providers, title: "Synchronized path",
               keywords: ["path", "location", "root", "folder", "directory", "sync path", "browse"]),
-        // The two per-location rows the setup sheet also offers, under More options on its
-        // Locations screen. Indexed under their own labels because that is what the row says now:
-        // they used to be an unlabelled field in the header and a `Text` above a picker, neither
-        // of which the label scan could see.
+        // Display name and Open at are the two per-location rows the setup sheet also offers,
+        // under More options on its Locations screen; indexed under their own row labels.
         .init(tab: .general, title: "Run Setup Again",
               keywords: ["setup", "guided setup", "first run", "onboarding", "welcome",
                          "run setup", "set up syncCloud"]),
@@ -576,28 +491,24 @@ enum SettingsSearchIndex {
               keywords: ["enable", "disable", "show", "hide", "toggle provider",
                          "toggle source"]),
 
-        // People. Indexed by what it is *about* as much as by its label: someone looking for this
-        // is more likely to type a relationship or the thing it prevents ("wrong person") than
-        // "people". "organize" and "filing" stay on it because the roster was a section of that
-        // tab until this split, and someone who remembers where it was will look there first.
+        // People. Indexed by what it's about as much as by its label: people type a relationship
+        // or the problem ("wrong person"). "organize" and "filing" stay for anyone who knows the
+        // roster as part of Organize.
         .init(tab: .people, title: "People",
               keywords: ["people", "person", "family", "household", "names", "full name",
                          "wife", "husband", "son", "daughter", "mother", "father", "kids",
                          "wrong person", "whose document", "who", "aliases", "privacy",
                          "what is stored", "data", "organize", "filing"]),
         // The Add button is its own entry: "add person" is what someone types when the roster is
-        // missing somebody, and it would otherwise reach nothing — the section title does not
-        // contain the word they used.
+        // missing somebody, and the section title doesn't contain it.
         .init(tab: .people, title: "Add Person…",
               keywords: ["add person", "new person", "add family member", "add someone",
                          "remove person", "delete person", "edit person", "rename person",
                          "relationship", "brother", "sister", "roster",
-                         // The other button on the same row, by the words someone reaches
-                         // for when they want the app to find a name rather than type it.
+                         // The row's other buttons, by the words someone reaches for.
                          "look for names", "find names", "suggest names", "name suggestions",
                          "reorder", "move up", "move down", "order", "show files", "their files"]),
-        // The tester: the one field on the tab that is neither a person nor a readout. Indexed
-        // by what someone wants from it — to see who a document would be filed for.
+        // The tester, indexed by what someone wants from it: who a document would be filed for.
         .init(tab: .people, title: "Try a filename",
               keywords: ["try a filename", "test a filename", "test", "who does this belong to",
                          "which person", "match", "attribute", "explain"]),
@@ -626,17 +537,11 @@ enum SettingsSearchIndex {
         .init(tab: .sync, title: "Ignored name patterns",
               keywords: ["ignore patterns", "glob", "exclude", "wildcard", "ds_store", "node_modules", "patterns"]),
 
-        // Organize — what is left of it after the engine moved to Intelligence and the roster
-        // to People: the two settings that describe the JOB rather than the machinery.
-        // "tidy" is kept as a keyword on the entries a Tidy-era user is most likely to hunt for
-        // by that name: the word left the product with that split, so someone who remembers it
-        // has nothing to type otherwise. "filing" is kept the same way: the section header over
-        // the inbox said "Filing" until it was renamed to "Inbox and rules", so it is the word
-        // a Filing-era user types.
+        // Organize: the settings that describe the job rather than the machinery. "tidy" and
+        // "filing" are old names for this feature that users still type.
         //
-        // "loose files" and "todo" are the two a user actually types: the title spells the first
-        // hyphenated ("Loose-files"), so the spaced form matches nothing without the keyword, and
-        // the second is the default value rather than anything in the label.
+        // "loose files" is needed because the title hyphenates it, and "todo" is the default value,
+        // not in the label.
         .init(tab: .filing, title: "Loose-files inbox",
               keywords: ["inbox", "loose files", "todo", "default folder", "scan folder",
                          "organize", "tidy", "filing"]),
@@ -645,11 +550,9 @@ enum SettingsSearchIndex {
         .init(tab: .filing, title: "Folder surveys",
               keywords: ["survey", "folder survey", "learn folders", "learn its folders", "profile",
                          "google drive", "dropbox", "onedrive", "icloud", "layout", "forget survey"]),
-        // Nearly every query for this one misses the label. The section is titled "Kept names",
-        // but the decision is made from a menu item worded "Always Allow This Name" and withdrawn
-        // from one worded "Stop Allowing This Name" — so "allow" is the word the user has actually
-        // read — and what they are looking for is more likely described by the problem ("risky
-        // name", "trailing space", "badge") than by the state they put it in.
+        // Most queries miss the label: the menu items say "Always Allow This Name" and "Stop
+        // Allowing This Name", so "allow" is the word users have read, and they describe the
+        // problem ("risky name", "trailing space", "badge") more than the state.
         .init(tab: .filing, title: "Kept names",
               keywords: ["kept name", "keep name", "allow name", "always allow", "stop allowing",
                          "allowed names", "risky name", "risky names", "badge", "name badge",
@@ -662,34 +565,31 @@ enum SettingsSearchIndex {
               keywords: ["overlap", "threshold", "folder overlap", "percent", "duplicates"]),
         .init(tab: .duplicates, title: "Detect versions",
               keywords: ["versions", "final", "copy", "report (1)", "variants", "duplicates"]),
-        // Nobody hunting for this types its label. They type what they were doing when they
-        // noticed it: the same bill downloaded twice, or the minutes the first scan took.
+        // Nobody types this label; they type what they noticed: the same bill downloaded twice,
+        // or a slow first scan.
         .init(tab: .duplicates, title: "Read PDFs to find copies a byte hash misses",
               keywords: ["pdf", "text", "same text", "content", "fingerprint", "re-downloaded",
                          "downloaded twice", "re-stamped", "slow scan", "duplicates"]),
 
-        // Intelligence — the engine and its cost, in tab order. This block carries more of the
-        // findability load than any other: the rail says "Intelligence", and nobody hunting for
-        // where their API key goes types that word. Every entry keeps the "organize"/"filing"
-        // keywords it had before the split for the same reason the People block does.
+        // Intelligence: the engine and its cost, in tab order. Keywords matter most here, since
+        // nobody looking for where their API key goes types "Intelligence". "organize" and
+        // "filing" stay for the People block's reason.
         .init(tab: .intelligence, title: "Suggest folders with on-device AI",
               keywords: ["filing", "apple intelligence", "on-device ai", "suggestions", "suggest folders",
                          "sort files", "organize", "tidy", "intelligence"]),
         .init(tab: .intelligence, title: "Read file contents on-device for better signals",
               keywords: ["read contents", "content signals", "ocr", "text", "pdf", "vision"]),
-        // "refine" is the word on the button this row enables, and the one someone who has seen
-        // that button will type; "best suggestions" is what the row used to be called.
+        // "refine" is the word on the button this row enables; "best suggestions" is an older
+        // name for the row.
         .init(tab: .intelligence, title: "Use Claude (cloud) to refine suggestions",
               keywords: ["claude", "cloud", "anthropic", "cloud filing", "ai", "refine",
                          "best suggestions", "organize"]),
-        // "claude" belongs on the KEY, not only on the toggle above it. The title says Anthropic
-        // and the product says Claude, and someone pasting an `sk-ant-…` types whichever of the
-        // two they last read — which for anyone coming from the Console or the Refine button is
-        // "claude api key".
+        // "claude" belongs on the key too, not only the toggle: someone pasting an `sk-ant-…`
+        // types whichever name they last read, often "claude api key".
         .init(tab: .intelligence, title: "Claude API key",
               keywords: ["api key", "key", "keychain", "sk-ant", "anthropic key", "anthropic api key", "token",
                          "api", "credentials", "secret", "claude", "claude key"]),
-        // Ask Claude (RD69, v7.0): the chat panel's own model and limit, separate from Filing's.
+        // Ask Claude: the chat panel's own model and limit, separate from Filing's.
         .init(tab: .intelligence, title: "Ask Claude",
               keywords: ["chat", "assistant", "ask", "claude chat", "panel", "⌘J", "copilot", "help me"]),
         .init(tab: .intelligence, title: "Answers",
@@ -706,16 +606,14 @@ enum SettingsSearchIndex {
               keywords: ["ask claude spend", "chat cost", "spent", "usage", "cost"]),
         .init(tab: .intelligence, title: "Cloud model",
               keywords: ["model", "haiku", "sonnet", "opus", "claude model"]),
-        // Titled for the section it now sits in ("Cost and limits"); "cloud spend" stays as a
-        // keyword because that is what the section was called and what the history sheet says.
+        // "cloud spend" stays a keyword because the history sheet says it.
         .init(tab: .intelligence, title: "Cost and limits",
               keywords: ["spend", "cloud spend", "cost", "tokens", "billing", "usage", "money", "price"]),
         .init(tab: .intelligence, title: "Monthly budget cap",
               keywords: ["budget", "cap", "limit", "monthly", "spend limit", "cost cap", "guardrail", "pause cloud", "money"]),
         .init(tab: .intelligence, title: "Total budget cap",
               keywords: ["budget", "cap", "limit", "total", "lifetime", "spend limit", "cost cap", "guardrail", "pause cloud", "money", "backstop"]),
-        // "cache" is the word an engineer reaches for and the UI deliberately never says, so it
-        // has to live here or the row is unfindable by the people most likely to look for it.
+        // "cache" is the word the UI never says but an engineer types, so it lives here.
         .init(tab: .intelligence, title: "Reuse suggestions for files that haven’t changed",
               keywords: ["reuse", "cache", "cached suggestions", "rescan", "re-ask", "cost", "save money"]),
         .init(tab: .intelligence, title: "Saved suggestions",
@@ -800,8 +698,8 @@ private struct SettingsSearchResults: View {
 /// background notifications, and the quit safety guard.
 struct GeneralSettingsTab: View {
     @EnvironmentObject var settings: SettingsManager
-    /// Opens the guided setup sheet. **Defaulted**: this tab is memberwise-only and is built bare
-    /// in `SettingsLayoutTests.mustFitTabs`.
+    /// Opens the guided setup sheet. Defaulted: this tab is memberwise-only and is built bare in
+    /// `SettingsLayoutTests.mustFitTabs`.
     var onRunSetup: (() -> Void)? = nil
     @AppStorage(GeneralSettings.showHiddenByDefaultKey) private var showHiddenByDefault: Bool = false
     @AppStorage(GeneralSettings.warnBeforeQuitKey) private var warnBeforeQuit: Bool = true
@@ -854,13 +752,11 @@ struct GeneralSettingsTab: View {
 /// Theme, accent hue, glass material and surface shape, all shared with MacApp through
 /// UserDefaults.
 ///
-/// Theme (light/dark), Glass effect (material) and Content surface (shape) are deliberately
-/// separate controls: any combination is valid. The latter two were entangled before — "Solid"
-/// appeared in the shape picker and silently overrode the material one.
+/// Theme (light/dark), Glass effect (material) and Content surface (shape) are separate controls:
+/// any combination is valid, and none overrides another.
 ///
-/// Theme leads the tab because it is the broadest of the four: the others all decide how a
-/// surface reads *within* an appearance, so choosing light vs dark first is what makes them
-/// meaningful. Unlike the others it renders nothing here — `ContentView` pushes it to NSApp.
+/// Theme leads because the others decide how a surface reads within an appearance. Unlike them it
+/// renders nothing here: `ContentView` pushes it to NSApp.
 struct AppearanceSettingsTab: View {
     @AppStorage(LiquidGlass.appearanceModeKey) private var appearanceModeRaw: String = AppearanceMode.system.rawValue
     /// The resolved theme; `.system` (follow macOS) if unrecognized.
@@ -916,9 +812,8 @@ struct AppearanceSettingsTab: View {
                     : "How strongly the accent color colors the window. Subtle keeps a faint tint rather than removing it — for none at all, choose the None accent above."
             ) {
                 HStack(spacing: 12) {
-                    // The slider's own label is hidden, not dropped: the section title above
-                    // already says "Tint", and two of them would read as two controls. It stays
-                    // in the accessibility tree.
+                    // Label hidden, not dropped: the section title already says "Tint", and it
+                    // stays in the accessibility tree.
                     Slider(value: $surfaceTint, in: 0.0...1.0) {
                         Text("Tint")
                     } minimumValueLabel: {
@@ -987,10 +882,9 @@ struct HueOptionView: View {
                     if isSelected {
                         Image(systemName: "checkmark")
                             .scaledFont(.system(size: 13, weight: .semibold))
-                            // The checkmark sits on the swatch's own fill, so it pairs with that
-                            // fill's luminance — hardcoded white was ~2.1:1 on amber. "None" has no
-                            // fill of its own (a neutral disc deferring to the system accent), so it
-                            // tracks the appearance via `.primary` like the disc does.
+                            // The checkmark pairs with its swatch's luminance, since white is
+                            // unreadable on amber. "None" has no fill of its own, so it tracks the
+                            // appearance via `.primary` like the disc does.
                             .foregroundStyle(hue == .none ? Color.primary : .onFillLabel(hue.accentColor))
                             .shadow(color: .black.opacity(0.35), radius: 0.5, x: 0, y: 0.5)
                     }
@@ -1050,15 +944,10 @@ struct HueSwatchDisc: View {
 
 /// Text size and row spacing, with a preset row over them and a live preview under them.
 ///
-/// **Why this is a tab and not a section of Appearance.** Both controls answer one question — how
-/// much do you want on screen? — so they belong together, and they shipped as two adjacent
-/// segmented pickers with 190 characters of caption between them and no hint that they were
-/// related. Put properly, with the preset row that summarises them, the detent labels that name
-/// the shipped sizes and the preview that shows what row spacing actually costs, the group comes
-/// to ~875pt. Appearance's opening on a 1280×800 display is 647pt and it was already running on
-/// about 15pt of margin, so the choice was this tab or losing everything that makes the group
-/// legible. `readabilityFitsItsOpeningWithoutScrolling` is what holds the new tab to the same bar
-/// every other one meets.
+/// Both controls answer one question, how much you want on screen, so they sit together. With the
+/// presets, detent labels and preview the group comes to ~875pt, more than Appearance's 647pt
+/// opening on a 1280×800 display, hence its own tab. `readabilityFitsItsOpeningWithoutScrolling`
+/// holds it to the same fit bar as the others.
 ///
 /// Nothing here is stored by this view: `FontSize.defaultsKey` and `ListDensity.defaultsKey` stay
 /// the two sources of truth, and the preset row reads them to decide which tile is lit.
@@ -1074,9 +963,8 @@ struct ReadabilitySettingsTab: View {
         ColumnWidthOverrides()
     /// Asks before "All columns" erases the widths of that many columns sized on their own.
     private let confirmReleasingColumnWidths: @MainActor (Int) -> Bool
-    /// Bumped by a declined "All columns", to rebuild the picker. The segment the click lit stays
-    /// lit otherwise: the setter wrote nothing, so SwiftUI has no change to redraw the control from,
-    /// and the picker would show "All columns" over a setting still at "Each column".
+    /// Bumped by a declined "All columns", to rebuild the picker. Otherwise the clicked segment
+    /// stays lit: the setter wrote nothing, so SwiftUI has no change to redraw from.
     @State private var declinedResizeChoices = 0
     /// Whether keyboard focus is on the picker. The decline's rebuild drops focus with the old
     /// control, so a keyboard or VoiceOver user is put back where they were.
@@ -1091,9 +979,8 @@ struct ReadabilitySettingsTab: View {
     }
 
     /// The setting, written through one rule: choosing "All columns" puts every column back to the
-    /// one shared width, the way that choice always drew them. Leaving the columns someone sized on
-    /// their own at their widths would make the setting look broken — one wide column under "All
-    /// columns" — until some later drag happened to release it.
+    /// one shared width. Keeping the columns sized on their own would leave one wide column under
+    /// "All columns", which looks broken.
     private var columnResizeMode: Binding<String> {
         Binding(
             get: { columnResizeModeRaw },
@@ -1109,26 +996,25 @@ struct ReadabilitySettingsTab: View {
                     if hadFocus { DispatchQueue.main.async { resizePickerFocused = true } }
                     return
                 }
-                // Written only after the answer, and only what changed: passing the stored values
-                // `inout` wrote both back even on Cancel, and a write is a defaults change other
-                // windows react to.
+                // Written only after the answer, and only what changed: any write is a defaults
+                // change other windows react to.
                 columnResizeModeRaw = choice.mode
                 if choice.overrides != overrides { columnWidthOverrides = choice.overrides }
             })
     }
 
-    /// The setter's rule, reachable without mounting the tab. **Asks first when "All columns" would
-    /// release columns sized on their own** — their widths are erased, and choosing "Each column"
-    /// again does not bring them back. With nothing sized on its own there is nothing to lose, so
-    /// it does not ask. The rule is `ColumnResizeChoice`'s, so a control outside the tab applies it too.
+    /// The setter's rule, reachable without mounting the tab. Asks first when "All columns" would
+    /// release columns sized on their own: their widths are erased, and choosing "Each column"
+    /// again doesn't bring them back. With none, it doesn't ask. The rule is `ColumnResizeChoice`'s,
+    /// so a control outside the tab applies it too.
     /// - Returns: The mode and widths to store, or nil when declined — nothing is written then.
     static func chooseResizeMode(_ raw: String, overrides: ColumnWidthOverrides,
                                  confirm: () -> Bool) -> (mode: String, overrides: ColumnWidthOverrides)? {
         ColumnResizeChoice.choose(raw, overrides: overrides, confirm: confirm)
     }
 
-    /// The resolved text size. `FontSize.init(percent:)` clamps, so a value stored before the
-    /// range last moved is honoured rather than discarded.
+    /// The resolved text size. `FontSize.init(percent:)` clamps, so an out-of-range stored value
+    /// is honoured rather than discarded.
     private var fontSize: FontSize { FontSize(percent: fontSizePercent) }
 
     /// The resolved row spacing; `.comfortable` (the standard rows) if unrecognized.
@@ -1145,19 +1031,10 @@ struct ReadabilitySettingsTab: View {
     }
 
     /// The value the slider is fed for a stored percentage, and the value a slider position
-    /// stores back.
-    ///
-    /// **Extracted because the bug they fix is invisible from outside the closure.** The getter
-    /// read `fontSizePercent` raw while everything else on the tab reads through `FontSize`, which
-    /// clamps — so a stored value outside 90...135 (a build that once allowed more, a hand-edited
-    /// default) was handed to a `Slider` whose range excludes it, while the tiles and the readout
-    /// beside it said 135%. SwiftUI almost certainly clamps that for display, which is what makes
-    /// it a consistency bug rather than a visible one — and also what makes it impossible to catch
-    /// by rendering, because the two states draw the same.
-    ///
-    /// A pair of pure functions can be tested for what they ANSWER;
-    /// `theSliderReadsAndWritesThroughTheClamp` then scans the call site, because a seam nothing
-    /// calls is one revert from being decoration.
+    /// stores back. Both go through `FontSize`'s clamp, like the rest of the tab, so an
+    /// out-of-range stored value never reaches the `Slider` while the tiles say otherwise. A
+    /// rendering can't show the difference, hence pure functions;
+    /// `theSliderReadsAndWritesThroughTheClamp` checks the call site uses them.
     static func sliderValue(forStored stored: Int) -> Double {
         Double(FontSize(percent: stored).percent)
     }
@@ -1174,13 +1051,9 @@ struct ReadabilitySettingsTab: View {
         Text("A").scaledFont(.system(size: 15)).foregroundStyle(.secondary)
     }
 
-    /// The percentage beside the slider, in a frame sized by the WIDEST value it can ever show.
-    ///
-    /// The width used to be a flat 38pt, which is right at 100% and too narrow at 135% — the
-    /// readout wrapped onto a second line, mid-number, on the one screen whose job is to stop text
-    /// being unreadable. A hidden `135%` sets the frame instead: it scales with the setting like
-    /// everything else here, and because the reference string is the longest one, the number
-    /// underneath never reflows and the slider never jiggles as it changes.
+    /// The percentage beside the slider, in a frame sized by the widest value it can show. A hidden
+    /// maximum sets the frame, so it scales with the text size, the number never wraps and the
+    /// slider never shifts as it changes. A fixed width would be too narrow at large sizes.
     private var readout: some View {
         Text("\(FontSize.maximumPercent)%")
             .scaledFont(.caption.weight(.semibold))
@@ -1206,8 +1079,7 @@ struct ReadabilitySettingsTab: View {
                 .scaledFont(.system(size: 9.5, weight: .medium))
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
-                // It is a group heading, not a label for the next control — saying so is what
-                // lets VoiceOver's heading navigation land on it.
+                // A group heading, so VoiceOver's heading navigation lands on it.
                 .accessibilityAddTraits(.isHeader)
             VStack { Divider() }
         }
@@ -1227,10 +1099,8 @@ struct ReadabilitySettingsTab: View {
                 fineTuningRule
                     .padding(.top, 4)
 
-                // The label is pinned to the TOP of the block rather than centred in it:
-                // `LabeledContent` centres its label against the whole content, and the content
-                // here is the slider row PLUS the detent labels under it, which left "Text size"
-                // sitting level with the word "Default" instead of with the control it names.
+                // The label is pinned to the top: `LabeledContent` centres it against the slider
+                // row plus the detent labels, which would put it level with the labels.
                 LabeledContent {
                     VStack(spacing: 0) {
                         HStack(spacing: 10) {
@@ -1249,16 +1119,9 @@ struct ReadabilitySettingsTab: View {
                             largeAGlyph
                             readout
                         }
-                        // **The detent rail is flanked by the SAME views the slider row is**,
-                        // hidden. It used to carry hand-measured `.padding(.leading, 20)` and
-                        // `.trailing, 58)`, which are only right at one text size: the glyphs and
-                        // the readout beside the slider grow with the setting, so at 135% the
-                        // track had moved and narrowed while the rail had not, and the detent
-                        // labels sat away from the ticks they name.
-                        //
-                        // Reusing the views rather than restating their widths is the point —
-                        // there is one definition of each, so the two rows cannot come to disagree
-                        // about how wide the flanks are.
+                        // The detent rail is flanked by the same views as the slider row, hidden.
+                        // Those flanks grow with the text size, so fixed padding would leave the
+                        // labels off their ticks; one definition of each keeps the rows aligned.
                         HStack(spacing: 10) {
                             smallAGlyph.hidden()
                             FontSizeDetentLabels(selected: fontSize)
@@ -1277,10 +1140,8 @@ struct ReadabilitySettingsTab: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                // "Row spacing", not the "List density" this shipped as: density is a word from
-                // the implementation, spacing is what the person is changing, and it reads as a
-                // pair with "Text size" directly above. The option names and the stored key are
-                // deliberately untouched — `ListDensity.defaultsKey` is still `listDensity`.
+                // "Row spacing", not "List density": spacing is what the person changes, and it
+                // pairs with "Text size" above. The stored key is still `listDensity`.
                 LabeledContent("Row spacing") {
                     Picker("Row spacing", selection: $listDensityRaw) {
                         ForEach(ListDensity.allCases) { density in
@@ -1303,10 +1164,9 @@ struct ReadabilitySettingsTab: View {
                 SizeSpacingPreview(fontSize: fontSize, density: listDensity)
                     .padding(.top, 4)
 
-                // Here rather than on its own tab: it is about how the columns read, one row below
-                // how big their rows are. The segments are short on purpose — at the sheet's floor
-                // the content beside the rail is about 340pt — and the caption carries the rest,
-                // ⌥ and the double-click included, since neither is visible anywhere else.
+                // Here because it's about how the columns read. The segments are short because at
+                // the sheet's floor the content is about 340pt wide; the caption carries the rest,
+                // including ⌥ and the double-click, which nothing else shows.
                 LabeledContent("Column widths") {
                     Picker("Column widths", selection: columnResizeMode) {
                         ForEach(ColumnResizeMode.allCases) { mode in
@@ -1329,8 +1189,7 @@ struct ReadabilitySettingsTab: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } caption: {
-                // The prose lives inline — under the presets it summarises, under each control it
-                // explains — so the trailing caption slot is deliberately empty.
+                // The prose lives inline under what it explains, so the caption slot is empty.
                 EmptyView()
             }
         }
@@ -1340,16 +1199,14 @@ struct ReadabilitySettingsTab: View {
 // MARK: - Sources
 
 /// The sources panes can be pointed at: the cloud accounts discovered on this Mac, and the plain
-/// folders the user added. Two sub-sections, because they are two different kinds of thing — one is
-/// found, the other is chosen — and the controls differ accordingly: a cloud account can be
-/// refreshed but never removed, a folder can be removed but never discovered.
+/// folders the user added. Two sub-sections, because one is found and the other chosen: a cloud
+/// account can be refreshed but never removed, a folder removed but never discovered.
 struct ProvidersSettingsTab: View {
     @EnvironmentObject var settings: SettingsManager
     @State private var isRefreshingProviders = false
-    /// Ids of the rows the user has opened. Collapsed is the default and the point: this tab grows
-    /// with every account the Mac has plus every folder added, and at four expanded rows the list
-    /// already scrolls past the sheet. State, not a persisted default — which row you last opened
-    /// is not a preference, and restoring it would reopen the scroll problem on the next launch.
+    /// Ids of the rows the user has opened. Collapsed by default, because the tab grows with every
+    /// account and folder, and four expanded rows already scroll past the sheet. State, not a
+    /// persisted default: which row you last opened isn't a preference.
     @State private var expandedIds: Set<String> = []
 
     private var cloudProviders: [CloudProvider] {
@@ -1381,9 +1238,8 @@ struct ProvidersSettingsTab: View {
                 }
             }
 
-            // This tab is the one that legitimately keeps scrolling: it grows with every
-            // provider the Mac has, so no sheet height can promise to hold it. Collapsed rows are
-            // what keep that growth linear in sources rather than in sources × four fields.
+            // This tab legitimately scrolls: it grows with every provider the Mac has. Collapsed
+            // rows keep the growth to one row per source rather than four fields each.
             ForEach(cloudProviders) { provider in
                 Divider()
                 ProviderSettingsSection(provider: provider, isExpanded: expansionBinding(provider.id))
@@ -1433,9 +1289,9 @@ struct ProvidersSettingsTab: View {
         }
     }
 
-    /// One row's open/closed state. A binding over the shared set rather than per-row `@State`, so
-    /// a row that is rebuilt when discovery republishes `availableProviders` — which happens on
-    /// every path edit, every rename, every Refresh — doesn't silently snap shut mid-edit.
+    /// One row's open/closed state. A binding over the shared set, not per-row `@State`, so a row
+    /// rebuilt when discovery republishes `availableProviders` (every path edit, rename and
+    /// Refresh) doesn't snap shut mid-edit.
     private func expansionBinding(_ id: String) -> Binding<Bool> {
         Binding(
             get: { expandedIds.contains(id) },
@@ -1458,9 +1314,8 @@ struct ProvidersSettingsTab: View {
         }
     }
 
-    /// Picks a folder and adds it as a source — opening the new row, so the thing that just
-    /// appeared is the thing you can see. Adding a folder that is already a source opens *that*
-    /// row instead of adding a second (see `SettingsManager.addFolderSource`).
+    /// Picks a folder, adds it as a source and opens its row. A folder that is already a source
+    /// opens that row instead of adding a second (see `SettingsManager.addFolderSource`).
     private func addFolder() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -1475,9 +1330,8 @@ struct ProvidersSettingsTab: View {
 
 /// The rulesets a folder source's names can be checked against, in the order the picker lists them.
 ///
-/// Only the two that HAVE rules, plus off. iCloud and Google Drive accept anything the local
-/// filesystem does, so offering them would be offering two more spellings of "don't check" —
-/// three ways to say one thing, two of which look like they mean something.
+/// Only the two that have rules, plus off. iCloud and Google Drive accept anything the local
+/// filesystem does, so offering them would be two more spellings of "don't check".
 struct FolderNameRuleOption: Identifiable {
     static let all: [FolderNameRuleOption] = [
         .init(value: .oneDrive, label: "OneDrive (strictest)"),
@@ -1502,9 +1356,8 @@ struct ProviderSettingsSection: View {
     /// Whether the path configuration is showing. The header line is always there.
     @Binding var isExpanded: Bool
     @EnvironmentObject var settings: SettingsManager
-    // The path draft is a value type rather than a bare String: Reset, focus-blur commit, and the
-    // discovery refresh all move it, and getting Reset wrong left the field blank. See
-    // `ProviderPathDraft`.
+    // A value type, not a bare String: Reset, focus-blur commit and the discovery refresh all move
+    // it, and a wrong Reset would leave the field blank. See `ProviderPathDraft`.
     @State private var pathDraft = ProviderPathDraft()
     @State private var draftName: String = ""
     // Both editable fields share one commit model: Return or focus-loss commits,
@@ -1513,23 +1366,20 @@ struct ProviderSettingsSection: View {
     @FocusState private var pathFieldFocused: Bool
 
     /// The display name of the source that already owns a folder this row's Location edit was
-    /// refused for, or nil when the last commit was accepted. Drives the line under the field —
-    /// the refusal has to say *which* source holds the folder, because "that didn't work" leaves
-    /// the user re-typing the same path.
+    /// refused for, or nil when the last commit was accepted. The line under the field names
+    /// which source holds the folder, or the user would retype the same path.
     @State private var refusedDuplicateOwner: String?
 
-    /// Why the last "Open at" pick was declined, or nil when none was. A folder outside the root
-    /// cannot be stored — `openAt` is measured from the root — and a picker that simply did
-    /// nothing would look broken rather than principled.
+    /// Why the last "Open at" pick was declined, or nil. A folder outside the root can't be stored,
+    /// since `openAt` is measured from the root, and a picker that did nothing would look broken.
     @State private var openAtRefusal: String?
 
     private var isEnabled: Bool {
         settings.isEnabled(provider.id)
     }
 
-    /// A folder source's Remove, as one step: ask, and only then remove. Removing takes the name
-    /// given to it and its switched-off state with it (`SettingsManager.removeFolderSource`), and
-    /// adding the folder again brings neither back.
+    /// A folder source's Remove: ask, and only then remove. Removing drops its custom name and
+    /// switched-off state (`SettingsManager.removeFolderSource`); adding it again restores neither.
     /// - Returns: Whether the source was removed.
     @discardableResult
     static func removeFolderSourceIfConfirmed(id: String, from settings: SettingsManager,
@@ -1543,11 +1393,9 @@ struct ProviderSettingsSection: View {
                 ProviderLogo(provider.imageName, size: 26)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    // The name itself is the rename affordance: click to edit in place.
-                    // Enter or clicking away commits; emptying it restores the default.
-                    // labelsHidden keeps the grouped Form from rendering a leading
-                    // "Provider name" label and right-aligning the value; the name
-                    // must sit in place of the title, next to the icon.
+                    // The name is the rename affordance: click to edit in place. Return or
+                    // clicking away commits; emptying it restores the default. labelsHidden keeps
+                    // the Form from adding a label and right-aligning the name beside the icon.
                     TextField("Provider name", text: $draftName)
                         .textFieldStyle(.plain)
                         .labelsHidden()
@@ -1558,10 +1406,8 @@ struct ProviderSettingsSection: View {
                             if !focused { commitName() }
                         }
                         .help("Click to rename. Clear the name to restore the default.")
-                    // What identifies this source at a glance while the row is shut. A cloud
-                    // account is identified by its id (`OneDrive-Personal`) — that IS the
-                    // account, and its path is a consequence of it. A folder source's id is a
-                    // UUID that says nothing to anyone; the folder IS the path, so that shows.
+                    // What identifies the source while the row is shut: a cloud account's id
+                    // (`OneDrive-Personal`), or a folder source's path, since its id is a UUID.
                     Text(provider.isLocalFolder ? provider.rootPath : provider.id)
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)
@@ -1572,7 +1418,7 @@ struct ProviderSettingsSection: View {
 
                 Spacer()
 
-                // Its cloud app not syncing (RD68): the amber dot the sidebar draws.
+                // Its cloud app not syncing: the amber dot the sidebar draws.
                 if let label = cloudAppStatusLabels[provider.id] {
                     HStack(spacing: 4) {
                         Circle().fill(SemanticColor.warning).frame(width: 6, height: 6)
@@ -1591,8 +1437,8 @@ struct ProviderSettingsSection: View {
                 Toggle("", isOn: enabledBinding)
                     .toggleStyle(.switch)
                     .labelsHidden()
-                    // The title is empty so the row's own name sits beside it; without this
-                    // VoiceOver reads "switch, on" once per account, with nothing to tell them apart.
+                    // The title is empty, so without this VoiceOver reads every account's switch
+                    // as just "switch, on".
                     .accessibilityLabel(provider.displayName)
                     .disabled(isEnabled && !settings.canDisable(provider.id))
                     .help(
@@ -1635,17 +1481,13 @@ struct ProviderSettingsSection: View {
 
     /// The account's root, shown and not offered for editing.
     ///
-    /// An account has exactly one root — the folder `~/Library/CloudStorage` mounts it at — so a
-    /// field here would be a way to be wrong about a fact, not a preference to express. What the
-    /// user genuinely chooses is *where inside it a pane opens*, which is the row below.
+    /// An account has exactly one root, the folder `~/Library/CloudStorage` mounts it at, so a
+    /// field here could only be wrong. What the user chooses is where inside it a pane opens: the
+    /// row below.
     ///
-    /// **With one exception, and it is the reason this row is not purely informational.** An
-    /// install upgrading from a build where Location was a free-form field can arrive here with a
-    /// root `RootsMigration` carried forward from a path outside the account entirely — and
-    /// presenting that as "the account's one true root", with no field and no Reset, made it
-    /// permanent: nothing else in the app writes or clears that key, so the only escape was
-    /// `defaults delete`. The note and the button appear only in that state (`hasRootOverride`),
-    /// which is false for every source on an install that never set a custom Location.
+    /// The exception: an install upgraded from a build with a free-form Location can carry a root
+    /// (via `RootsMigration`) outside the account. Nothing else clears that key, so this row offers
+    /// a note and Reset in that state only (`hasRootOverride`).
     private var accountRootRow: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Root")
@@ -1665,9 +1507,9 @@ struct ProviderSettingsSection: View {
             }
             HStack(spacing: 8) {
                 Button("Show in Finder") { openInFinder(provider.rootPath) }
-                // The provider's own settings — System Settings for iCloud, the vendor's app or
-                // web surface for the rest; see `CloudProvider.settingsDoor` for why each vendor
-                // gets the door it gets. Absent, not disabled, when the vendor's app is missing.
+                // The provider's own settings: System Settings for iCloud, the vendor's app or web
+                // page for the rest (see `CloudProvider.settingsDoor`). Absent, not disabled, when
+                // the vendor's app is missing.
                 if let door = provider.settingsDoor, let title = provider.settingsDoorTitle,
                    ProviderSettingsOpener.canOpen(door) {
                     Button(title) { ProviderSettingsOpener.open(door) }
@@ -1680,12 +1522,9 @@ struct ProviderSettingsSection: View {
             }
             .controlSize(.small)
             .padding(.top, 2)
-            // On the controls only, like `openAtRow` below and for the same two reasons: a switched-
-            // off account is one whose settings should not be edited from here, and `disabled` is
-            // cumulative, so gating the whole VStack would grey the carried-over-root note along
-            // with the buttons — and that note stays just as true when the source is off. This
-            // gating was lost for one commit when the account and folder-source editors were split:
-            // both controls used to sit under the shared strip's `!isEnabled`.
+            // On the controls only, like `openAtRow`: a switched-off account's settings aren't
+            // edited here, and `disabled` is cumulative, so gating the VStack would grey the note,
+            // which stays true when the source is off.
             .disabled(!isEnabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1698,8 +1537,8 @@ struct ProviderSettingsSection: View {
     }
 
     private func resetRootToDiscovered() {
-        // The empty path is what `setPath` reads as "clear the override" — the only reachable use
-        // of its account branch, and the reason that branch is kept.
+        // `setPath` reads the empty path as "clear the override", the only reachable use of its
+        // account branch.
         settings.setPath("", for: provider.id)
     }
 
@@ -1707,13 +1546,8 @@ struct ProviderSettingsSection: View {
     private var openAtRow: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Open at")
-            // **Monospaced only when it is a path.** "The source root" is an English sentence
-            // standing in for a value, and setting it in the same face as the absolute path in the
-            // Root row above says it is one — the column then reads as three kinds of thing (an
-            // absolute path, a relative fragment, a sentence) in one undifferentiated face.
-            //
-            // Selectable, like Root. The relative fragment is the half more likely to be pasted
-            // somewhere, and it was the one that could not be copied.
+            // Monospaced only when it is a path: "The source root" is a phrase, not a value.
+            // Selectable, like Root, since the relative path is likely to be pasted somewhere.
             Text(openAtDisplay)
                 .scaledFont(provider.openAt.isEmpty ? .callout
                                                     : .system(.callout, design: .monospaced))
@@ -1722,19 +1556,15 @@ struct ProviderSettingsSection: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Both, not `else if`. The missing-folder note is a standing fact about the source and
-            // the refusal is about the click just made; shadowing the first behind the second hid
-            // "your landing folder is gone" until the row was re-mounted.
+            // Both notes, not `else if`: the missing folder is a standing fact, the refusal is about
+            // the click just made, and one mustn't hide the other.
             //
-            // Gated on the ROOT being valid too: when the whole account is unmounted `landingValidity`
-            // is false as well, and saying "that folder isn't there any more" about a folder inside a
-            // root that is also not there points at the wrong thing. The row's own status badge is
-            // what speaks for a missing root.
+            // Gated on the root being valid too: with the whole account unmounted the landing is
+            // invalid as well, and the row's status badge speaks for a missing root.
             if !provider.openAt.isEmpty, settings.isPathValid(for: provider.id),
                !settings.isLandingValid(for: provider.id) {
-                // Says so rather than silently opening somewhere else: the pane WILL open at the
-                // root (`openAtIfReachable`), and a user who set this folder deliberately needs to
-                // know why their tabs stopped landing there.
+                // Panes open at the root instead (`openAtIfReachable`), and a user who chose this
+                // folder needs to know why.
                 Text("That folder isn’t there any more, so panes open at the root instead.")
                     .scaledFont(.subheadline)
                     .foregroundStyle(.secondary)
@@ -1751,11 +1581,9 @@ struct ProviderSettingsSection: View {
             HStack(spacing: 8) {
                 Button("Choose…") { selectOpenAtDirectory() }
                     .help("Picks the folder inside \(provider.displayName) that panes open at.")
-                // Disabled when there is nothing to reset. Enabled, it was a click that removed a
-                // key that was not there, logged a line, kicked off a rediscovery and changed
-                // nothing on screen — and for iCloud, whose discovered default IS the root, the row
-                // reads "The source root" whether the user chose it or inherited it, so the button
-                // was the only thing that could have told the two apart and it did not.
+                // Disabled when there is nothing to reset. For iCloud, whose default is the root,
+                // the row reads the same chosen or inherited, so the button's state is the only
+                // thing that tells them apart.
                 Button("Reset") {
                     openAtRefusal = nil
                     settings.resetOpenAt(for: provider.id)
@@ -1766,10 +1594,8 @@ struct ProviderSettingsSection: View {
             }
             .controlSize(.small)
             .padding(.top, 2)
-            // On the controls, not on the whole row. `disabled` is cumulative and a descendant
-            // cannot re-enable itself, so gating the VStack greyed out the two explanatory notes
-            // along with the buttons — and a disabled source's landing folder is just as gone,
-            // which makes a greyed explanation read as inapplicable rather than as still true.
+            // On the controls, not the whole row: `disabled` is cumulative and a descendant can't
+            // re-enable itself, so gating the VStack would grey the notes, which stay true.
             .disabled(!isEnabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1778,42 +1604,26 @@ struct ProviderSettingsSection: View {
     /// The landing folder as the row shows it — the root-relative path, or a phrase for the root.
     ///
     /// A phrase rather than an empty line or a bare `/`: "" is a real, chosen value here, and a
-    /// blank row reads as unset. Panes on this source do open somewhere.
+    /// blank row reads as unset.
     ///
-    /// **The value stays root-RELATIVE, and that was decided against rendered alternatives rather
-    /// than by default.** A review raised that `Documents` names nothing on its own — the reader has
-    /// to join it to the Root line above themselves. Three replacements were built and looked at in
-    /// the real row (2026-08-27):
-    ///
-    /// - the full joined path duplicated the Root line almost exactly: two ~50-character monospace
-    ///   lines one above the other, differing only in a trailing `/Documents` at the far right,
-    ///   which is the worst place to put the only difference between two similar lines;
-    /// - a leading separator (`/Documents`) reads as an ABSOLUTE path from the volume root, which is
-    ///   actively wrong rather than merely terse;
-    /// - a dimmed root tail before the choice (`…/OneDrive-Personal/Documents`) worked, and was
-    ///   still declined: Root sits one line above with the answer in full, so the anchor is
-    ///   redundant on screen and only costs the row width.
-    ///
-    /// Do not re-raise this without rendering it. The argument is not that the bare fragment is
-    /// self-describing — it is that the line above it already describes it.
+    /// The value stays root-relative on purpose: the Root line above already anchors it. A full
+    /// path would nearly duplicate that line, and a leading `/` would read as absolute. Don't
+    /// change this without rendering the alternatives in the real row.
     private var openAtDisplay: String {
         provider.openAt.isEmpty ? "The source root" : provider.openAt
     }
 
     // MARK: - A folder source: one path, which the user chose
 
-    /// A folder source is its own root, so it keeps the single Location field it always had.
+    /// A folder source is its own root, so it has a single Location field.
     ///
-    /// Two children, so a `Group`: they flatten into the row's own stack, which is what puts the
-    /// button strip on the same rhythm as the account rows' strips rather than inside the field's
-    /// tighter 4pt one.
+    /// A `Group`, so its two children flatten into the row's stack and the button strip keeps the
+    /// account rows' spacing rather than the field's tighter 4pt.
     private var folderLocationEditor: some View {
         Group {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Location")
-                // Mirrors the name field above: Enter or clicking away commits.
-                // No Save button — focus-loss covers the same ground, so the two
-                // fields commit through one identical set of triggers.
+                // Mirrors the name field: Return or clicking away commits, so no Save button.
                 TextField("Synchronized path", text: $pathDraft.value)
                     .textFieldStyle(.plain)
                     .scaledFont(.system(.callout, design: .monospaced))
@@ -1824,9 +1634,8 @@ struct ProviderSettingsSection: View {
                         if !focused { commitPath() }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    // A TextField scrolls rather than ellipsizing, so a path longer than even the
-                    // full width still hides its tail. The tooltip is the backstop — the same
-                    // answer the ignored-items list already uses for long root-relative paths.
+                    // A TextField scrolls rather than ellipsizing, so a long path hides its tail;
+                    // the tooltip shows it whole.
                     .help(pathDraft.value)
 
                 // Only ever set for a folder source, and cleared by the next accepted commit.
@@ -1844,9 +1653,8 @@ struct ProviderSettingsSection: View {
 
             HStack(spacing: 8) {
                 Button("Browse…") { selectDirectory() }
-                // A folder source has no discovered default to reset TO — the user chose
-                // the path, and that choice is the whole record. Remove takes its place: the
-                // one thing a folder source can do that a cloud account cannot.
+                // No Reset: a folder source has no discovered default to reset to. Remove takes
+                // its place, which a cloud account can't offer.
                 Button("Remove…", role: .destructive) {
                     Self.removeFolderSourceIfConfirmed(
                         id: provider.id, from: settings,
@@ -1857,20 +1665,14 @@ struct ProviderSettingsSection: View {
                 Spacer()
             }
             .controlSize(.small)
-            // **No `.disabled` here, and that is the rule rather than an omission.** This strip
-            // used to carry `!isEnabled && !provider.isLocalFolder` back when one strip served both
-            // kinds of source; split out, it renders only for a folder source, so that condition is
-            // constantly false and the modifier was doing nothing at all. What it encoded is still
-            // true and is now simply the shape of the code: Remove stays live on a disabled source,
-            // because a folder switched off is exactly the one you are most likely to be removing,
-            // and leaving the only way to get rid of it behind a toggle you have to switch back on
-            // first is a trap. The account rows gate their own strips (`accountRootRow`,
-            // `openAtRow`); this one deliberately does not.
+            // No `.disabled` here, on purpose: Remove stays live on a switched-off folder, the one
+            // you're most likely removing, rather than making you switch it back on first. The
+            // account rows gate their own strips (`accountRootRow`, `openAtRow`).
         }
     }
 
-    /// Opens and shuts the row. Down-chevron to open, up-chevron to shut — the arrow points at
-    /// where the content will be, not at where it is.
+    /// Opens and shuts the row. The chevron points where the content will be: down to open, up to
+    /// shut.
     private var disclosureButton: some View {
         Button {
             isExpanded.toggle()
@@ -1884,8 +1686,7 @@ struct ProviderSettingsSection: View {
         }
         .buttonStyle(.plain)
         .chromeHover()
-        // "Folders", not "location": what this discloses is the source's root AND the folder panes
-        // open at, which were one field called Location until the two came apart.
+        // "Folders", not "location": this discloses the source's root and the folder panes open at.
         .help(isExpanded ? "Hide \(provider.displayName)’s folders" : "Show \(provider.displayName)’s folders")
         .accessibilityLabel(isExpanded ? "Collapse \(provider.displayName)" : "Expand \(provider.displayName)")
     }
@@ -1912,9 +1713,8 @@ struct ProviderSettingsSection: View {
         }
     }
 
-    /// Picks the folder panes on this source open at. The panel *starts* inside the root and is
-    /// told so, but macOS lets the user navigate anywhere from there, so the containment rule is
-    /// enforced on the answer rather than assumed from the starting point.
+    /// Picks the folder panes on this source open at. The panel starts inside the root, but macOS
+    /// lets the user navigate anywhere, so containment is enforced on the answer.
     private func selectOpenAtDirectory() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -1922,18 +1722,15 @@ struct ProviderSettingsSection: View {
         panel.allowsMultipleSelection = false
         panel.message = "Choose the folder \(provider.displayName) opens at"
         panel.prompt = "Open at"
-        // Through the manager, not `provider.landingPath`: the value type joins root and `openAt`
-        // unconditionally, while the manager degrades to the root when the landing folder is not
-        // there. Opening the panel at a folder that has been renamed away drops the user wherever
-        // macOS last was — which is very likely outside this root, so their first pick is refused
-        // by the very rule this panel is meant to help them satisfy. `SetupSheet.seedWalkRoot`
-        // carries the same note for the same reason.
+        // Through the manager, not `provider.landingPath`: the manager falls back to the root when
+        // the landing folder is gone. Otherwise the panel opens wherever macOS last was, likely
+        // outside the root, and the first pick is refused. `SetupSheet.seedWalkRoot` does the same.
         panel.directoryURL = URL(
             fileURLWithPath: (settings.landingPath(for: provider.id) as NSString).expandingTildeInPath)
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        // The words live in ``OpenAtRefusal``: setup's Locations screen offers the same pick, and
-        // two wordings of one refusal teach two different things about one rule.
+        // The words live in ``OpenAtRefusal``, shared with setup's Locations screen, so one rule
+        // has one wording.
         openAtRefusal = OpenAtRefusal.message(settings.setOpenAt(url.path, for: provider.id),
                                               provider: provider.displayName)
     }
@@ -1943,9 +1740,8 @@ struct ProviderSettingsSection: View {
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path)
     }
 
-    // Both fields commit on Return AND on focus-loss (one shared model), so a blur that
-    // lands on an unchanged value must be a harmless no-op — hence both guard on
-    // ProviderFieldEdit.shouldCommit before writing.
+    // Both fields commit on Return and on focus-loss, so a blur on an unchanged value must be a
+    // no-op: both guard on `ProviderFieldEdit.shouldCommit` before writing.
     private func commitPath() {
         let normalized = ProviderFieldEdit.normalized(pathDraft.value)
         pathDraft.value = normalized
@@ -1954,17 +1750,15 @@ struct ProviderSettingsSection: View {
         case .changed, .unchanged:
             refusedDuplicateOwner = nil
         case .refusedDuplicate(let existingId):
-            // Put the field back to what the source actually points at. Nothing was written, so no
-            // `onChange(of: provider.rootPath)` is coming to do it — and leaving the refused text in
-            // place would show a Location this source does not have.
+            // Put the field back to what the source points at. Nothing was written, so no
+            // `onChange(of: provider.rootPath)` will do it.
             refusedDuplicateOwner = settings.availableProviders
                 .first { $0.id == existingId }
                 .map { "\($0.displayName)’s folder" } ?? "another source’s folder"
             pathDraft.adopt(provider.rootPath)
         case .refusedOutsideRoot, .refusedUnknownSource:
-            // Neither reaches this field: `setPath`'s folder-source branch refuses only duplicates,
-            // and this editor renders only for a folder source. Named rather than defaulted, so a
-            // future refusal cannot land here silently as "accepted".
+            // Neither reaches this field: `setPath` refuses a folder source only for a duplicate.
+            // Named rather than defaulted, so a new refusal can't pass silently as accepted.
             refusedDuplicateOwner = nil
             pathDraft.adopt(provider.rootPath)
         }
@@ -1986,16 +1780,14 @@ struct ProviderSettingsSection: View {
 /// Normalization applied to the provider text fields (path and name) before committing.
 /// Pure and internal so tests can pin the trimming without instantiating the view.
 enum ProviderFieldEdit {
-    /// Pasted values often arrive with a trailing space or newline (terminal copies, drag-outs).
-    /// A path stored verbatim with trailing whitespace fails validation and scans empty with no
-    /// visual hint — the badge just goes red — so both fields trim whitespace and newlines alike.
+    /// Pasted values often carry a trailing space or newline. A path stored with one fails
+    /// validation and scans empty with only a red badge, so both fields trim them.
     static func normalized(_ raw: String) -> String {
         raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Whether a commit should actually write. Both fields now commit on Return *and* on
-    /// focus-loss (one shared model), so an unchanged blur must be a no-op: committing is
-    /// gated on the normalized draft differing from the currently stored value.
+    /// Whether a commit should write: only when the normalized draft differs from the stored
+    /// value, so an unchanged blur is a no-op.
     static func shouldCommit(draft: String, committed: String) -> Bool {
         normalized(draft) != committed
     }
@@ -2005,22 +1797,16 @@ enum ProviderFieldEdit {
 /// discovery change, and repopulating after "Reset" — is decided in one testable place instead of
 /// inline in three SwiftUI closures.
 ///
-/// It exists because "Reset" got that lifecycle wrong in a way no view-level reasoning caught. It
-/// used to blank the draft and lean on `onChange(of: provider.rootPath)` to refill it. That refresh
-/// only fires when the published path actually CHANGES — and resetting a provider that has NO
-/// override removes a defaults key that was never there, so nothing changed, nothing refreshed,
-/// and the Location field simply sat empty. A later focus-blur then committed that empty string,
-/// which `SettingsManager.setPath` records as "Cleared the root override for provider" for one that
-/// never had an override: a misleading log line and a pointless rediscovery pass.
+/// **Never blank the draft and wait for `onChange(of: provider.rootPath)` to refill it.** That
+/// fires only when the path changes, and resetting a source with no override changes nothing, so
+/// the field would sit empty and the next blur would commit the empty string.
 struct ProviderPathDraft: Equatable {
     /// The text currently in the field. A plain `var` because the `TextField` binds straight to it.
     var value: String = ""
 
-    /// What "Reset" put in the field, held until the rediscovery it kicked off lands — or `nil`
-    /// when no reset is outstanding. Stored as the TEXT rather than a bool so it self-clears: the
-    /// `TextField` binds straight to `value`, so typing is invisible to this type, and the only
-    /// way to tell "still showing what Reset left" from "the user has since typed over it" is to
-    /// compare. See `reset(toEffective:)` for why the distinction decides who wins.
+    /// What "Reset" put in the field, held until the rediscovery it started lands, or nil. Stored
+    /// as the text, not a bool: typing is invisible to this type, so comparing is the only way to
+    /// tell "still what Reset left" from "typed over since". See `reset(toEffective:)`.
     private var textAwaitingReset: String?
 
     /// The row appeared: start on the provider's effective (default or overridden) path.
@@ -2033,13 +1819,10 @@ struct ProviderPathDraft: Equatable {
     /// when the user isn't actively editing this field — otherwise a concurrent
     /// `discoverProviders()` would silently discard their uncommitted draft.
     ///
-    /// The one exception is the rediscovery the user's own "Reset" started. That refresh is not a
-    /// background pass racing their typing, it is the ANSWER to the button they just pressed —
-    /// and clicking a macOS button does not blur the text field, so it arrives with
-    /// `isEditing: true` and the ordinary guard would decline it. Declining it is what re-committed
-    /// the cleared override on the next blur (see `reset(toEffective:)`). The exception is narrow:
-    /// it applies only while the field still shows exactly what Reset left there, so a user who
-    /// started typing a replacement path keeps their draft, as always.
+    /// The exception is the rediscovery the user's own "Reset" started. Clicking a macOS button
+    /// doesn't blur the field, so it arrives with `isEditing: true`; declining it would let the
+    /// next blur re-commit the cleared override (see `reset(toEffective:)`). It applies only while
+    /// the field still shows exactly what Reset left, so a user typing a new path keeps it.
     mutating func adoptExternalChange(to updated: String, isEditing: Bool) {
         let isResetLanding = textAwaitingReset == value
         guard !isEditing || isResetLanding else { return }
@@ -2049,17 +1832,12 @@ struct ProviderPathDraft: Equatable {
     }
 
     /// "Reset" was pressed. Echo the provider's effective path rather than blanking the field:
-    /// with no override in play that value already IS the default and no refresh is coming, and
-    /// with one in play it is replaced by `adoptExternalChange` the moment the async rediscovery
-    /// lands. Either way the field never shows an empty path the user didn't type.
+    /// with no override it already is the default and no refresh is coming; with one,
+    /// `adoptExternalChange` replaces it when the async rediscovery lands.
     ///
-    /// Remembering that echoed text is what makes Reset actually stick when an override WAS in
-    /// play. `SettingsManager.resetPath` rediscovers asynchronously, so the effective path echoed
-    /// here is still the old override; if the correction that follows is declined for being
-    /// mid-edit, the field keeps showing the override and the blur commits it straight back —
-    /// `shouldCommit(draft: oldOverride, committed: default)` is true, so `setPath` restores the
-    /// very override the user just cleared. (The pre-refactor code escaped that only because its
-    /// draft was `""`, i.e. by way of the blank-field bug this type exists to fix.)
+    /// Remembering the echoed text is what makes Reset stick. `SettingsManager.resetPath`
+    /// rediscovers asynchronously, so the echo is still the old override; if the correction were
+    /// declined as mid-edit, the next blur would commit the override straight back.
     mutating func reset(toEffective path: String) {
         value = path
         textAwaitingReset = path
@@ -2076,23 +1854,16 @@ struct SettingsPickerOption<Value: Hashable>: Identifiable {
 /// Row lists for the numeric Settings pickers, and the rule that keeps them honest when the
 /// persisted value isn't one of the offered rows.
 ///
-/// A `Picker` whose selection matches none of its `.tag` values renders with NOTHING selected while
-/// that value stays fully in effect behind it: the scan really is using a 3-second tolerance, the
-/// picker just refuses to say so. Worse, the control is then one click from destroying it — the
-/// user's first interaction with a blank-looking picker replaces a setting they never knowingly
-/// chose. Off-list values are not hypothetical: an older build's option set, a `defaults write`, or
-/// a hand-edited plist all produce them.
+/// A `Picker` whose selection matches none of its tags shows nothing selected while the value stays
+/// in effect, and the first click replaces a setting the user never knowingly chose. Off-list
+/// values come from an older build's options, a `defaults write` or a hand-edited plist.
 ///
-/// The answer is to SHOW the stored value, not to coerce it. Snapping to the nearest offered option
-/// is the same destruction one click earlier, just silent. The adjacent Cloud-model picker can map
-/// a superseded model id onto its family's current one because that equivalence genuinely exists;
-/// no such equivalence exists between two numbers, so these pickers take the other honest route —
-/// one extra row carrying the stored value, labeled by the same formatter as its neighbours and
-/// sorted into place so the list still reads as a scale.
+/// So show the stored value, never coerce it: snapping to the nearest option destroys it silently.
+/// Unlike model ids, two numbers have no equivalence to map between, so these pickers add one row
+/// for the stored value, sorted into place so the list still reads as a scale.
 ///
-/// Labels are *derived* from those formatters rather than spelled per row, for the same reason
-/// `CloudFilingProtocol.selectableModelOptions` is one list and not two: the extra row and the
-/// fixed rows cannot then drift into two different vocabularies for the same quantity.
+/// Labels are derived from the formatters, not spelled per row, so the extra row and the fixed
+/// rows share one vocabulary.
 enum SettingsPickerOptions {
 
     // MARK: - The widening rule
@@ -2116,8 +1887,8 @@ enum SettingsPickerOptions {
 
     // MARK: - Labels
 
-    /// A number without a pointless ".0" tail. Guarded on finiteness and Int range because the
-    /// value can arrive from `defaults write`, which will happily store 1e300 or a NaN.
+    /// A number without a ".0" tail. Guarded on finiteness and Int range because `defaults write`
+    /// can store 1e300 or a NaN.
     static func trimmed(_ value: Double) -> String {
         guard value.isFinite else { return "\(value)" }
         guard value == value.rounded(), abs(value) < 1e15 else { return "\(value)" }
@@ -2220,11 +1991,8 @@ struct SyncSettingsTab: View {
                 "Comparison",
                 caption: "Cloud providers round file dates on upload; a small tolerance hides those false differences. Verification checksums same-size pairs that only differ by date and hides identical ones — thorough, but slower on large folders."
             ) {
-                // Rows come from `SettingsPickerOptions`, which widens the list with the stored
-                // value when it isn't one of them — a tolerance left by an older build or a
-                // `defaults write` shows itself rather than leaving the picker blank while
-                // silently governing every scan. Same treatment as the four other numeric
-                // pickers; see that type for why showing beats coercing.
+                // Rows come from `SettingsPickerOptions`, which adds the stored value when it isn't
+                // offered, so an off-list tolerance shows rather than leaving the picker blank.
                 SettingsRow("Treat dates as equal within") {
                     Picker("Treat dates as equal within", selection: $settings.dateToleranceSeconds) {
                         ForEach(SettingsPickerOptions.dateTolerance(including: settings.dateToleranceSeconds)) { option in
@@ -2366,10 +2134,8 @@ struct IgnoredItemsList: View {
 
     /// Clear All asks first: every ignore goes at once.
     ///
-    /// **Clears the pair it asked about, or nothing.** The store holds whichever pair is being
-    /// compared, and the app keeps running while the alert is up: a source removed meanwhile (an
-    /// unmounted card, say) moves the comparison to another pair, and a yes would then clear that
-    /// pair's ignores, which the question never named.
+    /// **Never clear a pair the question didn't name.** The app keeps running while the alert is
+    /// up, and a source removed meanwhile moves the store to another pair; then nothing is cleared.
     /// - Returns: Whether the list was cleared.
     @discardableResult
     func clearAll(confirm: () -> Bool) -> Bool {
@@ -2386,21 +2152,13 @@ struct IgnoredItemsList: View {
 
 // MARK: - Duplicates
 
-/// How a duplicate scan decides what counts as a match. Three preferences and nothing else —
-/// thin, and honestly so: this is the first place anyone hunting for the overlap threshold looks.
-///
-/// Split out of the old Tidy tab along with `FilingSettingsTab`. Tidy was one tab holding the
-/// preferences of two workspaces that stopped sharing a home when the workspace bar went flat,
-/// under a word the rest of the product had already retired. (That era's five segments —
-/// Compare · Organize · Duplicates · Automations · Storage — have since folded to
-/// Browse · Compare · Organize · Storage, with Duplicates and Automations as rail items inside
-/// Organize.) The rule the split follows is *settings go where the work is*, not one tab per
-/// workspace — Storage and Compare get no tab because they have no preferences to put in one.
+/// How a duplicate scan decides what counts as a match. A thin tab, but it's where anyone hunting
+/// for the overlap threshold looks first. Settings go where the work is, not one tab per
+/// workspace: Storage and Compare have no preferences, so no tab.
 struct DuplicatesSettingsTab: View {
-    // The DEFAULTS KEYS keep their legacy `tidy` prefixes ("tidyMinFileSize" and friends, owned
-    // by `DuplicateFinderOptions.DefaultsKey`): they are a persistence format and did not move
-    // when the Tidy workspace was retired. The local names use the current vocabulary instead —
-    // anyone chasing a stored value should follow the `DefaultsKey` constant, not the property.
+    // The defaults keys keep their `tidy` prefixes ("tidyMinFileSize" and friends, owned by
+    // `DuplicateFinderOptions.DefaultsKey`) because they are a persistence format. To trace a
+    // stored value, follow the `DefaultsKey` constant, not the property name.
     @AppStorage(DuplicateFinderOptions.DefaultsKey.minFileSize) private var duplicateMinFileSize: Int = 4096
     @AppStorage(DuplicateFinderOptions.DefaultsKey.overlapThreshold) private var duplicateOverlapThreshold: Double = 0.7
     @AppStorage(DuplicateFinderOptions.DefaultsKey.detectVersions) private var duplicateDetectVersions: Bool = true
@@ -2408,11 +2166,8 @@ struct DuplicatesSettingsTab: View {
 
     var body: some View {
         SettingsPage {
-            // Titleless, keeping the caption: the rail row above already says "Duplicates", and a
-            // lone section header repeating it would read as a subdivision of a tab that has none
-            // — the same redundancy that keeps Organize's first section header descriptive
-            // ("Inbox and rules") rather than a repeat of its rail row. The caption carried the
-            // actual explanation and is unchanged.
+            // Titleless: the rail row already says "Duplicates", and a lone header repeating it
+            // would read as a subdivision of a tab that has none.
             SettingsSection(
                 caption: "How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Reading PDFs finds a further kind — the same document downloaded twice, which providers re-stamp so its bytes differ — and is the one setting here that costs time rather than shaping results: it extracts text (never OCR, and a scan with no text layer is simply skipped), so the first pass over a large tree takes a few extra minutes and later scans reuse what it read. Changes apply on the next scan."
             ) {
@@ -2449,25 +2204,15 @@ struct DuplicatesSettingsTab: View {
 
 // MARK: - Organize
 
-/// The Organize *job*: where it goes looking for loose files, and the names it has been told to
-/// stop offering to rename.
+/// The Organize job: where it looks for loose files, and the names it has been told to stop
+/// offering to rename. The engine and its cost live in `IntelligenceSettingsTab` and the roster in
+/// `PeopleSettingsTab`; what stays here describes the job, not the machinery.
 ///
-/// This tab used to be five subjects — the AI engine, the Claude key and model, the money that
-/// path costs, the kept-name inventory, and the people roster — under one rail row, and the
-/// tell was its caption: a single paragraph of nine sentences, because one caption had to explain
-/// all five. The engine and its cost are now `IntelligenceSettingsTab`, the roster is
-/// `PeopleSettingsTab`, and what is left here is the pair of settings that describe the job
-/// rather than the machinery: which folder to scan, and what not to touch.
-///
-/// The old header comment defended cloud spend living here — "the caps exist because Organize can
-/// call Claude, so they are *Organize's* money". That was true while the key was Organize's too.
-/// Once the key has a tab, the money follows the key: they are one question ("what does the cloud
-/// path cost me?") and splitting them would be the third place to look for one workflow the old
-/// comment was rightly worried about.
+/// Cloud spend lives with the key on Intelligence, not here: "what does the cloud path cost me?"
+/// is one question, and splitting it would add a place to look.
 struct FilingSettingsTab: View {
     /// The kept-names list reaches `keptNamesStore` through it, and Folder surveys the surveys.
-    /// Optional for the same reason every other tab's is: tests and previews build the tab
-    /// without an engine.
+    /// Optional because tests and previews build the tab without an engine.
     let syncManager: FileSyncManager?
     /// Cloud sources by name and landing folder, for Folder surveys. Empty hides the section,
     /// which is how the layout tests build the tab.
@@ -2476,19 +2221,12 @@ struct FilingSettingsTab: View {
 
     var body: some View {
         SettingsPage {
-            // "Inbox and rules", not "Filing" and not "Organize": "filing" left the product's
-            // vocabulary with the workspace rename (search keeps it as an alias keyword, the way
-            // "tidy" is kept), and "Organize" would repeat the rail row above — the redundancy
-            // that keeps Duplicates' lone section titleless. This header names what the group
-            // holds: the loose-files inbox and the pointer to Organize ▸ Rules.
+            // "Inbox and rules" names what the group holds. Not "Filing", a retired word (search
+            // keeps it as a keyword), and not "Organize", which would repeat the rail row.
             SettingsSection("Inbox and rules", content: {
                 SettingsRow("Loose-files inbox") {
-                    // **The placeholder is "None", not "TODO", and that is the fix to a real
-                    // complaint.** It used to show the key's default, so a field the user had
-                    // deliberately emptied rendered identically to one they had never touched —
-                    // greyed-out "TODO" either way — and there was no way to tell whether the
-                    // setting was off. Naming the empty state is what gives the row an "off"
-                    // position at all; the help text below says what that position does.
+                    // The placeholder is "None", not the default "TODO", so an emptied field reads
+                    // as off rather than untouched. The help text says what off does.
                     TextField("None", text: $filingInbox)
                         .frame(maxWidth: 180)
                         .multilineTextAlignment(.trailing)
@@ -2500,9 +2238,8 @@ struct FilingSettingsTab: View {
                 }
                 .help("A rule you teach by correcting a suggestion is saved — review, edit, or delete it under Rules in the Organize workspace.")
             }, caption: {
-                // Names the two tabs this one hands off to. A settings tab that has had three of
-                // its five sections moved out owes the reader that much: without it, "where did
-                // the API key go?" has no answer on the page it used to be answered on.
+                // Names the two tabs this one hands off to, so "where is the API key?" has an
+                // answer here.
                 Text("Organize suggests where loose files belong, starting from the inbox folder above. What it suggests, and what the cloud pass costs, now live under **Intelligence**; the household it files for lives under **People**. Corrections you ask it to remember are saved as rules, listed under Rules in the Organize workspace.")
             })
 
@@ -2517,15 +2254,11 @@ struct FilingSettingsTab: View {
                 if let store = syncManager?.keptNamesStore {
                     KeptNamesList(store: store)
                 } else {
-                    // No engine attached (tests, previews). The list would say the same thing an
-                    // empty store does, so say it rather than leaving the caption over a void.
+                    // No engine attached (tests, previews): say what an empty store would.
                     //
-                    // **This branch is not the tab.** It is one fixed line; the branch above is an
-                    // unbounded row-per-name list, which is why this tab is in
-                    // `SettingsTab.exemptFromFitGuard` rather than in the layout suite's
-                    // `mustFitTabs`. A layout test that builds the tab with `syncManager: nil`
-                    // measures this line and learns nothing about what a user with kept names sees
-                    // — which is exactly what the fit guard did until 2026-08-13.
+                    // This branch is not the tab. It is one fixed line; the real list grows a
+                    // row per name, which is why this tab is in `SettingsTab.exemptFromFitGuard`.
+                    // A layout test built with `syncManager: nil` measures only this line.
                     KeptNamesList.nothingKeptNote
                 }
             }
@@ -2538,30 +2271,23 @@ struct FilingSettingsTab: View {
 /// The suggestion engine and what it costs: the free on-device pass, the opt-in Claude pass with
 /// its key and model, the spend those calls run up, and the cache that stops them being repeated.
 ///
-/// Called "Intelligence" rather than "Claude" because the free on-device pass is half of it and a
-/// vendor name would sit over a section that isn't theirs; rather than "AI & Cloud" because a
-/// second "Cloud" in a rail that already has cloud *providers* under Sources answers the wrong
-/// question first. `SettingsSearchIndex` is what carries "API key" and "Anthropic" here, and the
-/// entries below are indexed against this tab precisely so the rail's word doesn't have to be the
-/// only way in.
+/// Named "Intelligence" for the reasons on `SettingsTab.displayName`; `SettingsSearchIndex` carries
+/// "API key" and "Anthropic" here.
 ///
-/// The four sections are one escalation, top to bottom: what runs for free, what runs for money,
-/// what that money has come to, and what stops it being spent twice.
+/// The sections escalate top to bottom: what runs for free, what runs for money, what that money
+/// has come to, and what stops it being spent twice.
 struct IntelligenceSettingsTab: View {
-    /// Reaches `filingVerdictCache*` for the saved-suggestion count. Optional for the same reason
-    /// every other tab's is: tests and previews build the tab without an engine.
+    /// Reaches `filingVerdictCache*` for the saved-suggestion count. Optional because tests and
+    /// previews build the tab without an engine.
     let syncManager: FileSyncManager?
     /// See `SettingsView.onOpenHelp`. nil hides the pointer beside the on-device caption.
-    ///
-    /// **Defaulted, so the two layout tests that build this tab keep compiling** — and so that a
-    /// host which cannot open the book gets a section with no pointer rather than a dead glyph.
+    /// Defaulted, so the layout tests can build the tab without one.
     var onOpenHelp: ((String) -> Void)?
     @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUseAI: Bool = true
     @AppStorage(FileSyncManager.readContentsDefaultsKey) private var filingReadContents: Bool = true
     @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUseCloud: Bool = false
-    // Default from the protocol, not a repeated literal: the classifier and the spend preflight both
-    // fall back to `CloudFilingProtocol.defaultModel`, and a copy here would silently disagree with
-    // them the next time the default model moves.
+    // Default from the protocol, not a literal: the classifier and the spend preflight fall back
+    // to `CloudFilingProtocol.defaultModel`, and a copy would drift when the default moves.
     @AppStorage(FileSyncManager.cloudModelDefaultsKey) private var filingCloudModel: String = CloudFilingProtocol.defaultModel
     @AppStorage(FileSyncManager.reuseVerdictsDefaultsKey) private var filingReuseVerdicts: Bool = true
     @AppStorage(FileSyncManager.monthlyBudgetCapKey) private var monthlyBudgetUSD: Double = 0
@@ -2575,9 +2301,8 @@ struct IntelligenceSettingsTab: View {
     @State private var askClaudeShared: [String] = []
     @State private var askClaudeSpentUSD = 0.0
 
-    /// How many saved suggestions there are. Read on appear and after a clear rather than computed
-    /// in `body`: answering it touches the cache file, and `body` runs far more often than the
-    /// number changes.
+    /// How many saved suggestions there are. Read on appear and after a clear, not in `body`,
+    /// because answering it touches the cache file.
     @State private var savedSuggestionCount = 0
 
     // Cloud spend, refreshed on appear and when the history sheet closes.
@@ -2585,37 +2310,24 @@ struct IntelligenceSettingsTab: View {
     @State private var spendLast: FilingSpendEntry?
     @State private var showSpendHistory = false
 
-    /// Whether the KEY AND MODEL rows can be operated. The cloud path rides on top of on-device
-    /// AI, so turning either flag off takes them with it.
-    ///
-    /// Static and parameterised so the rule can be tested: the view itself reads `@AppStorage`,
-    /// and the disabled-ness of a SwiftUI control is not observable from a unit test.
+    /// Whether the key and model rows can be operated. The cloud path rides on top of on-device
+    /// AI, so turning either flag off takes them with it. Static so the rule can be tested: a
+    /// SwiftUI control's disabled state isn't observable from a unit test.
     static func cloudControlsEnabled(useAI: Bool, useCloud: Bool) -> Bool { useAI && useCloud }
 
-    /// Whether the cloud TOGGLE itself can be operated — gated on on-device AI **and nothing
-    /// else**.
+    /// Whether the cloud toggle itself can be operated: gated on on-device AI and nothing else.
     ///
-    /// Deliberately not `cloudControlsEnabled`, and the distinction is not cosmetic. Putting one
-    /// `.disabled(!cloudControlsEnabled)` over the whole section — which is how this was first
-    /// written — disabled the toggle along with the rows it gates, and since `filingUseCloud`
-    /// defaults to false the switch that turns cloud refining on could never be turned on. The
-    /// entire paid path was unreachable, and every test stayed green: 215 of them, because a
-    /// SwiftUI control's disabled state is invisible to all of them. It took rendering the tab to
-    /// a PNG and looking at it.
-    ///
-    /// The general rule, which is worth more than this instance: **a control that turns something
-    /// on must never be gated on that thing being on.**
+    /// Not `cloudControlsEnabled`: `filingUseCloud` defaults to false, so gating the toggle on it
+    /// would leave cloud refining impossible to turn on, and no unit test can see a disabled
+    /// control. **A control that turns something on must never be gated on that thing being on.**
     static func cloudToggleEnabled(useAI: Bool) -> Bool { useAI }
 
-    /// **Where the reader who is worried goes first.** "Read file contents on-device" is a switch
-    /// whose whole subject is privacy, and the caption beside it could say what is read but never
-    /// what happens to it afterwards — so the one control most likely to prompt the question was
-    /// the one furthest from an answer.
+    /// The Help pointer beside "Read file contents on-device", a privacy switch whose caption can
+    /// say what is read but not what happens to it afterwards.
     ///
-    /// The shape is `RestructureLens.helpPointer`’s, deliberately and down to the glyph: one
-    /// affordance, routed through the app’s existing Help front door, never a second overlay and
-    /// never a sheet. `questionmark.circle` rather than `info.circle` so the app has one mark that
-    /// means "the book has a page on this" instead of two that nearly do.
+    /// Shaped like `RestructureLens.helpPointer`, glyph included: one affordance through the app's
+    /// Help front door, never an overlay or sheet. `questionmark.circle`, not `info.circle`, so
+    /// the app has one mark for "the book has a page on this".
     @ViewBuilder
     private var helpPointer: some View {
         if let onOpenHelp {
@@ -2641,7 +2353,7 @@ struct IntelligenceSettingsTab: View {
                 Toggle("Suggest folders with on-device AI (Apple Intelligence)", isOn: $filingUseAI)
                     .help("Lets Organize ask the on-device model where files belong. Off, or where it isn’t available, Organize suggests from names and metadata alone. Claude refining and saved suggestions need it on.")
                 // `.firstTextBaseline`, so the glyph sits on the label's baseline rather than
-                // centring itself on the switch — which at Large text leaves it visibly high.
+                // centring on the switch, which at Large text leaves it high.
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
                         .help("Lets Organize read the text inside your files, on this Mac, for better folder suggestions.")
@@ -2729,7 +2441,7 @@ struct IntelligenceSettingsTab: View {
                                 .help("Shows it to Claude again. Asks first.")
                             }
                         }
-                        // Files too (TE263, decision EL), as a row's Hide from Claude allows.
+                        // Files too, as a row's Hide from Claude allows.
                         Button("Add…") {
                             let panel = NSOpenPanel()
                             panel.canChooseDirectories = true
@@ -2745,7 +2457,7 @@ struct IntelligenceSettingsTab: View {
                     }
                     .help("Claude is never shown these folders and files, or what’s in them: not their names, not their contents. They appear to it only as a count. Right-click a row ▸ Hide from Claude adds one too.")
                 }
-                // TE321: set from the shield menu in Ask Claude; taken off here, with no question —
+                // Set from the shield menu in Ask Claude; taken off here with no question, since
                 // taking one off is the stricter way.
                 SettingsRow("Shared without asking") {
                     VStack(alignment: .leading, spacing: 4) {
@@ -2789,23 +2501,14 @@ struct IntelligenceSettingsTab: View {
                 Toggle("Use Claude (cloud) to refine suggestions", isOn: $filingUseCloud)
                     .disabled(!Self.cloudToggleEnabled(useAI: filingUseAI))
                     .help("Lets Organize’s Refine button send to Claude — with the key above; without one it offers to bring you back here instead. Scans stay free and on-device either way; Organize reaches Claude only when you click Refine.")
-                // Shown ALWAYS, disabled rather than absent when the toggles are off. It used to
-                // be gated on `filingUseCloud && filingUseAI`, which meant "is a key stored?" —
-                // the one question this row exists to answer — became unanswerable the moment
-                // either toggle went off, and answering it required turning cloud filing back on.
-                // A disabled row still says whether a key is there.
-                // Grouped so ONE `.disabled` covers the key and the model without also covering
-                // the toggle above them. The modifier used to sit on the whole `SettingsSection`,
-                // which swept the toggle in and made cloud refining impossible to switch on at
-                // all — see `cloudToggleEnabled`.
+                // Shown always, disabled rather than absent when the toggles are off. Grouped so
+                // the `.disabled` covers the model row without the toggle above it; see
+                // `cloudToggleEnabled`. (The key row has its own section above.)
                 Group {
-                    // Read through `currentModel(for:)` so a value stored before a model refresh
-                    // (e.g. "claude-opus-4-8") still lights up its family's row instead of leaving
-                    // the picker blank — the scan resolves it the same way.
-                    // "Cloud model" matches this row's entry in the search index above; the index
-                    // documents that its titles mirror the on-screen labels, and "Model" alone did
-                    // not. Rows come from `selectableModelOptions` rather than being spelled here,
-                    // so ids and labels cannot drift out of step across a model refresh.
+                    // Read through `currentModel(for:)` so a superseded model id still lights its
+                    // family's row, as the scan resolves it. "Cloud model" matches the search
+                    // index title. Rows come from `selectableModelOptions`, so ids and labels
+                    // can't drift apart.
                     SettingsRow("Cloud model") {
                         Picker("Cloud model", selection: Binding(
                             get: { CloudFilingProtocol.currentModel(for: filingCloudModel) },
@@ -2819,9 +2522,7 @@ struct IntelligenceSettingsTab: View {
                     }
                     .help("Saved suggestions are per model — switching means the next Refine asks, and pays for, every file again.")
                 }
-                // One modifier over both rows rather than one each: they are the same control
-                // surface (the key you use and the model you spend it on), and they enable
-                // together — but only these two.
+                // The group only, never the toggle above.
                 .disabled(!Self.cloudControlsEnabled(useAI: filingUseAI, useCloud: filingUseCloud))
             }
 
@@ -2829,14 +2530,11 @@ struct IntelligenceSettingsTab: View {
                 "Cost and limits",
                 caption: "Before each Refine you’ll see a cost estimate to confirm. Two caps pause cloud classification when a refine would push you past them: a monthly cap (Off by default) and a total lifetime cap (defaults to $5 as a safety backstop). Either one being reached leaves the free on-device suggestions in place until you raise or turn it off. Costs are estimated from list prices for the cloud suggestions only (the Anthropic Console is authoritative); scanning is free."
             ) {
-                // What has been spent, above the caps that bound it: the numbers are what make
-                // the caps mean anything, and reading "Total spent $0.42" first is what tells you
-                // whether the $5 backstop below is close. As a readout strip rather than four
-                // more label/value rows — these report, they don't set.
+                // What has been spent, above the caps that bound it, so you can see how close the
+                // $5 backstop is. A readout strip, not label/value rows: these report, not set.
                 FilingSpendReadout(totals: spendTotals, last: spendLast)
-                // A cap is the one setting where a blank picker is actively dangerous: the stored
-                // value keeps pausing (or not pausing) cloud scans regardless of what the control
-                // shows, so an unrecognized cap has to be visible. Rows via `SettingsPickerOptions`.
+                // A blank cap picker is dangerous: the stored value keeps governing cloud scans
+                // whatever the control shows. Rows via `SettingsPickerOptions`.
                 SettingsRow("Monthly budget cap") {
                     Picker("Monthly budget cap", selection: $monthlyBudgetUSD) {
                         ForEach(SettingsPickerOptions.monthlyBudget(including: monthlyBudgetUSD)) { option in
@@ -2887,13 +2585,11 @@ struct IntelligenceSettingsTab: View {
                         // Asks first: the next Refine pays Claude again for every file.
                         Button("Clear…", role: .destructive) {
                             guard let syncManager else { return }
-                            // Counted at the click, not when the tab opened: a scan since then has
-                            // saved more, and the question names what goes. The non-awaiting read is
-                            // free — the button stays disabled until the awaited count has loaded
-                            // the memo — and stays so after `clearFilingVerdictCache` writes it.
+                            // Counted at the click, since a scan may have saved more and the
+                            // question names what goes. The non-awaiting read is free: the button
+                            // stays disabled until the awaited count has loaded the memo.
                             savedSuggestionCount = syncManager.filingVerdictCacheCountNow
-                            // Cleared elsewhere meanwhile: nothing to ask about, and the button
-                            // disables on the count just read.
+                            // Cleared elsewhere meanwhile: nothing to ask, and the button disables.
                             guard savedSuggestionCount > 0 else { return }
                             if Self.clearSavedSuggestionsIfConfirmed(
                                 confirm: RemovalPrompt.clearSavedSuggestions(count: savedSuggestionCount).ask,
@@ -2908,16 +2604,13 @@ struct IntelligenceSettingsTab: View {
             }
         }
         .onAppear(perform: refreshSpend)
-        // The store's change signal — the Organize lens's history sheet (main window) can Clear
-        // History while this tab is open in the Settings window, and a scan can record spend
-        // mid-view. Mirrors LensWorkspaceView's observer; `receive(on:)` because `record` posts from off
-        // the main actor.
+        // The store's change signal: the Organize lens's history sheet can clear history while
+        // this tab is open, and a scan can record spend mid-view. `receive(on:)` because `record`
+        // posts off the main actor.
         .onReceive(NotificationCenter.default.publisher(for: FilingSpendStore.didChange)
             .receive(on: DispatchQueue.main)) { _ in refreshSpend() }
-        // The saved-suggestion count is asked SEPARATELY from the spend figures, and awaited.
-        // Folding it into `refreshSpend` — which is what this did — put a decode of a file that
-        // reaches ~12 MB at the entry cap on the main actor the moment this tab appeared. The two
-        // spend reads are small `UserDefaults` blobs and stay where they are.
+        // **Never fold this into `refreshSpend`:** the count decodes a cache file of up to ~12 MB,
+        // which must not run on the main actor. The spend reads are small defaults blobs.
         .task { savedSuggestionCount = await syncManager?.filingVerdictCacheCount() ?? 0 }
         .sheet(isPresented: $showSpendHistory, onDismiss: refreshSpend) {
             FilingSpendHistorySheet().presentedNativeControlAccent()
@@ -2960,14 +2653,8 @@ struct IntelligenceSettingsTab: View {
 
 /// What the cloud pass has cost so far — total, tokens, scan count, and the most recent scan.
 ///
-/// Four `SettingsRow`s until now, which was the wrong shape twice over: a `SettingsRow` reads as
-/// "setting: value" and these set nothing, and four of them in a row put 4 × ~20pt of stacked
-/// label/value between the caps and the buttons that act on them. As a strip the same four facts
-/// read as one readout and cost one row's height.
-///
-/// A separate view rather than inline so the "no scans yet" case has somewhere to be stated once:
-/// with `scans == 0` every figure is a zero, and four zeroes read as a broken control rather than
-/// as an untouched one.
+/// A strip, not `SettingsRow`s: these set nothing, and as one readout they cost one row's height.
+/// With no scans it says so in words, since four zeroes read as a broken control.
 struct FilingSpendReadout: View {
     let totals: FilingSpendTotals
     let last: FilingSpendEntry?
@@ -2992,20 +2679,16 @@ struct FilingSpendReadout: View {
         }
     }
 
-    /// A label over its value. `.monospacedDigit()` on the value so the four figures don't shift
-    /// their neighbours as they grow — the strip is refreshed live while a refine runs.
+    /// A label over its value, monospaced so the figures don't shift their neighbours as the strip
+    /// refreshes live during a refine.
     @ViewBuilder
     private func figure(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(label)
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)
-            // No `.fixedSize(horizontal: false, vertical: true)` here, deliberately — it was
-            // written in by analogy with `SettingsSection`'s caption and it does nothing. That
-            // caption needs it because it is a `Text` inside a stack with `maxWidth: .infinity`,
-            // which reports a one-line ideal height and clips. A figure in this strip is inside a
-            // column the `HStack` proposes a real width to, so it already wraps; rendered at the
-            // narrowest column the sheet can offer, with and without, the two are pixel-identical.
+            // No `.fixedSize(horizontal: false, vertical: true)`, unlike `SettingsSection`'s
+            // caption: the `HStack` proposes this column a real width, so it already wraps.
             Text(value)
                 .scaledFont(.callout)
                 .monospacedDigit()
@@ -3018,22 +2701,16 @@ struct FilingSpendReadout: View {
 
 /// Who Organize files for.
 ///
-/// A tab rather than the section it was, because it is a ROSTER and not a preference: it has rows
-/// with their own facts and veto counts, an overview of what the set governs across the tree, a
-/// name-suggestion queue, a tester, and an editor sheet. That is the shape `ProvidersSettingsTab`
-/// has — a list of things the user maintains — and none of it is what a `SettingsSection` is for.
-/// It also outgrew its host: as Organize's fifth section it sat below a long tab, so the roster
-/// was the part of Settings you had to scroll furthest to reach and the part most likely to need
-/// editing.
+/// A tab because it is a roster, not a preference: rows with their own facts and veto counts, an
+/// overview of what the set governs, a name-suggestion queue, a tester and an editor sheet, like
+/// `ProvidersSettingsTab`'s list of things the user maintains.
 ///
-/// The page is ``PeopleList``'s: it lays out its own sections, because the four things on it —
-/// the roster, what was read off the tree, what the roster governs, and the tester — are four
-/// subjects, and one section holding all of them under one caption was the layout the user
-/// called crowded. The tab only decides whether there is an engine to draw them from.
+/// The page is ``PeopleList``'s, which lays out its own sections for its four subjects: the
+/// roster, what was read off the tree, what the roster governs, and the tester. The tab only
+/// decides whether there is an engine to draw them from.
 struct PeopleSettingsTab: View {
-    /// Reaches the people store, the folder profile, the filing memory and the veto log — four
-    /// engine-side things, which is another sign this was never a settings section. Optional for
-    /// the same reason every other tab's is.
+    /// Reaches the people store, the folder profile, the filing memory and the veto log. Optional
+    /// because tests and previews build the tab without an engine.
     let syncManager: FileSyncManager?
     /// See `SettingsView.onShowPerson`.
     var onShowPerson: ((Person) -> Void)? = nil
@@ -3048,8 +2725,8 @@ struct PeopleSettingsTab: View {
                            vetoLog: vetoLog,
                            onShowPerson: onShowPerson)
             } else {
-                // No engine attached (tests, previews) — say so rather than leaving the caption
-                // over a void, and never offer an Add button that would write nowhere.
+                // No engine attached (tests, previews): say so, and never offer an Add button
+                // that would write nowhere.
                 SettingsSection(caption: PeopleList.purposeCaption) {
                     PeopleList.noStoreNote
                 }
@@ -3059,17 +2736,15 @@ struct PeopleSettingsTab: View {
 }
 
 /// The kept-names rows inside the Organize tab: one name per entry with a remove button, plus
-/// Clear All — the inventory of "I meant that name" decisions, which until now could only be read
-/// back by walking your files. A kept name draws no badge, so there was nothing on screen leading
-/// anywhere; this is the only place the whole set is visible at once.
+/// Clear All. A kept name draws no badge, so this is the only place the whole set of "I meant that
+/// name" decisions is visible.
 ///
-/// Split out so it can observe ``KeptNamesStore`` directly. `FileSyncManager` holds the store
-/// behind a plain `var`, not a `@Published` one, so a view watching only the manager does not
-/// repaint when the set changes — the manager's `keptNamesStore` didSet sends `objectWillChange`
-/// by hand for exactly that reason, and this view does not rely on it.
+/// Split out so it can observe ``KeptNamesStore`` directly. `FileSyncManager` holds the store in a
+/// plain `var`, not `@Published`, so a view watching only the manager wouldn't repaint when the
+/// set changes; the manager's didSet sends `objectWillChange` by hand, but this view doesn't rely
+/// on it.
 ///
-/// Internal rather than `private`, unlike its `IgnoredItemsList` neighbour, so the tests can call
-/// `remove(_:)` and `clearAll()` — the two methods the buttons call — against a real store on an
+/// Internal so the tests can call `remove(_:)` and `clearAll(confirm:)` against a real store on an
 /// injected defaults suite. Nothing else constructs it.
 struct KeptNamesList: View {
     @ObservedObject var store: KeptNamesStore
@@ -3104,10 +2779,9 @@ struct KeptNamesList: View {
         }
     }
 
-    /// Withdraw one keep. Straight to the store, exactly as the row menu's "Stop Allowing This
-    /// Name" does: the store is the single mutation point, and `FileSyncManager` subscribes to it
-    /// for the announcement and the `riskyNames` reconciliation. Routing this through a manager
-    /// method instead would be a second door onto the same latch.
+    /// Withdraw one keep. Straight to the store, as the row menu's "Stop Allowing This Name" does:
+    /// the store is the single mutation point, and `FileSyncManager` subscribes to it for the
+    /// announcement and the `riskyNames` reconciliation.
     func remove(_ name: String) { store.stopKeeping(name) }
 
     /// Withdraw every keep, after asking. One store call rather than a loop over `remove(_:)`, so
@@ -3129,13 +2803,13 @@ struct KeptNamesList: View {
 
 /// The question asked before a person leaves the roster — here and on setup's People screen.
 ///
-/// **One wording for one act.** Setup's chip ✕ removed a person from the same `people.json` with no
-/// question at all, taking the full names and aliases curated here with them.
+/// One wording for one act: both places remove from the same `people.json`, taking the full names
+/// and aliases curated here with the person.
 public enum PersonRemoval {
     public static func title(_ name: String) -> String { "Remove \(name)?" }
 
-    /// Says what removal does and — more usefully — what it does not. Nobody should have to guess
-    /// whether this touches their files.
+    /// Says what removal does and what it doesn't, so nobody has to guess whether it touches their
+    /// files.
     public static let message = "Their folders and files are left exactly as they are. Organize will stop "
         + "recognizing documents that name them, so it will no longer keep those documents "
         + "out of other people’s folders."
@@ -3144,30 +2818,17 @@ public enum PersonRemoval {
 /// Who Organize files for — one row per person, each editable, each showing what the engine
 /// actually knows about them.
 ///
-/// **"People", not "the household".** A family is what this list holds today, and the wording said
-/// so throughout; it is not what the list *is*. The same roster is how a work tree would tell one
-/// colleague's contract from another's, and the eventual answer to both at once is a profile per
-/// tree rather than a label that presumes one of them.
+/// "People", not "the household": the same roster could tell one colleague's contract from
+/// another's in a work tree.
 ///
-/// **A list of names was not enough, and the reason is worth keeping.** The first version printed
-/// six names and nothing else: it did not say what the section was for, what any of it did, or how
-/// to change it — so a rule that can silently refuse a filing suggestion, on the grounds that a
-/// document names the wrong person, was inspectable only in the sense that the names were visible.
-/// Each row now leads with what that person's record *buys*: the name forms matched against a
-/// document, how many folders in the tree are theirs, how many documents are already filed in them,
-/// and a warning when every word they answer to is shared with somebody else — the state that makes
-/// adding a full name worth doing.
+/// Each row shows what the record buys, because the rule can silently refuse a filing suggestion
+/// when a document names the wrong person: the name forms matched, how many folders are theirs,
+/// how many documents are filed there, and a warning when every word they answer to is shared
+/// (the case where adding a full name helps). One line per person with the detail behind a
+/// disclosure, like the Sources tab, so the page doesn't crowd; the rest is in titled sections.
 ///
-/// **And all of that at once was too much.** With seven people the evidence ran to three lines a
-/// row, every row carried its own Edit and Remove, and the overview, the suggestion queue, the
-/// tester, the buttons and a six-line caption followed in one unbroken column — the user's word
-/// for it was "crowded". So the roster is now a list: one line per person, the counts at the
-/// trailing edge, and the evidence, the caveat and the buttons behind a disclosure, the same shape
-/// the Sources tab gives its providers. The rest of the page is split into sections with titles,
-/// so each thing on it is one thing.
-///
-/// `@ObservedObject` on the store, unlike the value this used to take: the roster is now written
-/// from this view, and a list that did not observe its own edits would need a relaunch to show them.
+/// `@ObservedObject` on the store because the roster is written from this view and must show its
+/// own edits.
 struct PeopleList: View {
     @ObservedObject var store: PeopleStore
     let profile: FolderProfile?
@@ -3182,20 +2843,17 @@ struct PeopleList: View {
     /// "add" case, the same sheet doing both jobs.
     @State private var editing: Person?
     @State private var confirmingRemoval: Person?
-    /// Ids of the rows the user has opened. Shut is the default and the point — see the type's
-    /// doc. State, not a persisted default, for the reason `ProvidersSettingsTab.expandedIds`
-    /// gives: which row you last opened is not a preference.
+    /// Ids of the rows the user has opened; shut by default. State, not a persisted default, as in
+    /// `ProvidersSettingsTab.expandedIds`.
     @State private var expandedIds: Set<String>
-    /// Name forms found in the tree that nobody has recorded. Empty until asked for — reading a few
-    /// hundred folders is not something to do because a settings tab appeared.
+    /// Name forms found in the tree that nobody has recorded. Empty until asked for: reading a few
+    /// hundred folders shouldn't happen just because a tab appeared.
     @State private var suggestions: [PersonNameSuggestion] = []
     @State private var isLooking = false
     @State private var hasLooked = false
 
-    /// `initiallyExpanded` exists so an OPENED row can be rendered: `@State` has no storage off the
-    /// view tree, so a probe cannot click a row, and the detail — three lines and two buttons that
-    /// used to be the whole row — is otherwise a surface nobody has looked at since it moved. The
-    /// app passes nothing; the same seam `PeopleTester.initialText` is.
+    /// `initiallyExpanded` lets a test render an opened row: `@State` has no storage off the view
+    /// tree, so a probe can't click one. The app passes nothing, like `PeopleTester.initialText`.
     init(store: PeopleStore, profile: FolderProfile?, memory: FilingMemory?,
          vetoLog: PersonVetoLog, onShowPerson: ((Person) -> Void)? = nil,
          initiallyExpanded: Set<String> = []) {
@@ -3208,29 +2866,23 @@ struct PeopleList: View {
     }
 
     var body: some View {
-        // Said before the list, because everything below it is a seed rather than the real list —
-        // and because the edits the list offers will not be written while this is true. Without it
-        // the refusal in `PeopleStore.save()` is a change that appears to work and does nothing.
+        // Before the list, because the list below is a seed and its edits won't be written; without
+        // it the refusal in `PeopleStore.save()` would look like a change that worked.
         if store.rosterIsUnreadable {
             Self.unreadableRosterNote
         } else if !store.repeatedRosterIds.isEmpty {
-            // Its own note rather than a shared "read-only" one: the two refusals mean different
-            // things to the person reading them. Above, the list is a guess. Here it is their real
-            // list with a record missing, and the sentence has to name which id so they can go
-            // and find it — the file is the only place the dropped record still exists.
+            // Its own note: here the list is real but missing a record, and the note names the id
+            // so they can find it in the file, the only place the dropped record still exists.
             Self.repeatedIdRosterNote(store.repeatedRosterIds)
         }
         peopleSection
         if !store.people.isEmpty {
-            // The queue sits under the roster, next to the button that fills it, and only once
-            // that button has been pressed: an empty "Names found" section over nothing would be
-            // a question the page asks of itself.
+            // The queue sits under the roster, and only once its button has been pressed.
             if hasLooked || !suggestions.isEmpty {
                 namesFound
             }
-            // What the roster governs is a fact about the tree, so it needs one. Without a survey
-            // the overview would only be able to say that nobody has folders, which on an
-            // unsurveyed machine reads as a fault rather than as an absence.
+            // Needs a survey: without one it could only say nobody has folders, which reads as a
+            // fault.
             if profile != nil {
                 acrossTheTree
             }
@@ -3273,12 +2925,9 @@ struct PeopleList: View {
             } else {
                 roster
                 if store.orderIsCustom {
-                    // The way back, and it needs to be visible: moving a row is deliberate and
-                    // easy, and the rule it switches off is one the caption describes but nothing
-                    // else on screen would let you restore. Under the list rather than beside Add
-                    // Person…, because it is about the whole list rather than about a person —
-                    // and because a third button in that row is one the largest text size cannot
-                    // fit. Absent while the order is the default, where it would mean nothing.
+                    // The visible way back to the default order, which nothing else restores.
+                    // Under the list, not beside Add Person…: it's about the whole list, and a
+                    // third button there doesn't fit at the largest text size.
                     HStack {
                         Spacer()
                         Button("Use Default Order") { store.useDefaultOrder() }
@@ -3320,9 +2969,8 @@ struct PeopleList: View {
         }
     }
 
-    /// The people, one line each, in a well — a list you read down rather than a stack of
-    /// paragraphs. The separators are inset past the initials disc, so they read as dividing rows
-    /// of one list rather than as rules between sections.
+    /// The people, one line each, in a well. Separators are inset past the initials disc so they
+    /// divide rows of one list rather than sections.
     private var roster: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(store.people.enumerated()), id: \.element.id) { index, person in
@@ -3377,8 +3025,8 @@ struct PeopleList: View {
         }
     }
 
-    /// What the roster governs across the whole tree, and where it does not reach. Both are facts
-    /// about the SET, so neither belongs on a row.
+    /// What the roster governs across the tree, and where it doesn't reach: facts about the set,
+    /// not any one row.
     private var acrossTheTree: some View {
         SettingsSection("Across your tree") {
             PeopleOverviewRow(overview: overview, store: store)
@@ -3394,9 +3042,8 @@ struct PeopleList: View {
 
     // MARK: - What the sections draw from
 
-    /// One row's open/closed state. A binding over the shared set rather than per-row `@State`, so
-    /// a row rebuilt when the store republishes — every edit, every accepted suggestion — does not
-    /// snap shut under the pointer.
+    /// One row's open/closed state. A binding over the shared set, not per-row `@State`, so a row
+    /// rebuilt when the store republishes doesn't snap shut under the pointer.
     private func expansionBinding(_ id: String) -> Binding<Bool> {
         Binding(
             get: { expandedIds.contains(id) },
@@ -3417,10 +3064,8 @@ struct PeopleList: View {
                                profile: profile, memory: memory)
     }
 
-    /// Reads the person folders off the main actor and publishes what it learned.
-    ///
-    /// Detached because this is a few hundred directory listings: small, but not small enough to
-    /// spend on the actor that is drawing the window.
+    /// Reads the person folders off the main actor and publishes what it learned. Detached because
+    /// a few hundred directory listings is too much for the actor drawing the window.
     private func look() {
         guard let profile else { return }
         isLooking = true
@@ -3438,35 +3083,20 @@ struct PeopleList: View {
         }
     }
 
-    /// Where "Look for Names" reads: the tree the profile itself describes.
+    /// Where "Look for Names" reads: the tree the profile itself describes, since its folder paths
+    /// are relative to `profile.root`. **Never use a root that only a scan sets**: the button is
+    /// offered whenever a profile is loaded, and with no scan yet it would silently do nothing.
     ///
-    /// **This used to be the last Filing scan's provider root, and that is why the button went
-    /// dead.** The profile's folder paths are relative to `profile.root` by definition — it is the
-    /// tree the survey walked — but the root handed to the scanner was
-    /// `FileSyncManager.filingLastProviderRoot`, which is set only when a To File scan runs in
-    /// this session and cleared when the provider changes. The button was offered whenever a
-    /// profile was loaded, which it is at every launch, and `look()` then bailed silently on the
-    /// nil root: a click did nothing, logged nothing, and showed nothing, until the user happened
-    /// to run a scan first. `~/sync-cloud.log` bears it out — one `People: read` line on
-    /// 2026-08-09, the day the feature shipped, and none in the four weeks after.
-    ///
-    /// Resolved the way every other reader of the profile resolves it
-    /// (`FileSyncManager+RestructureApply`, `duplicateScanCoversSurvey`): the recorded root with
-    /// its tilde expanded. It depends on nothing that a scan has to have done first.
+    /// Resolved as every other reader of the profile does (`FileSyncManager+RestructureApply`,
+    /// `duplicateScanCoversSurvey`): the recorded root with its tilde expanded.
     nonisolated static func lookRoot(for profile: FolderProfile) -> URL {
         URL(fileURLWithPath: (profile.root as NSString).expandingTildeInPath)
     }
 
-    /// Keyed tolerantly. `Dictionary(uniqueKeysWithValues:)` traps on a duplicate key, so a
-    /// copy-pasted person block whose id was not changed crashed the app the moment this pane
-    /// rendered, on the main actor — `people.json` is hand-edited and nothing rejected a repeat.
-    ///
-    /// **Nothing can deliver one here any more, and the keying stays regardless.**
-    /// ``PersonRegistry`` collapses a repeated id to a single record on load, so `store.people` is
-    /// unique by construction and this can no longer fire. It is kept because it is what the trap
-    /// would come back through if that collapse ever regressed — and a guard removed for being
-    /// unreachable is one that goes missing at exactly the moment it becomes reachable again.
-    /// `theFactsMapStaysTolerantOfARepeatedKey` pins it, since no behavioural test can reach it.
+    /// Keyed tolerantly: a strict dictionary init traps on a duplicate key, and `people.json` is
+    /// hand-edited. ``PersonRegistry`` already collapses a repeated id on load, but **keep this**
+    /// in case that collapse regresses. `theFactsMapStaysTolerantOfARepeatedKey` pins it, since
+    /// no behavioural test can reach it.
     ///
     /// Last wins, which is the collapse's own rule and ``FolderSurveyBuilder``'s over the same file.
     private var allFacts: [String: PersonFilingFacts] {
@@ -3483,15 +3113,12 @@ struct PeopleList: View {
             : "This list was suggested from your folder names — edit anyone to make it yours."
     }
 
-    /// What the roster is for, in five sentences. The longer version — how longest-first matching
-    /// makes a shared surname attributable, with the worked example — is in Help, where a reader
-    /// who wants it can find it; here it was the tallest thing on the page. The order sentence is
-    /// here because the order is a rule the reader would otherwise have to guess at.
+    /// What the roster is for, briefly; the longer version with a worked example is in Help. The
+    /// order sentence is here because the reader would otherwise have to guess the rule.
     static let purposeCaption = "Who your documents belong to — the people Organize files for. It keeps one person’s document out of another’s folder, and chooses between folders that differ only by person (School/Daughter beside School/Son). A full name is matched before any single word, so add each person’s names as documents print them. The list is in relationship order — you, spouse, children, parents, siblings, then everyone else — until you move someone, after which your order is kept. Nothing here leaves your Mac, and only the names you add are stored."
 
     /// Shown when `people.json` is on disk but unreadable. It names the file and says plainly that
-    /// edits will not save — the alternative is a roster that looks ordinary, edits that appear to
-    /// take, and a real roster quietly replaced by folder-name guesses.
+    /// edits won't save, or the roster would look ordinary while its edits went nowhere.
     static var unreadableRosterNote: some View {
         Label {
             Text("The people file couldn’t be read, so this list is guessed from folder names. Edits won’t be saved. Fix people.json and restart SyncCloud — ~/sync-cloud.log says what went wrong.")
@@ -3505,9 +3132,8 @@ struct PeopleList: View {
     /// Shown when `people.json` lists an id more than once: the list below is one person short of
     /// the file, and edits are held back so the write cannot make that permanent.
     ///
-    /// Names the ids, because the dropped record exists nowhere else — the app has already stopped
-    /// showing it, and a message that said only "a duplicate" would leave the user searching a file
-    /// for something they cannot see.
+    /// Names the ids, because the dropped record exists only in the file and the app no longer
+    /// shows it.
     static func repeatedIdRosterNote(_ ids: [String]) -> some View {
         Label {
             Text(ids.count == 1
@@ -3538,14 +3164,11 @@ struct PeopleList: View {
 /// One person: who they are on one line, and — once opened — what the engine matches them on,
 /// what that is worth in this tree, and the buttons that change the record.
 ///
-/// **Shut, the row is the name and the numbers.** The initials disc, the first name, the
-/// relationship, and at the trailing edge how many folders and documents are theirs — the one fact
-/// worth reading across seven rows at once. A caution glyph joins it only for the one state that
-/// can change an outcome (see `caveatLine`), so a row that shows one is the row to open.
+/// Shut, the row is the initials disc, the name, the relationship, and how many folders and
+/// documents are theirs. A caution glyph joins it only for the state that can change an outcome
+/// (see `caveatLine`), so a row that shows one is the row to open.
 ///
-/// **Open, it is the old three lines and the two buttons**, in the same order — identity, then the
-/// evidence, then the caveat — and with the caveat still the only tinted line. Nothing that used to
-/// be on the row is gone; it is a click further away, which is what let the list become a list.
+/// Open, it adds the evidence, then the caveat (the only tinted line), then the buttons.
 private struct PersonRow: View {
     @Environment(\.colorScheme) private var colorScheme
     let facts: PersonFilingFacts
@@ -3567,8 +3190,8 @@ private struct PersonRow: View {
     /// Hands the person to the app's gather. nil hides the button — see `SettingsView.onShowPerson`.
     let onShowFiles: (() -> Void)?
 
-    /// Where the text starts, past the disc — the inset the row separators and the opened detail
-    /// share, so the detail reads as belonging to the name above it.
+    /// Where the text starts, past the disc. The row separators and the opened detail share it, so
+    /// the detail reads as belonging to the name above.
     static let textInset: CGFloat = PersonInitials.diameter + 10
 
     var body: some View {
@@ -3587,8 +3210,7 @@ private struct PersonRow: View {
                     .padding(.bottom, 8)
             }
         }
-        // Every action is also a right-click away, for the person who does not think to open the
-        // row first — and because a list whose rows have no menu is a list that looks inert.
+        // Every action is also a right-click away, for anyone who doesn't open the row first.
         .contextMenu {
             Button("Edit…", action: onEdit)
             Button("Remove…", role: .destructive, action: onRemove)
@@ -3615,16 +3237,14 @@ private struct PersonRow: View {
             }
             Spacer(minLength: 8)
             if caveatLine != nil {
-                // The glyph, not the sentence: the sentence is in the detail, and a row that
-                // carried it shut was the row that made every other row look like it should too.
+                // The glyph only; the sentence is in the detail.
                 Image(systemName: "exclamationmark.triangle.fill")
                     .scaledFont(.caption)
                     .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.caution))
                     .accessibilityLabel("Cannot be attributed yet")
             }
             if !isExpanded {
-                // Hidden while open, because the detail's second line says the same thing with
-                // the areas appended — one fact, once.
+                // Hidden while open: the detail's second line says the same, with the areas.
                 Text(countsLine)
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
@@ -3653,8 +3273,7 @@ private struct PersonRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if preventedCount > 0 {
-                // A sentence, so the readable ink rather than raw green (DS2), like the caveat
-                // line below it.
+                // A sentence, so the readable ink rather than raw green, like the caveat below.
                 Text(preventedLine).scaledFont(.subheadline)
                     .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.success))
                     .fixedSize(horizontal: false, vertical: true)
@@ -3669,10 +3288,9 @@ private struct PersonRow: View {
                 Button("Remove…", action: onRemove)
                     .help("Remove \(person.displayName) from the list")
                 if facts.folderCount > 0 {
-                    // The two ways to GO to what the numbers above count. The gather is the
-                    // app's own answer — every document that is theirs, across the source — and
-                    // the folder menu is Finder's, one folder at a time, grouped by area because
-                    // a flat menu of two hundred paths is not a menu anyone can use.
+                    // Two ways to go to what the numbers count: the app's gather of everything
+                    // theirs, or Finder one folder at a time, grouped by area because a flat menu
+                    // of hundreds of paths is unusable.
                     if let onShowFiles {
                         Button(action: onShowFiles) {
                             Label("Show Their Files", systemImage: "doc.text.magnifyingglass")
@@ -3708,8 +3326,7 @@ private struct PersonRow: View {
 
     /// The person's folders, one submenu per area, each item revealing that folder in Finder.
     ///
-    /// Capped per area rather than overall: the cap is there to keep a submenu usable, and an
-    /// overall cap would silently drop whole areas off the end.
+    /// Capped per area, not overall, which would silently drop whole areas off the end.
     private var folderMenu: some View {
         Menu {
             ForEach(facts.areas, id: \.name) { area in
@@ -3744,9 +3361,8 @@ private struct PersonRow: View {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    /// The shared-word detail, which is real but not a problem — so it lives here rather than on a
-    /// line of its own. Everyone on a family roster shares a word with somebody; a row that said so
-    /// in amber said it seven times out of seven and meant nothing.
+    /// The shared-word detail lives in the tooltip, not on a line: everyone on a family roster
+    /// shares a word with somebody, so it isn't a problem.
     private var tooltip: String {
         var parts = [matchedLine]
         if !facts.uniqueWords.isEmpty {
@@ -3765,9 +3381,8 @@ private struct PersonRow: View {
                                    : "Matches " + facts.matchedForms.joined(separator: " · ")
     }
 
-    /// **The only line here that reports the rule doing something**, rather than describing what is
-    /// known. It stays absent at zero: "prevented 0" would be a boast about nothing, and this
-    /// section already has enough to read.
+    /// The only line that reports the rule doing something, rather than what is known. Absent at
+    /// zero.
     private var preventedLine: String {
         let count = preventedCount == 1 ? "1 document" : "\(preventedCount) documents"
         guard let last = lastPrevented else { return "Kept \(count) out of other folders" }
@@ -3775,8 +3390,7 @@ private struct PersonRow: View {
     }
 
     /// The shut row's trailing figure: how much of the tree is theirs. Grouped, like every count
-    /// this app prints, and honest at zero — "No folders yet" is the state the overview's inert
-    /// line explains, and a blank would hide which row it meant.
+    /// the app prints, and stated at zero ("No folders yet") so a blank can't hide which row.
     private var countsLine: String {
         guard facts.folderCount > 0 else { return "No folders yet" }
         var out = facts.folderCount == 1 ? "1 folder" : "\(facts.folderCount.formatted()) folders"
@@ -3787,15 +3401,12 @@ private struct PersonRow: View {
         return out
     }
 
-    /// What the record is worth in this tree: how much, and **where**.
+    /// What the record is worth in this tree: how much, and where.
     ///
-    /// One line rather than two. A separate areas line repeated the folder count back in another
-    /// form — "Finance 1" above "1 folder is theirs" — which is the same fact twice. The totals
-    /// answer "how much", the area names answer "about what", and three names is where a real
-    /// record (nine areas) stops being a summary.
+    /// One line: the totals say how much, up to three area names say about what. More names stop
+    /// being a summary.
     ///
-    /// Omitted entirely when nothing has been surveyed: "0 folders" on a machine with no profile
-    /// reads as a fault rather than as an absence.
+    /// Omitted when nothing has been surveyed, where "0 folders" would read as a fault.
     private var knowledgeLine: String {
         guard facts.folderCount > 0 else { return "" }
         guard !facts.areas.isEmpty else { return countsLine }
@@ -3804,11 +3415,9 @@ private struct PersonRow: View {
         return countsLine + " · " + names.joined(separator: ", ") + (rest > 0 ? " +\(rest) more" : "")
     }
 
-    /// The one line that can change an outcome — and it is shown **only when there is one**.
-    ///
-    /// A document naming this person cannot be attributed to them: every word they answer to
-    /// belongs to somebody else here as well, and they have no multi-word form for the matcher to
-    /// find as a phrase. That is actionable, and rare. Merely *sharing* a word is neither.
+    /// The one line that can change an outcome, shown only when there is one: every word this
+    /// person answers to belongs to somebody else too, and they have no multi-word form for the
+    /// matcher, so no document can be attributed to them. Merely sharing a word isn't enough.
     private var caveatLine: String? {
         guard !facts.isAttributable else { return nil }
         let shared = facts.sharedWords.isEmpty
@@ -3820,10 +3429,8 @@ private struct PersonRow: View {
 
 /// A name form the documents keep using that nobody has recorded — offered, never applied.
 ///
-/// **The evidence is the point.** "Add this?" with no reason is a request to trust the app about
-/// somebody's name; the count and a real filename let the user decide in a second, and decide
-/// correctly when the answer is no — a wedding folder naming a couple produces a form that reads
-/// exactly like a name and is not one.
+/// The evidence is the point: the count and a real filename let the user decide in a second,
+/// including when the answer is no (a wedding folder naming a couple reads like a name).
 struct PersonSuggestionRow: View {
     let suggestion: PersonNameSuggestion
     let personName: String
@@ -3868,18 +3475,14 @@ private struct PersonInitials: View {
             .accessibilityHidden(true)
     }
 
-    /// Two letters of the **display name**, not initials of the full name.
-    ///
-    /// `AG` for Father Elder and `AG` for Uncle Elder is two identical discs in one list —
-    /// rendered and seen. The display name is what the row is headed by and what the folders are
-    /// called, so `Ab` and `An` track what the reader is actually looking at.
+    /// Two letters of the display name, not initials of the full name, which can repeat within one
+    /// family. The display name heads the row and names the folders, so the disc tracks it.
     private var initials: String {
         let name = PersonRegistry.words(person.displayName).first ?? person.displayName
         return name.prefix(2).capitalized
     }
 
-    /// Derived from the id, so a person keeps their colour across renames and relaunches — a
-    /// stable colour is what makes the disc worth having at all.
+    /// Derived from the id, so a person keeps their colour across renames and relaunches.
     private var tint: Color {
         let palette: [Color] = [.blue, .purple, .green, .orange, .pink, .teal, .indigo]
         var hash = 5381
@@ -3891,11 +3494,9 @@ private struct PersonInitials: View {
 /// A kept name with its invisible characters made visible — an affix space as "␣", a zero-width
 /// scalar as "◌", both tinted.
 ///
-/// Not a plain `Text`: every name in this list is here *because* something about it is risky, and a
-/// whole class of those offences is invisible in a proportional face. "report " and "report" would
-/// render identically, in the one view whose entire job is telling the user what they kept. The
-/// rule is ``InvisibleNameMarking``, shared with the Rename lens's card so the two cannot disagree
-/// about how many trailing spaces a name has.
+/// Not a plain `Text`: many risky names differ only by invisible characters, so "report " and
+/// "report" would look identical. The rule is ``InvisibleNameMarking``, shared with the Rename
+/// lens's card so the two agree on how many trailing spaces a name has.
 private struct KeptNameLabel: View {
     let name: String
 
@@ -3903,9 +3504,8 @@ private struct KeptNameLabel: View {
         HStack(spacing: 0) {
             ForEach(Array(InvisibleNameMarking.cells(for: name).enumerated()), id: \.offset) { _, cell in
                 if cell.isMarker {
-                    // Caution, matching the Rename lens's markers and the risky-names pill — the
-                    // whole risky-name vocabulary sits in one tier.
-                    // The marker in the name's own ink; the caution is the wash behind it (DS1).
+                    // Caution, matching the Rename lens's markers and the risky-names pill. The
+                    // marker keeps the name's own ink; the caution is the wash behind it.
                     Text(cell.glyph)
                         .background(SemanticColor.caution.opacity(PillVariant.fillOpacity))
                 } else {
@@ -3930,9 +3530,8 @@ struct FilingSpendHistorySheet: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                // "Cloud AI", not "Cloud Filing": the workspace this sheet was named for is
-                // Organize now, and the lens it reports on is To File. A twin of this header
-                // lives in `FileExplorer`'s `FilingSpendHistoryView` and has to say the same.
+                // "Cloud AI", not "Cloud Filing": the workspace is Organize and the lens To File.
+                // `FileExplorer`'s `FilingSpendHistoryView` has a twin header that must match.
                 Text("Cloud AI Spend").scaledFont(.headline)
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction).shortcutKeycap("↩").accentedProminent()
@@ -3987,17 +3586,15 @@ struct FilingSpendHistorySheet: View {
 
 // MARK: - Advanced
 
-/// Logging, maintenance, and the settings reset — the machinery that already existed in the
-/// engine but had no user-facing surface.
+/// Logging, maintenance, saved scan data, and the setup and settings resets: engine machinery
+/// given a user-facing surface.
 struct AdvancedSettingsTab: View {
     let syncManager: FileSyncManager?
     let onResetAllSettings: (() -> Void)?
     /// Clears the three setup flags and the draft, then opens the guided sheet at its first screen.
     ///
-    /// **Defaulted, and that is load-bearing.** This tab has no explicit `init` — its stored
-    /// properties are served by the memberwise one — so a new parameter without a default breaks
-    /// every construction site at once, including `SettingsLayoutTests.mustFitTabs`, which builds
-    /// the tab views directly.
+    /// **Keep it defaulted.** The tab uses the memberwise `init`, so a parameter without a default
+    /// breaks every construction site, including `SettingsLayoutTests.mustFitTabs`.
     var onResetSetup: (() -> Void)? = nil
     /// What Reset All would raise for Claude from the values now, named in its confirmation as the
     /// card's question names it. Defaulted for the same reason as `onResetSetup`.
@@ -4066,13 +3663,12 @@ struct AdvancedSettingsTab: View {
                 }
             }
 
-            // The two scan caches the app writes to Application Support that had no readout and no
-            // way to clear them. Saved suggestions is the third and stays in Organize, where the
-            // toggles that decide what it keys on live; these two belong beside the log file,
-            // because what a user wants from them is "how much is this storing, and make it stop".
+            // Two scan caches the app writes to Application Support, beside the log file because
+            // the question is "how much is this storing, and make it stop". Saved suggestions,
+            // the third, lives with the toggles that decide what it keys on.
             //
-            // Sizes rather than entry counts: a `stat` each, where a count would mean parsing the
-            // largest file this app writes — on the main actor, on a tab appearing.
+            // Sizes, not entry counts: a `stat` each, where a count would parse the largest file
+            // the app writes on the main actor as the tab appears.
             SettingsSection(
                 "Saved scan data",
                 caption: "Kept so a rescan doesn’t repeat work it already did. Clearing costs time on the next scan and nothing else — your files aren’t affected, and neither are your saved suggestions (Organize)."
@@ -4083,20 +3679,14 @@ struct AdvancedSettingsTab: View {
                             .foregroundStyle(.secondary)
                         Button("Clear") {
                             Task {
-                                // **Said before it happens.** What this deletes is derived and
-                                // recomputable, which is why the button is safe — but it is also
-                                // why its effect surfaces much later and somewhere else: a cold
-                                // duplicate scan that reads every byte again, and a launch line
-                                // reporting "0 digest(s) reloaded". Without this the log offers
-                                // nothing to connect either back to a deliberate act, and the
-                                // deletion itself is silent (`ContentHashIndexStore` logs only
-                                // the failure to delete).
+                                // Logged before it happens: the effect shows up much later (a
+                                // cold duplicate scan, "0 digest(s) reloaded" at launch), and
+                                // `ContentHashIndexStore` logs only a failure to delete.
                                 Logger.shared.info("User cleared the saved file digests")
                                 await ContentHashCache.forgetAllPersistedIndexes()
-                                // The barrier is a blocking `writeQueue.sync`, and this Task runs
-                                // on the main actor — parked behind a queued multi-megabyte index
-                                // write (a Verify save that just fired, say) it is a beachball.
-                                // Detached, the wait happens where blocking is free.
+                                // **Detached:** the barrier is a blocking `writeQueue.sync`, and
+                                // on the main actor, behind a queued multi-megabyte index write,
+                                // it would beachball.
                                 await Task.detached(priority: .utility) {
                                     ContentHashIndexStore.waitForPendingWrites()
                                 }.value
@@ -4114,13 +3704,12 @@ struct AdvancedSettingsTab: View {
                         Text(storageLensSizeText ?? "None")
                             .foregroundStyle(.secondary)
                         Button("Clear") {
-                            // Same reason as the digests' Clear above: the next Storage panel
-                            // opening empty is the only visible trace otherwise.
+                            // Logged for the digests' reason: an empty Storage panel later is the
+                            // only other trace.
                             Logger.shared.info("User cleared the saved Storage reports")
                             syncManager?.forgetStoredStorageLens()
                             Task {
-                                // Off the main actor for the same reason as the digests' Clear
-                                // above — the barrier blocks on the store's write queue.
+                                // Off the main actor: the barrier blocks on the store's write queue.
                                 await Task.detached(priority: .utility) {
                                     StorageLensStore.waitForPendingWrites()
                                 }.value
@@ -4160,17 +3749,14 @@ struct AdvancedSettingsTab: View {
         .task { await refreshSavedScanData() }
     }
 
-    /// Stats the saved-scan-data files. The digest sizes are asked of the cache actors rather than
-    /// of the store, because only an actor knows whether persistence was enabled at all — a
-    /// location the app injects and tests never do. "File digests" is every persisted digest index
-    /// summed (content hashes and document fingerprints), not just the first one: they are one
-    /// answer to "how much is this storing, and make it stop", and a Clear that left half of it
-    /// behind would contradict this section's own caption.
+    /// Stats the saved-scan-data files. Digest sizes come from the cache actors, not the store,
+    /// because only an actor knows whether persistence is enabled (the app injects a location;
+    /// tests don't). "File digests" sums every persisted digest index, content hashes and document
+    /// fingerprints alike, matching what Clear removes.
     private func refreshSavedScanData() async {
         let hashBytes = await ContentHashCache.totalPersistedSizeOnDisk()
         let storageBytes = syncManager?.storedStorageLensSizeOnDisk()
-        // Zero-byte files read as "None": a store that has been cleared leaves an empty payload
-        // behind in the Storage case, and offering Clear for 0 bytes is offering nothing.
+        // Zero bytes reads as "None": a cleared Storage store leaves an empty payload behind.
         hashIndexSizeText = Self.sizeText(hashBytes)
         storageLensSizeText = Self.sizeText(storageBytes)
     }
@@ -4182,9 +3768,8 @@ struct AdvancedSettingsTab: View {
 
     /// Asks before forgetting that setup has run.
     ///
-    /// Its own alert rather than the general one, because what it destroys is different and the
-    /// difference matters on exactly one kind of machine: without a folder profile there is nowhere
-    /// but the draft for the name and household answers to live, so clearing it loses them.
+    /// Its own alert, because without a folder profile the name and household answers live only in
+    /// the draft, so clearing it loses them.
     private func confirmResetSetup(_ reset: () -> Void) {
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -4202,7 +3787,7 @@ struct AdvancedSettingsTab: View {
         }
     }
 
-    /// What Reset Setup asks, here so an Ask Claude card (TE290) asks in the same words.
+    /// What Reset Setup asks, here so an Ask Claude card asks in the same words.
     static let resetSetupPrompt = (
         messageText: "Run setup again from the beginning?",
         informativeText: "SyncCloud forgets that setup has run and which location it learns from, and opens setup now, from the beginning. On a Mac that hasn’t learned a folder tree yet, the name and household answers setup was holding are discarded with it. Your folder profile, people and other settings stay.")
@@ -4222,10 +3807,8 @@ struct AdvancedSettingsTab: View {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Reset all settings?"
-        // Names what goes and what stays. "Files on disk are not affected" is true and used to be
-        // the whole of the reassurance, which read as "nothing you care about is lost" while the
-        // curated list of folder sources went with the defaults domain. What stays is
-        // `SettingsResetKeeps`.
+        // Names what goes and what stays, not only that files are unaffected: the folder sources
+        // go with the defaults. What stays is `SettingsResetKeeps`.
         alert.informativeText = Self.resetAllQuestion(raising: resetAllRaises())
         alert.addButton(withTitle: "Reset")
         alert.addButton(withTitle: "Cancel")
@@ -4257,17 +3840,12 @@ extension SettingsView.SettingsTab {
 
     /// Where a stored `settingsSelectedTab` resolves to, including when it resolves to nothing.
     ///
-    /// The launch read lives in `MacApp/ContentView.swift`, which belongs to no SPM package — only
-    /// the app target compiles it — so the fallback there was reachable by no test at all. It
-    /// matters more here than it looks: the stored value is written by past builds and by the
-    /// GUI-verification recipe's `defaults`
-    /// call, so it is the one input to Settings that is genuinely outside the app's control. A
-    /// force-unwrap or a `!` added there would crash on launch for anyone whose stored tab had
-    /// been retired, and nothing in the repo would have said so first.
+    /// Here, not in `MacApp/ContentView.swift` where the launch read happens, so a test can reach
+    /// it. The stored value comes from past builds and from `defaults`, outside the app's control:
+    /// **never trap on it**, or a retired tab crashes the launch.
     ///
-    /// Falls back rather than trapping, and the fallback is Appearance because it is the tab that
-    /// depends on nothing — no engine, no provider list, no roster — so it is safe to land on
-    /// whatever state the app is in.
+    /// Falls back to Appearance, the tab that depends on nothing (no engine, provider list or
+    /// roster), so it's safe whatever state the app is in.
     public static func resolvingStored(_ raw: String?) -> Self {
         guard let raw, let tab = Self(rawValue: raw) else { return .appearance }
         return tab

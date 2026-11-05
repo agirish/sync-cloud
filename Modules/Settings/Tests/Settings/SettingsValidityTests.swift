@@ -3,8 +3,8 @@ import Foundation
 @testable import Settings
 import Sync
 
-/// Mutable set of paths the injected validator reports as valid — simulates provider
-/// folders appearing and disappearing on disk between discovery passes.
+/// Mutable set of paths the injected validator reports as valid, simulating provider folders
+/// appearing and disappearing on disk between discovery passes.
 private final class ValidPaths: @unchecked Sendable {
     private let lock = NSLock()
     private var paths: Set<String>
@@ -34,8 +34,8 @@ private final class ValidPaths: @unchecked Sendable {
 
 private let root = URL(fileURLWithPath: "/Users/test/Library/CloudStorage")
 private func folder(_ name: String) -> URL { root.appendingPathComponent(name) }
-/// The Dropbox source's ROOT — the account folder, which is what validity is asked about.
-/// (`.../Dropbox/Documents` is now merely where panes open inside it.)
+/// The Dropbox source's root, the account folder, which is what validity is asked about.
+/// `.../Dropbox/Documents` is only where panes open inside it.
 private let dropboxDocs = "/Users/test/Library/CloudStorage/Dropbox"
 
 @MainActor
@@ -51,9 +51,9 @@ private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> Setti
 
 @Suite struct SettingsPathValidityTests {
 
-    /// The stale-badge regression pin (19763de) at the validity level: the provider's folder is
-    /// deleted externally between discoveries, so "Refresh providers" changes neither the card's
-    /// identity nor its path string — the badge must still flip to invalid.
+    /// The provider's folder is deleted externally between discoveries, so "Refresh providers"
+    /// changes neither the card's identity nor its path string; the badge must still flip to
+    /// invalid.
     @MainActor
     @Test func testFolderDeletedExternallyFlipsInvalidOnRefreshDespiteUnchangedPath() async {
         let test = TestDefaults()
@@ -122,9 +122,8 @@ private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> Setti
         #expect(settings.isPathValid(for: "Dropbox") == true)
     }
 
-    /// The badge is meaningful before the first discovery completes: init validates the
-    /// default iCloud provider it seeds `availableProviders` with (the launch-time state
-    /// the card previously computed in `onAppear`).
+    /// The badge is meaningful before the first discovery completes: init validates the default
+    /// iCloud provider it seeds `availableProviders` with.
     @MainActor
     @Test func testInitialProvidersAreValidatedBeforeFirstDiscovery() {
         let test = TestDefaults()

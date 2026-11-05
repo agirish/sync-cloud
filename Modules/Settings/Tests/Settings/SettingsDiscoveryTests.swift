@@ -6,14 +6,13 @@ import Sync
 // MARK: - Shared test helpers
 
 /// A fresh UserDefaults suite isolated from .standard, wiped when the last thing holding it lets
-/// go rather than when the test returns — see `ScratchDefaults`.
+/// go rather than when the test returns (see `ScratchDefaults`).
 ///
-/// **There is deliberately no `wipe()`.** A `SettingsManager` starts
-/// `Task { await discoverProviders() }` from `init` (unless `autoDiscover` is false) and from the
-/// methods that change a source, and the pass writes `lastKnownAccountFolders` when it lands —
-/// often after the test body has returned. A `defer { wipe() }` therefore wiped first, and the
-/// late write put the plist back. The task holds the manager and the manager holds this suite, so
-/// riding the lifetime puts the wipe after the last write.
+/// There is deliberately no `wipe()`. A `SettingsManager` starts a discovery task from `init`
+/// (unless `autoDiscover` is false) and from the methods that change a source, and the pass writes
+/// `lastKnownAccountFolders` when it lands, often after the test returns. A `defer { wipe() }`
+/// would run first and the late write would put the plist back. The task holds the manager and the
+/// manager holds this suite, so riding the lifetime puts the wipe after the last write.
 struct TestDefaults {
     let defaults: ScratchDefaults
     var suiteName: String { defaults.scratchSuiteName }
@@ -41,7 +40,7 @@ final class CallCounter: @unchecked Sendable {
     }
 }
 
-/// A lister whose FIRST call blocks until the test releases it (returning `firstResult`);
+/// A lister whose first call blocks until the test releases it (returning `firstResult`);
 /// later calls return `laterResults` immediately. Lets a test hold an older discovery pass
 /// open off-main while a newer pass starts and finishes.
 final class BlockingFirstCallLister: @unchecked Sendable {
@@ -97,8 +96,8 @@ private func noOverrides(_ id: String) -> String? { nil }
         #expect(providers[0].displayName == "iCloud")
         #expect(providers[0].imageName == "icloud")
         #expect(providers[0].rootPath == iCloudDefault)
-        // Lands at Documents by default — the measured default discovery passes in; `""` is what
-        // it passes on a Mac whose iCloud Drive has no Documents. See `CloudProvider.rootPath`.
+        // Lands at Documents by default, as discovery measures it; `""` on a Mac whose iCloud
+        // Drive has no Documents. See `CloudProvider.rootPath`.
         #expect(providers[0].openAt == "Documents")
         #expect(providers[0].landingPath == iCloudDefault + "/Documents")
         #expect(SettingsManager.mapProviders(cloudStorageFolders: [], iCloudDefaultPath: iCloudDefault,
@@ -115,12 +114,12 @@ private func noOverrides(_ id: String) -> String? { nil }
         #expect(oneDrive.id == "OneDrive-Personal")
         #expect(oneDrive.displayName == "OneDrive (Personal)")
         #expect(oneDrive.imageName == "onedrive")
-        // The ACCOUNT folder is the root — everything beside Documents (Teams Recordings, a
-        // shared team folder) is inside the source now — and Documents is where panes open.
+        // The account folder is the root, so everything beside Documents (Teams Recordings, a
+        // shared team folder) is inside the source, and Documents is where panes open.
         #expect(oneDrive.rootPath == "/Users/test/Library/CloudStorage/OneDrive-Personal")
         #expect(oneDrive.openAt == "Documents")
-        // The landing folder is exactly what this source's single path used to be. Every stored
-        // absolute path in the app depends on that identity holding.
+        // The landing folder is the documents-rooted path `RootsMigration` moved from, and every
+        // stored absolute path in the app depends on that identity.
         #expect(oneDrive.landingPath == "/Users/test/Library/CloudStorage/OneDrive-Personal/Documents")
     }
 
@@ -134,8 +133,8 @@ private func noOverrides(_ id: String) -> String? { nil }
         #expect(drive.displayName == "Google Drive (someone@gmail.com)")
         #expect(drive.imageName == "googledrive")
         #expect(drive.rootPath == "/Users/test/Library/CloudStorage/GoogleDrive-someone@gmail.com")
-        // Two components, so `My Drive` — the level a Drive account branches at, beside every
-        // Shared drive — is an ordinary crumb rather than something the old root hid.
+        // Two components, so `My Drive`, the level a Drive account branches at beside every Shared
+        // drive, is an ordinary crumb inside the source.
         #expect(drive.openAt == "My Drive/Documents")
         #expect(drive.landingPath == "/Users/test/Library/CloudStorage/GoogleDrive-someone@gmail.com/My Drive/Documents")
     }
@@ -246,18 +245,17 @@ private func noOverrides(_ id: String) -> String? { nil }
 
         let oneDrive = providers.first(where: { $0.id == "OneDrive-Personal" })
         #expect(oneDrive?.openAt == "Teams Recordings")
-        // The root is untouched by a landing choice — the folder a pane opens at says nothing about
-        // how far up it may go.
+        // A landing choice leaves the root alone: where a pane opens says nothing about how far up
+        // it may go.
         #expect(oneDrive?.rootPath == "/Users/test/Library/CloudStorage/OneDrive-Personal")
         #expect(oneDrive?.landingPath == "/Users/test/Library/CloudStorage/OneDrive-Personal/Teams Recordings")
         #expect(providers.first(where: { $0.id == "Dropbox" })?.openAt == "Documents")
     }
 
     @Test func testAnEmptyOpenAtOverrideIsTheRootAndNotAnAbsentOne() {
-        // "" is a real choice — open at the top of the account — and the only way a user can
-        // express it. Treating it as "no override" (the shape `nameOverride` uses, where empty
-        // restores the discovered default) would make that choice unrepresentable and silently
-        // reinstate `Documents` on the next discovery pass.
+        // "" is a real choice, the top of the account, and the only way to express it. Read as "no
+        // override" (as `nameOverride` treats empty), it would reinstate `Documents` on the next
+        // discovery pass.
         let providers = SettingsManager.mapProviders(
             cloudStorageFolders: [folder("OneDrive-Personal")],
             iCloudDefaultPath: iCloudDefault, openAtOverride: { $0 == "OneDrive-Personal" ? "" : nil })
@@ -387,9 +385,9 @@ private func noOverrides(_ id: String) -> String? { nil }
         #expect(counter.count == 1)
     }
 
-    /// Regression pin for the discovery race: each pass claims a generation at entry and may
-    /// publish only if no newer pass has published — so an OLDER pass that finishes LAST (its
-    /// off-main scan was slow) must not republish its stale provider snapshot over the newer one.
+    /// The discovery race: each pass claims a generation at entry and publishes only if no newer
+    /// pass has, so an older pass that finishes last (its off-main scan was slow) must not publish
+    /// its stale snapshot over the newer one.
     @MainActor
     @Test func testStaleDiscoveryPassFinishingLastDoesNotOverwriteNewerResult() async {
         let test = TestDefaults()
@@ -448,10 +446,9 @@ private func noOverrides(_ id: String) -> String? { nil }
         #expect(test.defaults.string(forKey: "name_override_Dropbox") == nil)
     }
 
-    /// Every discovery pass must re-run the path validator, even when it changes no provider:
-    /// the validity badge shows `pathValidity`, and "Refresh providers" often leaves a card's
-    /// identity and path unchanged while the folder on disk appeared or vanished. (Successor to
-    /// the `providerDiscoveryCount` bump test — the counter was subsumed by `pathValidity`.)
+    /// Every discovery pass re-runs the path validator, even when it changes no provider: the
+    /// validity badge shows `pathValidity`, and "Refresh providers" often leaves a card's identity
+    /// and path unchanged while the folder on disk appeared or vanished.
     @MainActor
     @Test func testDiscoverProvidersRevalidatesPathsEvenWhenProvidersAreUnchanged() async {
         let test = TestDefaults()
@@ -466,12 +463,10 @@ private func noOverrides(_ id: String) -> String? { nil }
         await settings.discoverProviders()
         let providersAfterFirst = settings.availableProviders.map(\.id)
         let validationsAfterFirst = counter.count
-        // One stat per source, plus a second for each that lands somewhere other than its own
-        // root — a landing folder is a separate question from the root, and asking it is the point
-        // of `landingValidity`. Derived rather than written as a number so the pin stays about
-        // "every pass re-checks the disk" rather than about how many sources the fixture has.
-        // Plus one: discovery asks whether iCloud Drive has a `Documents` to land in before it maps
-        // (`SettingsManager.iCloudDefaultOpenAt`), on every pass, for the same reason.
+        // One stat per source, plus one for each that lands somewhere other than its root (for
+        // `landingValidity`), plus one for whether iCloud Drive has a `Documents` to land in
+        // (`SettingsManager.iCloudDefaultOpenAt`). Derived, not a literal, so the pin is about
+        // every pass re-checking the disk, not the fixture's size.
         let statsPerPass = settings.availableProviders.reduce(0) { $0 + ($1.openAt.isEmpty ? 1 : 2) } + 1
         #expect(validationsAfterFirst >= providersAfterFirst.count)
 

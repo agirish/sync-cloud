@@ -4,11 +4,9 @@ import AppKit
 @testable import Settings
 @testable import Design
 
-/// The Readability tab rendered in the states that matter, with the assertions geometry can make
-/// about it — and a PNG per state when `READ_PROBE_DIR` is set, so a person can look.
-///
-/// A tab whose preview ignored its settings would lay out at exactly the right size, in the right
-/// place, with every fit test green. What it would not do is change when the settings do.
+/// The Readability tab rendered in the states that matter, with the assertions geometry can make,
+/// and a PNG per state when `READ_PROBE_DIR` is set, so a person can look. A preview that ignored
+/// its settings would pass every fit test; what it wouldn't do is change when the settings do.
 @Suite struct ReadabilityRenderProbe {
 
     @MainActor
@@ -40,11 +38,8 @@ import AppKit
         return height
     }
 
-    /// The preview really is showing the row spacing, not a picture of one.
-    ///
-    /// Compact drops the size-and-date line, shrinks the icon and cuts the padding, so the tab
-    /// itself has to get measurably shorter. If the preview were static this difference would be
-    /// zero and nothing else in the suite would notice.
+    /// The preview really follows the row spacing. Compact drops the size-and-date line, shrinks the
+    /// icon and cuts the padding, so the tab must get shorter; a static preview wouldn't.
     @MainActor
     @Test func theTabShortensWhenRowSpacingTightens() {
         let comfortable = laidOut(.medium, .comfortable, name: "default")
@@ -58,22 +53,17 @@ import AppKit
                 """)
     }
 
-    /// **Both appearances draw**, and draw differently.
-    ///
-    /// The tab leans on `Color.accentColor.opacity(0.10)` for a selected tile, `.secondary`
-    /// opacities for the tile borders and the preview's ground, and `.windowBackgroundColor`
-    /// behind all of it — every one of which resolves per appearance. A tile border that vanished
-    /// into a dark ground, or a preview panel that stopped being distinguishable from the page,
-    /// would be invisible to every measurement on this tab, which is why this renders both and
-    /// writes them out to be looked at.
+    /// Both appearances lay out, at the same height. The tab's accent, `.secondary` and window
+    /// colours all resolve per appearance, and a border lost in a dark ground is invisible to any
+    /// measurement here, so both renders are written out to be looked at.
     @MainActor
     @Test func theTabDrawsInBothAppearances() {
         let light = laidOut(.medium, .comfortable, name: "light", appearance: .aqua)
         let dark = laidOut(.medium, .comfortable, name: "dark", appearance: .darkAqua)
 
         #expect(light > 0 && dark > 0, "an appearance laid out to nothing")
-        // Height is appearance-independent; what this asserts is that neither collapses. The
-        // colours are judged from the PNGs the two calls above write.
+        // Height doesn't depend on appearance, so this asserts neither collapses. The colours are
+        // judged from the PNGs written above.
         #expect(abs(light - dark) < 1,
                 """
                 The tab lays out at \(light)pt light and \(dark)pt dark — appearance is moving \
@@ -81,7 +71,7 @@ import AppKit
                 """)
     }
 
-    /// And it follows the text size, which is the other half of the same claim.
+    /// And it follows the text size.
     @MainActor
     @Test func theTabGrowsWithTheTextSize() {
         let standard = laidOut(.medium, .comfortable, name: "standard")

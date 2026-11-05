@@ -4,13 +4,12 @@ import Events
 import Foundation
 import Sync
 
-/// The buttons an Ask Claude card presses (TE290 step 10), through the code Settings' own buttons
-/// call.
+/// The buttons an Ask Claude card presses, through the code Settings' own buttons call.
 ///
-/// **What asks twice asks in the card, in Settings' words.** The card shows `prompt`'s question
-/// with Cancel, and only the red button runs `run`, which hands each owner's own "if confirmed"
-/// a yes — so there is no third question, and nothing changes on Cancel. None of these can be
-/// undone, so none goes on an undo stack; each says what it did.
+/// What asks twice asks in the card, in Settings' words: the card shows `prompt`'s question with
+/// Cancel, and only the red button runs `run`, which hands each owner's "if confirmed" a yes, so
+/// there is no third question and nothing changes on Cancel. None can be undone, so none goes on
+/// an undo stack; each says what it did.
 @MainActor
 public struct SettingsActions {
 

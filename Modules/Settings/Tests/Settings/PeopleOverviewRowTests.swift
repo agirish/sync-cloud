@@ -6,21 +6,15 @@ import Sync
 import Testing
 @testable import Settings
 
-/// `PeopleOverviewRow` — what the roster governs, and the people it does not reach.
+/// `PeopleOverviewRow`: what the roster governs, and the people it doesn't reach.
+/// `PeopleOverview.make` is pinned in `Sync` and the store in `PeopleSectionTests`; this pins the
+/// row. It is display-only and its sentences are built by `private` members, so pixels are the
+/// instrument, and the claims are ones pixels can carry.
 ///
-/// `PeopleOverview.make` is pinned in `Sync` and the store is pinned in `PeopleSectionTests`;
-/// **nothing looked at the row that draws the answer.** It is display-only, its three sentences are
-/// built by `private` members, and SwiftUI cannot be driven from here — so pixels are the whole
-/// instrument, and the claims are chosen to be ones pixels can actually carry.
-///
-/// The section's premise is that **the gap is the actionable half and it is normally empty**. That
-/// makes the row's real subject its *branches*, not its wording: on a complete tree it must say so
-/// rather than leave a blank, on an unsurveyed one it must draw nothing at all rather than assert
-/// "0 folders", and a person the roster cannot reach must arrive in the caution colour with an offer
-/// beside them. Each is a different arm, and each is measurable.
-///
-/// Ink, not geometry, for the reason this file's neighbour records: **room is not paint**, and a
-/// height comparison passes against a branch that reserves space and draws nothing.
+/// The tests cover the row's branches, not its wording: a complete tree says so rather than leave a
+/// blank, an unsurveyed one draws nothing rather than claim "0 folders", and a person the roster
+/// can't reach appears in the caution colour with an offer beside them. Ink, not geometry, because
+/// a height comparison passes against a branch that reserves space and draws nothing.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct PeopleOverviewRowTests {
 
@@ -36,7 +30,7 @@ import Testing
 
     private static let width = SettingsSheetMetrics.contentWidth(textScale: 1)
 
-    /// Somebody the tree files for whom the roster does not know — the gap the section exists for.
+    /// Somebody the tree files for whom the roster doesn't know: the gap the section exists for.
     private static let ravi = PeopleOverview.UnclaimedPerson(
         name: "Ravi", folders: 2, documents: 9, exampleFolder: "Family/Ravi")
 
@@ -55,22 +49,18 @@ import Testing
         return rep
     }
 
-    /// The row's natural height at the sheet's content width — what separates a row of one line
-    /// from a row of two when no input can switch a single line off on its own.
+    /// The row's natural height at the sheet's content width, which tells one line from two where
+    /// no input can switch a single line off.
     private func height(_ view: some View) -> CGFloat {
         let host = NSHostingView(rootView: AnyView(view.frame(width: Self.width)))
         return host.fittingSize.height
     }
 
-    /// Pixels differing from the window background, optionally restricted to a horizontal band
-    /// given as a fraction of the width.
-    ///
-    /// **Brightness, which is why the band exists.** `SemanticColor.caution` is a yellow, and yellow
-    /// on a light background is nearly the background's brightness — the unclaimed line inks far
-    /// less than the grey sentence it replaces, and a whole-row tally therefore goes *down* when a
-    /// gap appears. That is not a defect, it is the reason the design note gives for the glyph
-    /// carrying the colour elsewhere; here it means a total-ink threshold measures the wrong thing,
-    /// and hue (`cautionInk`) or position (this band) has to do the work instead.
+    /// Pixels differing in brightness from the window background, optionally within a horizontal
+    /// band given as fractions of the width. `SemanticColor.caution` is a yellow, close to a light
+    /// background's brightness, so the unclaimed line inks less than the grey sentence it replaces
+    /// and a whole-row tally drops when a gap appears. Hue (`cautionInk`) or position (the band)
+    /// has to do that work instead.
     private func ink(_ view: some View, from: CGFloat = 0, to: CGFloat = 1) -> Int {
         guard let rep = render(view), let background = rep.colorAt(x: 0, y: 0) else { return 0 }
         let lower = Int(CGFloat(rep.pixelsWide) * from)
@@ -85,12 +75,9 @@ import Testing
         return painted
     }
 
-    /// Pixels carrying the **caution** hue, which on this row only the unclaimed line wears.
-    ///
-    /// Measured by hue distance rather than by ink, because the claim is about *which* of two
-    /// sentences is drawn and both draw about the same amount of it. Grey text has no hue to speak
-    /// of, so the two are separable in a way their pixel counts are not — and this is the axis the
-    /// People surfaces have been wrong on before, when a first pass tinted every row amber.
+    /// Pixels carrying the caution hue, which on this row only the unclaimed line wears. By hue,
+    /// not ink, because the claim is about which of two sentences is drawn and both ink about the
+    /// same; grey text has no hue, so hue separates them.
     private func cautionInk(_ view: some View) -> Int {
         guard let rep = render(view) else { return 0 }
         let caution = NSColor(SemanticColor.caution).usingColorSpace(.sRGB)
@@ -99,8 +86,8 @@ import Testing
         for y in 0..<rep.pixelsHigh {
             for x in 0..<rep.pixelsWide {
                 guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                // Saturated, and near the target hue. The saturation floor is what keeps grey text
-                // and the window background out — both sit near zero however bright they are.
+                // Saturated and near the target hue. The saturation floor keeps out grey text and
+                // the background, which sit near zero however bright they are.
                 guard c.saturationComponent > 0.25 else { continue }
                 var delta = abs(c.hueComponent - target.hueComponent)
                 delta = min(delta, 1 - delta)          // hue is a circle
@@ -112,16 +99,10 @@ import Testing
 
     // MARK: An unsurveyed tree draws nothing
 
-    /// **With nothing surveyed the row draws nothing at all** — not "0 folders in your tree belong
-    /// to someone on this list", and not the reassurance either.
-    ///
-    /// Both sentences are gated on `claimedFolders > 0`, and that is the arm a fresh install sits in
-    /// for as long as it takes to run a survey. Dropping either guard puts a confident sentence
-    /// about a tree nobody has looked at yet under the roster — an assertion of fact the app has no
-    /// basis for, which is precisely the failure mode this section's design note argues against.
-    ///
-    /// The populated case is measured first, so "draws nothing" cannot be satisfied by a harness
-    /// that renders nothing.
+    /// With nothing surveyed the row draws nothing: not "0 folders…", and not the reassurance.
+    /// Both sentences are gated on `claimedFolders > 0`, the state of a fresh install until a
+    /// survey runs; dropping either guard states a fact about a tree nobody has looked at. The
+    /// populated case is measured first, so a harness that renders nothing can't pass.
     @Test func anUnsurveyedTreeDrawsNoRowAtAll() {
         let surveyed = ink(Self.row(PeopleOverview(claimedFolders: 12, claimedDocuments: 140,
                                                    unclaimed: [], peopleWithNoFolders: [])))
@@ -133,20 +114,15 @@ import Testing
                 "an empty overview still painted \(unsurveyed) pixels — the row is asserting something about a tree nobody has surveyed")
     }
 
-    /// **A complete roster says so plainly instead of leaving a blank.**
-    ///
-    /// "Everyone your tree files for is on this list" is the state the section is in almost always,
-    /// and the design note is explicit that it is worth reading once rather than being an empty
-    /// space. Measured against the same overview with the reassurance's own condition broken — a
-    /// tree with coverage *and* a gap — so what separates the two renders is the arm and not the
-    /// presence of a survey.
+    /// A complete roster says so plainly instead of leaving a blank. "Everyone your tree files for
+    /// is on this list" is the section's usual state, and worth reading once rather than being
+    /// empty space.
     @Test func aCompleteRosterDrawsItsReassurance() {
         let complete = PeopleOverview(claimedFolders: 12, claimedDocuments: 140,
                                       unclaimed: [], peopleWithNoFolders: [])
         let coverageOnly = ink(Self.row(complete))
-        // The coverage sentence alone, isolated by giving the same overview a gap: that suppresses
-        // the reassurance and adds the amber line, so the difference is not a clean subtraction —
-        // what it establishes is that the complete case is not merely the coverage line.
+        // The same overview with a gap, which swaps the reassurance for the amber line: only it
+        // should carry caution ink.
         let withGap = PeopleOverview(claimedFolders: 12, claimedDocuments: 140,
                                      unclaimed: [Self.ravi], peopleWithNoFolders: [])
         #expect(coverageOnly > 200, "the complete roster drew almost nothing (\(coverageOnly) pixels)")
@@ -155,19 +131,12 @@ import Testing
         #expect(cautionInk(Self.row(withGap)) > 20,
                 "a person the roster cannot reach is not drawn in the caution colour")
 
-        // **None of the three above is about the reassurance.** `coverageOnly > 200` is cleared by
-        // the coverage sentence on its own; both caution readings are unchanged by a line drawn in
-        // `.secondary`. Delete the entire "Everyone your tree files for is on this list." block and
-        // all three still pass — which leaves the state this section sits in on essentially every
-        // real launch with no coverage at all.
-        //
-        // Isolated by HEIGHT, because no input isolates it: the reassurance's own condition is
-        // `unclaimed.isEmpty`, so the only way to switch it off is to add a gap, which puts an amber
-        // line and a button in its place. Two things can be in this row when the roster is complete
-        // — the coverage sentence and the reassurance — and the coverage sentence's own content is
-        // pinned by `PeopleCoverageLineTests`. So a complete row measuring TWO lines tall is the
-        // reassurance being drawn. One line is measured from the row's only other single-line
-        // state: a tree with no survey behind it and one inert person on the roster.
+        // None of the three above sees the reassurance: the coverage sentence alone clears the
+        // ink floor, and a `.secondary` line carries no caution hue. So it is checked by height.
+        // No input switches it off alone (its condition is `unclaimed.isEmpty`), but a complete row
+        // holds only the coverage sentence and the reassurance, so two lines tall means it is
+        // drawn. One line is measured from the only other single-line state: no survey, one inert
+        // person on the roster.
         let oneLine = height(Self.row(PeopleOverview(claimedFolders: 0, claimedDocuments: 0,
                                                      unclaimed: [], peopleWithNoFolders: ["daughter"])))
         let bothLines = height(Self.row(complete))
@@ -178,16 +147,10 @@ import Testing
 
     // MARK: The gap is the actionable half
 
-    /// **An unreachable person brings an offer, not just a sentence about them.**
-    ///
-    /// The Add button is the only thing on this row that *does* anything, and it is the half a
-    /// reader is being asked to act on. It is also the half that is invisible to every other
-    /// measurement here: `cautionInk` sees the amber sentence and not the control beside it.
-    ///
-    /// Isolated by **position** rather than by total ink. A `Spacer(minLength: 8)` pushes the button
-    /// to the trailing edge, and nothing else on this row reaches there — every other line is
-    /// leading-aligned prose. Comparing the same band between a row with a gap and a row without
-    /// cancels whatever the coverage line contributes to it, so what is left is the control.
+    /// An unreachable person brings an Add offer, not just a sentence. The button is the row's only
+    /// action and `cautionInk` can't see it, so it is found by position: a `Spacer(minLength: 8)`
+    /// pushes it to the trailing edge, where no leading-aligned prose reaches. Comparing that band
+    /// with and without a gap cancels the coverage line's share.
     @Test func anUnreachablePersonBringsAnOfferAndNotJustASentence() {
         let gap = PeopleOverview(claimedFolders: 12, claimedDocuments: 140,
                                  unclaimed: [Self.ravi], peopleWithNoFolders: [])
@@ -201,9 +164,8 @@ import Testing
                 "the trailing edge gained only \(trailingWithGap - trailingWithout) pixels when a gap appeared — the Add offer is not being drawn, leaving a warning nobody can act on")
     }
 
-    /// **Two gaps draw two offers.** The `ForEach` is the only thing standing between "the section
-    /// lists who is missing" and "the section mentions that somebody is", and a row that drew the
-    /// first unclaimed person and stopped would satisfy every check above.
+    /// Two gaps draw two lines. A row that drew only the first unclaimed person would pass every
+    /// check above.
     @Test func everyUnreachablePersonGetsTheirOwnLine() {
         let one = PeopleOverview(claimedFolders: 12, claimedDocuments: 140,
                                  unclaimed: [Self.ravi], peopleWithNoFolders: [])
@@ -222,15 +184,9 @@ import Testing
 
     // MARK: The inert half
 
-    /// **A person on the roster with no folders is reported by name.**
-    ///
-    /// Not a fault, and not actionable — but it does mean their record changes nothing, and the
-    /// design note is explicit that *which* person is inert is the useful part. The sentence is
-    /// assembled by looking each id up in the store, so it is the one line here that can come out
-    /// empty from a mismatch between the overview and the roster: `noFolderLine` returns `""` when
-    /// no id resolves, and an empty string draws an empty `Text` rather than nothing at all.
-    ///
-    /// So both directions: a resolvable id paints, and an id the store has never heard of does not.
+    /// A person on the roster with no folders is reported by name, since their record changes
+    /// nothing. The line looks each id up in the store, so `noFolderLine` returns `""` when none
+    /// resolves. Both directions: a resolvable id paints, an unknown one draws nothing.
     @Test func anInertPersonIsNamed() {
         let base = PeopleOverview(claimedFolders: 12, claimedDocuments: 140,
                                   unclaimed: [], peopleWithNoFolders: [])
@@ -238,8 +194,8 @@ import Testing
                                    unclaimed: [], peopleWithNoFolders: ["daughter"])
         #expect(ink(Self.row(inert)) > ink(Self.row(base)) + 100,
                 "a person with no folders recorded adds nothing to the row — their record's inertness is never said")
-        // An id nobody on the roster answers to resolves to no name, and the line is dropped rather
-        // than drawn blank or drawn as the raw id.
+        // An id nobody on the roster answers to drops the line, rather than drawing it blank or as
+        // the raw id.
         let stranger = PeopleOverview(claimedFolders: 12, claimedDocuments: 140,
                                       unclaimed: [], peopleWithNoFolders: ["nobody-by-that-id"])
         #expect(ink(Self.row(stranger)) == ink(Self.row(base)),
@@ -247,14 +203,9 @@ import Testing
     }
 }
 
-/// **Numbers here are grouped, like every other count the app prints.**
-///
-/// The coverage line interpolated its counts raw — "holding 1204 filed documents" — two panels away
-/// from `RestructureLens.cleanMessage`'s "Checked 3,013 folders". Same app, same kind of number, two
-/// formats, and on a real tree this one is four digits.
-///
-/// Asserted on the SENTENCE rather than on a render: this is about the string, and a pixel count
-/// cannot tell "1204" from "1,204" — it can barely tell it from "1205".
+/// The coverage line groups its counts, like every other count the app prints (as
+/// `RestructureLens.cleanMessage` does). Asserted on the sentence, not a render: a pixel count
+/// can't tell "1204" from "1,204".
 @MainActor
 @Suite struct PeopleCoverageLineTests {
 
@@ -270,11 +221,11 @@ import Testing
         let text = line(folders: 3013, documents: 1204)
         #expect(text.contains(1204.formatted()), "the document count is ungrouped: \(text)")
         #expect(text.contains(3013.formatted()), "the folder count is ungrouped: \(text)")
-        // The formatter is locale-aware, so this pins the DIFFERENCE rather than a comma.
+        // The formatter is locale-aware, so this pins the difference rather than a comma.
         #expect(!text.contains("1204") || 1204.formatted() == "1204", "raw interpolation survived")
     }
 
-    /// The singular arms are untouched — "1 folder" is not "1.0 folders".
+    /// The singular forms still read: "1 folder", not "1.0 folders".
     @Test func theSingularsStillRead() {
         #expect(line(folders: 1, documents: 1).contains("1 folder in your tree"))
         #expect(line(folders: 1, documents: 1).contains("1 filed document"))
