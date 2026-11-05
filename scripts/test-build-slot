@@ -100,8 +100,7 @@ check "a holder's time counts from getting the slot, not from queueing" \
   eval "'$SLOT' --status | grep -q '^  \[1\] pid $late, [^,]*, 0m0[0-2]s: sleep 32.2'"
 kill "$late"; wait "$late" 2>/dev/null
 
-# A command run again and again in a loop must not re-take the slot ahead of a queued waiter
-# (seen: a Dashboard run looping on one slot kept a waiter out for 51 minutes).
+# A command run again and again in a loop must not re-take the slot ahead of a queued waiter.
 # loop1 holds the slot until the waiter is in line, not for a fixed time: under load a waiter
 # started during a 0.5 s hold could miss it and read as starvation that was not there.
 rm -f "$WORK/order" "$WORK/release"
@@ -160,8 +159,8 @@ wait "$gate" "$excl" "$normal"
 check "--exclusive: ran alone, then the newcomer ($(tr '\n' ' ' < "$WORK/order"))" \
   same "$(tr '\n' ' ' < "$WORK/order")" "E-start E-end N "
 
-# With slots to spare, a newcomer behind an --exclusive waiter took one, and kept taking them while
-# anything was held, so the probe could wait for ever. With 3 slots it happened on every run.
+# With slots to spare, a newcomer behind an --exclusive waiter must not take one: newcomers that
+# kept taking them while anything was held would make the probe wait for ever.
 export BUILD_SLOTS=3
 rm -f "$WORK/release" "$WORK/order"
 "$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" &
@@ -206,8 +205,8 @@ check "--status groups the waiters by worktree, with what each holds" \
 check "--status gives each waiter its turn: B1 first, A3 last" \
   eval "grep -A1 'wtB: holds' '$WORK/fair-status' | grep -q '#1 .*echo B1' && grep -q '#5 .*echo A3' '$WORK/fair-status'"
 
-# The case seen on 2026-11-03: one worktree holds every slot and has its whole gate queued; a
-# single run from another worktree gets the next free slot, not the end of the line.
+# One worktree holds every slot and has its whole gate queued; a single run from another
+# worktree gets the next free slot, not the end of the line.
 export BUILD_SLOTS=2
 rm -f "$WORK/release" "$WORK/release-a2" "$WORK/order"
 ( in_a "$SLOT" sh -c "while [ ! -e '$WORK/release' ]; do sleep 0.05; done" ) &
@@ -535,8 +534,8 @@ check "slot directory deleted under a holder: the holder re-takes it, so a newco
 check "slot directory deleted under a holder: the holder says so" grep -q 're-took slot 1' "$WORK/heal-err"
 kill "$holder"; wait "$holder" 2>/dev/null
 
-# Waiters in line when the directory goes keep waiting, in their places: they ran at once, every
-# one of them, without a slot ("cannot use … running without a slot").
+# Waiters in line when the directory goes keep waiting, in their places, rather than all running
+# at once without a slot ("cannot use … running without a slot").
 rm -f "$WORK/order"
 "$SLOT" sleep 30.7 2>/dev/null &
 holder=$!

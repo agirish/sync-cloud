@@ -1,29 +1,21 @@
 import Foundation
 
-/// **What the command-line tool prints is plain ASCII punctuation** (FC10): a terminal, a pipe
-/// into `grep`, or a log a script greps should not have to match `’` where it typed `'`.
+/// What the command-line tool prints uses plain ASCII punctuation, so a terminal, a `grep` or a
+/// script reading the output never has to match `’` where it typed `'`.
 ///
-/// **The tool's own words are written in ASCII; only a shared sentence is folded.** The app's
-/// strings stay curly, and this tool drops some of them into its lines: a row's description, a
-/// provider's name rule, a Cocoa error. Each such site passes the sentence through `ascii(_:)`
-/// before interpolating it. Everything else — every path, file name, provider id and display
-/// name — is interpolated raw, so it prints exactly as it is on disk and pastes back into a shell
-/// or a `-L`/`-R` as the same name. The design is fail-safe: a missed `ascii` leaves a curly
-/// quote in a line, which is cosmetic; a fold over a name would print a different name, and
-/// "Mom’s Files" folded to "Mom's Files" is one `-L` then refuses.
+/// The tool's own words are written in ASCII. Where a line carries one of the app's curly
+/// sentences (a row's description, a provider's name rule, a Cocoa error), that site passes it
+/// through `ascii(_:)`. Paths, file names, provider ids and display names are interpolated raw, so
+/// they print as on disk and paste back into a shell or a `-L`/`-R` as the same name. A missed
+/// fold is cosmetic; a fold over a name prints a different name, which `-L` then refuses.
 ///
-/// **A shared sentence that quotes a name keeps the name** (`ascii(_:keeping:)`): a row's
-/// description names both providers and may quote both on-disk spellings or a link inside a
-/// folder; a Cocoa error quotes the file. The caller lists the names it knows the sentence can
-/// carry, and only the words around them fold.
-///
-/// **JSON is not folded.** `scan --json` and `restructure --json` are the stable, machine-read
-/// formats: their paths must be the real paths, and a folded `“` would land as a bare `"` inside a
-/// JSON string and break the document.
-///
-/// **Known limit:** a shared sentence that quotes a name the caller did not list folds that name.
-/// The one such case today is a Cocoa error that quotes a file under a display name other than its
+/// A shared sentence that quotes names keeps them (`ascii(_:keeping:)`): the caller lists the
+/// names it knows the sentence can carry, and only the words around them fold. A name it did not
+/// list is folded; today that is a Cocoa error quoting a file under a display name other than its
 /// on-disk leaf, as Finder shows it.
+///
+/// JSON is not folded: `scan --json` and `restructure --json` must carry the real paths, and a
+/// folded `“` would land as a bare `"` inside a JSON string and break the document.
 public enum CLIOutput {
 
     /// `text` with curly quotes and apostrophes, the ellipsis and the en and em dashes folded to
@@ -72,16 +64,15 @@ public enum CLIOutput {
         }
     }
 
-    /// **An error ArgumentParser will print, with its message folded.** A command body's error
-    /// that is not ours to classify (`CLIExitMapping`'s `.rethrow` — say a copy's Cocoa error
-    /// under `--fail-fast`, "The file “a.txt” couldn’t be opened") is printed by ArgumentParser
-    /// itself, as `Error: <message>`. This reads the message the way ArgumentParser does — a
-    /// `LocalizedError`'s description, else an `NSError`'s — and, when folding changes it, returns
-    /// an error carrying the folded message instead; otherwise the error itself. Either way the
-    /// exit code is the same: ArgumentParser exits 1 for any error not its own.
+    /// An error ArgumentParser will print, with its message folded. An error that is not ours to
+    /// classify (`CLIExitMapping`'s `.rethrow`, such as a copy's Cocoa error under `--fail-fast`)
+    /// is printed by ArgumentParser as `Error: <message>`. This reads the message as ArgumentParser
+    /// does (a `LocalizedError`'s description, else an `NSError`'s) and returns an error carrying
+    /// the folded message when folding changes it, otherwise the error itself. The exit code is 1
+    /// either way.
     ///
-    /// An error already folded is passed on as itself, so the runner can fold a copy's error with
-    /// the file's names kept and the shell's second pass leaves them alone.
+    /// An already folded error passes through as itself, so a copy's error the runner folded with
+    /// the file's names kept survives the shell's second pass.
     public static func foldedForPrinting(_ error: Error, keeping names: [String] = []) -> Error {
         if error is FoldedError { return error }
         let message: String

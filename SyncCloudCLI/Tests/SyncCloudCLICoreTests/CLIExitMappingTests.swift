@@ -2,10 +2,9 @@ import Testing
 import Foundation
 @testable import SyncCloudCLICore
 
-/// Pins the CLI's exit-code classification. `Commands.flushingLogToDisk` used to inline this over
-/// ArgumentParser's types in a `private func`, so nothing could test it — and the case that matters
-/// is silent when wrong: if `CLISyncFailuresError` ever stopped mapping to a failure exit, a sync
-/// that failed would exit 0 and every script wrapping this CLI would read it as success.
+/// Pins the CLI's exit-code classification. The case that matters is silent when wrong: if
+/// `CLISyncFailuresError` stopped mapping to a failure exit, a failed sync would exit 0 and every
+/// script wrapping this CLI would read it as success.
 @Suite struct CLIExitMappingTests {
 
     @Test func aValidationErrorCarriesItsMessageToTheUsageExit() {

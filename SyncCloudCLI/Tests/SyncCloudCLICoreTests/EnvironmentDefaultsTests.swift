@@ -2,18 +2,16 @@ import Foundation
 import Testing
 @testable import SyncCloudCLICore
 
-/// The one production default in `CommandRunner.Environment` that carries a SEMANTIC mapping.
-/// Every CommandRunner test overrides the seams, so the shipped `performFileSync` default —
-/// "an existing destination was replaced" inferred from "a previous version reached the Trash"
-/// (`performFileSyncIO(...).trashed != nil`) — never executed in any suite. That inference feeds
-/// `recordCopied(replacedExisting:)`, which drives the summary's "previous versions are
+/// Pins the one production default in `CommandRunner.Environment` with a semantic mapping, which
+/// every other CommandRunner test overrides: `performFileSync` infers "an existing destination
+/// was replaced" from "a previous version reached the Trash" (`performFileSyncIO(...).trashed !=
+/// nil`). That feeds `recordCopied(replacedExisting:)` and the summary's "previous versions are
 /// recoverable from the Trash" line.
 ///
-/// Known and deliberately open (docs/backports.md tracks the review): on a Trash-less volume
-/// (exFAT, most SMB) the replace still happens but `trashed` is nil, so the CLI under-reports
-/// replacements exactly where recovery matters. This suite pins the mapping's two honest answers
-/// on an ordinary volume, so the seam is at least no longer dead code — fixing the Trash-less
-/// case means changing the mapping, and now something fails when it changes silently.
+/// Known and deliberately open (docs/backports.md): on a Trash-less volume (exFAT, most SMB) the
+/// replace still happens but `trashed` is nil, so the CLI under-reports replacements exactly where
+/// recovery matters. This pins the mapping's two answers on an ordinary volume, so a change to it
+/// fails here instead of passing silently.
 @Suite struct EnvironmentDefaultsTests {
 
     private func makeDefaultEnvironment() -> CommandRunner.Environment {
@@ -29,9 +27,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let src = root.appendingPathComponent("src.txt")
         let dst = root.appendingPathComponent("dst.txt")
-        // The overwrite below trashes the old destination as a `.rollback_<UUID>` backup. In the
-        // real Trash that was one stray file per run, under a name no cleanup here could match;
-        // this Trash is inside `root`.
+        // The overwrite below trashes the old destination as a `.rollback_<UUID>` backup. This
+        // Trash is inside `root`, so no run leaves a stray file in the real one.
         let trash = ScratchTrash(in: root)
         try Data("new contents".utf8).write(to: src)
 

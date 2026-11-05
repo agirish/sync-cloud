@@ -5,11 +5,9 @@
 # whose subject starts with WIP, checkpoint, fixup!, squash! or amend! (any case). Other branches
 # and tags pass, and so does a branch deletion.
 #
-# Why: on 10-28/29 four empty "WIP: …" commits reached main (76f2555ee, 9e4c3dfa6, 90c83467f,
-# 97365cdcd). Each session had opened its working branch with an empty WIP commit, so a sweep
-# could not delete the branch, put one real commit on top, and then fast-forwarded main to the
-# working branch instead of to `<task>-themed` (COMMIT.md §3, §5). COMMIT.md §4's gate 2 would
-# have caught every one; it was a step to remember, and nothing ran it. This runs it on every push.
+# Why: a working branch opens with an empty WIP commit (COMMIT.md §2), so fast-forwarding main to
+# it instead of to `<task>-themed` (COMMIT.md §3, §5) lands that WIP on main. COMMIT.md §4's gate 2
+# catches it only when someone remembers to run it; this runs it on every push.
 #
 # Install once per clone; every worktree shares the hook:
 #   scripts/pre-push-guard --install
@@ -42,7 +40,7 @@ fi
 
 remote=${1:-origin}   # git passes the remote's name, then its URL; the loop reuses $1
 protected='^refs/heads/(main|v[0-9]+\.x)$'
-# A whole word: "Wipe test defaults…" (324776b72) is a real commit.
+# A whole word, so a real subject such as "Wipe test defaults…" passes.
 working='^((wip|checkpoint)([^[:alnum:]]|$)|fixup!|squash!|amend!)'
 shopt -s nocasematch
 refused=()

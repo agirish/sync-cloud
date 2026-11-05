@@ -66,11 +66,10 @@ XCTEST_EXECUTED = re.compile(r"Executed (\d+) tests?, with")
 # STARTED skips the run's own banner; ENDED takes a parameterized test's "with N test cases" too.
 STARTED = re.compile(r"◇ Test (?!run started\.)(.+?) started\.")
 ENDED = re.compile(r"[✔✘➜] Test (.+?)(?: with \d+ test cases?)? (?:passed|failed|skipped)")
-# A chunk still running this long is stopped and reported. The slowest chunk seen took 438 s at
-# load 47; a test blocked for good (an unanswered TCC prompt, 2026-10-28) would otherwise hold the
-# CI job to its 90-minute limit with nothing in the log. Timed on the monotonic clock, which stands
-# still while the Mac sleeps: on 2026-10-28 it hibernated 18 minutes on a flat battery, and the
-# wall clock stopped three healthy chunks the moment it woke.
+# A chunk still running this long is stopped and reported. The slowest healthy chunk seen took
+# 438 s at load 47; a test blocked for good (an unanswered TCC prompt, say) would otherwise hold
+# the CI job to its 90-minute limit with nothing in the log. Timed on the monotonic clock, which
+# stands still while the Mac sleeps, so a long sleep doesn't stop healthy chunks when it wakes.
 STALL_SECONDS = float(os.environ.get("TEST_SHARDS_STALL") or 1200)
 HEARTBEAT_SECONDS = float(os.environ.get("TEST_SHARDS_HEARTBEAT") or 300)
 SAMPLE_SECONDS = os.environ.get("TEST_SHARDS_SAMPLE") or "3"

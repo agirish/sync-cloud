@@ -95,10 +95,10 @@ public struct CommandRunner {
     /// `print(line)` — one stdout line, newline appended.
     private func printOut(_ line: String) { env.writeOut(line + "\n") }
 
-    /// **A row's description as the text output prints it**: a shared sentence, so folded to
-    /// ASCII punctuation (`CLIOutput`, FC10), with every name it can quote kept as it is on disk —
-    /// both providers' display names, each side's leaf (a name-conflict row quotes both
-    /// spellings), and the link a held folder encloses.
+    /// A row's description as the text output prints it: a shared sentence, so folded to ASCII
+    /// punctuation (`CLIOutput`), with every name it can quote kept as it is on disk: both
+    /// providers' display names, each side's leaf (a name-conflict row quotes both spellings), and
+    /// the link a held folder encloses.
     private func printable(_ diff: FileDifference, left: CloudProvider, right: CloudProvider) -> String {
         var names = [left.displayName, right.displayName,
                      String(TreeShape.leaf(of: diff.relativePath)),
@@ -149,11 +149,11 @@ public struct CommandRunner {
         direction: Direction, showHidden: Bool, ignore: [String],
         ignoreGoogleDriveNewerDateOnly: Bool
     ) throws -> (diffs: [FileDifference], leftURL: URL, rightURL: URL) {
-        // **The LANDING folder, not the root.** `-L iCloud` names a source, and what it has always
-        // scanned is that source's documents folder — which is exactly what `landingPath` still
-        // resolves to now that a source's root is the account above it. Scanning `rootPath` would
-        // silently widen every provider-addressed CLI run to the whole account. A path-addressed
-        // root is unaffected: it is its own root with an empty `openAt`, so the two agree.
+        // The landing folder, not the root: `-L iCloud` names a source, and the CLI scans that
+        // source's documents folder, which is what `landingPath` resolves to. A source's root is
+        // the account above it, so scanning `rootPath` would silently widen every
+        // provider-addressed run to the whole account. A path-addressed root is its own root with
+        // an empty `openAt`, so the two agree.
         let leftURL = URL(fileURLWithPath: expandPath(left.landingPath))
         let rightURL = URL(fileURLWithPath: expandPath(right.landingPath))
 
@@ -256,19 +256,15 @@ public struct CommandRunner {
         var diffs = scanResult.diffs
         let (leftURL, rightURL) = (scanResult.leftURL, scanResult.rightURL)
 
-        // Stamp both ends of every planned row NOW, while the scan that produced them is the
-        // current truth, and re-check each one immediately before its own write (below).
+        // Stamp both ends of every planned row now, while the scan that produced them is the
+        // current truth, and re-check each one immediately before its own write (below). The plan
+        // ages between here and the write (`--verify` hashes, then the [y/N] prompt waits as long
+        // as the user takes), and without the re-check a file rewritten meanwhile would be
+        // overwritten by the stale copy the plan chose. The app re-stats both ends before it
+        // writes; the CLI must not be the weaker path onto the same data.
         //
-        // Everything between here and the write is time the plan spends aging: `--verify` hashes
-        // first, and then the [y/N] prompt sits there for however long the user takes. Nothing
-        // looked at the files again in between, so a right-side file rewritten while the prompt
-        // waited was overwritten by the stale left copy the plan had chosen — recoverable from
-        // the Trash, but below the bar the app itself sets, which re-stats both ends before it
-        // writes. The CLI should not be the weaker path onto the same data.
-        //
-        // Taken BEFORE `--verify` rather than after, so an unmoved stamp also certifies the
-        // verification: a pair neither end of which has changed since before it was hashed is
-        // still described by the verdict that hashing produced.
+        // Taken before `--verify`, so an unmoved stamp also certifies the verification: a pair
+        // unchanged since before it was hashed is still described by that verdict.
         let stampFM = env.fileManager
         let planStamps = Dictionary(uniqueKeysWithValues: diffs.map {
             ($0.id, FilePairStamp.read($0, fileManager: stampFM))
@@ -290,11 +286,11 @@ public struct CommandRunner {
             return
         }
 
-        // **Rows whose direction is a guess are not planned** (`FileDifference.heldBack`: a link
-        // as the source, sizes that differ with no newer side, a folder against a file). `sync`
-        // copies every planned row in its suggested direction on one y/N — under `--yes`, on none
-        // — so a guess in the plan overwrote whichever side it guessed against. They are listed
-        // apart, before the prompt, and counted as skipped in the summary; the app copies one
+        // Rows whose direction is a guess are not planned (`FileDifference.heldBack`: a link as
+        // the source, sizes that differ with no newer side, a folder against a file). `sync`
+        // copies every planned row in its suggested direction on one y/N, or with no prompt under
+        // `--yes`, so a guess in the plan would overwrite whichever side it guessed against. They
+        // are listed apart, before the prompt, and counted as skipped; the app copies one
         // deliberately, a row at a time.
         let heldRows = diffs.filter { $0.heldBack != nil }
         diffs = diffs.filter { $0.heldBack == nil }
@@ -316,7 +312,7 @@ public struct CommandRunner {
             printOut("")
             printHeldRows()
             printOut("")
-            // Nothing copied and every row skipped: a non-zero exit like any other skip (FR43).
+            // Nothing copied and every row skipped: a non-zero exit like any other skip.
             let summary = syncSummary(tally: tally, strategy: strategy)
             for line in summary.stdoutLines { printOut(line) }
             for line in summary.stderrLines { env.writeErr(line + "\n") }
@@ -325,11 +321,10 @@ public struct CommandRunner {
         }
 
         printOut("Planned operations (\(diffs.count)):")
-        // **Both resolved roots, before the prompt (FR42).** `scan` always named them; `sync`
-        // listed only relative paths, so the [y/N] was asked about a pair of trees the user never
-        // saw — and a `-L`/`-R` value that resolved somewhere unexpected (a provider named like
-        // another, a stale override) read exactly like the intended run. These two lines are the
-        // only place the folders that are about to be written are shown before the write.
+        // Both resolved roots, before the prompt, so the [y/N] is asked about trees the user can
+        // see: a `-L`/`-R` value that resolved somewhere unexpected (a provider named like another,
+        // a stale override) would otherwise read exactly like the intended run. These two lines
+        // are the only place the folders about to be written are shown before the write.
         printOut("  Left : \(leftURL.path) [\(leftProvider.displayName)]")
         printOut("  Right: \(rightURL.path) [\(rightProvider.displayName)]")
         printOut("")
@@ -345,9 +340,8 @@ public struct CommandRunner {
         if !yes {
             printOut("")
             env.writeOut("Proceed with these operations? [y/N]: ")
-            // **A declined or unanswered prompt exits 1** (owner decision, review E2). It exited 0,
-            // and 0 is documented as "every planned file was copied" — so a script whose stdin had
-            // closed read a run that copied nothing as a complete one.
+            // A declined or unanswered prompt exits 1: 0 means "every planned file was copied", and
+            // a script whose stdin closed must not read a run that copied nothing as complete.
             let answer = env.readConfirmationLine()
             guard let line = answer, line.lowercased().hasPrefix("y") else {
                 printOut("Aborted.")
@@ -365,18 +359,18 @@ public struct CommandRunner {
             let sourceURL = URL(fileURLWithPath: sourcePath)
             var targetURL = URL(fileURLWithPath: targetPath)
 
-            // Match the app's pre-write guard: never write a name the DESTINATION provider forbids
+            // Match the app's pre-write guard: never write a name the destination provider forbids
             // (Dropbox trailing space/period; OneDrive forbidden chars, reserved names, affixes).
-            // The app prompts to sanitize; non-interactively we skip with a clear message, because
-            // writing it would create a local-only file the provider silently never uploads.
-            // Validate the TARGET's own relative path, not diff.relativePath (the left spelling):
-            // for .nameConflict rows the write lands on the destination's existing, provider-valid
-            // path (e.g. left "Swimming " → right "Swimming"), which must not be skipped.
+            // The app prompts to sanitize; here we skip with a clear message, because writing it
+            // would create a local-only file the provider silently never uploads. Validate the
+            // target's own relative path, not `diff.relativePath` (the left spelling): a
+            // `.nameConflict` row writes onto the destination's existing, provider-valid path
+            // (left "Swimming " → right "Swimming"), which must not be skipped.
             let targetProvider = diff.action == .copyToRight ? rightProvider : leftProvider
             let targetRoot = diff.action == .copyToRight ? rightURL : leftURL
             let validatedRelativePath = DifferenceProcessing.targetRelativePath(for: diff, targetRoot: targetRoot)
             if let violation = ProviderNameRules.violation(inRelativePath: validatedRelativePath, for: targetProvider.type) {
-                // The rule is a shared sentence, curly in the app, so it is folded (FC10).
+                // The rule is a shared sentence, curly in the app, so it is folded.
                 let reason = CLIOutput.ascii(violation.reason)
                 env.writeErr("Skipping \(diff.relativePath): \(reason) \(targetProvider.displayName) would not upload it.\n")
                 // Carry the rule text into the tally so the stdout summary can list
@@ -386,22 +380,19 @@ public struct CommandRunner {
                 continue
             }
 
-            // Re-check the plan against the disk, at the point of writing (see `planStamps`).
-            // Both ends, not just the destination: a source rewritten since the plan was drawn
-            // means the bytes about to be copied are not the bytes anything measured, and a
-            // source caught mid-write copies a torn file.
+            // Re-check the plan against the disk at the point of writing (see `planStamps`). Both
+            // ends: a source rewritten since the plan was drawn means copying bytes nothing
+            // measured, and a source caught mid-write copies a torn file.
             //
-            // Per row, not a whole-run abort. On an actively synced cloud folder — which is the
-            // only place this fires — one moving file must not cost the other 499, and a run
-            // that refuses wholesale just meets the next daemon write on the re-run.
+            // Per row, not a whole-run abort: on an actively synced cloud folder one moving file
+            // must not cost the rest, and a wholesale refusal would just meet the next daemon
+            // write on the re-run.
             //
-            // Checked before the collision strategy resolves, so the message names the real
-            // cause: under `--strategy skip` a destination that APPEARED during the prompt would
-            // otherwise be filed as an ordinary collision, which reads as policy rather than as
-            // the plan having gone stale. Under `--strategy keep-both` the write would land on a
-            // uniquified name and overwrite nothing, and it is still refused: the plan the user
-            // approved said this destination was a different file (or no file), and minting a
-            // "name 2" beside something it never saw is not what they approved either.
+            // Checked before the collision strategy resolves, so the message names the real cause:
+            // under `--strategy skip` a destination that appeared during the prompt would otherwise
+            // read as an ordinary collision. Under `keep-both` nothing would be overwritten, and it
+            // is still refused: the approved plan said this destination was a different file (or
+            // none), and a "name 2" beside something it never saw is not what was approved.
             if let side = planStamps[diff.id]?.sideThatChanged(of: diff, fileManager: fm) {
                 let sourceSide: FilePairStamp.Side = diff.action == .copyToRight ? .left : .right
                 let reason = "the \(side == sourceSide ? "source" : "destination") changed after the plan was shown"
@@ -429,8 +420,8 @@ public struct CommandRunner {
             } catch {
                 tally.recordFailed()
                 // The error is a shared sentence, often Cocoa's quoting the file or its folder, so
-                // it is folded with every name along both paths kept (FC10). The app's log takes
-                // the line as written, unfolded, like every other line in it.
+                // it is folded with every name along both paths kept. The app's log takes the line
+                // as written, unfolded, like every other line in it.
                 let names = sourceURL.pathComponents + targetURL.pathComponents
                 await env.logError("Failed to sync \(diff.relativePath): \(error.localizedDescription)")
                 env.writeErr("Failed to sync \(diff.relativePath): "
@@ -448,9 +439,8 @@ public struct CommandRunner {
         for line in summary.stdoutLines { printOut(line) }
         for line in summary.stderrLines { env.writeErr(line + "\n") }
         // Partial failures and skips must be visible to scripts, not just in the summary. Thrown
-        // after the summary so the counts still print; the shell's flushingLogToDisk flushes
-        // on this throw path too. (--fail-fast still aborts immediately above, before the
-        // summary.)
+        // after the summary so the counts still print; the shell's `flushingLogToDisk` flushes
+        // on this path too. `--fail-fast` aborts above, before the summary.
         if summary.exitNonzero {
             throw CLISyncFailuresError()
         }

@@ -30,17 +30,15 @@ private func discoverProviderSnapshot() async -> AppSettingsSnapshot {
 
 /// Refuses to run against stored source locations from the layout that predates source roots.
 ///
-/// The CLI shares the app's defaults domain on purpose — Settings you set in the app apply here —
-/// and that is exactly what makes this necessary. A legacy `path_override_` named a source's whole
-/// tree; under the new model a source's root sits *above* its documents folder, so the same key read
-/// today points somewhere different, and a `scan` would answer about the wrong tree while a `sync`
-/// would copy into it. The failure is silent, which is what makes it worth an exit code.
+/// The CLI shares the app's defaults domain so its Settings apply here. A legacy `path_override_`
+/// named a source's whole tree, while a root now sits *above* its documents folder, so the same key
+/// read today points elsewhere: a `scan` would answer about the wrong tree and a `sync` would copy
+/// into it, silently. Hence an exit code.
 ///
-/// **It refuses rather than migrating.** `RootsMigration` is idempotent and would run happily from
-/// here, but it rewrites tab strips, pins, recents and the last-open folder — from a terminal,
-/// possibly while the app is running against the same domain — and its unmounted-root defer path
-/// would stamp on whatever `~/Library/CloudStorage` happens to look like to a CLI process. The app
-/// migrates, once, at launch; this only asks.
+/// It refuses rather than migrating: `RootsMigration` rewrites tab strips, pins, recents and the
+/// last-open folder, possibly while the app runs on the same domain, and its unmounted-root defer
+/// path would act on whatever `~/Library/CloudStorage` looks like to a CLI process. The app
+/// migrates at launch; this only asks.
 ///
 /// Quiet on a fresh install: `legacyStateAwaitingMigration` answers empty when there is no legacy
 /// state, not merely when the stamp is set, so an unstamped machine with nothing to move runs.
@@ -62,16 +60,10 @@ func pendingMigrationSourceNames() -> String? {
     return pending.keys.sorted().joined(separator: ", ")
 }
 
-/// `providers` warns instead of refusing.
-///
-/// **Because the refusal's own reason does not apply to it.** `preflightMigration` exists because a
-/// run would silently *act* on the wrong folder — `scan` answers about it, `sync` copies into it.
-/// `providers` touches nothing: it lists what discovery found, which is already the new model's
-/// answer and is exactly what someone diagnosing this state needs to see. Refusing it told the one
-/// user with a reason to run it that "a run here would scan a different folder than the one you
-/// chose", about a command that scans nothing.
-///
-/// stderr, so a script piping the listing still gets a clean stdout.
+/// `providers` warns instead of refusing. `preflightMigration` guards runs that would act on the
+/// wrong folder; `providers` acts on nothing and lists what discovery finds under the new model,
+/// which is what someone diagnosing this state needs to see. Written to stderr, so a script piping
+/// the listing still gets a clean stdout.
 func warnIfMigrationPending() {
     guard let names = pendingMigrationSourceNames() else { return }
     FileHandle.standardError.write(Data((
@@ -93,16 +85,14 @@ private func makeRunner() -> CommandRunner {
 /// Runs a command body and flushes the logger's buffered disk writes before returning or
 /// rethrowing. The CLI process exits as soon as `run()` finishes, but disk appends are queued
 /// at `.background` QoS with no exit-time flush (the app flushes in
-/// `applicationShouldTerminate`), so without this barrier a command's log lines - e.g. a
-/// failed sync's error - race process exit and can never reach `~/sync-cloud.log`.
+/// `applicationShouldTerminate`), so without this barrier a command's log lines, such as a
+/// failed sync's error, race process exit and may never reach `~/sync-cloud.log`.
 ///
 /// Also maps Core's outcome errors onto ArgumentParser's: `CLIValidationError` becomes a
-/// `ValidationError` with the same message (usage text + exit 64, exactly as when the command
-/// bodies threw it directly), and `CLISyncFailuresError` becomes `ExitCode.failure`.
-// Internal, not private, for one consumer: `CLIWiringTests`. The outcome CLASSIFICATION lives in
-// Core (`CLIExitMapping`, tested there); what only this function does is the translation onto
-// ArgumentParser's types and the flush barrier, and both were dead code to every test while this
-// was private — the exit code a wrapping script sees, unpinned.
+/// `ValidationError` with the same message (usage text and exit 64), and `CLISyncFailuresError`
+/// becomes `ExitCode.failure`.
+// Internal, not private, so `CLIWiringTests` can pin the translation and the flush barrier, which
+// decide what a wrapping script sees. The classification itself is Core's (`CLIExitMapping`).
 func flushingLogToDisk<T>(_ body: () async throws -> T) async rethrows -> T {
     do {
         let result = try await body()
@@ -110,16 +100,14 @@ func flushingLogToDisk<T>(_ body: () async throws -> T) async rethrows -> T {
         return result
     } catch {
         await MainActor.run { Logger.shared.flushToDisk() }
-        // The classification itself lives in Core (`CLIExitMapping`), where it is testable — this
-        // decides whether a failed sync exits non-zero, which is the only thing a script wrapping
-        // this CLI can see. Translating to ArgumentParser's types stays here, since Core must not
-        // depend on ArgumentParser.
+        // Core classifies (`CLIExitMapping`, where it is testable); translating to ArgumentParser's
+        // types stays here, since Core must not depend on ArgumentParser.
         switch CLIExitMapping.outcome(for: error) {
-        // **A validation message is passed on as written** (FC10): every one is this tool's own
-        // ASCII words around the names the user typed or discovery found — a path, a provider's
-        // id or display name — and folding it would print a different name than the one to type
-        // back. An error ArgumentParser prints as `Error: …` is someone else's sentence, often
-        // Cocoa's, so it is folded.
+        // A validation message is passed on as written: it is this tool's own ASCII words around
+        // names the user typed or discovery found (a path, a provider's id or display name), and
+        // folding it would print a different name than the one to type back. An error
+        // ArgumentParser prints as `Error: …` is someone else's sentence, often Cocoa's, so it is
+        // folded.
         case .validationFailure(let message): throw ValidationError(message)
         case .syncFailure: throw ExitCode.failure
         case .rethrow: throw CLIOutput.foldedForPrinting(error)
@@ -207,10 +195,10 @@ struct Providers: AsyncParsableCommand {
 
 // MARK: - restructure
 
-/// Report-only, deliberately: no `--apply`, no `--plan`, not in 5.0 — the Apply invariants are
-/// all about a person reading a manifest before anything moves, and a flag that skips the
-/// reading skips the invariants (ROADMAP v5 §13). No migration preflight either: this reads
-/// `folder-profile.json` and never touches providers, roots or the disk it describes.
+/// Report-only, deliberately: no `--apply` or `--plan`. Apply's invariants rest on a person
+/// reading a manifest before anything moves, and a flag that skips the reading skips them. No
+/// migration preflight either: this reads `folder-profile.json` and never touches providers,
+/// roots or the disk it describes.
 struct Restructure: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "restructure",
@@ -224,14 +212,11 @@ struct Restructure: AsyncParsableCommand {
             completion: .directory)
     var profilesDir: String?
 
-    /// **Wrapped in `flushingLogToDisk` like every other verb**, which is not decoration: that
-    /// wrapper is the only thing that turns a `CLIValidationError` into ArgumentParser's
-    /// `ValidationError`. Without it the sentences `Failure.errorDescription` composes never
-    /// reach the reader — ArgumentParser stringifies the struct instead, so a missing profile
-    /// printed `Error: CLIValidationError(message: "No active profile in …\'s …")`, leaking the
-    /// internal type name and backslash-escaping the apostrophes inside its own advice. It also
-    /// exited 1 rather than the 64 every other usage error here exits, and skipped the log flush
-    /// both other exits perform.
+    /// Wrapped in `flushingLogToDisk` like every other verb: only that wrapper turns a
+    /// `CLIValidationError` into ArgumentParser's `ValidationError`. Without it the sentences
+    /// `Failure.errorDescription` composes never reach the reader (ArgumentParser prints the
+    /// struct, type name and escaped apostrophes included), the exit is 1 instead of 64, and the
+    /// log is not flushed.
     func run() async throws {
         try await flushingLogToDisk {
             let directory = profilesDir.map {

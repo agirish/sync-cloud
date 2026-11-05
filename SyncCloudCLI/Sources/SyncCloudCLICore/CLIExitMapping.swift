@@ -1,12 +1,9 @@
 import Foundation
 
-/// How a Core outcome error should end the process — the pure half of `Commands.flushingLogToDisk`'s
-/// catch ladder, lifted out of the ArgumentParser layer so it can be tested.
-///
-/// It decides whether a failed sync exits non-zero, which is what every script wrapping this CLI
-/// reads. Inline in a `private func` over ArgumentParser's own error types, that decision had no
-/// test at all: a drift that swallowed `CLISyncFailuresError` would make a failed sync exit 0 and
-/// every caller would see success.
+/// How a Core outcome error ends the process: the pure half of `Commands.flushingLogToDisk`'s
+/// catch ladder, kept out of the ArgumentParser layer so it can be tested. Scripts wrapping the
+/// CLI read the exit status, so a mapping that swallowed `CLISyncFailuresError` would make a
+/// failed sync exit 0 and look like success.
 public enum CLIExitOutcome: Equatable {
     /// A usage error: ArgumentParser prints the message with usage text and exits 64.
     case validationFailure(message: String)

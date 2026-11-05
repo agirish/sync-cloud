@@ -47,8 +47,8 @@ import Testing
 
 @Suite struct SyncSummaryTests {
 
-    /// **Every path in the summary prints as it is on disk, between ASCII words** (FC10): a
-    /// curly name is not folded, and the separator the summary draws is a plain hyphen.
+    /// Every path in the summary prints as it is on disk, between ASCII words: a curly name is
+    /// not folded, and the separator the summary draws is a plain hyphen.
     @Test func theSummaryPrintsEachPathAsItIsOnDisk() {
         var tally = SyncTally()
         tally.recordSkipped(relativePath: "Bob’s “notes” ", reason: .nameViolation,
@@ -103,9 +103,8 @@ import Testing
     }
 
     @Test func testNameViolationSkipsReportedSeparatelyFromCollisions() {
-        // Both skipping paths in one run: the summary must attribute each cause truthfully,
-        // not lump name-rule skips under the collision wording — and each name skip carries
-        // its own rule inline, so stdout stands alone even with stderr redirected away.
+        // Both skip causes in one run: each gets its own heading, and each name skip carries its
+        // own rule inline, so stdout stands alone even with stderr redirected away.
         let s = syncSummary(
             tally: tally(skipped: ["kept.txt"],
                          nameSkipped: [("Swimming ", "Dropbox doesn't allow names ending with a space.")]),
@@ -139,17 +138,17 @@ import Testing
     }
 
     @Test func testNameViolationSkipWithoutDetailFallsBackToTheBarePath() {
-        // Defensive: no current caller omits the detail, but a missing one must degrade to the
-        // old bare-path line, never print a dangling " - ".
+        // No current caller omits the detail, but a missing one must degrade to the bare path,
+        // never print a dangling " - ".
         let s = syncSummary(tally: tally(nameSkipped: [("Swimming ", nil)]), strategy: .replace)
         #expect(s.stdoutLines.contains("  Swimming "))
         #expect(!s.stdoutLines.joined().contains(" - "))
     }
 
-    /// FR43, owner decision 2026-10-25. `0` only when every planned file was copied: a skip of any
-    /// kind is a file the user asked for that did not land, and a script that deletes its sources
-    /// after a 0 exit would delete the only copy. Each cause names itself on stderr. The control is
-    /// a copies-only run, which stays at 0.
+    /// Exit 0 only when every planned file was copied: a skip of any kind is a file the user asked
+    /// for that did not land, and a script that deletes its sources after a 0 exit would delete the
+    /// only copy. Each cause names itself on stderr. The control is a copies-only run, which stays
+    /// at 0.
     @Test func testEverySkipExitsNonzeroAndNamesItsReasonOnStderr() {
         let clean = syncSummary(tally: tally(copied: 2), strategy: .skip)
         #expect(!clean.exitNonzero, "the control: a run that copied everything exits 0")
@@ -176,13 +175,9 @@ import Testing
         #expect(s.stdoutLines.count == 1)
     }
 
-    /// Golden snapshot of the FULL summary for one mixed run — copies (some replacing, i.e. both
-    /// sync directions updating existing destinations), a collision skip, a name-violation skip,
-    /// AND a failure at once. Pins the exact line order and the per-reason skip headings as one
-    /// block: round 4's 8228e27 split the skip reporting by cause (collision vs name rule), and
-    /// round 5 threaded each name skip's rule inline ("path — reason") so the stdout summary
-    /// stands alone. This flips if any heading, count, item indent, inline reason, ordering, or
-    /// the stdout/stderr split drifts.
+    /// Golden snapshot of the full summary for one mixed run: copies (some replacing), collision
+    /// skips, name-violation skips and a failure at once. Fails if any heading, count, item
+    /// indent, inline reason, line order or the stdout/stderr split drifts.
     @Test func testMixedRunSummarySnapshot() {
         let s = syncSummary(
             tally: tally(copied: 3, replaced: 2,

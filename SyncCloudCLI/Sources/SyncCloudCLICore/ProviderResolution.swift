@@ -22,19 +22,17 @@ public func expandPath(_ path: String) -> String {
 
 /// The discovered provider a `-L`/`-R` value names, or nil when it names none.
 ///
-/// **An exact id wins, and a display name counts only when exactly one provider carries it
-/// (FR42).** This used to be the first provider whose id OR display name matched, in discovery
-/// order — and neither half of that is unique. Two folder sources whose folders share a last
-/// path component get the same default display name, and a provider renamed to another
-/// provider's id made one value name two trees. `-L Dropbox` then quietly meant whichever came
-/// first, and under `sync --yes` that is the tree it wrote into.
+/// An exact id wins, and a display name counts only when exactly one provider carries it.
+/// Neither is unique by itself: two folder sources whose folders share a last path component get
+/// the same default display name, and a provider can be renamed to another's id. Taking the first
+/// match in discovery order would let `-L Dropbox` quietly mean whichever came first, and under
+/// `sync --yes` write into it.
 ///
-/// An id is the stable handle (`synccloud providers` lists it), so a value that is some
-/// provider's id means that provider even when another's display name happens to read the
-/// same. A display name shared by several providers is refused rather than guessed, naming every
-/// candidate's id and the folder it would scan — its `landingPath`, which is what `CommandRunner`
-/// scans, not the account root above it — so the re-run can say which. Ids are expected to be unique; two
-/// providers claiming one are refused the same way rather than trusted to discovery order.
+/// An id is the stable handle (`synccloud providers` lists it), so it wins even when another
+/// provider's display name reads the same. A display name shared by several providers is refused,
+/// naming every candidate's id and the folder it would scan (its `landingPath`, which
+/// `CommandRunner` scans, not the account root), so the re-run can say which. Two providers
+/// claiming one id are refused the same way rather than trusted to discovery order.
 func matchingProvider(
     for value: String,
     label: String,
@@ -64,12 +62,12 @@ func matchingProvider(
 /// `ProviderResolutionError` when neither matches, when a display name is ambiguous, or when the
 /// resolved root is not an existing directory.
 ///
-/// The root check is load-bearing, not cosmetic: `FileDiffEngine.getFilesInDirectory` returns
-/// an empty map for a missing root (a nonexistent root still yields a non-nil enumerator), so
-/// an unmounted provider (e.g. a removed `~/Library/CloudStorage` folder) would scan as
-/// "everything missing on this side" and `sync` would mass-copy the entire other side into a
-/// recreated dead tree the provider never syncs. The app guards this in its pane layer; the
-/// CLI must guard it here, where every command resolves its roots.
+/// The root check guards against data damage: `FileDiffEngine.getFilesInDirectory` returns an
+/// empty map for a missing root, so an unmounted provider (say a removed
+/// `~/Library/CloudStorage` folder) would scan as "everything missing on this side" and `sync`
+/// would mass-copy the other side into a recreated dead tree the provider never syncs. The app
+/// guards this in its pane layer; the CLI must guard it here, where every command resolves its
+/// roots.
 public func resolveProviderOrPath(
     value: String,
     label: String,
@@ -77,21 +75,14 @@ public func resolveProviderOrPath(
     fileManager: FileManaging = FileManager.default
 ) throws -> CloudProvider {
     if let provider = try matchingProvider(for: value, label: label, among: providers) {
-        // **An argument that names BOTH a provider and a real directory is refused, not guessed.**
-        // The provider branch wins by position, so `-L Dropbox` run beside a local folder called
-        // `Dropbox` silently addressed the provider's root instead of the folder in front of the
-        // user — and `sync` is a mass copy, so guessing wrong here is not a wrong listing, it is
-        // the whole of one tree written into another.
-        //
-        // Neither precedence is defensible: reversing it just moves the same silent misfire onto
-        // whoever meant the provider. The CLI cannot know which was meant, and saying so costs one
-        // command re-run, while being wrong costs a sync. Both spellings that disambiguate are
-        // offered, and both work — a provider id never contains a slash, so `./Dropbox` and an
-        // absolute path both miss this branch and land on the path branch below.
-        // **Only when the two readings are DIFFERENT trees.** `~/iCloud` symlinked to iCloud Drive
-        // is a common convention, and there the provider and the directory are the same folder —
-        // refusing would be pedantry with no hazard behind it. Compared after resolving symlinks,
-        // which is what makes that case identical rather than merely similar.
+        // An argument that names both a provider and a real directory is refused, not guessed:
+        // `-L Dropbox` beside a local folder called `Dropbox` could mean either, and `sync` is a
+        // mass copy, so a wrong guess writes one whole tree into another. Either precedence just
+        // moves the misfire onto whoever meant the other reading; a refusal costs one re-run. Both
+        // offered spellings work: a provider id never contains a slash, so `./Dropbox` and an
+        // absolute path miss this branch and take the path branch below.
+        // Only when the two readings are different trees: `~/iCloud` symlinked to iCloud Drive is
+        // a common convention, and comparing after resolving symlinks makes that case identical.
         let asPath = expandPath(value)
         var isDirectory: ObjCBool = false
         if fileManager.fileExists(atPath: asPath, isDirectory: &isDirectory), isDirectory.boolValue,
@@ -109,16 +100,15 @@ public func resolveProviderOrPath(
                 + "The provider may be unmounted or signed out.",
             notDirectoryMessage: "Root '\(provider.rootPath)' of provider '\(provider.displayName)' (\(label)) is not a directory."
         )
-        // **Then the folder the run will actually scan**, which is not the one above. A source's
-        // root is the account, and `CommandRunner` scans `landingPath` — so this pre-flight cleared
-        // a directory the run never touches, and a mounted account whose landing folder had been
-        // renamed got past it and failed later, deeper, with a message about the root instead.
+        // Then the folder the run will actually scan: a source's root is the account, and
+        // `CommandRunner` scans `landingPath`. Without this, a mounted account whose landing
+        // folder was renamed would pass the root check and fail later, deeper, with a message
+        // about the root.
         //
-        // Only when the two are different folders, which is exactly when `openAt` is set: a
-        // path-addressed root lands on itself, and so does a source that opens at its own root.
-        // Testing `openAt` rather than comparing the paths keeps that exact — the two strings can
-        // only differ by the join, and a canonicalizing comparison would need the folder to exist
-        // to answer, which is the very thing in question.
+        // Only when `openAt` is set, which is exactly when the two folders differ: a
+        // path-addressed root lands on itself, as does a source that opens at its own root.
+        // Testing `openAt` keeps that exact; a canonicalizing path comparison would need the
+        // folder to exist to answer, which is the very thing in question.
         if !provider.openAt.isEmpty {
             try requireDirectory(
                 atPath: expandPath(provider.landingPath),
@@ -140,12 +130,10 @@ public func resolveProviderOrPath(
         notDirectoryMessage: "Path '\(expanded)' for \(label) is not a directory."
     )
     // A path has no provider identity of its own, so take the type from whichever discovered
-    // provider contains it (see `CloudProvider.inferredType`). Both the destination name guard
-    // and the Google Drive date-noise filter are type-gated, and a fixed type silently disabled
-    // them for the very roots that need them: the OneDrive folder that skips `CON.txt` when
-    // addressed by id would copy it when addressed by path. Falls back to `.iCloud`, whose rule
-    // set is empty — the right answer for an ordinary local folder, and what every path-addressed
-    // root got before inference existed.
+    // provider contains it (see `CloudProvider.inferredType`). The destination name guard and
+    // the Google Drive date-noise filter are type-gated, so with a fixed type the OneDrive folder
+    // that skips `CON.txt` when addressed by id would copy it when addressed by path. Falls back
+    // to `.iCloud`, whose rule set is empty: the right answer for an ordinary local folder.
     let inferredType = CloudProvider.inferredType(forPath: expanded, among: providers) ?? .iCloud
     // A path-addressed root is its own root and lands on itself: the user named one folder and
     // meant that folder. `openAt` defaults to "", so `landingPath == rootPath` here and the two

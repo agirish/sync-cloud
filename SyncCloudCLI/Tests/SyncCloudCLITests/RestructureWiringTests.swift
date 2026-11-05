@@ -7,10 +7,10 @@ import ArgumentParser
 @Suite struct RestructureWiringTests {
 
     @Test func restructureIsARegisteredSubcommand() throws {
-        // Assert the parsed TYPE, not merely that parsing succeeds: `--help` parses fine (as a
+        // Assert the parsed TYPE, not merely that parsing succeeds: `--help` parses (as a
         // HelpCommand) whether or not the subcommand is registered, and a bare `restructure`
-        // could someday parse as a default subcommand's positional — either way a deleted
-        // registration stayed green. `is Restructure` is the claim.
+        // could parse as a default subcommand's positional, so a deleted registration would stay
+        // green. `is Restructure` is the claim.
         let parsed = try SyncCloudCommand.parseAsRoot(["restructure"])
         #expect(parsed is Restructure)
     }
@@ -28,8 +28,8 @@ import ArgumentParser
         }
     }
 
-    /// Report-only is a public promise (ROADMAP v5 §13): the flags that would skip the
-    /// person-reads-the-manifest invariants must not parse.
+    /// Report-only is a public promise: the flags that would skip the person-reads-the-manifest
+    /// invariants must not parse.
     @Test func applyAndPlanDoNotParse() {
         #expect(throws: (any Error).self) {
             _ = try SyncCloudCommand.parseAsRoot(["restructure", "--apply"])

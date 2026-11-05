@@ -57,9 +57,9 @@ private func diff(
         #expect(result.map(\.relativePath) == ["builder/x", "src/main.swift"])
     }
 
-    // The Drive date-noise cases mirror FileSyncManager.computeFilteredState's
-    // dropDriveDateNoise predicate: drop only ".differentDates + sizesMatch + copyToLeft"
-    // and only when the setting is on and the right side is Google Drive.
+    // The Drive date-noise cases mirror the app's filter (`FileSyncManager.computeFilteredState`):
+    // drop only ".differentDates + sizesMatch + copyToLeft", and only when the setting is on and
+    // the right side is Google Drive.
 
     @Test func testDriveDateNoiseDroppedWhenSettingOnAndRightIsGoogleDrive() {
         let diffs = [
@@ -180,9 +180,9 @@ private func diff(
 
     @Test func testTargetRelativePathUsesDestinationSpelling() {
         // Trailing-space doppelganger: left "Swimming " vs Dropbox-normalized right "Swimming".
-        // The copyToRight write target is the right's own EXISTING valid path, so the name
-        // validated against the destination provider must be "Swimming" (not skipped) — the
-        // old code validated diff.relativePath ("Swimming ") and falsely skipped the copy.
+        // The copyToRight write target is the right's own existing valid path, so the name
+        // validated against the destination provider must be "Swimming", not
+        // `diff.relativePath` ("Swimming "), which would falsely skip the copy.
         let conflict = FileDifference(
             relativePath: "Swimming ",
             leftItemPath: "/left/Swimming ",
@@ -197,7 +197,7 @@ private func diff(
             for: conflict, targetRoot: URL(fileURLWithPath: "/right"))
         #expect(validated == "Swimming")
         // The left spelling IS a Dropbox violation, the destination's own spelling is not:
-        // the fixed validation keeps this row syncable.
+        // validating the target's path keeps this row syncable.
         #expect(ProviderNameRules.violation(inRelativePath: "Swimming ", for: .dropBox) != nil)
         #expect(ProviderNameRules.violation(inRelativePath: validated, for: .dropBox) == nil)
 
@@ -225,9 +225,9 @@ private func diff(
             for: d, targetRoot: URL(fileURLWithPath: "/right")) == "nested/x")
     }
 
-    /// Edge cases of the round-4 target-path derivation (5f76853): the validated path must be
-    /// the DESTINATION's own spelling for nested and root-level conflicts alike, byte-exact
-    /// through unicode names, and must fall back safely for degenerate roots.
+    /// Edge cases of the target-path derivation: the validated path must be the DESTINATION's
+    /// own spelling for nested and root-level conflicts alike, byte-exact through unicode names,
+    /// and must fall back safely for degenerate roots.
     @Test func testTargetRelativePathEdgeCases() {
         func conflict(rel: String, leftPath: String, rightPath: String,
                       action: FileDifference.SyncAction) -> FileDifference {

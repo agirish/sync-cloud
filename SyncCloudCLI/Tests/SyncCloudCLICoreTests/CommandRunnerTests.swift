@@ -161,9 +161,9 @@ import Sync
         #expect(payload.first?["leftSize"] as? Int == 3)
     }
 
-    /// A held row's direction is a guess `sync` will not take, and `scan` printed it as a plan in
-    /// both forms. The text marks it, and the JSON says so in a field a script can filter on — set
-    /// on every row, so the decided row beside it reads `false` rather than nothing.
+    /// A held row's direction is a guess `sync` will not take, so `scan` must not print it as a
+    /// plan in either form. The text marks it, and the JSON says so in a field a script can filter
+    /// on, set on every row so the decided row beside it reads `false` rather than nothing.
     @Test func scanMarksTheRowsSyncLeavesForADecision() async throws {
         let left = try makeTempRoot(), right = try makeTempRoot()
         defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
@@ -192,9 +192,9 @@ import Sync
         #expect(plain["heldBack"] == nil)
     }
 
-    /// **A file's name is printed as it is on disk, in the text listing and the JSON** (FC10). The
-    /// fold is for the tool's own words: "Bob’s.txt" folded to "Bob's.txt" names a file that does
-    /// not exist when pasted back into a shell. The names are curly so a fold would show.
+    /// A file's name is printed as it is on disk, in the text listing and the JSON. The fold is
+    /// for the tool's own words: "Bob’s.txt" folded to "Bob's.txt" names a file that does not
+    /// exist when pasted back into a shell. The names are curly so a fold would show.
     @Test func scanPrintsFileNamesVerbatimInTextAndJSON() async throws {
         let left = try makeTempRoot(), right = try makeTempRoot()
         defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
@@ -215,13 +215,12 @@ import Sync
         #expect(Set(payload.compactMap { $0["relativePath"] as? String }) == ["Bob’s.txt", "“Report – Final”.pdf"])
     }
 
-    /// **Every name prints exactly as it is; only the words around it are ASCII** (FC10, RE3).
-    /// Every root, file name and provider id and display name below carries `Q’Q` and `R–R`, and
-    /// every surface that prints one is run: scan's listing, a sync that fails a copy, skips a
-    /// stale row and a name the destination refuses and holds a row, `providers`, and
-    /// `restructure`'s text and its failure. Each output must carry the tokens as written, never
-    /// `Q'Q` or `R-R`, and nothing else curly — so a missed fold of a shared sentence and a fold
-    /// over a name both turn it red.
+    /// Every name prints exactly as it is; only the words around it are ASCII. Every root, file
+    /// name, provider id and display name below carries `Q’Q` and `R–R`, and every surface that
+    /// prints one is run: scan's listing, a sync that fails a copy, skips a stale row and a refused
+    /// name and holds a row, `providers`, and `restructure`'s text and its failure. Each output
+    /// must carry the tokens as written, never `Q'Q` or `R-R`, and nothing else curly, so a missed
+    /// fold of a shared sentence and a fold over a name both turn it red.
     @Test func namesPrintVerbatimWhileTheToolsWordsAreASCII() async throws {
         let base = try makeTempRoot()
         defer { try? FileManager.default.removeItem(at: base) }
@@ -239,10 +238,10 @@ import Sync
         try write(left.appendingPathComponent("Q’Q R–R fail.txt"), "fails")
         try write(left.appendingPathComponent("Q’Q R–R stale.txt"), "planned")
         try write(left.appendingPathComponent("Q’Q R–R trail "), "Dropbox refuses the name")
-        // A name-conflict row: the description quotes both on-disk spellings (RE2).
+        // A name-conflict row: the description quotes both on-disk spellings.
         try write(left.appendingPathComponent("Q’Q R–R n.txt "), "newer")
         try write(right.appendingPathComponent("Q’Q R–R n.txt"), "older", mtime: old)
-        // A held folder: the description quotes the link inside it (RE2).
+        // A held folder: the description quotes the link inside it.
         try write(left.appendingPathComponent("Q’Q R–R dir/inside.txt"), "kept")
         try FileManager.default.createSymbolicLink(
             at: left.appendingPathComponent("Q’Q R–R dir/Q’Q R–R link"), withDestinationURL: outside)
@@ -429,8 +428,8 @@ import Sync
         #expect(rec.copies.isEmpty)
     }
 
-    /// **A declined prompt exits non-zero** (review E2). It returned normally — exit 0 — and the
-    /// README defines 0 as "every planned file was copied", which a declined run never is.
+    /// A declined prompt exits non-zero: the README defines 0 as "every planned file was copied",
+    /// which a declined run never is.
     @Test func syncWithoutYesAbortsWhenThePromptIsDeclined() async throws {
         let left = try makeTempRoot(), right = try makeTempRoot()
         defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
@@ -474,9 +473,9 @@ import Sync
         #expect(rec.copies.isEmpty)
     }
 
-    /// **The plan names both resolved roots before it asks (FR42).** `sync` listed relative
-    /// paths only, so a `-L`/`-R` value that resolved to an unexpected tree was confirmed blind.
-    /// Asserted on the text BEFORE the prompt, which is the only part that can inform the answer.
+    /// The plan names both resolved roots before it asks, so a `-L`/`-R` value that resolved to
+    /// an unexpected tree is not confirmed blind. Asserted on the text before the prompt, which is
+    /// the only part that can inform the answer.
     @Test func syncPlanNamesBothResolvedRootsBeforeThePrompt() async throws {
         let left = try makeTempRoot(), right = try makeTempRoot()
         defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
@@ -484,7 +483,7 @@ import Sync
 
         let rec = Recorder()
         let runner = makeRunner(rec, readLine: { "n" })
-        // Declined, so it exits non-zero (E2); the text before the prompt is what this pins.
+        // Declined, so it exits non-zero; the text before the prompt is what this pins.
         await #expect(throws: CLISyncFailuresError()) {
             try await runner.runSync(
                 left: left.path, right: right.path,
@@ -586,8 +585,8 @@ import Sync
 
         // Exactly one copy: the valid name. The violating one is skipped BEFORE any write.
         #expect(rec.copies.map(\.source.lastPathComponent) == ["normal.txt"])
-        // **The reason is printed with ASCII punctuation** (FC10): the shared sentence is curly in
-        // the app, and the tool folds it where it writes — stderr and stdout alike.
+        // The reason is printed with ASCII punctuation: the shared sentence is curly in the app,
+        // and the tool folds it where it writes, stderr and stdout alike.
         #expect(expectedReason == "Dropbox doesn’t allow names ending with a space.", "the premise: a curly reason")
         #expect(rec.err == "Skipping Swimming : Dropbox doesn't allow names ending with a space. Dropbox would not upload it.\n"
                 + "1 file(s) have names the destination provider does not allow and were not synced; exiting with a non-zero status.\n")
@@ -598,10 +597,9 @@ import Sync
     }
 
     // MARK: sync — the right→left direction
-    // Every leftward mechanism (the source/target swap, the guard reading the LEFT provider's
-    // type, the validated path taken against the LEFT root) was unit-tested in isolation, but the
-    // sync loop that composes them only ever ran left→right — so no test could catch them being
-    // wired together the wrong way round.
+    // The sync loop run right→left, so the leftward mechanisms (the source/target swap, the guard
+    // reading the LEFT provider's type, the path validated against the LEFT root) are tested
+    // composed, not only one by one: a wiring mistake between them shows here.
 
     @Test func syncCopiesRightOnlyFilesLeftwardWithTheEndpointsSwapped() async throws {
         let left = try makeTempRoot(), right = try makeTempRoot()
@@ -687,9 +685,8 @@ import Sync
 
     // MARK: sync — path-addressed cloud roots
     // A `-L`/`-R` PATH inherits the provider type of whichever discovered provider contains it.
-    // `ProviderResolutionTests` pins the resolution; these pin the CONSEQUENCE — that the two
-    // type-gated guards actually engage for a path-addressed root, which is what the old fixed
-    // `.iCloud` typing silently switched off.
+    // `ProviderResolutionTests` pins the resolution; these pin the consequence: both type-gated
+    // guards engage for a path-addressed root.
 
     @Test func syncSkipsAProviderInvalidNameForAPathAddressedOneDriveDestination() async throws {
         let left = try makeTempRoot(), cloud = try makeTempRoot()
@@ -831,13 +828,11 @@ import Sync
 
     // MARK: sync — the plan is re-checked between the prompt and the write
 
-    /// The plan is executed however long the [y/N] prompt sat there, and nothing looked at the
-    /// files again in between. A destination that did not exist when the plan was drawn — the
-    /// row reads "missing on right" — can be created by a cloud daemon while the user reads the
-    /// list, and `--strategy replace` then overwrites a file the plan never mentioned.
-    ///
-    /// The mutation is a real write performed from inside the prompt closure, which is exactly
-    /// where the window is.
+    /// The plan is executed however long the [y/N] prompt sat there. A destination that did not
+    /// exist when the plan was drawn (the row reads "missing on right") can be created by a cloud
+    /// daemon while the user reads the list, and `--strategy replace` would then overwrite a file
+    /// the plan never mentioned. The mutation is a real write from inside the prompt closure,
+    /// which is exactly where the window is.
     @Test func syncSkipsARowWhoseDestinationAppearedWhileThePromptWaited() async throws {
         let left = try makeTempRoot(), right = try makeTempRoot()
         defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
@@ -849,7 +844,7 @@ import Sync
             try? Data("landed-while-you-read".utf8).write(to: arrival)
             return "y"
         })
-        // A row skipped as changed since the plan exits non-zero (FR43).
+        // A row skipped as changed since the plan exits non-zero.
         await #expect(throws: CLISyncFailuresError()) {
             try await runner.runSync(left: left.path, right: right.path,
                                      direction: .auto, showHidden: false, ignore: [],
@@ -881,7 +876,7 @@ import Sync
             try? write(target, "NNNNNNNNN", mtime: base.addingTimeInterval(50))
             return "y"
         })
-        // A row skipped as changed since the plan exits non-zero (FR43).
+        // A row skipped as changed since the plan exits non-zero.
         await #expect(throws: CLISyncFailuresError()) {
             try await runner.runSync(left: left.path, right: right.path,
                                      direction: .auto, showHidden: false, ignore: [],
@@ -907,7 +902,7 @@ import Sync
             try? Data("rewritten-while-you-read".utf8).write(to: source)
             return "y"
         })
-        // A row skipped as changed since the plan exits non-zero (FR43).
+        // A row skipped as changed since the plan exits non-zero.
         await #expect(throws: CLISyncFailuresError()) {
             try await runner.runSync(left: left.path, right: right.path,
                                      direction: .auto, showHidden: false, ignore: [],
@@ -919,8 +914,8 @@ import Sync
     }
 
     /// The re-check is per row, not a whole-run abort, and it names the file. On an actively
-    /// synced cloud folder a single moving file must not cost the other 499 — that is a livelock,
-    /// since the next run meets the next daemon write.
+    /// synced cloud folder one moving file must not cost the rest: that would be a livelock, since
+    /// the next run meets the next daemon write.
     @Test func syncCopiesTheUntouchedRowsAndNamesTheOneItSkipped() async throws {
         let left = try makeTempRoot(), right = try makeTempRoot()
         defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
@@ -937,7 +932,7 @@ import Sync
             try? Data("arrived".utf8).write(to: arrival)
             return "y"
         })
-        // A row skipped as changed since the plan exits non-zero (FR43).
+        // A row skipped as changed since the plan exits non-zero.
         await #expect(throws: CLISyncFailuresError()) {
             try await runner.runSync(left: left.path, right: right.path,
                                      direction: .auto, showHidden: false, ignore: [],
@@ -980,12 +975,11 @@ import Sync
 
     // MARK: sync — rows whose direction is a guess (FileDifference.heldBack)
 
-    /// **A pair whose sizes differ at the same time is left out of the plan, not copied
-    /// left-wins (FR39).** With one y/N — under `--yes`, none — every planned row is copied in its
-    /// suggested direction, so the old "left as truth" default overwrote the right file. The held
-    /// row sorts FIRST (testing law 9): a run that stopped at it would leave `b-missing.txt`
-    /// uncopied too. Asserted on the sections, not the whole stream, because the plan and the
-    /// summary both name the file.
+    /// A pair whose sizes differ at the same time is left out of the plan, not copied left-wins:
+    /// one y/N (or none under `--yes`) copies every planned row in its suggested direction, so a
+    /// guess would overwrite the right file. The held row sorts first, so a run that stopped at it
+    /// would leave `b-missing.txt` uncopied too. Asserted on the sections, not the whole stream,
+    /// because the plan and the summary both name the file.
     @Test func syncLeavesASameTimeDifferentSizePairOutAndCopiesTheRest() async throws {
         let left = try makeTempRoot(), right = try makeTempRoot()
         defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
@@ -1002,7 +996,7 @@ import Sync
         }
 
         #expect(rec.copies.map(\.source.lastPathComponent) == ["b-missing.txt"])
-        // The em dash folded to a hyphen where the tool prints it (FC10).
+        // The em dash folded to a hyphen where the tool prints it.
         let note = "Sizes differ but the dates match within the 1 s tolerance - choose which to keep"
         #expect(rec.out.contains("""
         Planned operations (1):
@@ -1024,9 +1018,9 @@ import Sync
         #expect(rec.err == "1 item(s) need your decision and were not synced; exiting with a non-zero status.\n")
     }
 
-    /// **A linked folder is never handed to the copy (FR8).** The scan reads it as the folder it
-    /// points to; the copy would write the link. With nothing else to do, the run says so and
-    /// copies nothing — no prompt, since there is nothing to approve.
+    /// A linked folder is never handed to the copy: the scan reads it as the folder it points
+    /// to, but the copy would write the link. With nothing else to do, the run says so and copies
+    /// nothing, with no prompt, since there is nothing to approve.
     @Test func syncNeverCopiesALinkedFolderAsALink() async throws {
         let left = try makeTempRoot(), right = try makeTempRoot(), original = try makeTempRoot()
         defer {

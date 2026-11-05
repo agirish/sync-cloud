@@ -69,8 +69,8 @@ check "a tag on it is accepted" pushes "$(git tag t1 && echo refs/tags/t1)"
 check "deleting a branch is accepted" pushes :scratch
 git checkout -q main
 
-# main's own history holds old WIP commits (it does: 23 of them). A new line cut from main, pushed
-# in the same push as a new main commit, must be checked against main, not against everything.
+# main's own history holds old WIP commits. A new line cut from main, pushed in the same push as a
+# new main commit, must be checked against main, not against everything.
 git commit -q --allow-empty -m "WIP: an old one" && git push -q --no-verify origin main
 edit "A new real commit"
 check "a new line cut from main, beside a main push, is accepted" pushes main main:v7.x

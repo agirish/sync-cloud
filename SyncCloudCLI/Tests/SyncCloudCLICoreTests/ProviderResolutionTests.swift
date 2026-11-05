@@ -43,14 +43,12 @@ private let providers = [
         #expect(resolved.landingPath == "/od/docs")
     }
 
-    /// **`-L <source>` scans that source's LANDING folder, not the account above it.**
+    /// `-L <source>` scans that source's LANDING folder, not the account above it.
     ///
-    /// Every other fixture here has an empty `openAt`, which makes `rootPath` and `landingPath` the
-    /// same string and so cannot tell the two apart — this is the one case that can. It matters
-    /// because a source's root widened to the whole account: `synccloud -L OneDrive-Personal` used
-    /// to scan the Documents folder, and reading `rootPath` in `CommandRunner.scanForDifferences`
-    /// would silently point every provider-addressed run at the entire account instead, with
-    /// nothing on screen to say the subject had changed.
+    /// Every other fixture here has an empty `openAt`, so `rootPath` and `landingPath` are the same
+    /// string; this is the one case that tells them apart. Reading `rootPath` in
+    /// `CommandRunner.scanForDifferences` would silently point every provider-addressed run at the
+    /// entire account, with nothing on screen to say the subject had changed.
     @Test func testAProviderAddressedRootResolvesToItsLandingFolderNotItsRoot() throws {
         let withOpenAt = [
             CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive (Personal)",
@@ -64,12 +62,10 @@ private let providers = [
         #expect(resolved.rootPath == "/od", "the root is still the whole account")
     }
 
-    /// **The pre-flight check is about the folder that gets scanned.**
-    ///
-    /// It was about the root: a mounted account whose landing folder had been renamed or deleted
-    /// cleared a check on a directory the run never touches, and then failed deeper with a message
-    /// naming the root — a path that was there all along. The account being mounted and its
-    /// documents tree being there are two different facts, and only the second one is the subject.
+    /// The pre-flight check is about the folder that gets scanned. A mounted account whose landing
+    /// folder was renamed or deleted must be refused here, naming that folder, rather than pass a
+    /// check on the root and fail deeper. The account being mounted and its documents tree being
+    /// there are two different facts, and only the second is the subject.
     @Test func testAMissingLandingFolderIsRefusedEvenWhenTheAccountIsMounted() {
         let withOpenAt = [
             CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive (Personal)",
@@ -96,11 +92,9 @@ private let providers = [
         }
     }
 
-    /// A source that opens at its own root is checked once, not twice about the same folder.
-    ///
-    /// The whole reason the landing check is conditional: with an empty `openAt` the two paths are
-    /// the same string, and a second `requireDirectory` over it would be a check that can only ever
-    /// agree with the one above it.
+    /// A source that opens at its own root is checked once, not twice about the same folder: with
+    /// an empty `openAt` the two paths are the same string, so a second `requireDirectory` could
+    /// only agree with the first. This is why the landing check is conditional.
     @Test func testASourceThatOpensAtItsRootStillResolvesWithOnlyTheRootPresent() throws {
         let resolved = try resolveProviderOrPath(
             value: "iCloud", label: "Left", providers: providers,
@@ -142,16 +136,13 @@ private let providers = [
         }
     }
 
-    /// **This used to assert that the provider wins, and that is the behaviour being changed.**
+    /// A provider that shadows a different directory of the same name is refused. The fixture is
+    /// the hazardous case: a directory named `iCloud` in the working directory against a provider
+    /// rooted somewhere else entirely. `sync` is a mass copy, so a silent pick writes one whole
+    /// tree into another, and either precedence only moves the misfire onto whoever meant the
+    /// other reading. The refusal names both disambiguating spellings.
     ///
-    /// It read "a provider id resolves even if a same-named path exists on disk" — stated, with no
-    /// reason given for preferring one reading. The fixture is the hazardous case: a directory
-    /// named `iCloud` in the working directory against a provider rooted somewhere else entirely.
-    /// `sync` is a mass copy, so resolving that silently is one whole tree written into another,
-    /// and neither precedence is defensible — reversing it only moves the misfire onto whoever
-    /// meant the provider. It is refused now, with both disambiguating spellings named.
-    ///
-    /// The narrower case where both readings are the SAME folder still resolves — see below.
+    /// The narrower case where both readings are the SAME folder still resolves; see below.
     @Test func testAProviderThatShadowsADifferentSameNamedDirectoryIsRefused() {
         #expect(throws: ProviderResolutionError.self) {
             try resolveProviderOrPath(
@@ -160,9 +151,9 @@ private let providers = [
         }
     }
 
-    /// **`~/iCloud` symlinked to iCloud Drive is a common convention, and there is no hazard in
-    /// it** — both readings are one folder, so the guard must not fire. Compared after resolving
-    /// symlinks, which is what makes the two identical rather than merely similar.
+    /// `~/iCloud` symlinked to iCloud Drive is a common convention with no hazard in it: both
+    /// readings are one folder, so the guard must not fire. Compared after resolving symlinks,
+    /// which is what makes the two identical rather than merely similar.
     @Test func testAProviderWhoseRootIsTheSameFolderAsThePathStillResolves() throws {
         // The provider's root IS what the relative value canonicalises to, which is the shape the
         // symlink convention produces on a real machine.
@@ -214,11 +205,11 @@ private let providers = [
     }
 
     // MARK: Provider type of a path-addressed root
-    // `-R <path>` used to produce a provider hard-typed `.iCloud`, which silently switched OFF the
-    // two guards that key off the type: the destination name check (`ProviderNameRules.violation`,
-    // applied in CommandRunner before every write) and the Google Drive date-noise filter. The same
-    // OneDrive folder therefore skipped `CON.txt` when named by id and copied it when named by
-    // path. The type now comes from whichever discovered provider contains the path.
+    // A `-R <path>` provider takes its type from whichever discovered provider contains the path.
+    // Two guards key off the type: the destination name check (`ProviderNameRules.violation`,
+    // applied in CommandRunner before every write) and the Google Drive date-noise filter. With a
+    // fixed type the same OneDrive folder would skip `CON.txt` when named by id and copy it when
+    // named by path.
 
     private static let cloudProviders = [
         CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud",
@@ -235,7 +226,7 @@ private let providers = [
             value: path, label: "Right", providers: Self.cloudProviders,
             fileManager: StubFileManager(directories: [path]))
         #expect(resolved.type == .oneDrive)
-        // The guard the type gates is now live for this root.
+        // The guard the type gates is live for this root.
         #expect(ProviderNameRules.violation(inRelativePath: "CON.txt", for: resolved.type) != nil)
     }
 
@@ -289,15 +280,10 @@ private let providers = [
 
     // MARK: - An argument that names both is refused, not guessed
 
-    /// **`-L Dropbox` beside a local folder called `Dropbox` addressed the PROVIDER.**
-    ///
-    /// The provider branch wins by position, so the CLI silently took the provider's root instead
-    /// of the directory in front of the user — and `sync` is a mass copy, so guessing wrong is not
-    /// a wrong listing, it is one whole tree written into another.
-    ///
-    /// Reversing the precedence would move the same silent misfire onto whoever meant the
-    /// provider, so neither order is defensible and the ambiguity is refused instead. The cost is
-    /// one re-run with a disambiguating spelling; the cost of being wrong is a sync.
+    /// `-L Dropbox` beside a local folder called `Dropbox` is refused, not resolved to either.
+    /// `sync` is a mass copy, so a wrong guess writes one whole tree into another, and reversing
+    /// the precedence would only move the misfire onto whoever meant the provider. The cost is one
+    /// re-run with a disambiguating spelling; the cost of being wrong is a sync.
     @Test func testRefusesAValueThatIsBothAProviderAndADirectory() {
         let fm = StubFileManager(directories: ["/icloud/docs", "iCloud"])
         #expect(throws: ProviderResolutionError.self) {
@@ -321,9 +307,9 @@ private let providers = [
         }
     }
 
-    /// **And the way out actually works.** A provider id never contains a slash, so `./name` misses
-    /// the provider branch and resolves as a path — asserted, because a refusal that pointed at a
-    /// spelling which also failed would be worse than the guess it replaced.
+    /// And the way out works: a provider id never contains a slash, so `./name` misses the
+    /// provider branch and resolves as a path. A refusal that pointed at a spelling which also
+    /// failed would be worse than the guess it replaced.
     @Test func testTheDotSlashSpellingResolvesToTheDirectory() throws {
         let fm = StubFileManager(directories: ["/icloud/docs", "./iCloud"])
         let resolved = try resolveProviderOrPath(value: "./iCloud", label: "Left",
@@ -342,10 +328,9 @@ private let providers = [
 
     // MARK: Which provider a value names (FR42)
 
-    /// **An exact id outranks another provider's display name.** The first provider here carries
-    /// the display name "Dropbox"; the second's id IS "Dropbox". Matching "first whose id OR name
-    /// equals the value" picked the first — by discovery order, the wrong tree — so the
-    /// name-matching provider is deliberately listed first, where an order-dependent match lands.
+    /// An exact id outranks another provider's display name. The first provider here carries the
+    /// display name "Dropbox"; the second's id IS "Dropbox". The name-matching provider is listed
+    /// first, where an order-dependent "first whose id or name matches" lookup would land.
     @Test func anExactIdWinsOverAnEarlierProvidersDisplayName() throws {
         let renamed = [
             CloudProvider(id: "folder-1", displayName: "Dropbox", imageName: "folder",
@@ -360,9 +345,9 @@ private let providers = [
         #expect(resolved.landingPath == "/dropbox")
     }
 
-    /// **A display name two providers share is refused, naming both ids and roots.** Two folder
-    /// sources whose folders end in the same component get the same default display name; the old
-    /// match took whichever was discovered first and `sync --yes` wrote into it.
+    /// A display name two providers share is refused, naming both ids and roots. Two folder
+    /// sources whose folders end in the same component get the same default display name, and
+    /// taking whichever was discovered first would let `sync --yes` write into the wrong one.
     @Test func aDisplayNameTwoProvidersShareIsRefusedNamingEachId() {
         let twins = [
             CloudProvider(id: "folder-a", displayName: "Photos", imageName: "folder",
@@ -387,9 +372,9 @@ private let providers = [
                                             providers: twins, fileManager: fm))?.landingPath == "/b/Photos")
     }
 
-    /// The refusal names the folder each candidate would SCAN — its landing folder — not the account
-    /// root above it. With an `openAt` the two differ, and the listing used to show two roots the
-    /// run would never have read.
+    /// The refusal names the folder each candidate would SCAN (its landing folder), not the
+    /// account root above it. With an `openAt` the two differ, and the roots are folders the run
+    /// would never read.
     @Test func theAmbiguityRefusalNamesTheFoldersTheRunWouldScan() {
         let twins = [
             CloudProvider(id: "od-a", displayName: "OneDrive", imageName: "onedrive",

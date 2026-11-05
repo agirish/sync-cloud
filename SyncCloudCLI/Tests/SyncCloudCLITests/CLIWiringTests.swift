@@ -5,27 +5,24 @@ import Events
 import SyncCloudCLICore
 @testable import SyncCloudCLI
 
-/// First coverage for the executable target. `SyncCloudCLICore` is well tested; the shell around
-/// it was not, and everything here is shell: dropping the default subcommand turns a bare
-/// `synccloud -L … -R …` into a usage error, a renamed short strands every script that spells
-/// `-L`, and the error translation decides the exit code — the only thing a wrapping script can
-/// see. None of that was reachable while the target had no tests.
+/// Tests for the executable target, all of it shell: dropping the default subcommand turns a
+/// bare `synccloud -L … -R …` into a usage error, a renamed short strands every script that
+/// spells `-L`, and the error translation decides the exit code, the only thing a wrapping script
+/// can see.
 @Suite struct CLIWiringTests {
 
     // MARK: The migration pre-flight
 
-    /// **Every command that touches a tree asks first, and this reads the source to say so.**
+    /// Every command that touches a tree asks first, and this reads the source to say so.
     ///
-    /// `preflightMigration` refuses when the app's stored source locations are still from the layout
-    /// that predates source roots — a legacy `path_override_` read under the new meaning points a
-    /// `scan` at a different folder than the user chose, and `sync` is a mass copy. Nothing forces a
-    /// new subcommand to call it, and forgetting is silent in the worst possible direction, so the
-    /// call is asserted at each site rather than left to a reviewer.
+    /// `preflightMigration` refuses when the app's stored source locations predate source roots:
+    /// a legacy `path_override_` read under the new meaning points a `scan` at a different folder
+    /// than the user chose, and `sync` is a mass copy. Nothing forces a new subcommand to call it,
+    /// and forgetting is silent, so the call is asserted at each site.
     ///
-    /// Source text rather than behaviour because the alternative is not available: the pre-flight
-    /// reads the app's real defaults domain, so exercising it would mean writing a legacy override
-    /// into this developer's live `~/Library/Preferences` — the domain his running app is on. The
-    /// PREDICATE it asks is behaviourally tested, against a scratch suite, in
+    /// Source text rather than behaviour: the pre-flight reads the app's real defaults domain, so
+    /// exercising it would write a legacy override into the live `~/Library/Preferences` the
+    /// running app uses. The predicate is tested against a scratch suite in
     /// `RootsMigrationTests.legacyStateIsReportedOnlyWhenThereIsSome`; this is the wiring half.
     @Test func everyCommandThatTouchesATreeAsksBeforeItRuns() throws {
         let source = try Self.commandsSource()
@@ -37,16 +34,10 @@ import SyncCloudCLICore
         }
     }
 
-    /// **`providers` warns instead, and that difference is asserted rather than assumed.**
-    ///
-    /// It listed `runProviders` among the refusers for one commit, which was the pre-flight's own
-    /// reason applied where it does not hold: `providers` reads and prints, so there is no wrong
-    /// folder for it to act on — and it is the one command someone in this state has a reason to
-    /// run, since it shows the roots discovery finds NOW. Refusing it answered a diagnostic
-    /// question with "a run here would scan a different folder than the one you chose", about a
-    /// command that scans nothing.
-    ///
-    /// Both halves are checked: that it does not refuse, and that it does not go quiet either.
+    /// `providers` warns instead, and that difference is asserted rather than assumed. It reads
+    /// and prints, so there is no wrong folder for it to act on, and it is the one command someone
+    /// in this state has reason to run, since it shows the roots discovery finds now. Both halves
+    /// are checked: it does not refuse, and it does not go quiet either.
     @Test func providersWarnsRatherThanRefusing() throws {
         let source = try Self.commandsSource()
         let body = try #require(Self.runBody(before: "runProviders", in: source),
@@ -57,20 +48,13 @@ import SyncCloudCLICore
                 "providers says nothing about an unmigrated install, so its listing reads as the whole truth")
     }
 
-    /// **Every command routes its exit through `flushingLogToDisk`, and that is the rule, not a
-    /// habit three of the four happened to share.**
+    /// Every command routes its exit through `flushingLogToDisk`, as a rule.
     ///
     /// The wrapper is the only thing that turns a `CLIValidationError` into ArgumentParser's
-    /// `ValidationError` (via `CLIExitMapping`), so skipping it is silent in three directions at
-    /// once and none of them is a crash: the message a `Failure` composed is replaced by
-    /// ArgumentParser stringifying the struct — `Error: CLIValidationError(message: "…\'s …")`,
-    /// internal type name included and the apostrophes inside the advice backslash-escaped —
-    /// the exit falls from 64 to 1, so a script telling a usage error from a run failure reads
-    /// the wrong one, and the log never reaches disk on the path most worth having it.
-    ///
-    /// `restructure` shipped that way: the one verb added in 5.0, and the only one unwrapped.
-    /// Written over the call-site table rather than as one assertion about that verb, because the
-    /// next verb is the one this is for.
+    /// `ValidationError` (via `CLIExitMapping`), so skipping it fails silently three ways: the
+    /// message a `Failure` composed is replaced by ArgumentParser's dump of the struct, the exit
+    /// falls from 64 to 1 so a script reads a usage error as a run failure, and the log never
+    /// reaches disk. Written over the call-site table, not one verb, so a new verb is covered too.
     @Test func everyCommandExitsThroughTheLogFlushAndErrorLadder() throws {
         let source = try Self.commandsSource()
         for call in ["runScan", "runSync", "runProviders", "RestructureReporting.run"] {
@@ -82,10 +66,8 @@ import SyncCloudCLICore
     }
 
     /// The positive control for the scan above: `runBody` really can come back WITHOUT the
-    /// wrapper, so a green result there is the source agreeing rather than the search missing.
-    /// Without this, deleting `flushingLogToDisk` from every command would still pass — the
-    /// helper would return nil, `#require` would fail... which is the point being pinned: it is
-    /// the *`#expect`* that must be able to fail, and here it is, failing on purpose.
+    /// wrapper, so the `#expect` there can fail, and a green result is the source agreeing rather
+    /// than the search missing.
     @Test func theFlushScanCanActuallyFail() throws {
         let unwrapped = """
             func run() async throws {
@@ -148,10 +130,9 @@ import SyncCloudCLICore
                 "repeated --ignore must accumulate, not replace")
     }
 
-    /// The sync subcommand's own wire surface — its name, the strategy short, `-y`, `--verify`,
-    /// and the `customLong` fail-fast, which is exactly the spelling class a rename breaks with
-    /// every other suite green. The first landing of this file stopped at Scan; `sync` is the
-    /// subcommand that MOVES files, so its scripts have the most to lose from a renamed flag.
+    /// The sync subcommand's own wire surface: its name, the strategy short, `-y`, `--verify`,
+    /// and the `customLong` fail-fast, the spelling class a rename breaks with every other suite
+    /// green. `sync` is the subcommand that MOVES files, so its scripts have the most to lose.
     @Test func theSyncSubcommandsDocumentedSpellingsAllParse() throws {
         let parsed = try SyncCloudCommand.parseAsRoot(
             ["sync", "-L", "/a", "-R", "/b", "-s", "keep-both", "-y", "--fail-fast", "--verify"])
@@ -192,18 +173,16 @@ import SyncCloudCLICore
             }
             Issue.record("nothing was thrown")
         } catch let error as ValidationError {
-            // The same message, verbatim: usage text + exit 64, exactly as when the command
-            // bodies threw ArgumentParser's type directly.
+            // The same message, verbatim, so ArgumentParser prints it with usage text and exits 64.
             #expect(error.message == "left and right resolve to the same folder")
         } catch {
             Issue.record("threw \(error) instead of ArgumentParser's ValidationError — the exit code and usage text are gone")
         }
     }
 
-    /// **A validation message keeps its names; an error ArgumentParser prints as `Error: …` is
-    /// folded to ASCII punctuation** (FC10). A validation message is this tool's own ASCII words
-    /// around a path or provider name, which must print as typed; the other is someone else's
-    /// sentence.
+    /// A validation message keeps its names; an error ArgumentParser prints as `Error: …` is
+    /// folded to ASCII punctuation. A validation message is this tool's own ASCII words around a
+    /// path or provider name, which must print as typed; the other is someone else's sentence.
     @Test func validationKeepsItsNamesAndAnErrorArgumentParserPrintsIsFolded() async {
         do {
             try await flushingLogToDisk {
@@ -239,12 +218,10 @@ import SyncCloudCLICore
     }
 
     /// Durability across the wrapper: a line logged before a failing body is on DISK once
-    /// `flushingLogToDisk` rethrows. Honest scope: the writer appends from its own serial queue,
-    /// so a deleted flush would usually STILL land the line during this test's suspension points —
-    /// what this pins is the observable contract (line durable when the wrapper returns), not the
-    /// flush call's presence; the barrier's own semantics are Events' to test. Under `swift test`
-    /// the logger writes a per-process temp file, so this reads the real path the wrapper
-    /// protects without touching `~/sync-cloud.log`.
+    /// `flushingLogToDisk` rethrows. The writer appends from its own serial queue, so a deleted
+    /// flush would usually still land the line during this test's suspension points: this pins
+    /// the observable contract, not the flush call; the barrier itself is Events' to test. Under
+    /// `swift test` the logger writes a per-process temp file, so `~/sync-cloud.log` is untouched.
     @Test func aFailedBodysLogLineIsOnDiskWhenTheWrapperRethrows() async throws {
         let tag = "cli-flush-\(UUID().uuidString)"
         struct Boom: Error {}

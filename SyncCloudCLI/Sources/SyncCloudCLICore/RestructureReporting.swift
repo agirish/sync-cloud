@@ -1,23 +1,19 @@
 import Foundation
 import Sync
 
-/// `synccloud restructure` — the structure detectors over the active folder profile, from a
-/// terminal (ROADMAP v5 §13).
+/// `synccloud restructure`: the structure detectors over the active folder profile, from a
+/// terminal.
 ///
-/// **Report-only, deliberately and permanently for 5.0.** No `--apply`, no `--plan`: §5.5's six
-/// invariants are all about a person reading a manifest before anything moves, and a flag that
-/// skips the reading skips the invariants.
+/// Report-only, deliberately: no `--apply` or `--plan`. Apply's invariants rest on a person
+/// reading a manifest before anything moves, and a flag that skips the reading skips them.
 ///
-/// Built *with* §5.2 rather than after it, for a testing reason as much as a user one: the
-/// detectors are pure functions of the profile, so this command is the only way to run the whole
-/// set over a real tree without a Mac in front of you — and it retires the throwaway Python
-/// re-implementation every number in the roadmap used to come from, making the next audit a diff
-/// instead of a rewrite.
+/// The detectors are pure functions of the profile, so this is also how to run the whole set
+/// over a real tree without the app, which makes an audit of their numbers a diff.
 public enum RestructureReporting {
 
-    /// The command's whole result, and a **stable public format**: scripts will parse this, so
-    /// fields are only ever added, never renamed. Finding rows are flattened per kind — the
-    /// consumer branches on `kind` and reads that kind's fields, all optional except the identity.
+    /// The command's whole result, in a stable public format: scripts parse it, so fields are
+    /// only ever added, never renamed. Finding rows are flattened per kind: the consumer branches
+    /// on `kind` and reads that kind's fields, all optional except the identity.
     public struct Output: Codable, Equatable, Sendable {
         public struct Finding: Codable, Equatable, Sendable {
             public let kind: String
@@ -98,9 +94,9 @@ public enum RestructureReporting {
         return output(for: profile, id: id)
     }
 
-    /// **The `restructure` command's body**: the report, rendered as JSON or text, handed to
-    /// `write` — so a test reads exactly what the command prints. A failure to find or read the
-    /// profile becomes the usage error the shell prints, with the failure's own sentence.
+    /// The `restructure` command's body: the report, rendered as JSON or text, handed to `write`,
+    /// so a test reads exactly what the command prints. A failure to find or read the profile
+    /// becomes the usage error the shell prints, with the failure's own sentence.
     public static func run(profilesDirectory: URL?, json: Bool, write: (String) -> Void) throws {
         let output: Output
         do {
@@ -149,9 +145,9 @@ public enum RestructureReporting {
         case .looseBesideContainer(let container):
             out.container = container
         case .duplicatedTaxonomy(let counterpart, let matchedDocuments):
-            // Reachable only if the CLI ever grows a scan-backed run — the profile-pure
-            // detectors it reports today never produce this kind — but the wire fields exist
-            // now, so a future scan-backed report does not move the schema.
+            // Reachable only from a scan-backed run, which the CLI does not have: its
+            // profile-pure detectors never produce this kind. The wire fields exist anyway, so a
+            // scan-backed report would not move the schema.
             out.counterpart = counterpart
             out.matchedDocuments = matchedDocuments
         case nil:
@@ -172,8 +168,8 @@ public enum RestructureReporting {
         return String(decoding: try encoder.encode(output), as: UTF8.self)
     }
 
-    /// The default rendering: the lens's answer, in terminal shape. One line per finding, the
-    /// crowding counts as a footer — counts, not 609 paths, which is what `--json` is for.
+    /// The default rendering: the lens's answer, in terminal shape. One line per finding, and the
+    /// crowding counts as a footer; the paths themselves are what `--json` is for.
     public static func renderText(_ output: Output) -> String {
         var lines: [String] = []
         if output.findings.isEmpty {

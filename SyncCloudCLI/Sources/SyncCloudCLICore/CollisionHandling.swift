@@ -35,9 +35,7 @@ public func resolveCollision(strategy: CollisionStrategy, targetExists: Bool) ->
 }
 
 /// Why one planned copy was skipped. Threaded through the tally so the summary reports each
-/// cause truthfully — the sync loop has TWO skipping paths (`--strategy skip` collisions and
-/// the pre-write provider-name guard) and lumping them together mislabeled name-rule skips
-/// as collision skips.
+/// cause under its own heading: each has a different fix.
 public enum SkipReason: Equatable, Sendable {
     /// The destination already existed and `--strategy skip` left it untouched.
     case collision
@@ -62,8 +60,8 @@ public struct SkippedItem: Equatable, Sendable {
     /// The per-file explanation, when the skip site has one (name-violation skips do; plain
     /// collision skips don't — their cause is fully described by the section heading).
     ///
-    /// **Printed as given.** The skip site folds a shared sentence to ASCII before recording it
-    /// (`CLIOutput`, FC10), because only it knows which names the sentence quotes and must keep.
+    /// Printed as given: the skip site folds a shared sentence to ASCII before recording it
+    /// (`CLIOutput`), because only it knows which names the sentence quotes and must keep.
     public let detail: String?
 
     public init(relativePath: String, reason: SkipReason, detail: String? = nil) {
@@ -112,8 +110,7 @@ public func syncSummary(tally: SyncTally, strategy: CollisionStrategy) -> (
         out.append("Replaced \(tally.replaced) existing file(s); previous versions are recoverable from the Trash (exact paths in ~/sync-cloud.log).")
     }
     // Report each skip cause separately: collision skips (from `--strategy skip`) and
-    // provider-name skips (the pre-write guard) are different problems with different fixes,
-    // and lumping them under the collision wording mislabeled the name-rule ones.
+    // provider-name skips (the pre-write guard) are different problems with different fixes.
     let collisionSkips = tally.skippedItems.filter { $0.reason == .collision }
     if !collisionSkips.isEmpty {
         let reason = strategy == .skip
@@ -124,20 +121,16 @@ public func syncSummary(tally: SyncTally, strategy: CollisionStrategy) -> (
     }
     let nameSkips = tally.skippedItems.filter { $0.reason == .nameViolation }
     if !nameSkips.isEmpty {
-        // Each file's reason is threaded from the skip site into the tally and printed inline
-        // (`path - reason`), so the stdout summary stands alone even when stderr is redirected
-        // away. The per-file "Skipping <path>: …" stderr lines are still emitted by the sync
-        // loop as it goes. A missing detail (defensive: no current caller omits it) falls back
-        // to the bare path, described by the heading.
+        // Each file's reason is printed inline (`path - reason`), so the stdout summary stands
+        // alone even when stderr is redirected away; the sync loop also writes a "Skipping
+        // <path>: …" stderr line as it goes. A missing detail falls back to the bare path.
         out.append("Skipped \(nameSkips.count) file(s) (name not allowed by the destination provider):")
         out.append(contentsOf: nameSkips.map { item in
             "  \(item.relativePath)\(item.detail.map { " - \($0)" } ?? "")"
         })
     }
-    // Reported apart from the two above for the same reason they are reported apart from each
-    // other: this one is not a policy decision the user can change with a flag, it is the run
-    // declining to act on a reading that went stale while it waited at the prompt, and the fix
-    // is to run it again rather than to pass something different.
+    // Apart from the two above: no flag changes this one. The run declined to act on a reading
+    // that went stale while it waited at the prompt, and the fix is to run it again.
     let staleSkips = tally.skippedItems.filter { $0.reason == .changedSincePlan }
     if !staleSkips.isEmpty {
         out.append("Skipped \(staleSkips.count) file(s) that changed after the plan was shown; re-run sync to see the current plan:")
@@ -158,13 +151,10 @@ public func syncSummary(tally: SyncTally, strategy: CollisionStrategy) -> (
     if tally.failed > 0 {
         err.append("\(tally.failed) file(s) failed to sync (errors above); exiting with a non-zero status.")
     }
-    // **Any file left uncopied exits non-zero, each cause with its own stderr line (FR43).** A
-    // script reads 0 as "everything planned landed" — and one that then deletes its sources would
-    // delete the only copy of a file a skip left behind, whatever the skip's reason: a policy the
-    // user chose (`--strategy skip`), a provider's name rule, a plan that went stale while it
-    // waited, or a row only the user can decide. The partial-failure code (1), because to such a
-    // script each of these is exactly a partial failure; the stdout summary above still lists
-    // every file with its reason.
+    // Any file left uncopied exits non-zero, each cause with its own stderr line. A script reads
+    // 0 as "everything planned landed", and one that then deletes its sources would delete the
+    // only copy of a file a skip left behind, whatever the reason. So every skip is a partial
+    // failure (exit 1); the stdout summary above still lists each file with its reason.
     if !collisionSkips.isEmpty {
         err.append("\(collisionSkips.count) file(s) already existed at the destination and were not synced; exiting with a non-zero status.")
     }

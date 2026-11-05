@@ -17,11 +17,11 @@ public enum DifferenceProcessing {
     /// Mirrors the app's semantics: hidden means any dot-prefixed path component; ignored
     /// means an exact match or prefix directory match from `--ignore`.
     ///
-    /// The Drive filter replicates `FileSyncManager.applyFilters`/`computeFilteredState`
-    /// (`dropDriveDateNoise`) — the source of truth, not reachable from here as a callable
-    /// predicate: only when the setting is on AND the right side is Google Drive, drop
-    /// differences that are exactly "right is newer, same size" (`.differentDates`,
-    /// `sizesMatch`, action `.copyToLeft`) — Drive rewrites file dates, so these are noise.
+    /// The Drive filter replicates `FileSyncManager.applyFilters`/`computeFilteredState`, the
+    /// source of truth, which offers no callable predicate: only when the setting is on and the
+    /// right side is Google Drive, drop exactly the "right is newer, same size" rows
+    /// (`.differentDates`, `sizesMatch`, `.copyToLeft`). Drive rewrites file dates, so these are
+    /// noise.
     public static func filterDifferences(
         _ diffs: [FileDifference],
         direction: Direction,
@@ -89,15 +89,12 @@ public enum DifferenceProcessing {
         }
     }
 
-    /// The relative path the DESTINATION provider's name rules must validate for one planned
-    /// copy. `diff.relativePath` is the LEFT side's spelling; for `.nameConflict` rows the two
-    /// sides' real paths differ in spelling (e.g. left "Swimming " vs the Dropbox-normalized
-    /// "Swimming" on the right) and the actual write target is the destination's own EXISTING
-    /// path — so validating the left spelling against the destination provider falsely flags
-    /// the copy. The app derives the checked path from the target URL
-    /// (FileSyncManager.nameViolationPrompt); this mirrors that: strip the target root from
-    /// the target item path. Falls back to `relativePath` when the target is not under
-    /// `targetRoot` (should not happen for engine-produced differences).
+    /// The relative path the destination provider's name rules must validate for one planned
+    /// copy. `diff.relativePath` is the left side's spelling, but a `.nameConflict` row writes
+    /// onto the destination's own existing path (left "Swimming " vs Dropbox's "Swimming"), so
+    /// validating the left spelling would falsely flag the copy. Like the app
+    /// (`FileSyncManager.nameViolationPrompt`), this strips the target root from the target path,
+    /// falling back to `relativePath` when the target is not under `targetRoot`.
     public static func targetRelativePath(for diff: FileDifference, targetRoot: URL) -> String {
         let target = sourceAndTarget(for: diff).target
         var root = targetRoot.path

@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import SyncCloudCLICore
 
-/// **The tool prints plain ASCII punctuation** (FC10). `CommandRunnerTests` pins it on real runs,
-/// names and all; these pin the fold itself and the error ArgumentParser prints.
+/// The tool prints plain ASCII punctuation. `CommandRunnerTests` pins it on real runs, names and
+/// all; these pin the fold itself and the error ArgumentParser prints.
 @Suite struct CLIOutputTests {
 
     @Test func foldsCurlyQuotesTheEllipsisAndDashes() {
@@ -16,9 +16,9 @@ import Testing
         #expect(CLIOutput.ascii("") == "")
     }
 
-    /// **A name the sentence quotes is kept; only the words around it fold** (RE2): both
-    /// spellings of a name conflict, each wherever it occurs, and a name that is a prefix of
-    /// another. A name with nothing to fold, or empty, changes nothing.
+    /// A name the sentence quotes is kept and only the words around it fold: both spellings of a
+    /// name conflict, each wherever it occurs, and a name that is a prefix of another. A name with
+    /// nothing to fold, or empty, changes nothing.
     @Test func aKeptNameIsLeftAsItIsAndTheWordsAroundItFold() {
         let sentence = "Names differ by a trailing space: “Bob’s ” (Mom’s Files) vs “Bob’s” (Dropbox) — Bob’s"
         #expect(CLIOutput.ascii(sentence, keeping: ["Bob’s ", "Bob’s", "Mom’s Files", "Dropbox", ""])
