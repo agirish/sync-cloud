@@ -3,29 +3,22 @@ import Foundation
 /// The per-process files a test runner writes in place of the user's real log and history, and
 /// the sweep that stops them piling up in the temp directory.
 ///
-/// Under a test runner, `Logger.defaultLogFileURL()` and `SyncHistoryStore.defaultFileURL()` give
-/// each process its own `<stem>-<pid>.<ext>`, so two concurrent runs never share — or, through a
-/// clear, truncate — one file. `LogFileWriter` adds a `.lock` sidecar beside each. Nothing ever
-/// removed either: Swift Testing has no process-wide teardown, so a `defer` cannot reach them, and
-/// on 2026-10-15 `$TMPDIR` held ~1,200 `sync-cloud-tests` logs and ~170 history files, each with
-/// its lock.
+/// Each test process gets its own `<stem>-<pid>.<ext>` (plus `LogFileWriter`'s `.lock`), so
+/// concurrent runs never share or clear one file. Swift Testing has no process-wide teardown, so
+/// the resolver sweeps instead, once per process. A file and its sidecars go only when both hold:
+/// - its pid is no longer running (`kill(pid, 0)` says ESRCH): a concurrent run's files must
+///   never be taken; and
+/// - nothing in the group has been written for ``retention``: a finished run's log is the
+///   post-mortem `docs/flaky-tests.md` sends readers to, and must outlive its process a while.
 ///
-/// So the resolver sweeps instead, once per process, before it hands out the new path. A file is
-/// removed, with every sidecar that shares its name, only when BOTH hold:
-/// - its pid is no longer running (`kill(pid, 0)` says ESRCH) — a concurrent run's files are
-///   live, and are the one thing this must never take; and
-/// - nothing in the group has been written for ``retention``. A finished run's log is the
-///   post-mortem `docs/flaky-tests.md` sends readers to, and on a machine where other sessions
-///   start a test process every few minutes, "dead" alone would delete it before anyone looked.
-///
-/// Test-runner branch only: production resolves to `~/sync-cloud.log`,
-/// `~/sync-cloud-history.jsonl` and `~/sync-cloud-settings-changes.json` without calling anything here.
+/// Test runners only: production resolves to `~/sync-cloud.log`, `~/sync-cloud-history.jsonl` and
+/// `~/sync-cloud-settings-changes.json` without calling anything here.
 public enum PerProcessTestFile {
     /// The stem of the shared logger's per-process test log.
     static let logStem = "sync-cloud-tests"
     /// The stem of the shared history store's per-process test file.
     static let historyStem = "sync-cloud-history-tests"
-    /// The stem of the Changed from Chat record's per-process test file (TE290 step 5).
+    /// The stem of the Changed from Chat record's per-process test file.
     public static let settingsChangesStem = "sync-cloud-settings-changes-tests"
 
     /// How long a dead process's files are kept after their last write.

@@ -4,35 +4,20 @@ import Foundation
 
 /// Accumulates every entry the shared `Logger` publishes, from construction until it is released.
 ///
-/// **`Logger.shared.entries` is capped at 1,000, and every test target runs its suites in parallel
-/// against that one process-wide buffer, so a whole-buffer read is a race with every other suite's
-/// logging.** When it loses, `contains` finds nothing and the assertion reports a missing log line —
-/// indistinguishable from the defect the test exists to catch — and an absence assertion passes
-/// having examined nothing. That is "A log assertion reading a window that has already rolled" in
-/// `docs/flaky-tests.md`, and it reddened the v4.4 release run and two attempts at the v4.5 one.
+/// `Logger.shared.entries` is capped at 1,000 and shared by every suite running in parallel, so
+/// reading the whole buffer races other suites' logging: a line can be evicted before it is read,
+/// and an absence assertion then passes having examined nothing. See "A log assertion reading a
+/// window that has already rolled" in `docs/flaky-tests.md`.
 ///
-/// **The rules written in that section diagnose it; they do not fix it.** An opening marker plus a
-/// `#require` makes an evicted window *say* it was evicted rather than report an absence — which is
-/// the right diagnosis and still a red, and in fact a redder one, because the marker is older than
-/// the lines it bounds and so is evicted first. Measured: applying them to `FilingRenamePassTests`
-/// took the full package from green to failing-with-a-better-message.
+/// This removes the race. Every entry appears in the publish that appended it
+/// (`flushPendingEntries` appends, then trims, and both publish), and a captured entry can't be
+/// trimmed away. Each publish adds a run at the end, so a capture walks back to the last line it
+/// has seen and takes what follows, rather than checking every id on every publish.
 ///
-/// This removes the race instead. An entry captured at publish time cannot be taken away by a later
-/// trim, and every entry appears in at least the publish that appended it (`flushPendingEntries`
-/// appends and then trims, and both mutations publish), so accumulating across publishes sees
-/// everything. Deduplicated by `LogEntry.id`, since each publish carries the whole array.
+/// Package test targets link this library; the app target's tests compile the file in (see
+/// `project.yml`). The app never links it. `LogBufferReadScanTests` holds every test tree to it.
 ///
-/// **Only what is new is read.** The logger only appends at the end and trims from the front, so
-/// what a publish adds is a run at the END of it; a capture walks back to the first line it has
-/// already seen and takes what follows. It used to check every id in the array — up to 1,000 — on
-/// every publish, and measured 2026-09-27 that cost each live capture ~240 µs of main thread per
-/// publish: ten captures turned 2,000 flushes from 0.08 s into 4.9 s.
-///
-/// **One file for every test target.** The package test targets link this library; the app
-/// target's tests compile the file in instead, for the reason `project.yml` gives. The app itself
-/// never links it. `LogBufferReadScanTests` holds every test tree in the repository to it.
-///
-/// **Construct it BEFORE the call under test** — it is a window opening, not a query:
+/// **Construct it before the call under test**: it is a window opening, not a query.
 /// ```swift
 /// let log = LogCapture()
 /// await manager.doTheThing()
@@ -46,11 +31,10 @@ public final class LogCapture {
     private var cancellable: AnyCancellable?
 
     public init() {
-        // A `@Published` publisher replays its CURRENT value on subscribe. Those lines predate this
-        // capture, so they are marked seen rather than captured: a capture means "since I started",
-        // and a sibling's identical sentence from before the call under test must not satisfy it.
-        // `dropFirst()`, which this replaced, skipped only the replay — the next publish still
-        // carried every older line in the buffer, so each capture began with whatever it held.
+        // A `@Published` publisher replays its current value on subscribe. Those lines predate the
+        // capture, so they are marked seen, not captured: a sibling's identical sentence from
+        // before the call under test must not satisfy it. `dropFirst()` would skip only the replay,
+        // and the next publish would carry every older line anyway.
         cancellable = Logger.shared.$entries.sink { [weak self] published in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -74,13 +58,11 @@ public final class LogCapture {
     /// Everything captured since construction, oldest first.
     public var entries: [LogEntry] {
         get async {
-            // The visibility half of the rolled-window section's rule 1, which this still needs:
-            // `Logger.log` is `nonisolated` and hands the entry to a FIFO queue a `@MainActor` task
-            // drains, so without awaiting one more entry a line the call under test just wrote may
-            // not have been published yet. The queue being FIFO, this drains everything enqueued
-            // before it — and only that: a line the call under test sends through
-            // `Task { @MainActor in … }` is not enqueued yet, and can miss this flush
-            // (mechanism 26 in `docs/flaky-tests.md`).
+            // `Logger.log` hands entries to a FIFO queue a `@MainActor` task drains, so a line just
+            // written may not be published yet; awaiting one more entry drains everything enqueued
+            // before it. Only that: a line sent through `Task { @MainActor in … }` may not be
+            // enqueued yet ("A log line hopped to the main actor, so the capture's flush marker
+            // finishes without it" in `docs/flaky-tests.md`).
             await Logger.shared.debug("log-capture flush marker").value
             return seen
         }

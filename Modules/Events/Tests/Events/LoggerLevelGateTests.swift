@@ -79,20 +79,12 @@ import Foundation
 
     // MARK: - The ambient level is not the developer's
 
-    /// **A test host must not inherit the machine's user-facing state.**
-    ///
-    /// The app-target tests run *inside SyncCloud.app*, so their `.standard` UserDefaults is the
-    /// installed app's own domain — the developer's live preferences. With Log level set to
-    /// anything above Debug in Settings, the threshold rose inside the test host and every `debug`
-    /// line was dropped before it reached memory, which is what eight marker-based suites assert
-    /// on. They failed together, deterministically, with nothing in the diff to explain it, and
-    /// passed on CI, whose runner has no such preference.
-    ///
-    /// Same rule, same reason, as `defaultLogFileURL()` refusing to write the real
-    /// `~/sync-cloud.log` under a test runner.
+    /// A test host must not inherit the machine's user-facing state. App-target tests run inside
+    /// SyncCloud.app, so `.standard` is the owner's live preferences, and a Log level above Debug
+    /// there would drop the `debug` lines many suites assert on, red locally and green on CI.
+    /// Same rule as `defaultLogFileURL()` refusing the real `~/sync-cloud.log` under a test runner.
     @Test func theAmbientPersistedLevelIsIgnoredUnderATestRunner() {
-        // This process IS a test runner, which is the premise; without it the assertion below
-        // would pass for the ordinary reason and prove nothing.
+        // The premise: this process is a test runner, or the assertion below proves nothing.
         #expect(Logger.isRunningTests, "the runner detection stopped recognising this process")
         // A scratch suite stands in for `.standard`: under `swift test` the standard domain is one
         // plist shared by every test process on the machine, so writing it reaches theirs.
@@ -103,9 +95,8 @@ import Foundation
                 "a test host inherited the machine's log level and would drop every debug line")
     }
 
-    /// **And an EXPLICIT suite is still read**, so what the Settings UI writes stays testable. The
-    /// override is on the ambient default only — widening it to every suite would have made the
-    /// setting itself untestable, which is trading one blind spot for another.
+    /// An explicit suite is still read, so what the Settings UI writes stays testable: the
+    /// override is on the ambient default only.
     @Test func anExplicitSuiteIsStillHonouredUnderATestRunner() throws {
         let name = "LoggerLevelGateTests-\(UUID().uuidString)"
         defer { wipeDefaultsSuite(name) }
@@ -115,7 +106,7 @@ import Foundation
         #expect(Logger.persistedMinimumLevel(from: suite) == .warning)
     }
 
-    /// An explicit suite with nothing stored still falls back to `.debug`, as it always did.
+    /// An explicit suite with nothing stored still falls back to `.debug`.
     @Test func anExplicitSuiteWithNothingStoredIsStillDebug() throws {
         let name = "LoggerLevelGateTests-\(UUID().uuidString)"
         defer { wipeDefaultsSuite(name) }

@@ -80,9 +80,8 @@ import Foundation
         #expect(contents.contains("[INFO] Injected destination message"))
     }
 
-    /// A synchronous burst of log calls must land in call order in memory AND on disk. The old
-    /// per-call unstructured tasks carried the entries themselves, so scheduling could reorder
-    /// lines; the ordered handoff queue makes this deterministic.
+    /// A synchronous burst of log calls must land in call order in memory and on disk, which the
+    /// ordered handoff queue guarantees; a task per entry would let scheduling reorder them.
     @MainActor
     @Test func testBurstLoggingPreservesCallOrderInMemoryAndOnDisk() async throws {
         let url = FileManager.default.temporaryDirectory
@@ -109,9 +108,8 @@ import Foundation
         #expect(diskOrder == expected)
     }
 
-    /// clearLogs() must also drop entries still sitting in the handoff queue: a burst logged
-    /// just before the clear previously flushed into `entries` afterward, so "cleared" lines
-    /// resurrected in the Activity Log UI.
+    /// clearLogs() must also drop entries still in the handoff queue, or a burst logged just
+    /// before the clear would flush into `entries` afterward and reappear in the Activity Log.
     @MainActor
     @Test func testClearLogsDropsPendingEntriesFromPriorBurst() async throws {
         let url = FileManager.default.temporaryDirectory
@@ -183,10 +181,8 @@ import Foundation
         #expect(plain.messageLocation == nil)
     }
 
-    /// The public `flushToDisk()` barrier must make a just-logged line durable on disk. This is
-    /// what `applicationShouldTerminate` relies on to preserve the quit-decision breadcrumb (and
-    /// any in-flight operation's own lines) past a `.background`-qos writer that has no implicit
-    /// flush on quit.
+    /// `flushToDisk()` must put a just-logged line on disk. `applicationShouldTerminate` relies
+    /// on it to keep the last lines, since the `.background` writer has no implicit flush on quit.
     @MainActor
     @Test func testFlushToDiskMakesJustLoggedLineVisibleOnDisk() async throws {
         let url = FileManager.default.temporaryDirectory

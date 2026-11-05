@@ -57,8 +57,8 @@ import Foundation
     }
 
     /// A finished run's log is the post-mortem `docs/flaky-tests.md` points at, so it outlives its
-    /// process by `retention` — judged by the NEWEST file in the group, because the `.lock` is only
-    /// ever created and keeps its birth time while the log goes on being written.
+    /// process by `retention`, judged by the newest file in the group: the `.lock` keeps its
+    /// creation time while the log goes on being written.
     @Test func aDeadRunWrittenWithinTheRetentionIsKept() throws {
         let directory = try makeScratchDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -111,8 +111,8 @@ import Foundation
         #expect(!PerProcessTestFile.isRunning(child.processIdentifier))
     }
 
-    /// Both resolvers hand out names the sweep recognises as this process's — so a rename on
-    /// either side cannot quietly turn the sweep off.
+    /// Both resolvers hand out names the sweep recognises as this process's, so a rename on either
+    /// side can't quietly turn the sweep off.
     @Test func theResolversNamesAreTheOnesTheSweepMatches() {
         let pid = ProcessInfo.processInfo.processIdentifier
         #expect(PerProcessTestFile.pid(inFileNamed: Logger.defaultLogFileURL().lastPathComponent,

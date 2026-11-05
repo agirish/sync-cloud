@@ -1,8 +1,7 @@
 import Foundation
 
-/// Pure filtering for the Sync History window — the analogue of `LogEntryFilter` for the
-/// Activity Log. Kept out of the view so the action filter, date-range gate, case-insensitive
-/// path search, and newest-first ordering are unit-testable without any `@State`.
+/// Pure filtering for the Sync History window, the analogue of the Activity Log's
+/// `LogEntryFilter`. Kept out of the view so it is testable without any `@State`.
 public enum SyncHistoryFilter {
 
     /// Filters `records` by action, an inclusive `[start, end]` date range, and a
@@ -15,7 +14,7 @@ public enum SyncHistoryFilter {
     ///     matches everything.
     ///   - start: Keep records at or after this instant. `nil` imposes no lower bound.
     ///   - end: Keep records at or before this instant. `nil` imposes no upper bound.
-    ///   - runId: Keep only this run's records — Activity's Show in History (R13). `nil` keeps all.
+    ///   - runId: Keep only this run's records, for Activity's Show in History. `nil` keeps all.
     public static func apply(
         _ records: [SyncHistoryRecord],
         action: SyncAction?,

@@ -2,8 +2,8 @@ import Testing
 import Foundation
 @testable import Events
 
-/// Coverage for `SyncHistoryExporter`: the CSV header + RFC-4180 escaping (paths with commas
-/// and quotes) and a JSON round-trip.
+/// `SyncHistoryExporter`: the CSV header and RFC-4180 escaping (paths with commas and quotes),
+/// a JSON round trip, and the delete labels records carry.
 @Suite struct SyncHistoryExporterTests {
 
     private func sampleRecord(
@@ -26,9 +26,9 @@ import Foundation
         )
     }
 
-    /// **A trash move is labelled "Move to Trash"; only a permanent delete says "Delete"** (FD2),
-    /// told apart by the Trash location the record keeps. The raw value stays `delete`, so the
-    /// history file and the CSV/JSON a script reads are unchanged.
+    /// A trash move is labelled "Move to Trash" and only a permanent delete says "Delete", told
+    /// apart here by the Trash location. The raw value stays `delete`, so the history file and
+    /// the CSV and JSON a script reads don't change.
     @Test func aDeleteIsLabelledByWhetherItReachedTheTrash() throws {
         let trashed = SyncHistoryRecord(runId: UUID(), action: .delete, sourcePath: "/src/a.txt",
                                         backupPath: "/Users/me/.Trash/a.txt")
@@ -48,10 +48,9 @@ import Foundation
         #expect(!csvRow.contains("Trash,"), "the CSV printed the label, not the raw value: \(csvRow)")
     }
 
-    /// **An item the Trash took with no location reported is a move to the Trash, not a delete**
-    /// (RD2). `deleteItems` records whether each item reached the Trash, so the label no longer
-    /// guesses from the missing location; a record that says it did not reach the Trash is
-    /// "Delete" whatever its `backupPath`.
+    /// An item the Trash took with no location reported is a move to the Trash, not a delete:
+    /// `reachedTrash` decides the label, not the location, and a record that says it didn't reach
+    /// the Trash is "Delete" whatever its `backupPath`.
     @Test func reachingTheTrashDecidesTheLabelNotTheLocation() throws {
         let noLocation = SyncHistoryRecord(runId: UUID(), action: .delete, sourcePath: "/src/a.txt",
                                            backupPath: nil, reachedTrash: true)
@@ -72,8 +71,8 @@ import Foundation
             "Timestamp,Action,Direction,Source,Destination,Size (bytes),Checksum,Backup,Run ID,Previous Date\n"))
     }
 
-    /// **A record written before the field existed still decodes, and falls back to the location**:
-    /// with a Trash location it is a move to the Trash, without one a delete — what it said before.
+    /// A record without `reachedTrash` still decodes and falls back to the location: with a Trash
+    /// location it is a move to the Trash, without one a delete.
     @Test func aRecordWithoutTheFieldFallsBackToTheLocation() throws {
         func decoded(_ backup: String?) throws -> SyncHistoryRecord {
             let backupField = backup.map { #""backupPath" : "\#($0)","# } ?? ""
@@ -157,9 +156,8 @@ import Foundation
         #expect(decoded.isEmpty)
     }
 
-    /// **A date match records the date it replaced, and the CSV carries it** (review E11). The
-    /// record kept only that a date was set. Last column, so the earlier ones keep their places;
-    /// empty for a record with none.
+    /// A date match records the date it replaced, and the CSV carries it in the last column, so
+    /// the earlier ones keep their places; empty for a record with none.
     @Test func testADateMatchRecordCarriesItsPreviousDateIntoTheCSV() throws {
         let match = SyncHistoryRecord(runId: UUID(), timestamp: Date(timeIntervalSince1970: 1_700_000_000),
                                       action: .matchDates, sourcePath: "/l/a.txt", destPath: "/r/a.txt",
@@ -170,9 +168,8 @@ import Foundation
         #expect(lines[2].hasSuffix(","), "a record with no previous date filled the column: \(lines[2])")
     }
 
-    /// **A history line written before the field existed still loads** (review E11): absent is
-    /// nil, through the store's own codec (the default `Date` strategy), and the field survives a
-    /// round trip when present.
+    /// A history line without `previousModificationDate` still loads through the store's codec
+    /// (the default `Date` strategy) as nil, and the field survives a round trip when present.
     @Test func testALineWithoutAPreviousDateStillDecodes() throws {
         let old = #"{"id":"6F1C3C2A-0000-4000-8000-000000000001","runId":"6F1C3C2A-0000-4000-8000-000000000002","timestamp":700000000,"action":"matchDates","sourcePath":"/l/a.txt","destPath":"/r/a.txt","sizeBytes":9,"direction":"→ Right"}"#
         let decoded = try JSONDecoder().decode(SyncHistoryRecord.self, from: Data(old.utf8))

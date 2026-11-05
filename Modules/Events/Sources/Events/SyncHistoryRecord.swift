@@ -1,31 +1,27 @@
 import Foundation
 
-/// The kind of file mutation a `SyncHistoryRecord` captures. Kept deliberately coarse — a
-/// history reader thinks in "copy / move / delete", not in the app's internal sync directions
-/// (that nuance lives in `SyncHistoryRecord.direction`). `Codable` so the store can persist it
-/// as JSON-lines and re-load it; `Sendable` so records can be built off the main actor.
+/// The kind of file mutation a `SyncHistoryRecord` captures. Deliberately coarse: a reader thinks
+/// in copy, move and delete, and the sync direction lives in `SyncHistoryRecord.direction`.
 ///
-/// **Adding a case is safe for the file on disk.** The store is append-only and loads line by
-/// line, dropping a line it cannot decode (`SyncHistoryStore.loadRecords`), so an older build
-/// reading a history with a newer case skips those lines and keeps the rest — it never rewrites
-/// them away.
+/// Adding a case is safe for the file on disk: the store is append-only and skips a line it can't
+/// decode (`SyncHistoryStore.loadRecords`), so an older build keeps the rest and never rewrites
+/// the newer lines away.
 public enum SyncAction: String, Codable, Sendable, CaseIterable {
     case copy
     case move
     case delete
-    /// "Copy to match dates" on a pair Verify All proved byte-identical (FR41): the destination
-    /// file took the source's modification date, and no byte was copied.
+    /// "Copy to match dates" on a pair Verify All proved byte-identical: the destination took the
+    /// source's modification date, and no byte was copied.
     case matchDates
-    /// A folder made: by New Folder, or by a card of changes in Ask Claude (TE262). `sourcePath`
-    /// is the folder.
+    /// A folder made, by New Folder or by a card of changes in Ask Claude. `sourcePath` is the
+    /// folder.
     case newFolder
 
-    /// A short human label for the UI ("Copy" / "Move" / "Move to Trash" / "Match Dates").
+    /// A short label for the UI ("Copy", "Move", "Move to Trash", "Match Dates", "New Folder").
     ///
-    /// **A `.delete` is a move to the Trash, so it says so** (FD2), as the row menu, the banner and
-    /// Edit ▸ Undo already do. The one delete that is not — an item removed outright on a disk with
-    /// no Trash — is told apart per record: `SyncHistoryRecord.actionLabel`. The raw value stays
-    /// `delete`: it is what the history file and its CSV/JSON exports carry.
+    /// A `.delete` is a move to the Trash, so it says so, as the row menu, banner and Edit ▸ Undo
+    /// do. A permanent delete on a disk with no Trash is told apart per record
+    /// (`SyncHistoryRecord.actionLabel`). The raw value stays `delete`, as the file and exports carry.
     public var label: String {
         switch self {
         case .copy: return "Copy"
@@ -48,21 +44,17 @@ public enum SyncAction: String, Codable, Sendable, CaseIterable {
     }
 }
 
-/// One durable, structured entry in the Sync History: a single file/folder that a copy, move,
-/// or delete touched. Unlike a `LogEntry` (a free-text, in-memory audit line that forgets on
-/// quit), a record is machine-readable and persisted, so history survives relaunch and can be
-/// filtered, exported (CSV/JSON), and — via the run it belongs to — reversed.
+/// One durable entry in the Sync History: a single file or folder an operation touched. Unlike a
+/// free-text `LogEntry`, a record is structured and persisted, so it can be filtered, exported and
+/// grouped by run.
 ///
-/// A record never carries authority to change anything; it is the *evidence* an operation ran.
-/// `backupPath` (the Trash location of a deleted item, or the displaced original of an
-/// overwrite) is recorded only so the history is self-explanatory — the actual reversal reuses
-/// the app's existing `UndoManager` stack, not this field.
+/// A record is evidence an operation ran, never authority to change anything: reversal uses the
+/// app's `UndoManager` stack, not `backupPath`.
 public struct SyncHistoryRecord: Codable, Sendable, Identifiable {
     /// Unique identity of this record.
     public let id: UUID
-    /// The run (one user gesture — a single sync, a bulk sync, a multi-item transfer/delete)
-    /// this record belongs to. Every record produced by one gesture shares a `runId`, which is
-    /// how "the last run" is scoped for filtering and reversal.
+    /// The run (one user gesture, such as a sync or a multi-item transfer) this record belongs to.
+    /// Every record from one gesture shares it, which is how "the last run" is scoped.
     public let runId: UUID
     /// When the operation completed.
     public let timestamp: Date
@@ -74,9 +66,8 @@ public struct SyncHistoryRecord: Codable, Sendable, Identifiable {
     public let destPath: String?
     /// Size in bytes, best-effort. Nil when it wasn't cheaply available at record time.
     public let sizeBytes: Int?
-    /// SHA-256 hex of the content, if known. Deliberately nil at write time (hashing inline
-    /// would slow bulk runs); a later Verify can populate the field. Present in the schema so
-    /// the "with checksum" contract holds even when the value is filled in after the fact.
+    /// SHA-256 hex of the content, if known. Nil at write time, since hashing inline would slow
+    /// bulk runs; in the schema so a later Verify can fill it in.
     public let checksum: String?
     /// The Trash location of a deleted item, or the displaced original of an overwrite — kept
     /// so a reader can see what was set aside. The reversal path does not consult this.
@@ -84,17 +75,14 @@ public struct SyncHistoryRecord: Codable, Sendable, Identifiable {
     /// The sync direction in the two-pane model ("→ Right" / "← Left"), when meaningful; nil
     /// for a delete or a transfer to an arbitrary folder.
     public let direction: String?
-    /// **Whether a `.delete` reached the Trash** (RD2), recorded by `deleteItems`. Its own field
-    /// because `backupPath` cannot say it: the Trash can take an item and report no location, and
-    /// such an item is in the Trash all the same. nil for every other action, and in a record
-    /// written before the field existed, which then falls back to `backupPath` (see
-    /// `isPermanentDelete`). Optional, so older files decode and older builds read newer ones;
-    /// the JSON export carries it as `reachedTrash`, the CSV export does not.
+    /// Whether a `.delete` reached the Trash, recorded by `deleteItems`. Its own field because the
+    /// Trash can take an item and report no location, so `backupPath` can't say it. Nil for other
+    /// actions and in older records, which fall back to `backupPath` (`isPermanentDelete`).
+    /// Optional, so files decode both ways; the JSON export carries it, the CSV does not.
     public let reachedTrash: Bool?
-    /// For a `.matchDates` record, the modification date the destination had before it took the
-    /// source's (review E11) — without it the history said a date was set and never what it
-    /// replaced. Nil for every other action, and in every line written before it existed: the
-    /// synthesized decoder reads an absent key as nil, so those lines still load.
+    /// For a `.matchDates` record, the modification date the destination had before, so the
+    /// history says what was replaced. Nil for other actions and in older lines, which still load
+    /// because the synthesized decoder reads an absent key as nil.
     public let previousModificationDate: Date?
 
     public init(
@@ -125,15 +113,14 @@ public struct SyncHistoryRecord: Codable, Sendable, Identifiable {
         self.previousModificationDate = previousModificationDate
     }
 
-    /// **A delete that did not reach the Trash** — removed outright on a disk with no Trash, after
-    /// the permanent-delete question was answered yes. Read from `reachedTrash`, which
-    /// `deleteItems` records for every item; a record from before that field falls back to
-    /// `backupPath == nil`, which also reads an item trashed with no reported location as deleted.
+    /// A delete that didn't reach the Trash: removed outright, after the permanent-delete question
+    /// was answered yes. Read from `reachedTrash`; an older record falls back to
+    /// `backupPath == nil`, which also counts an item trashed with no reported location.
     public var isPermanentDelete: Bool {
         action == .delete && !(reachedTrash ?? (backupPath != nil))
     }
 
-    /// The row's label: `action.label`, except "Delete" for a permanent delete (FD2) — "Move to
-    /// Trash" there would promise a way back that is not there.
+    /// The row's label: `action.label`, except "Delete" for a permanent delete, where "Move to
+    /// Trash" would promise a way back that isn't there.
     public var actionLabel: String { isPermanentDelete ? "Delete" : action.label }
 }

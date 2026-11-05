@@ -2,10 +2,9 @@ import Testing
 import Foundation
 @testable import Events
 
-/// Direct coverage for `LogFileWriter`, the persistent-handle disk writer behind `Logger`.
-/// These exercise the two behaviors that have no other test: self-healing after the log file is
-/// removed out from under the open handle (the C5 follow-up fix, 0269f24), and `clear()`
-/// truncation. Each test writes to its own temp file so nothing touches `~/sync-cloud.log`.
+/// `LogFileWriter`, the persistent-handle disk writer behind `Logger`: healing after the file is
+/// removed or replaced under the open handle, the fallback append, size trims, and `clear()`. Each
+/// test writes its own temp file, never `~/sync-cloud.log`.
 @Suite struct LogFileWriterTests {
 
     /// Makes a unique temp path (the file itself is created by `LogFileWriter.init`).
@@ -25,8 +24,8 @@ import Foundation
         writer.flush()
         #expect(FileManager.default.fileExists(atPath: url.path))
 
-        // Simulate the file being deleted/replaced externally while the app runs: the open handle
-        // now points at an orphaned inode, so a naive write would be silently lost.
+        // Delete the file under the writer: the open handle now points at an orphaned inode, so
+        // a naive write would be lost.
         try FileManager.default.removeItem(at: url)
         #expect(!FileManager.default.fileExists(atPath: url.path))
 
@@ -50,10 +49,9 @@ import Foundation
         writer.append("first line\n")
         writer.flush()
 
-        // Atomic rewrite = write-temp-then-rename: the path stays present the whole time but
-        // points at a NEW inode, exactly what another process's tail-trim does to a shared log
-        // (the app and CLI both trim ~/sync-cloud.log). A fileExists-only check cannot see this,
-        // so the open handle would keep writing into the orphaned old inode.
+        // An atomic rewrite keeps the path but swaps the inode, as the other process's trim of
+        // the shared log does. A fileExists check can't see it, so the handle would keep writing
+        // into the orphaned inode.
         try Data("externally trimmed\n".utf8).write(to: url, options: .atomic)
 
         writer.append("second line\n")
@@ -72,8 +70,8 @@ import Foundation
         }
 
         try "history line\n".write(to: url, atomically: true, encoding: .utf8)
-        // Make the file unwritable so `FileHandle(forWritingTo:)` fails and the writer must use
-        // its fallback (an atomic replace only needs directory write permission, so it succeeds).
+        // Make the file unwritable so the writer can't open its handle and must use the fallback,
+        // whose atomic replace needs only directory permission.
         try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: url.path)
 
         let writer = LogFileWriter(url: url)
@@ -81,8 +79,7 @@ import Foundation
         writer.append("new line\n")
         writer.flush()
 
-        // The fallback must append, not clobber: one transient handle failure previously replaced
-        // the entire log history with the single new line.
+        // The fallback must append, not replace the whole history with the one new line.
         let contents = try String(contentsOf: url, encoding: .utf8)
         #expect(contents.hasPrefix("history line"))
         #expect(contents.contains("new line"))
@@ -127,9 +124,8 @@ import Foundation
         #expect(try String(contentsOf: url, encoding: .utf8) == history)
     }
 
-    /// The size cap must hold DURING a session, not just at the next launch: a long run of
-    /// appends (repeated scans) periodically re-trims, so the file stays bounded near the cap
-    /// instead of growing without limit until restart.
+    /// The size cap holds during a session, not just at the next launch: a long run of appends
+    /// re-trims periodically, so the file stays near the cap.
     @Test func testMidSessionAppendsKeepFileBounded() throws {
         let url = makeTempURL()
         defer { removeLogFiles(at: url) }
@@ -158,9 +154,8 @@ import Foundation
         #expect(contents.hasPrefix("session line ")) // still starts at a line boundary
     }
 
-    /// A leftover sidecar lock file (e.g. from a crashed process) must not block trims: flock
-    /// state dies with the holder's descriptor, so a stale FILE alone carries no lock, and the
-    /// trim proceeds normally through the guarded path.
+    /// A leftover lock file (say, from a crashed process) must not block trims: a flock dies with
+    /// its holder's descriptor, so a stale file alone carries no lock.
     @Test func testStaleTrimLockFileDoesNotBlockTrimming() throws {
         let url = makeTempURL()
         defer { removeLogFiles(at: url) }
@@ -178,9 +173,9 @@ import Foundation
         #expect(contents.hasSuffix("line 499\n"))
     }
 
-    /// Concurrent writers on the same log (the app + CLI scenario, here two in-process writers
-    /// with separate descriptors — flock contends across file descriptions the same way) must
-    /// both finish their guarded trims without deadlock and leave a bounded, line-aligned file.
+    /// Two writers on one log, standing in for the app and the CLI (flock contends across
+    /// descriptors in one process the same way), finish their guarded trims without deadlock and
+    /// leave a bounded file.
     @Test func testConcurrentWritersTrimWithoutDeadlock() throws {
         let url = makeTempURL()
         defer { removeLogFiles(at: url) }
@@ -226,14 +221,9 @@ import Foundation
         #expect(contents.contains("after clear"))
     }
 
-    /// Characterization of an accepted side effect, so nobody "fixes" it silently and nobody
-    /// re-discovers it as a bug.
-    ///
-    /// `clear()` now runs `reopenHandleIfStale()` first (see the test below for why), and that
-    /// helper recreates a missing file. So clearing a log that was DELETED out from under the
-    /// writer leaves an empty file where the old code left the path absent. Benign, and where it
-    /// shows at all it is an improvement — see `LogFileWriter.clear()`'s own comment for the
-    /// case-by-case. `SyncHistoryStore.clear()` inherits the same behaviour through the same writer.
+    /// Pins an accepted side effect: `clear()` runs `reopenHandleIfStale()` first (see the test
+    /// below), which recreates a missing file, so clearing a deleted log leaves an empty file.
+    /// Harmless; see `LogFileWriter.clear()`. `SyncHistoryStore.clear()` shares it.
     @Test func testClearRecreatesADeletedLogAsAnEmptyFile() throws {
         let url = makeTempURL()
         defer { removeLogFiles(at: url) }
@@ -250,20 +240,15 @@ import Foundation
         #expect(FileManager.default.fileExists(atPath: url.path))
         #expect(try String(contentsOf: url, encoding: .utf8).isEmpty)
 
-        // The point of reopening: the handle is the live file's, so later lines land where a reader
-        // will find them rather than in the orphaned inode.
+        // The point of reopening: later lines land in the live file, not the orphaned inode.
         writer.append("after clear\n")
         writer.flush()
         #expect(try String(contentsOf: url, encoding: .utf8) == "after clear\n")
     }
 
     /// The `clear()` counterpart of `testAppendsLandInCurrentFileAfterExternalAtomicReplacement`.
-    ///
-    /// `clear()` used to truncate through the open handle with no staleness check, unlike
-    /// `append()`. After the CLI atomically rewrites the shared `~/sync-cloud.log` (tail-trim =
-    /// write-temp-then-rename, so the path stays put and the inode changes), that truncate emptied
-    /// an orphaned inode nothing points at: "Clear Log" looked like a no-op and the Settings size
-    /// readout kept reporting a full file the user had just cleared.
+    /// After the CLI's atomic trim swaps the inode, a clear must empty the file on disk, not the
+    /// orphaned inode, or Clear Log looks like a no-op. Fails if `clear()` skips the staleness check.
     @Test func testClearEmptiesTheCurrentFileAfterExternalAtomicReplacement() throws {
         let url = makeTempURL()
         defer { removeLogFiles(at: url) }
@@ -278,12 +263,10 @@ import Foundation
         writer.clear()
         writer.flush()
 
-        // What matters is the file actually on disk — that is what the Settings readout stats and
-        // what the next reader of the log sees.
+        // The file on disk is what Settings stats and the next reader sees.
         #expect(try String(contentsOf: url, encoding: .utf8).isEmpty)
 
-        // And the reopened handle must still be the live one: appends after the clear land in the
-        // same file rather than resurrecting the orphan.
+        // And the reopened handle is the live one: later appends land in the same file.
         writer.append("after clear\n")
         writer.flush()
         #expect(try String(contentsOf: url, encoding: .utf8) == "after clear\n")

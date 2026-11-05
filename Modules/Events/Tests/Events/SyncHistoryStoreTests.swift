@@ -2,9 +2,9 @@ import Testing
 import Foundation
 @testable import Events
 
-/// Coverage for `SyncHistoryStore`: durable JSON-lines persistence and reload, run scoping,
-/// `lastRunId`, the in-memory cap trim, and `clear()` emptying both memory and disk. Every test
-/// uses its own temp-file URL so nothing touches the user's real `~/sync-cloud-history.jsonl`.
+/// `SyncHistoryStore`: JSON-lines persistence and reload, run scoping, `lastRunId`, the in-memory
+/// cap, `clear()` emptying memory and disk, and announcing dropped records. Every test uses its own
+/// temp file, never the real `~/sync-cloud-history.jsonl`.
 @MainActor
 @Suite struct SyncHistoryStoreTests {
 
@@ -112,14 +112,11 @@ import Foundation
         #expect(reloaded.records.isEmpty)
     }
 
-    /// The guard standing between a test run and the user's real history file. Every Sync and
-    /// Dashboard suite that builds a `FileSyncManager` records through the default `.shared`
-    /// store, and `clear()` truncates — so if a toolchain update ever renames
-    /// `swiftpm-testing-helper` out from under the runner detection, a plain `swift test`
-    /// destroys `~/sync-cloud-history.jsonl` with every suite green.
-    /// `Logger.defaultLogFileURL` carries the same six-way detection and the same test
-    /// (`testDefaultLogFileURLAvoidsRealLogUnderTests`); the two resolvers are deliberate
-    /// mirrors and this keeps the second one honest too.
+    /// The guard between a test run and the real history file. Suites that build a
+    /// `FileSyncManager` record into `.shared`, and `clear()` truncates, so if the runner
+    /// detection ever missed (a toolchain renaming `swiftpm-testing-helper`, say), a green
+    /// `swift test` would destroy `~/sync-cloud-history.jsonl`. `Logger.defaultLogFileURL` mirrors
+    /// the detection and has the same test (`testDefaultLogFileURLAvoidsRealLogUnderTests`).
     @Test func testDefaultFileURLAvoidsRealHistoryUnderTests() {
         let url = SyncHistoryStore.defaultFileURL()
         let realHistory = URL(fileURLWithPath: (NSString(string: "~")).expandingTildeInPath)
@@ -146,9 +143,9 @@ import Foundation
 
     // MARK: Un-encodable records
 
-    /// A record whose timestamp is non-finite cannot be JSON-encoded (a `Date` encodes as a
-    /// `Double`, and the encoder rejects infinity). It stands in here for any record the codec
-    /// refuses — the only way this store loses a line.
+    /// A record with a non-finite timestamp can't be JSON-encoded (a `Date` encodes as a `Double`,
+    /// and the encoder rejects infinity). It stands in for any record the codec refuses, the only
+    /// way this store loses a line.
     private func unencodableRecord(runId: UUID, source: String) -> SyncHistoryRecord {
         SyncHistoryRecord(
             runId: runId,
@@ -163,9 +160,9 @@ import Foundation
         #expect((try? JSONEncoder().encode(unencodableRecord(runId: UUID(), source: "/src/x"))) == nil)
     }
 
-    /// Dropping the record is the documented design (persistence must never fail the file operation
-    /// that produced it) — dropping it SILENTLY is not: this file is the durable audit trail of a
-    /// real mutation, so a missing line has to be announced somewhere.
+    /// A record that can't be encoded is dropped, since persistence must never fail the file
+    /// operation, but never silently: this file is the audit trail of real changes, so a missing
+    /// line is announced.
     @Test func testADroppedRecordIsReportedOncePerBatchWithItsIdentity() throws {
         let url = makeTempURL()
         defer { removeLogFiles(at: url) }
@@ -189,23 +186,17 @@ import Foundation
         #expect(message.contains("/src/lost.txt"))
         #expect(message.contains(url.lastPathComponent))
 
-        // Best-effort persistence is preserved: the encodable record still reached disk, and the
-        // caller's operation was never failed.
+        // Still best-effort: the encodable record reached disk, and the caller never failed.
         store.flushToDisk()
         let reloaded = SyncHistoryStore(fileURL: url)
         defer { reloaded.flushToDisk() }
         #expect(reloaded.records.map(\.sourcePath) == ["/src/good.txt"])
     }
 
-    /// Characterization, pinning what "once per batch" actually means so the doc can be checked
-    /// against it: per CALL. `append(_:)` funnels into `appendBatch([record])`, so a caller that
-    /// records a run one record at a time gets exactly the log-line-per-file the batch rule reads
-    /// as forbidding — the same three records handed over in one call report once.
-    ///
-    /// This is not currently reachable: the only production caller batches. It is pinned rather
-    /// than "fixed" because the alternative is coalescing reports across calls, i.e. holding a
-    /// diagnostic on a timer inside a store whose contract is that recording never delays the
-    /// operation that produced it. The rule is therefore stated on `append(_:)` instead.
+    /// Pins what "once per batch" means: once per call. `append(_:)` is `appendBatch([record])`,
+    /// so three records appended one at a time report three times, and the same three in one
+    /// call report once. Coalescing across calls would hold a report on a timer, and recording
+    /// must never delay anything, so the rule is stated on `append(_:)` instead.
     @Test func testTheDropReportIsPerCallSoPerRecordCallersGetAReportPerRecord() throws {
         let url = makeTempURL()
         defer { removeLogFiles(at: url) }

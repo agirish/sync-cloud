@@ -4,40 +4,28 @@ import Testing
 
 /// The zone `~/sync-cloud.log`'s timestamps are written and read in.
 ///
-/// `LogEntry` stamped every line through one `DateFormatter` built once for the process, and a
-/// `DateFormatter` whose `timeZone` is never set captures the system zone the first time it formats
-/// and keeps it. After a Date & Time change or a flight, every line written for the rest of the
-/// session carried the wall clock of a place the machine had left — and the file outlives the
-/// session, so nothing ever corrects it.
+/// A shared `DateFormatter` with no `timeZone` keeps the zone it first formatted in, so after a
+/// zone change every later line would carry the wrong wall clock, permanently. The same formatter
+/// parses history back for the Activity Log, so writing and reading must both refresh, or every
+/// older-history row would shift. Both halves are covered.
 ///
-/// The pairing is the half that is easy to lose: the same formatter also PARSES history lines back
-/// out of the file, and the Activity Log renders what it parses. Parse-then-render is the identity
-/// on the file's text only while the reader and the writer are on the same zone, so a fix that
-/// refreshed one side and not the other would shift every older-history row. Both sides are
-/// covered below.
-///
-/// Driven through `stageZoneForTesting` rather than by moving `NSTimeZone.default`, which is
-/// process-wide and would race every other suite in the run — the same rule
-/// `OrganizeRenderMemoTests.theStampFormattersFollowTheSystemZone` follows for `RestructureLens`.
-///
-/// The UI columns share `Design.ZoneRefreshedFormatter`; this one deliberately does not, because
-/// Events is a leaf module that must not depend on Design — see `LogTimestampFormatter`.
+/// Driven through `stageZoneForTesting`, not by moving the process-wide `NSTimeZone.default`,
+/// which would race other suites (as `OrganizeRenderMemoTests.theStampFormattersFollowTheSystemZone`
+/// does for `RestructureLens`). See `LogTimestampFormatter`.
 @Suite(.serialized) struct LogTimestampZoneTests {
 
     /// 2026-06-01 12:00:00.000 UTC — whole seconds, so a round-tripped timestamp compares exactly
     /// at the log's millisecond precision.
     private static let instant = Date(timeIntervalSince1970: 1_780_315_200)
 
-    /// A zone that is definitely not this machine's, so staging it is a real move and not a no-op
-    /// wherever the suite happens to run.
+    /// A zone that isn't this machine's, so staging it is a real move wherever the suite runs.
     private static func elsewhere() throws -> TimeZone {
         try #require([TimeZone(identifier: "Asia/Kolkata"), TimeZone(identifier: "America/Los_Angeles")]
             .compactMap { $0 }.first { $0 != TimeZone.current })
     }
 
-    /// What a line's timestamp should read, computed independently of the thing under test: a
-    /// fresh formatter, same format, same pins, on `zone`. Fresh, so it cannot inherit the
-    /// staleness this suite exists to catch.
+    /// What a line's timestamp should read, from a fresh formatter with the same format and pins on
+    /// `zone`, so it can't inherit the staleness this suite catches.
     private static func stamp(_ date: Date, in zone: TimeZone) -> String {
         let control = DateFormatter()
         control.locale = Locale(identifier: "en_US_POSIX")
@@ -47,13 +35,11 @@ import Testing
         return control.string(from: date)
     }
 
-    /// **The write half.** Stage the stale state the bug leaves behind, then write a line: it must
-    /// carry the wall clock of the zone the machine is in now, not the one the formatter woke up
-    /// in.
+    /// The write half: with the formatter staged on a stale zone, a line must carry the wall clock
+    /// of the zone the machine is in now.
     @Test func aLineIsWrittenInTheZoneTheSystemIsInNow() throws {
         let away = try Self.elsewhere()
-        // Positive control on the fixture: if these agreed, the assertion below would pass without
-        // the refresh ever running.
+        // Positive control: if these agreed, the assertion below would pass without the refresh.
         #expect(Self.stamp(Self.instant, in: away) != Self.stamp(Self.instant, in: .current),
                 "the staged zone and the system zone render this instant identically — pick another")
 
@@ -65,10 +51,8 @@ import Testing
         #expect(LogEntry.timestampFormatter.zone == TimeZone.current)
     }
 
-    /// **The read half, and the pairing.** A line written on the system zone must read back on the
-    /// system zone — so a reader that woke up elsewhere is put right before it parses. This is the
-    /// test that would catch the refresh being applied to `formattedString` alone, which is the
-    /// shape that shifts every older-history row in the Activity Log.
+    /// The read half: a line written on the system zone reads back on it, even from a reader
+    /// staged elsewhere. Fails if only `formattedString` refreshes the zone.
     @Test func aLineReadsBackOnTheSameZoneItWasWrittenOn() throws {
         let away = try Self.elsewhere()
         let line = LogEntry(timestamp: Self.instant, level: .warning, message: "round trip").formattedString
@@ -81,9 +65,8 @@ import Testing
         #expect(parsed.formattedString == line)
     }
 
-    /// The two halves together, which is the invariant the Activity Log actually depends on:
-    /// whatever zone the process woke up in, a line's text survives a parse and a re-render
-    /// unchanged. Both stagings are on the stale zone, so both refreshes have to fire.
+    /// Both halves together, the invariant the Activity Log depends on: a line's text survives a
+    /// parse and re-render unchanged. Both stagings are stale, so both refreshes must fire.
     @Test func aLinesTextSurvivesTheRoundTripWhateverZoneTheFormatterWokeUpIn() throws {
         let away = try Self.elsewhere()
         LogEntry.timestampFormatter.stageZoneForTesting(away)

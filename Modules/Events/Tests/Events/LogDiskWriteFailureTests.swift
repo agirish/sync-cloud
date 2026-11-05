@@ -2,16 +2,13 @@ import Testing
 import Foundation
 @testable import Events
 
-/// Pins the ONE signal the logging stack emits when the disk log stops accepting writes.
+/// Pins the signal the logging stack emits when the disk log stops accepting writes. On a full
+/// or unmounted volume the Activity Log keeps scrolling from memory while `~/sync-cloud.log`
+/// stops growing, and only this says so. It can't be logged the ordinary way, which would hand
+/// it back to the failed writer, so it is one in-memory report per failure run.
 ///
-/// Every write in `LogFileWriter` used to be a `try?`: on a full or unmounted volume the Activity
-/// Log kept scrolling from memory while `~/sync-cloud.log` silently stopped growing, and nothing
-/// anywhere recorded that the history the user would later go looking for was no longer being
-/// written. The fix cannot be "log the failure" in the ordinary sense — that hands the report back
-/// to the writer that just failed — so it is a one-shot: the first failure, once, in memory.
-///
-/// Both halves are pinned here: that the writer reports (exactly once, and never on success), and
-/// that `Logger` turns that report into an in-memory warning entry.
+/// Both halves are pinned: the writer reports (once per run, never on success), and `Logger`
+/// turns the report into an in-memory warning entry.
 @Suite struct LogDiskWriteFailureTests {
 
     /// Collects the writer's callbacks, which arrive on the writer's own background queue.
@@ -32,10 +29,9 @@ import Foundation
         }
     }
 
-    /// A path inside a directory that does not exist, so BOTH write paths fail: the handle can't be
-    /// opened (nothing to open) and the fallback's atomic write has no directory to write into.
-    /// The unwritable-file trick used elsewhere in these tests isn't enough — an atomic replace
-    /// only needs directory permission, so the fallback would succeed.
+    /// A path in a directory that doesn't exist, so both write paths fail: no handle can open, and
+    /// the fallback's atomic write has no directory. An unwritable file isn't enough, since an
+    /// atomic replace needs only directory permission.
     private func makeUnwritableURL() -> URL {
         URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("no-such-dir-\(UUID().uuidString)")
@@ -52,11 +48,9 @@ import Foundation
         writer.append("third\n")
         writer.flush()
 
-        // The control: the writes really did fail, so the assertions below are about the signal
-        // and not about a file that quietly succeeded.
+        // The control: the writes really did fail, so the assertions below test the signal.
         #expect(!FileManager.default.fileExists(atPath: url.path))
-        // Exactly one — three failing lines must not cost three reports (nor, on a volume that
-        // stays full, one per line for the rest of the session).
+        // Exactly one: three failing lines must not cost three reports.
         #expect(collector.reasons.count == 1)
         #expect(collector.reasons.first?.isEmpty == false)
     }
@@ -76,8 +70,8 @@ import Foundation
         #expect(collector.reasons.isEmpty)
     }
 
-    /// The trim writes the surviving tail back atomically; that write can fail for exactly the same
-    /// reasons an append can, and it is the one that would leave the file oversized forever.
+    /// The trim's atomic write of the surviving tail can fail for the same reasons an append can,
+    /// and would leave the file oversized for good.
     @Test func testAFailedTailTrimIsReportedThroughTheSameSignal() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("LogTrimFail-\(UUID().uuidString)")
@@ -99,8 +93,7 @@ import Foundation
         defer { writer.flush() }
         writer.flush()
 
-        // The file is untouched (still oversized) — proof the trim really failed — and the failure
-        // left a signal instead of vanishing into a `try?`.
+        // Still oversized, proof the trim really failed, and the failure was reported.
         let size = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue
         #expect((size ?? 0) > 1024)
         #expect(collector.reasons.count == 1)
@@ -108,9 +101,9 @@ import Foundation
 
     // MARK: The latch re-arms
 
-    /// A directory that a test creates and removes to switch the writer's disk on and off. Removing
-    /// the directory orphans the open handle AND denies the fallback's atomic write, so every write
-    /// path fails; recreating it lets the writer self-heal on its next append.
+    /// A directory a test creates and removes to switch the writer's disk on and off. Removing it
+    /// orphans the open handle and denies the fallback's atomic write, so every write fails;
+    /// recreating it lets the writer heal on its next append.
     private func makeSwitchableLogURL() -> (directory: URL, log: URL) {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("LogRearm-\(UUID().uuidString)")
@@ -141,15 +134,14 @@ import Foundation
         #expect(try String(contentsOf: url, encoding: .utf8).contains("kept"))
         #expect(recoveries.reasons.count == 1)
 
-        // Broken again. THE regression: under a never-resetting one-shot this second failure was
-        // silent — and the first notice is in memory only, so by then the 1000-entry cap or a Clear
-        // Logs may well have taken it, leaving nothing anywhere saying the log stopped growing.
+        // Broken again: this second failure must be reported too, since the first notice lives in
+        // memory only and may be gone by now. Fails if the latch never re-arms.
         try FileManager.default.removeItem(at: directory)
         writer.append("lost again\n")
         writer.flush()
         #expect(failures.reasons.count == 2)
 
-        // Still rate-limited WITHIN a failure run: the whole point of the latch survives.
+        // Still rate-limited within a failure run.
         writer.append("lost too\n")
         writer.append("and again\n")
         writer.flush()
@@ -171,8 +163,8 @@ import Foundation
         writer.append("healthy\n")
         writer.flush()
 
-        // Break it, take the one report, then heal it and CLEAR — the app's Clear Logs, which
-        // deletes the in-memory notice along with everything else in the window.
+        // Break it, take the one report, then heal it and clear, which in the app also deletes
+        // the in-memory notice.
         try FileManager.default.removeItem(at: directory)
         writer.append("lost\n")
         writer.flush()
@@ -181,12 +173,12 @@ import Foundation
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         writer.clear()
         writer.flush()
-        // A successful truncate is not evidence the lines will land, and the notice a recovery
-        // would pair with has just been deleted — so the clear re-arms silently.
+        // A successful truncate doesn't prove lines will land, and the notice a recovery would
+        // pair with is gone, so the clear re-arms silently.
         #expect(recoveries.reasons.isEmpty)
 
-        // Break it again: the report the clear re-armed must fire, or the window can never say
-        // again that the log it is showing is no longer being written.
+        // Break it again: the re-armed report must fire, or the window could never again say the
+        // log isn't being written.
         try FileManager.default.removeItem(at: directory)
         writer.append("lost after clear\n")
         writer.flush()
@@ -194,10 +186,9 @@ import Foundation
     }
 
     @Test func testAFailedClearIsReportedThroughTheSameSignal() {
-        // `clear()`'s fallback was the one write in the writer still swallowed by a bare `try?` —
-        // on the path taken precisely when the handle cannot be opened, i.e. when something is
-        // already wrong with the file. A Clear Logs that silently didn't clear leaves the user's
-        // history on disk while the window says it is gone.
+        // `clear()`'s fallback runs when the handle can't be opened, so something is already
+        // wrong with the file. A clear that silently fails leaves the history on disk while the
+        // window says it is gone. Fails if the fallback's error is swallowed.
         let url = makeUnwritableURL()
         let failures = FailureCollector()
         let writer = LogFileWriter(url: url, onWriteFailure: { failures.record($0) })
@@ -210,9 +201,8 @@ import Foundation
         #expect(failures.reasons.first?.isEmpty == false)
     }
 
-    /// The product-level half: a `Logger` whose file cannot be written must say so in the entries
-    /// the Activity Log renders — once — and must not have tried to write that notice to the same
-    /// broken file.
+    /// The product-level half: a `Logger` whose file can't be written says so once in the entries
+    /// the Activity Log renders.
     @MainActor
     @Test func testLoggerRecordsOneInMemoryWarningWhenTheLogFileCannotBeWritten() async throws {
         let url = makeUnwritableURL()
@@ -242,13 +232,13 @@ import Foundation
         logger.flushToDisk()
         await logger.info("four").value
         #expect(notices().count == 1)
-        // The info lines themselves still reached memory — the log is degraded, not disabled.
+        // The info lines still reached memory: the log is degraded, not disabled.
         #expect(logger.entries.contains { $0.message == "four" })
     }
 
-    /// The product-level half of the re-arm: a log that breaks, recovers and breaks again must say
-    /// so all three times, because the notices live in memory ONLY and the first one may well be
-    /// gone by then — evicted by the 1000-entry cap, or deleted by Clear Logs.
+    /// The product-level half of the re-arm: a log that breaks, recovers and breaks again says so
+    /// all three times, since the notices live in memory only and the first may be evicted or
+    /// cleared by then.
     @MainActor
     @Test func testTheLoggerNoticesTheLogBreakingAgainAfterItRecovers() async throws {
         let (directory, url) = makeSwitchableLogURL()
@@ -262,9 +252,8 @@ import Foundation
         func recoveries() -> [LogEntry] {
             logger.entries.filter { $0.level == .info && $0.message.contains("is being written again") }
         }
-        /// The notices arrive from the writer's background queue, a main-actor hop behind the
-        /// awaited log lines, so every assertion waits for its expected count rather than reading
-        /// once and racing.
+        /// The notices arrive a main-actor hop behind the awaited log lines, so each assertion
+        /// waits for its count rather than reading once and racing.
         func wait(for condition: @MainActor () -> Bool) async throws -> Bool {
             var waits = 0
             while !condition() && waits < 200 {

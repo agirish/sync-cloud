@@ -1,23 +1,16 @@
 import Foundation
 import SwiftUI
 
-/// A durable, observable store of `SyncHistoryRecord`s — the persistent counterpart to
-/// `Logger`'s in-memory Activity Log. Records are appended as JSON-lines to a file next to the
-/// log (`~/sync-cloud-history.jsonl`): one self-contained JSON object per line, so a partial
-/// write at crash time costs at most the last line, never the whole history. The on-disk file
-/// reuses `LogFileWriter` (the same serial-queue, single-handle, tail-trim-at-5 MB machinery the
-/// log uses), and the in-memory mirror is capped so a long session stays bounded.
+/// A durable, observable store of `SyncHistoryRecord`s, appended as JSON lines to
+/// `~/sync-cloud-history.jsonl`, so a crash mid-write costs at most the last line. The file uses
+/// the log's `LogFileWriter` (serial queue, one handle, trimmed at 5 MB); the memory copy is capped.
 ///
-/// The store is `@MainActor` because its `@Published records` drives the Sync History window.
-/// Writes never block or fail an operation: `append`/`appendBatch` mutate the array and hand the
-/// disk write to a background queue that swallows its own errors — recording is a best-effort
-/// side effect, never a gate on the file operation that produced it. Best-effort is not the same
-/// as silent, though: a record the codec refuses is dropped from the file *and* announced through
-/// `reportDroppedRecords`, because this file is the audit trail of a real file mutation.
+/// `@MainActor` because `records` drives the Sync History window. Recording is best-effort and
+/// never blocks or fails the file operation it records, but not silent: a record that can't be
+/// encoded is announced through `reportDroppedRecords`.
 @MainActor
 public final class SyncHistoryStore: ObservableObject {
-    /// The shared instance the Sync layer records into by default. Tests inject their own store
-    /// against a temp-file URL instead of touching this one.
+    /// The instance the Sync layer records into by default; tests inject their own.
     public static let shared = SyncHistoryStore()
 
     /// The records observed by the UI, oldest-first (append order). Capped at
@@ -27,26 +20,20 @@ public final class SyncHistoryStore: ObservableObject {
     /// The on-disk destination. Public so the UI can reveal it in Finder, mirroring the log file.
     public let fileURL: URL
 
-    /// The most in-memory records kept at once. ~5000 rows is far more than a session produces
-    /// while staying cheap to filter and render; older rows still live in the file until trimmed.
+    /// The most records kept in memory: far more than a session produces, still cheap to filter
+    /// and render. Older rows stay in the file until trimmed.
     private static let maxInMemoryRecords = 5000
 
     private let writer: LogFileWriter
 
-    /// Where a dropped record is announced. Best-effort persistence is the design (a failed encode
-    /// must never fail the file operation that produced it), but a *silent* drop is not: this file
-    /// is the durable audit trail of a real file mutation, so a record that never reaches disk has
-    /// to leave a breadcrumb somewhere. It goes to the Activity Log, which is a different file and
-    /// a different writer — no loop back into this store.
-    ///
-    /// Injected (defaulting to the shared logger) rather than called directly so the drop path is
-    /// testable without reading `Logger.shared`'s asynchronous in-memory buffer, following
-    /// `FolderJump.siblings`' `logError`.
+    /// Where a dropped record is announced: the Activity Log, a different file and writer, so no
+    /// loop back into this store. This file is the audit trail of real file changes, so a record
+    /// that never reaches disk must leave a trace. Injected, like `FolderJump.siblings`'
+    /// `logError`, so tests needn't read `Logger.shared`'s asynchronous buffer.
     private let reportDroppedRecords: @MainActor (String) -> Void
 
-    /// One shared codec so persisted lines and in-memory records agree byte-for-byte. The
-    /// default `Date` strategy (a numeric interval) is compact and round-trips exactly; the
-    /// human-readable ISO-8601 form is reserved for the export path, not this internal store.
+    /// One shared codec so persisted lines and in-memory records agree. The default `Date`
+    /// strategy (a numeric interval) is compact and round-trips exactly; ISO-8601 is for exports.
     private static let encoder = JSONEncoder()
     private static let decoder = JSONDecoder()
 
@@ -63,13 +50,10 @@ public final class SyncHistoryStore: ObservableObject {
         self.records = Self.loadRecords(from: fileURL)
     }
 
-    /// Resolves the disk destination for the `shared` store, mirroring `Logger.defaultLogFileURL`
-    /// so test runs never pollute (or, via `clear()`, truncate) the user's real history:
+    /// The `shared` store's file, mirroring `Logger.defaultLogFileURL` so tests never fill or
+    /// clear the real history (a test's `FileSyncManager` records into `.shared` by default):
     /// - `SYNCCLOUD_HISTORY_FILE` overrides the path outright.
-    /// - Under any test runner a per-process temp file is used (the Sync/Dashboard suites build a
-    ///   `FileSyncManager`, whose default `syncHistoryStore` is `.shared` — without this they'd
-    ///   record every fixture operation into `~/sync-cloud-history.jsonl`). Dead runs' copies are
-    ///   swept first, see `PerProcessTestFile`.
+    /// - Under a test runner, a per-process temp file (see `PerProcessTestFile`).
     /// - Otherwise `~/sync-cloud-history.jsonl`.
     public nonisolated static func defaultFileURL() -> URL {
         let environment = ProcessInfo.processInfo.environment
@@ -92,16 +76,11 @@ public final class SyncHistoryStore: ObservableObject {
 
     // MARK: - Recording
 
-    /// Appends one record to memory and disk. Never throws — a failed encode is dropped (and
-    /// reported to the Activity Log) so the caller's file operation is never affected.
+    /// Appends one record to memory and disk. Never throws: a failed encode is dropped and
+    /// reported, so the caller's file operation is never affected.
     ///
-    /// This is a batch of one, and ``appendBatch(_:)``'s "announced once per batch, never once per
-    /// record" is therefore a per-CALL guarantee: recording a run of N files through N calls to
-    /// this method gets N drop reports, which is exactly the log-line-per-file the batch rule was
-    /// written to prevent. A bulk caller must hand the run to `appendBatch` in one call — which is
-    /// what the only production caller does, and why this is a documentation rule rather than a
-    /// live defect. Coalescing across calls is the alternative, and it would mean holding a report
-    /// back on a timer for a store whose whole contract is that recording never delays anything.
+    /// A batch of one, so it reports a drop per call: a bulk caller must hand its run to
+    /// ``appendBatch(_:)`` in one call, or a failing run logs a line per file.
     public func append(_ record: SyncHistoryRecord) {
         appendBatch([record])
     }
@@ -114,11 +93,9 @@ public final class SyncHistoryStore: ObservableObject {
         if records.count > Self.maxInMemoryRecords {
             records.removeFirst(records.count - Self.maxInMemoryRecords)
         }
-        // A record that cannot be encoded is still dropped from the file rather than failing the
-        // caller's operation — but it is COUNTED and announced once per batch afterwards, never
-        // once per record: a batch is one user gesture, and a systematic encode failure would
-        // otherwise emit a log line per file in a bulk run. "Per batch" means per CALL — see
-        // `append(_:)`, which is a batch of one and reports like one.
+        // A record that can't be encoded is dropped from the file, not failing the caller, and
+        // the drops are announced once per call: a batch is one gesture, and a systematic failure
+        // would otherwise log a line per file.
         var dropped: [SyncHistoryRecord] = []
         for record in newRecords {
             guard let line = Self.encode(record) else {
@@ -149,17 +126,15 @@ public final class SyncHistoryStore: ObservableObject {
 
     /// Empties both the in-memory mirror and the on-disk file.
     ///
-    /// Deliberately silent here: the user-facing clear logs at its confirm
-    /// (`SyncHistoryView.clearIfConfirmed`), where the count and the user's decision are one
-    /// event. A line HERE fires from every test fixture's cleanup too, and Logger.shared's own
-    /// exact-count suite runs in the same package — the interference reddened CI once already.
+    /// Silent on purpose: the user-facing clear logs at its confirm
+    /// (`SyncHistoryView.clearIfConfirmed`). A line here would fire from every test fixture's
+    /// cleanup and break `Logger.shared`'s exact-count suite in the same package.
     public func clear() {
         records.removeAll()
         writer.clear()
     }
 
-    /// Flushes buffered disk writes; exposed for tests asserting on file contents (production
-    /// relies on the background queue draining normally).
+    /// Flushes buffered disk writes, for tests reading the file; the app lets the queue drain.
     public func flushToDisk() {
         writer.flush()
     }

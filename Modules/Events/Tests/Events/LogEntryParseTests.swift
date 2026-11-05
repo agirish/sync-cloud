@@ -2,9 +2,9 @@ import Testing
 import Foundation
 @testable import Events
 
-/// Coverage for `LogEntry.parse` — the inverse of `formattedString` that lets the Activity Log
-/// reconstruct previous-session history from `~/sync-cloud.log`. Pure (no `Logger.shared`), so it
-/// needn't be serialized with the logger suite.
+/// `LogEntry.parse`, the inverse of `formattedString` that lets the Activity Log rebuild earlier
+/// sessions from `~/sync-cloud.log`. Pure (no `Logger.shared`), so not serialized with the logger
+/// suite.
 @Suite struct LogEntryParseTests {
 
     @Test func testRoundTripsEveryLevel() {
@@ -54,11 +54,9 @@ import Foundation
     }
 
     @Test func testHostileLocaleTimestampIsNotMisdated() {
-        // A timestamp rendered with non-ASCII digits (as an ar-locale DateFormatter would
-        // emit). ICU maps any Unicode decimal digits during parsing, so under the pinned
-        // en_US_POSIX + Gregorian formatter this parses — but to the CORRECT Gregorian local
-        // date, never a mis-dated one. Before the locale/calendar pin, the user's calendar
-        // leaked into parsing and Islamic-calendar round-trips produced years like 1448/2587.
+        // Non-ASCII digits, as an ar-locale formatter would emit. ICU may map them while
+        // parsing, so the line may parse, but only ever to the correct Gregorian local date:
+        // the pinned locale and calendar keep the user's calendar out of parsing.
         let parsed = LogEntry.parse("[٢٠٢٦-٠٧-١٣ ٢٢:١٣:٣١.٠٠٠] [INFO] hostile digits")
         var expected = DateComponents()
         expected.year = 2026; expected.month = 7; expected.day = 13
@@ -70,9 +68,8 @@ import Foundation
     }
 
     @Test func testCanonicalTimestampParsesAsGregorianLocalTime() {
-        // Pin the interpretation of a canonical line: the digits are Gregorian year/month/day
-        // in LOCAL time (existing log files are local-time), regardless of the machine's
-        // locale or calendar setting.
+        // The digits are a Gregorian date in local time, whatever the machine's locale or
+        // calendar.
         let parsed = LogEntry.parse("[2026-07-13 22:13:31.000] [INFO] pinned date")
         var expected = DateComponents()
         expected.year = 2026; expected.month = 7; expected.day = 13

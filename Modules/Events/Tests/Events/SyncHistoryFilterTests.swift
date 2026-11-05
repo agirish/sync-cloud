@@ -2,8 +2,8 @@ import Testing
 import Foundation
 @testable import Events
 
-/// Coverage for `SyncHistoryFilter`: the action gate, path search, date-range bounds, and
-/// newest-first ordering — the pure logic behind the Sync History window's controls.
+/// `SyncHistoryFilter`: the action gate, path search, date-range bounds and newest-first order
+/// behind the Sync History window's controls.
 @Suite struct SyncHistoryFilterTests {
 
     private func record(

@@ -25,13 +25,9 @@ public enum LogLevel: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    // There is deliberately no `color` here. It used to restate the severity palette as literals
-    // (.blue/.orange/.red), a second source of truth that a retune of `SemanticColor` would leave
-    // behind — and by the time it was removed nothing in the app or the CLI still read it, because
-    // the only renderer of log severity (the Activity Log) had already grown its own
-    // `LogLevel.semanticColor` over the shared table. Events is a leaf module that must not depend
-    // on Design, so a level's *color* belongs to whichever module is drawing it; Events owns only
-    // the level's identity, ordering, and glyph.
+    // No `color` here, on purpose. Events is a leaf module that must not depend on Design, so a
+    // level's color belongs to the module drawing it (the Activity Log's `LogLevel.semanticColor`).
+    // Events owns only the level's identity, ordering and glyph.
 
     public var icon: String {
         switch self {
@@ -58,17 +54,11 @@ public struct LogEntry: Identifiable, Sendable {
         self.id = id
         self.timestamp = timestamp
         self.level = level
-        // Collapse line breaks and other C0/C1 control characters to spaces so one entry is always
-        // one line. A log record often interpolates untrusted text — a file/folder name or a
-        // provider path straight off disk, which macOS permits to contain "\n" — and an embedded
-        // newline would otherwise split the record and let a crafted name forge a second
-        // "[timestamp] [ERROR] …" line in the file and the Activity Log. Enforcing the invariant
-        // here covers every call site at once, matching `SettingsManager.setCustomName`.
-        //
-        // Uses an explicit control + line-separator set rather than `.controlCharacters`, which is
-        // Unicode categories Cc AND Cf: Cf (format chars — ZWJ, directional marks, soft hyphen) are
-        // legitimate parts of emoji/RTL filenames and don't break the one-line invariant, so
-        // collapsing them would needlessly mangle those names in the log.
+        // Collapse line breaks and other control characters to spaces so one entry is always one
+        // line. Messages interpolate file names off disk, which may contain "\n", and a crafted
+        // name could otherwise forge a second "[timestamp] [ERROR] …" line. Done here so every call
+        // site is covered, as `SettingsManager.setCustomName` does. Not `.controlCharacters`, which
+        // also takes Cf format characters (ZWJ, directional marks) that emoji and RTL names need.
         self.message = message.components(separatedBy: Self.lineBreakingChars).joined(separator: " ")
     }
 
@@ -83,21 +73,12 @@ public struct LogEntry: Identifiable, Sendable {
         return set
     }()
     
-    /// Shared timestamp formatter — the one that renders `~/sync-cloud.log`'s lines and reads them
-    /// back. Reused instead of reallocated per log line; `DateFormatter` is expensive to create.
-    ///
-    /// Locale and calendar are pinned (en_US_POSIX + Gregorian, matching `LogGrouping.keyFormatter`)
-    /// because this formatter also PARSES history lines back out of `~/sync-cloud.log`: with the
-    /// user's locale/calendar, a system set to e.g. the Islamic calendar would render and round-trip
-    /// Gregorian dates as years like 1448/2587, silently mis-dating every parsed history entry.
-    ///
-    /// **The zone is re-checked on every use rather than captured** — see
-    /// ``LogTimestampFormatter`` for why, which is a longer story here than it was for the two
-    /// display-only formatters that were fixed first.
-    ///
-    /// Internal, not private, so `LogTimestampZoneTests` can drive the refresh branch directly —
-    /// the alternative is moving `NSTimeZone.default`, which is process-wide and would race every
-    /// other suite in the run.
+    /// The one formatter that writes `~/sync-cloud.log`'s timestamps and reads them back, shared
+    /// because `DateFormatter` is expensive to create. Locale and calendar are pinned (en_US_POSIX,
+    /// Gregorian, as `LogGrouping.keyFormatter`) because it also parses: under, say, the Islamic
+    /// calendar every parsed history line would be mis-dated. The zone is re-checked on every use;
+    /// see ``LogTimestampFormatter``. Internal so `LogTimestampZoneTests` can drive the refresh
+    /// without moving the process-wide `NSTimeZone.default`, which would race other suites.
     static let timestampFormatter = LogTimestampFormatter()
 
     /// The canonical single-line rendering (`[timestamp] [LEVEL] message`) used both for the disk
@@ -106,15 +87,11 @@ public struct LogEntry: Identifiable, Sendable {
         return "[\(Self.timestampFormatter.string(from: timestamp))] [\(level.rawValue)] \(message)"
     }
 
-    /// The inverse of ``formattedString``: reconstructs an entry from one canonical log line so the
-    /// Activity Log can display history from `~/sync-cloud.log` that predates the current session.
-    /// Returns nil for any line that doesn't match the exact `[timestamp] [LEVEL] ` shape (a blank
-    /// line, or a partial line left by a mid-write trim), so a malformed line is skipped, not shown.
-    ///
-    /// Anchored on the leading `] [` / `] ` markers rather than a fixed offset, and it only ever
-    /// consumes the FIRST such markers — the timestamp and level tokens contain neither, so a
-    /// message that itself embeds `] [` (a crafted filename) lands wholly in `message` and cannot
-    /// forge a second entry. Writes already strip newlines, so one file line is always one entry.
+    /// The inverse of ``formattedString``, so the Activity Log can show history from
+    /// `~/sync-cloud.log` older than this session. Nil for any line not in the exact
+    /// `[timestamp] [LEVEL] ` shape (blank, or cut by a trim), so a malformed line is skipped.
+    /// Splits on the first `] [` and `] ` only, so a message that embeds them (a crafted name)
+    /// stays wholly in `message` and can't forge a second entry.
     public nonisolated static func parse(_ line: String) -> LogEntry? {
         guard line.hasPrefix("["),
               let tsClose = line.range(of: "] ["),
@@ -137,11 +114,9 @@ public struct LogEntry: Identifiable, Sendable {
     public var messageBody: String { messageSplit.body }
     public var messageLocation: String? { messageSplit.location }
     private var messageSplit: (body: String, location: String?) {
-        // Only `warning`/`error` append a " | Location: …" tail; `info`/`debug` never do, so their
-        // message is shown whole — a user string that happens to contain " | Location: " (e.g. a
-        // file literally named that) must not be mistaken for a location caption. For warning/error
-        // split on the LAST occurrence, since the real tail is always last, keeping any user-authored
-        // " | Location: " in the body.
+        // Only warning and error carry the tail, so info and debug show whole even if a file name
+        // contains " | Location: ". Split on the last occurrence, since the real tail is always
+        // last, so any user-authored one stays in the body.
         guard level == .warning || level == .error,
               let range = message.range(of: " | Location: ", options: .backwards) else { return (message, nil) }
         return (String(message[..<range.lowerBound]), String(message[range.upperBound...]))
@@ -150,58 +125,23 @@ public struct LogEntry: Identifiable, Sendable {
 
 /// The `~/sync-cloud.log` timestamp, rendered and parsed through one lock-guarded formatter.
 ///
-/// **The zone is re-checked on every use rather than captured.** A `DateFormatter` whose
-/// `timeZone` is never set takes the system zone the first time it formats and keeps it for the
-/// life of the process, so after a Date & Time change or a flight every line written for the rest
-/// of the session carried the wall clock of a place the machine had left — and `~/sync-cloud.log`
-/// outlives the session, so that stamp is permanent and there is nothing in the file to correct it
-/// against. Every date column in the UI was fixed for the same defect and now shares
-/// `Design.ZoneRefreshedFormatter`; this is the same remedy, deliberately not that type, because
-/// Events is a leaf module that must not depend on Design — and because the question here is
-/// about the log FILE rather than a column, as the rest of this note explains.
+/// The zone is re-checked on every use, not captured: a `DateFormatter` with no `timeZone` keeps
+/// the zone it first formatted in, so after a zone change every later line would carry the wrong
+/// wall clock, permanently. The same remedy as `Design.ZoneRefreshedFormatter`, not that type,
+/// because Events must not depend on Design. The file is a sequence of wall-clock readings, each
+/// in the zone current when it was written; it already spans zones, since it outlives sessions.
 ///
-/// **What the old comment protected does not exist.** It said the zone stayed local "because the
-/// file's existing lines are local-time, and changing it would break continuity with them" — but
-/// the file already holds more than one zone, unmarked. It is a rolling file trimmed at ~5 MB, so
-/// it spans sessions, and each session captured whatever zone was current when it started. This
-/// machine's own log is the demonstration: it runs from 2026-07-28 to today across a move from
-/// `America/Los_Angeles` to `Asia/Kolkata` (the repo's own commit offsets date the move to between
-/// 2026-09-03 and 2026-09-05), and the boundary is invisible — the app was not running across it,
-/// so there is not even a jump to see. Re-checking does not put a second zone in the file; it
-/// moves an unmarked boundary the file was going to get anyway from the next launch to now.
+/// Rendering and parsing must share a zone: the Activity Log parses a line and renders it back
+/// (`LogEntryRow` re-checks too), so a line displays as its text only while the two agree.
 ///
-/// **What the file is, then:** a sequence of wall-clock readings, each in whatever zone was
-/// current when the line was written. Re-checking makes that true always. Pinning to the session's
-/// start zone makes it false the moment a zone changes mid-session — which is the bug.
+/// Accepted cost: `LogViewer.parseOlderThan` compares instants with `sessionStart`, so after a
+/// mid-session zone change "Show older history" can show a few of this session's lines twice or
+/// hide a few of the last session's, until the next launch. Stamping a UTC offset in every line
+/// would fix it, at the price of an on-disk format change.
 ///
-/// **Rendering and parsing must share a zone, and that is what decides it.** Nothing reads a
-/// parsed line's *instant* for its own sake: the Activity Log renders it back and buckets it by
-/// day. So parse-then-render is the identity on the file's text — a line displays as the text
-/// that is in the file — precisely while the two zones agree, and that is why zone-changed history
-/// has always displayed correctly despite being parsed at the wrong instant. `LogEntryRow` now
-/// re-checks. Pinning here would leave the reader on a different zone from the renderer after a
-/// mid-session change, and every older-history row would display shifted and could group under the
-/// wrong day. Following the system keeps the pair together.
-///
-/// **The accepted cost.** `LogViewer.parseOlderThan` splits history on `timestamp < sessionStart`,
-/// and that comparison does read instants. After a mid-session zone change, lines this session
-/// wrote in the old zone parse at a shifted instant, so pressing "Show older history" in that same
-/// session can show a few of them twice (moving east) or hide the last few hours of the previous
-/// session (moving west). It is transient, it needs a zone change and a history load in one
-/// session, and it clears at the next launch. The alternative was to stamp a UTC offset into every
-/// line, which is the only way to make a line's zone actually recoverable — rejected here as an
-/// on-disk format change with a migration for every line already written, and one that would make
-/// old lines display at a wall clock the user never saw.
-///
-/// **Locked, not just shared.** The two formatters fixed before this one are reached only from the
-/// main actor — both live on `View`s, and `View` carries SwiftUI's own isolation. This one does
-/// not. `LogEntry.formattedString` is evaluated inside `Logger.log`, which is `nonisolated`
-/// and runs on the caller's thread, so many threads reach it at once. Reading a `DateFormatter`
-/// concurrently is safe; writing `timeZone` on one thread while another formats is not, so the
-/// check and the use are both taken under the lock — the same `NSLock` box shape
-/// `MinimumLevelBox` uses one screen down, and for the same reason.
-///
-/// (DST is not this question; a `TimeZone` handles its own transitions.)
+/// Locked because `Logger.log` is `nonisolated`, so many threads format at once, and writing
+/// `timeZone` while another thread formats is unsafe. The same `NSLock` shape as
+/// `MinimumLevelBox`. (DST is not this question; a `TimeZone` handles its own transitions.)
 final class LogTimestampFormatter: @unchecked Sendable {
     private let lock = NSLock()
     private let formatter: DateFormatter = {
@@ -235,9 +175,8 @@ final class LogTimestampFormatter: @unchecked Sendable {
         if formatter.timeZone != TimeZone.current { formatter.timeZone = TimeZone.current }
     }
 
-    /// The zone the shared formatter is currently on. Test seam: it is what lets
-    /// `LogTimestampZoneTests` observe the refresh without moving `NSTimeZone.default`, which is
-    /// process-wide and would race every other suite in the run.
+    /// The zone the formatter is on now. A test seam, so `LogTimestampZoneTests` can observe the
+    /// refresh without moving the process-wide `NSTimeZone.default`.
     var zone: TimeZone {
         lock.lock()
         defer { lock.unlock() }
@@ -253,29 +192,21 @@ final class LogTimestampFormatter: @unchecked Sendable {
     }
 }
 
-/// A thread-safe, globally accessible logging service for the SyncCloud application.
-/// Manages writing event traces to disk (`~/sync-cloud.log`) and maintaining an observable history for the LogViewer UI.
+/// The app's thread-safe logging service: writes `~/sync-cloud.log` and keeps an observable
+/// history for the Activity Log.
 @MainActor
 public class Logger: ObservableObject {
-    /// The shared singleton instance used across the application to trace events.
-    ///
-    /// `nonisolated` because *reaching* the singleton is not a main-actor operation — every logging
-    /// entry point below (`info`/`debug`/`warning`/`error`, and the `log` they share) is already
-    /// `nonisolated` and hands off through the FIFO buffer. Only the accessor carried this type's
-    /// isolation, which meant background work — the cloud classifier, the on-device classifier, the
-    /// app's own startup path — had to cross an actor boundary to reach methods that then
-    /// immediately left it again. The `@MainActor` members stay isolated and still require `await`.
+    /// The shared instance. `nonisolated` because every logging entry point is already
+    /// `nonisolated` and hands off through the FIFO buffer, so background work needn't hop to the
+    /// main actor just to reach it. The `@MainActor` members still require `await`.
     public nonisolated static let shared = Logger(logFileURL: Logger.defaultLogFileURL())
 
     /// The active memory cache of recent log entries presented in the UI.
     @Published public var entries: [LogEntry] = []
 
-    /// When this Logger (i.e. this app session) started, captured at construction. The Activity
-    /// Log's "Show older history" divides entries at this boundary. It must come from a FIXED
-    /// value, not `entries.first` — the memory cache is trimmed to the newest N, so after a busy
-    /// session `entries.first` is no longer the session's start and current-session lines would be
-    /// mislabeled under "Earlier sessions" (and the ms-truncated launch breadcrumb could re-appear
-    /// as a duplicate).
+    /// When this session started, where the Activity Log's "Show older history" divides entries.
+    /// A fixed value, not `entries.first`: the cache keeps only the newest entries, so after a busy
+    /// session `entries.first` would file this session's lines under "Earlier sessions".
     public let sessionStart = Date()
 
     /// The absolute disk URL mapping to the destination log file. Public so Settings can
@@ -286,14 +217,9 @@ public class Logger: ObservableObject {
     /// seeds `shared.minimumLevel` from it at launch; Settings writes both.
     public nonisolated static let minimumLevelDefaultsKey = "logMinimumLevel"
 
-    /// True when this process is a test runner.
-    ///
-    /// `swift test` runs swift-testing suites inside `swiftpm-testing-helper` (no XCTest linked, no
-    /// XCTest* environment) and XCTest suites inside an `xctest` runner; Xcode sets the XCTest*
-    /// environment markers. All three are covered.
-    ///
-    /// Extracted from ``defaultLogFileURL()``, which has always needed it, because the minimum
-    /// level needs exactly the same question asked — see ``persistedMinimumLevel(from:)``.
+    /// True when this process is a test runner: `swift test`'s `swiftpm-testing-helper` (which
+    /// links no XCTest) or `xctest` runner, or Xcode's XCTest* environment markers. Shared by
+    /// ``defaultLogFileURL()`` and ``persistedMinimumLevel(from:)``.
     public nonisolated static var isRunningTests: Bool {
         let environment = ProcessInfo.processInfo.environment
         let executable = URL(fileURLWithPath: ProcessInfo.processInfo.arguments.first ?? "").lastPathComponent
@@ -305,33 +231,19 @@ public class Logger: ObservableObject {
             || environment["XCTestBundlePath"] != nil
     }
 
-    /// The persisted minimum level, falling back to `.debug` (log everything — the historical
-    /// behavior) when unset or unrecognized.
+    /// The persisted minimum level, or `.debug` (log everything) when unset or unrecognized.
     ///
-    /// **Under a test runner this is always `.debug`, and the persisted value is not read.** The
-    /// app-target tests run *inside SyncCloud.app*, so their `.standard` UserDefaults IS the
-    /// installed app's domain — the developer's own live preferences. Setting Log level to
-    /// anything above Debug in Settings therefore raised the threshold inside the test host and
-    /// silently dropped every `debug` line, which is what eight marker-based suites assert on:
-    /// `ContentSignalExtractorTests`, `SetupDraftTests`, `PaneTabWiringTests` and
-    /// `DuplicateReviewCoordinatorTests` among them. They went red together, deterministically,
-    /// with nothing in the diff to explain it — and green again on CI, whose runner has no such
-    /// preference. Measured 2026-08-22 with `logMinimumLevel = INFO` in
-    /// `com.abhishekgirish.SyncCloud`.
-    ///
-    /// The same rule, for the same reason, as ``defaultLogFileURL()`` refusing to write the real
-    /// `~/sync-cloud.log` under a test runner: a test host must not inherit the machine's
-    /// user-facing state, and must not be steerable by it.
-    ///
-    /// `from:` is still honoured for the *explicit* suites the Settings tests pass, so what that
-    /// UI writes stays testable — the override is only on the ambient default.
+    /// Under a test runner the ambient value is never read and this is `.debug`: app-target tests
+    /// run inside SyncCloud.app, so `.standard` is the owner's live preferences, and a raised level
+    /// there would drop the `debug` lines many suites assert on. Same rule as
+    /// ``defaultLogFileURL()``: a test host must not inherit the machine's user-facing state. An
+    /// explicit suite passed as `from:` is still read, so the Settings UI stays testable.
     public nonisolated static func persistedMinimumLevel(from defaults: UserDefaults = .standard) -> LogLevel {
         persistedMinimumLevel(from: defaults, ambient: .standard)
     }
 
-    /// The rule above with the ambient store named, so a test can stock a scratch suite as the
-    /// ambient one instead of writing the machine-wide standard domain, which under `swift test` is
-    /// one plist shared by every test process on the machine.
+    /// The rule above with the ambient store named, so a test can use a scratch suite instead of
+    /// the standard domain, which under `swift test` is one plist shared by every test process.
     nonisolated static func persistedMinimumLevel(from defaults: UserDefaults, ambient: UserDefaults) -> LogLevel {
         if isRunningTests, defaults == ambient { return .debug }
         return defaults.string(forKey: minimumLevelDefaultsKey).flatMap(LogLevel.init(rawValue:)) ?? .debug
@@ -351,16 +263,13 @@ public class Logger: ObservableObject {
     /// `flush()` before asserting on file contents.
     let logWriter: LogFileWriter
 
-    /// Internal (not private) so tests can construct an isolated Logger against a temp-file URL;
-    /// production code only ever uses the `shared` instance.
-    /// `nonisolated` so the `shared` singleton above can be built without hopping to the main actor.
-    /// Nothing here touches isolated state: it stores the URL, constructs the writer, and installs
-    /// two relay handlers that are themselves `nonisolated` (`noteDiskWriteFailure`/`Recovery`).
+    /// Internal so tests can build an isolated Logger on a temp file; the app uses only `shared`.
+    /// `nonisolated` so `shared` can be built off the main actor: nothing here touches isolated
+    /// state, and the relay's handlers are `nonisolated` themselves.
     nonisolated init(logFileURL: URL) {
         self.logFileURL = logFileURL
-        // The writer needs its failure callback at construction (so a failure during its own
-        // startup trim is covered), which is before `self` can be captured — hence the relay,
-        // whose real handlers are installed on the next line.
+        // The writer needs its failure callback at construction, to cover its startup trim, before
+        // `self` can be captured; hence the relay, whose real handlers go in just below.
         let relay = WriteReportRelay()
         logWriter = LogFileWriter(
             url: logFileURL,
@@ -371,26 +280,14 @@ public class Logger: ObservableObject {
             onRecovery: { [weak self] in self?.noteDiskWriteRecovery() })
     }
 
-    /// The rate-limited, IN-MEMORY-ONLY notice that the disk log stopped accepting writes.
+    /// The in-memory-only notice that the disk log stopped accepting writes, once per failure run
+    /// (`LogFileWriter.reportWriteFailure`). Not sent through `log()`, which would hand it back to
+    /// the writer that just failed. Without it a full volume looks like a quiet session while
+    /// `~/sync-cloud.log` silently stops growing.
     ///
-    /// A write failure is the one failure this class cannot report the usual way: `log()` would
-    /// hand the report straight back to the writer that just failed, and on a full volume that
-    /// second write fails too — a per-line failure would then cost a per-line futile write. So the
-    /// signal is deliberately asymmetric: `LogFileWriter` reports one failure per FAILURE RUN (see
-    /// `reportWriteFailure`), and this appends the notice directly to the in-memory buffer,
-    /// bypassing the disk path entirely. Without it the volume filling looks exactly like a quiet
-    /// session — the Activity Log keeps scrolling from memory while `~/sync-cloud.log` silently
-    /// stops growing, and the loss is only discovered when someone goes looking for the history.
-    ///
-    /// "Per run", not "per session": this notice lives in memory alone, so it is evicted by the
-    /// 1000-entry cap and deleted outright by `clearLogs()`. Under a never-resetting latch those
-    /// were silent amnesia — the notice gone and no later failure able to replace it. The writer's
-    /// latch now re-arms on a successful write and on `clear()`, so the window can always say
-    /// whether the log it is showing is also being written.
-    ///
-    /// The `minimumLevel` gate is deliberately NOT applied: that setting throttles *event* noise,
-    /// and this is one line about the logging machinery itself, which a raised threshold must not
-    /// be able to hide.
+    /// Per run, not per session: the notice can be evicted by the 1000-entry cap or cleared, so
+    /// the writer re-arms on a successful write and on `clear()`. The `minimumLevel` gate doesn't
+    /// apply: a raised threshold must not hide a line about the logging machinery itself.
     private nonisolated func noteDiskWriteFailure(_ reason: String) {
         let entry = LogEntry(
             level: .warning,
@@ -400,17 +297,10 @@ public class Logger: ObservableObject {
         _ = pendingEntries.enqueue(entry) { [weak self] in self?.flushPendingEntries() }
     }
 
-    /// The other half of the pair: one line saying the disk log started accepting writes again.
-    ///
-    /// It exists because the failure notice re-arms. Without it the second failure of a session
-    /// reads as a duplicate of the first — same wording, no account of what happened in between —
-    /// and the entries written while the log was broken are indistinguishable from the ones that
-    /// reached disk. This names that gap, once per recovery.
-    ///
-    /// In memory only, exactly like its counterpart: it is emitted from the writer's own queue, and
-    /// routing it back through `logWriter.append` would make the writer's recovery depend on the
-    /// very write path it is reporting on. (The line is therefore absent from the on-disk log by
-    /// design — the file's own gap is the record there.)
+    /// One line saying the disk log is accepting writes again, once per recovery, so a second
+    /// failure doesn't read as a duplicate and the entries missing from the file are named. In
+    /// memory only, like the failure notice: routing it through `logWriter.append` would make the
+    /// recovery report depend on the write path it reports on.
     private nonisolated func noteDiskWriteRecovery() {
         let entry = LogEntry(
             level: .info,
@@ -419,15 +309,9 @@ public class Logger: ObservableObject {
         _ = pendingEntries.enqueue(entry) { [weak self] in self?.flushPendingEntries() }
     }
 
-    /// Resolves the disk destination for the `shared` logger.
-    ///
-    /// Production: `~/sync-cloud.log`, unchanged. Two escape hatches keep test runs from
-    /// polluting (or truncating, via `clearLogs`) the user's real app log and the Activity Log
-    /// viewer that displays it:
-    /// - `SYNCCLOUD_LOG_FILE` in the environment overrides the path outright.
-    /// - Under a test runner (every package suite logs through `Logger.shared`, so `swift test`
-    ///   would otherwise fill the real log with test entries), a per-process temp file is used —
-    ///   and dead runs' copies are swept first, see `PerProcessTestFile`.
+    /// The `shared` logger's file: `~/sync-cloud.log`, except that tests must never fill or clear
+    /// the real log. `SYNCCLOUD_LOG_FILE` overrides the path outright; under a test runner it is a
+    /// per-process temp file (see `PerProcessTestFile`).
     nonisolated static func defaultLogFileURL() -> URL {
         let environment = ProcessInfo.processInfo.environment
         if let override = environment["SYNCCLOUD_LOG_FILE"], !override.isEmpty {
@@ -440,19 +324,9 @@ public class Logger: ObservableObject {
         return URL(fileURLWithPath: homeDir).appendingPathComponent("sync-cloud.log")
     }
 
-    // The message is an `@autoclosure` on all four, so a line the `minimumLevel` gate is going to
-    // drop costs nothing to not write.
-    //
-    // It used to be a plain `String`, which meant every call site built its message eagerly and
-    // `log` threw it away after the guard. That was tolerable while messages were interpolations of
-    // values already in hand. It stopped being tolerable when the per-load scan instrumentation
-    // started interpolating `countItems(in:)` — a recursive main-actor traversal of the whole tree,
-    // ~5 ms per 40k nodes, twice per load — into two `debug` lines. A user who sets Settings ▸
-    // Advanced ▸ Log level to Info, Warnings or Errors was paying both traversals per pane load for
-    // output that was discarded on the next line.
-    //
-    // Source-compatible: `@autoclosure` is transparent at the call site, so no caller changed. The
-    // one thing it forbids is passing `Logger.shared.debug` as a function value, which nothing does.
+    // The message is an `@autoclosure` on all four, so a line the `minimumLevel` gate drops is
+    // never built; some debug lines interpolate costly work, such as a whole-tree count. It does
+    // forbid passing `Logger.shared.debug` as a function value.
 
     /// Records an informational trace event to memory and disk.
     /// - Parameter message: The string description to log.
@@ -486,20 +360,16 @@ public class Logger: ObservableObject {
     /// FIFO handoff buffer between nonisolated log callers and the MainActor `entries` array.
     private let pendingEntries = PendingLogEntryQueue()
 
-    /// Internal abstraction routing the entry to memory and disk.
-    ///
-    /// Both destinations are sequenced at the call site, not by task scheduling: the pending
-    /// queue (drained in FIFO order on the MainActor) and the writer's serial disk queue each
-    /// preserve enqueue order, so lines land in call order. The per-call unstructured task this
-    /// replaces carried the entry itself, which let concurrent bursts reorder lines.
+    /// Routes the entry to memory and disk. Both are ordered at the call site, not by task
+    /// scheduling: the pending queue and the writer's serial queue each keep enqueue order, so lines
+    /// land in call order. A task carrying each entry would let concurrent bursts reorder them.
     @discardableResult
     private nonisolated func log(level: LogLevel, message: @autoclosure () -> String) -> Task<Void, Never> {
         guard level.severity >= minimumLevel.severity else { return Task {} }
         let entry = LogEntry(level: level, message: message())
-        // Awaiting the returned task guarantees the entry is visible in `entries`: the queue
-        // hands back the one MainActor flush task covering the current burst (see
-        // PendingLogEntryQueue — a task per line meant thousands of no-op drains during sync
-        // bursts), and that flush drains everything enqueued before it runs.
+        // Awaiting the returned task guarantees the entry is in `entries`: it is the one flush
+        // task covering the current burst (see `PendingLogEntryQueue`), which drains everything
+        // enqueued before it runs.
         let flushTask = pendingEntries.enqueue(entry) { self.flushPendingEntries() }
         logWriter.append(entry.formattedString + "\n")
         return flushTask
@@ -511,40 +381,35 @@ public class Logger: ObservableObject {
         guard !batch.isEmpty else { return }
         entries.append(contentsOf: batch)
 
-        // One batched trim (and one array republish) per flush, instead of an O(count) shift
-        // per line while at the cap during per-file sync bursts.
+        // One trim and one republish per flush, not an O(count) shift per line at the cap.
         if entries.count > 1000 {
             entries.removeFirst(entries.count - 1000)
         }
     }
     
-    /// Empties the public memory array and overwrites the local disk file with an empty sequence.
-    /// Posted after `clearLogs()` empties the session list and truncates the file, so every
-    /// viewer holding parsed on-disk history (a separate window, possibly cleared from
-    /// Settings) can drop it — the reset must not depend on WHICH button cleared.
+    /// Posted after `clearLogs()` empties the session list and truncates the file, so every viewer
+    /// holding parsed history can drop it, whichever button cleared.
     public static let didClearLogsNotification = Notification.Name("SyncCloudLoggerDidClearLogs")
 
-    /// **Internal, so no button can call it straight.** The two doors that clear the log — the
-    /// Activity Log's trash button and Settings ▸ Advanced — both emptied it on one click, file on
-    /// disk included. They go through `clearIfConfirmed` now, and only the tests reach this.
+    /// Empties memory and the file. Internal so no button can call it straight: both clear
+    /// buttons (Activity Log, Settings ▸ Advanced) must go through `clearIfConfirmed`.
     func clearLogs() {
-        // Drop entries still sitting in the handoff queue too: without this, lines enqueued just
-        // before the clear would flush into `entries` afterward and "resurrect" in the UI.
+        // Drop entries still in the handoff queue too, or lines enqueued just before the clear
+        // would flush into `entries` afterward and reappear.
         _ = pendingEntries.drain()
         entries.removeAll()
         logWriter.clear()
         NotificationCenter.default.post(name: Self.didClearLogsNotification, object: nil)
     }
 
-    /// The control's one name, for its title, its tooltip and its VoiceOver label alike. It was
-    /// "Clear Logs", "Clear the log" and "Clear Log" across the two doors.
+    /// The control's one name, for its title, tooltip and VoiceOver label in both places.
     public nonisolated static let clearLogName = "Clear Log"
-    /// What Clear Log asks, here so an Ask Claude card (TE290) asks in the same words.
+    /// What Clear Log asks, here so an Ask Claude card asks in the same words.
     public nonisolated static let clearPrompt = (
         messageText: "Clear the Activity Log?",
         informativeText: "Removes every entry from the Activity Log and empties the log file on disk, including earlier sessions. Your files aren’t affected, and this can’t be undone.")
 
-    /// The clear gesture as one step: ask, and only then clear. Both doors call this, so neither
+    /// The clear gesture as one step: ask, and only then clear. Both buttons call this, so neither
     /// can forget to ask; `confirm` is a seam so the decision is testable without a modal.
     /// - Returns: Whether the log was cleared.
     @discardableResult
@@ -588,8 +453,8 @@ public class Logger: ObservableObject {
     /// `NativeAlerts.escapeAnswer`, for the same reason: the Return button, for a first Escape or
     /// ⌘. at the alert's window, unless a button already holds Escape.
     ///
-    /// The window and buttons are taken apart because a test cannot stage them together: ordering
-    /// an alert's window in outside `runModal` clears its buttons' keys (measured 2026-11-01).
+    /// The window and buttons are taken apart because a test can't stage them together: ordering
+    /// an alert's window in outside `runModal` clears its buttons' keys.
     static func escapeAnswer(for event: NSEvent, window: NSWindow, buttons: [NSButton]) -> NSButton? {
         guard event.type == .keyDown, !event.isARepeat, event.window === window else { return nil }
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
@@ -603,32 +468,22 @@ public class Logger: ObservableObject {
         return buttons.first { $0.keyEquivalent == "\r" }
     }
     
-    /// Synchronously drains the disk writer's background queue so every line enqueued before this
-    /// call is committed to disk. Callers append synchronously in `log()`, so once this returns
-    /// the buffered writes are durable.
-    ///
-    /// This exists for app termination: the writer runs at `.background` qos with no implicit
-    /// flush, so an in-flight file operation's own log lines could be lost exactly when a
-    /// crash-time corruption most needs them. `applicationShouldTerminate` calls this before
-    /// allowing the quit so the breadcrumb survives.
+    /// Blocks until every line logged before this call is on disk. For quitting: the writer runs at
+    /// `.background` with no implicit flush, so an in-flight operation's last lines could be lost
+    /// just when they matter. `applicationShouldTerminate` calls it before allowing the quit.
     public nonisolated func flushToDisk() {
         logWriter.flush()
     }
 
-    /// The disk-writer barrier as a standalone `@Sendable` value, for callers that must run it
-    /// somewhere other than where they obtained it.
-    ///
-    /// `flushToDisk()` blocks until the writer's queue drains, so a reader that needs to be
-    /// ordered behind an enqueued write cannot simply call it on the main actor — that would
-    /// block the UI for the length of the queue. Handing out the barrier alone lets a detached
-    /// read wait for it instead, off the main actor. (The `Logger` itself is `@MainActor` and not
-    /// `Sendable`, so a detached closure cannot just capture the logger and call the method.)
+    /// The disk-writer barrier as a `@Sendable` value, so a detached read can wait behind queued
+    /// writes off the main actor instead of blocking the UI in `flushToDisk()`. `Logger` isn't
+    /// `Sendable`, so a detached closure can't capture it to call the method.
     public nonisolated func diskWriteBarrier() -> @Sendable () -> Void {
         let writer = logWriter
         return { writer.flush() }
     }
 
-    /// Asks the macOS system workspace to launch the disk log file using the default text editor (usually Console or TextEdit).
+    /// Opens the log file in its default app (usually Console or TextEdit).
     public func openLogFile() {
         NSWorkspace.shared.open(logFileURL)
     }
@@ -653,19 +508,11 @@ private final class MinimumLevelBox: @unchecked Sendable {
     }
 }
 
-/// Lock-guarded, late-bound handler cell for the disk writer's out-of-band write reports — the
-/// failure notice and its matching recovery.
-///
-/// `Logger` must hand `LogFileWriter` its callbacks at the writer's construction — the writer's
-/// startup tail-trim runs immediately and can itself fail — but at that point `self` is not yet
-/// fully initialized and cannot be captured. The writer is therefore given this relay, and the real
-/// handlers are installed the moment init finishes. A report arriving in the gap (the writer's
-/// queue would have to outrun the next statement) is dropped rather than crashing, which is the
-/// right trade for a diagnostic.
-///
-/// Both handlers live in one cell because they are one signal read from two ends, and installing
-/// them together is what keeps a recovery from arriving at a relay that has a failure handler but
-/// not yet its counterpart.
+/// Lock-guarded, late-bound handlers for the disk writer's failure and recovery reports. The
+/// writer needs its callbacks at construction, since its startup trim can fail, before `Logger`
+/// can capture `self`; the real handlers are installed as init finishes. A report arriving in that
+/// gap is dropped, the right trade for a diagnostic. Both are installed together so a recovery
+/// can't reach a relay that has only the failure handler.
 private final class WriteReportRelay: @unchecked Sendable {
     private let lock = NSLock()
     private var onFailure: (@Sendable (String) -> Void)?
@@ -697,12 +544,10 @@ private final class WriteReportRelay: @unchecked Sendable {
 /// Lock-guarded FIFO handing `LogEntry` values from nonisolated log callers to the MainActor
 /// flush. Enqueue order is the order entries appear in the Activity Log.
 ///
-/// Flush scheduling is coalesced: all enqueues of a burst share ONE MainActor flush task
-/// instead of spawning a task per line whose drains are mostly no-ops. The shared task still
-/// honors the awaitable contract (`entry` is visible in `entries` once the returned task
-/// completes): the scheduled-task marker clears on the MainActor *before* the drain with no
-/// suspension in between, so an entry enqueued too late for a running drain observed a cleared
-/// marker and scheduled the next flush for itself.
+/// A burst's enqueues share one MainActor flush task rather than a mostly no-op task per line.
+/// The returned task still guarantees its entry is in `entries` when it completes: the marker
+/// clears on the MainActor just before the drain, with no suspension between, so an entry too late
+/// for a running drain sees no marker and schedules the next flush itself.
 private final class PendingLogEntryQueue: @unchecked Sendable {
     private let lock = NSLock()
     private var pending: [LogEntry] = []
@@ -747,8 +592,8 @@ private final class PendingLogEntryQueue: @unchecked Sendable {
 /// writes instead of opening/seeking/closing per line. All handle access is confined to `queue`,
 /// including the initial tail-trim and handle opening (appends enqueue behind them).
 ///
-/// Internal (not private) so the self-heal / truncate behavior can be tested directly against an
-/// injected temp-file URL; production code only ever uses it via `Logger`.
+/// Internal so tests can drive the self-heal and truncation against a temp file; the app uses it
+/// only through `Logger`.
 final class LogFileWriter: @unchecked Sendable {
     /// Size cap for the log file, enforced at startup and re-checked periodically as the session
     /// writes. ~5 MB is tens of thousands of lines; an oversized file is trimmed to roughly half
@@ -758,42 +603,29 @@ final class LogFileWriter: @unchecked Sendable {
     private let url: URL
     private let queue = DispatchQueue(label: "com.synccloud.logger", qos: .background)
     private var handle: FileHandle?
-    /// Inode of the file `handle` was opened against (confined to `queue`). Appends compare it
-    /// to the path's current inode: an external atomic rewrite (write-temp-then-rename, e.g.
-    /// another process's tail-trim of the shared log) keeps the path present while orphaning
-    /// the open handle's inode, so existence alone cannot detect a stale handle.
+    /// Inode of the file `handle` was opened on (confined to `queue`). Appends compare it with the
+    /// path's current inode: another process's atomic rewrite keeps the path present but orphans
+    /// the handle's inode, so existence alone can't detect a stale handle.
     private var handleFileIdentity: UInt64?
     private let maxFileSize: Int
 
-    /// Bytes appended since the last mid-session size check (confined to `queue`). Re-statting
-    /// the file on every line would be wasted syscalls; instead the oversize check re-runs each
-    /// time this crosses `trimCheckInterval`, so a long-running session stays bounded near the
-    /// cap instead of growing until next launch.
+    /// Bytes appended since the last mid-session size check (confined to `queue`). The check runs
+    /// each time this crosses `trimCheckInterval`, not per line, so a long session stays near the
+    /// cap without a stat on every write.
     private var bytesSinceTrimCheck = 0
     private let trimCheckInterval: Int
 
-    /// Called with the description of a disk-write failure this writer sees, on `queue`.
+    /// Called on `queue` with the description of a disk-write failure, once per failure run. A
+    /// full or unmounted volume fails every later line too, so a report per failure would be one
+    /// per line; one per run answers "did the on-disk log stop growing?" See
+    /// `Logger.noteDiskWriteFailure`.
     ///
-    /// Rate-limited to one report per FAILURE RUN, not one per session. The thing that fails here is
-    /// the log itself, so the failure cannot be logged the normal way (that would enqueue another
-    /// write into the writer that just failed); and the realistic cause — a full or unmounted
-    /// volume — fails every subsequent line too, so a per-failure callback would put a futile
-    /// report on every log line for the rest of the session. One signal per run answers the
-    /// question that matters: "did this session's on-disk log stop growing?" See
-    /// `Logger.noteDiskWriteFailure`, which turns it into a single in-memory warning entry.
-    ///
-    /// The latch that enforces the rate limit is `didReportWriteFailure`, and it RE-ARMS (see
-    /// `noteWriteSucceeded` and `clear`). It used to be a plain one-shot, which quietly turned the
-    /// rate limit into "at most one report, ever": the notice lives only in memory, so it is lost
-    /// to the 1000-entry cap and to Clear Logs — after either, a still-broken (or newly broken)
-    /// log had nothing left saying so and could never say it again.
+    /// The latch, `didReportWriteFailure`, re-arms (`noteWriteSucceeded`, `clear`): the notice
+    /// lives only in memory, so once evicted or cleared, a one-shot latch could never report again.
     private let onWriteFailure: (@Sendable (String) -> Void)?
 
-    /// Called on `queue` the first time a write SUCCEEDS after a reported failure.
-    ///
-    /// It falls out of re-arming the latch: the writer has to notice the recovery anyway to know
-    /// the next failure is news, and announcing it is what makes the pair legible — a bare second
-    /// "the log stopped growing" with no "it started again" in between reads like a duplicate.
+    /// Called on `queue` the first time a write succeeds after a reported failure, so a second
+    /// failure notice doesn't read like a duplicate of the first.
     private let onWriteRecovered: (@Sendable () -> Void)?
 
     /// Whether a failure has been reported and not yet superseded by a success or a `clear()`
@@ -815,21 +647,15 @@ final class LogFileWriter: @unchecked Sendable {
         }
     }
 
-    /// Runs `body` holding an exclusive `flock` on a sidecar lock file (`<log>.lock`) next to
-    /// the log. Two processes share `~/sync-cloud.log` (the app and the `synccloud` CLI), and a
-    /// trim is a read-tail + atomic-rename of the whole file: two concurrent trims could each
-    /// rewrite from a stale tail and clobber the other's result. The lock serializes trims
-    /// across processes; the size stat happens INSIDE `body` (trimTailIfOversized re-stats), so
-    /// a trim that lost the race re-checks and finds nothing left to do.
+    /// Runs `body` holding an exclusive `flock` on `<log>.lock`. The app and the `synccloud` CLI
+    /// share `~/sync-cloud.log`, and a trim rewrites the whole file from its tail, so two
+    /// concurrent trims could clobber each other. The size is stat'ed inside `body`, so a trim that
+    /// lost the race finds nothing left to do.
     ///
-    /// Residual (accepted, documented): appends are NOT under this lock. The other process's
-    /// O_APPEND write can land on the old inode between our tail-read/rename — its next append
-    /// re-stats the inode and reopens (see `append`), but that one in-flight line is lost.
-    /// Locking every append would put a cross-process syscall on the hot path for a rare,
-    /// single-line race, so trims-only is the deliberate trade.
-    ///
-    /// If the lock file cannot be opened, the trim proceeds unguarded (the pre-lock behavior)
-    /// rather than letting the log grow unbounded. Runs on `queue`.
+    /// Accepted: appends aren't locked, so the other process can lose one in-flight line to a
+    /// trim's rename before its next append reopens. Locking every append would put a
+    /// cross-process syscall on the hot path. If the lock file can't be opened, the trim runs
+    /// unguarded rather than letting the log grow unbounded. Runs on `queue`.
     private func withTrimLock(_ body: () -> Void) {
         let fd = open(url.path + ".lock", O_WRONLY | O_CREAT, 0o644)
         guard fd >= 0 else {
@@ -855,10 +681,9 @@ final class LogFileWriter: @unchecked Sendable {
         if !FileManager.default.fileExists(atPath: url.path) {
             FileManager.default.createFile(atPath: url.path, contents: nil, attributes: nil)
         }
-        // Open O_APPEND so the kernel positions every write at the true end of file atomically.
-        // Without it, append()'s seek-to-end + write has a window where a second process sharing
-        // ~/sync-cloud.log (the `synccloud` CLI running while the app is open) writes between our
-        // seek and write, and one line silently overwrites the other.
+        // O_APPEND, so the kernel puts every write at the true end of file atomically. Otherwise
+        // the CLI, sharing the file, could write between our seek and write, and one line would
+        // overwrite the other.
         let fd = open(url.path, O_WRONLY | O_APPEND)
         handle = fd >= 0 ? FileHandle(fileDescriptor: fd, closeOnDealloc: true) : nil
         handleFileIdentity = handle == nil ? nil : currentFileIdentity()
@@ -882,9 +707,8 @@ final class LogFileWriter: @unchecked Sendable {
         if let newline = tail.firstIndex(of: UInt8(ascii: "\n")) {
             tail = tail.suffix(from: tail.index(after: newline))
         }
-        // A failed trim leaves the file oversized but intact, so it is not fatal — it is still a
-        // disk write that didn't happen, and it fails for the same reasons an append does (no
-        // space, volume gone), so it feeds the same one-shot signal.
+        // A failed trim leaves the file oversized but intact. It fails for the same reasons an
+        // append does (no space, volume gone), so it feeds the same report.
         do {
             try tail.write(to: url, options: .atomic)
         } catch {
@@ -900,38 +724,25 @@ final class LogFileWriter: @unchecked Sendable {
     }
 
     /// Ends the current failure run: re-arms the report and announces the recovery, once. Runs on
-    /// `queue`, from the append path only.
-    ///
-    /// Deliberately not called from the trim's successful write: a trim can succeed for reasons an
-    /// append cannot (it creates a new file rather than extending the open handle's), and "the log
-    /// is being written again" must mean the LINES are landing — which only the append path knows.
+    /// `queue`, from the append path only: a trim writes a new file and can succeed when appends
+    /// can't, and "being written again" must mean the lines are landing.
     private func noteWriteSucceeded() {
         guard didReportWriteFailure else { return }
         didReportWriteFailure = false
         onWriteRecovered?()
     }
 
-    /// Re-arms the failure report WITHOUT announcing a recovery. Runs on `queue`.
-    ///
-    /// `clear()`'s own truncate succeeding is not evidence the appends will land, and the notice a
-    /// recovery line would pair with has just been deleted from the in-memory buffer along with
-    /// everything else — so the clear re-arms silently and lets the next real failure speak.
+    /// Re-arms the failure report without announcing a recovery, for `clear()`: its truncate
+    /// succeeding doesn't prove appends will land, and the notice a recovery would pair with was
+    /// just cleared. Runs on `queue`.
     private func rearmWriteFailureReport() {
         didReportWriteFailure = false
     }
 
-    /// Reopens the write handle when the path's current inode no longer matches the handle's —
-    /// never opened, removed, or replaced externally. Removal makes the identity nil; REPLACEMENT
-    /// (atomic rewrite, e.g. the CLI's tail-trim of the shared log while the app runs) keeps the
-    /// path present but swaps the inode, so a plain fileExists check would let the handle keep
-    /// operating on the orphaned old inode. Same cost profile as the old existence check: one
-    /// stat per call. Runs on `queue`.
-    ///
-    /// One helper rather than a copy per caller, because the two copies drifted: `clear()`
-    /// truncated without this check, so after the CLI replaced `~/sync-cloud.log` the app's
-    /// "Clear Log" emptied an orphaned inode while the file on disk kept every line — and the
-    /// Settings size readout then showed a non-empty log the user had just cleared. Any future
-    /// handle operation belongs behind this same call.
+    /// Reopens the write handle when the path's inode no longer matches it: never opened, removed,
+    /// or replaced by an atomic rewrite such as the CLI's trim, which keeps the path but swaps the
+    /// inode. One stat per call. Every handle operation goes through this one helper, or it would
+    /// act on an orphaned inode (a clear would leave every line in the file). Runs on `queue`.
     private func reopenHandleIfStale() {
         guard handle == nil || currentFileIdentity() != handleFileIdentity else { return }
         try? handle?.close()
@@ -942,27 +753,22 @@ final class LogFileWriter: @unchecked Sendable {
     func append(_ text: String) {
         queue.async { [weak self] in
             guard let self, let data = text.data(using: .utf8) else { return }
-            // Without this an externally replaced log would silently swallow every line: the
-            // handle keeps writing into the inode nobody reads any more. See `reopenHandleIfStale`.
+            // Otherwise an externally replaced log would swallow every line into an orphaned inode.
             self.reopenHandleIfStale()
-            // Both branches funnel their failure into the one-shot report: a line that never
-            // reaches disk is invisible otherwise — the in-memory Activity Log keeps scrolling
-            // while the file quietly stops growing. Still non-throwing and still best-effort; the
-            // report costs nothing after the first failure (see `reportWriteFailure`).
+            // Both branches feed the failure report, since a line that never reaches disk is
+            // otherwise invisible. Still best-effort and non-throwing.
             do {
                 if let handle = self.handle {
                     _ = try? handle.seekToEnd()
                     try handle.write(contentsOf: data)
                 } else {
-                    // Last-resort fallback when the handle could not be opened. Append manually — a
-                    // bare `.atomic` write would replace the entire log history with this one line.
-                    // (Known cost: this re-reads and rewrites the whole file per line, but it only
-                    // runs while the handle is unopenable, which self-heals on the next append.)
+                    // Fallback while the handle can't be opened. Append by hand: a bare `.atomic`
+                    // write would replace the whole log with this one line. It rewrites the file
+                    // per line, but only until the next append reopens the handle.
                     let existing = (try? Data(contentsOf: self.url)) ?? Data()
                     try (existing + data).write(to: self.url, options: .atomic)
                 }
-                // The line reached disk. If a failure was outstanding, the run is over — re-arm the
-                // report so a LATER failure is announced too, and say the writing recovered.
+                // The line reached disk, so any failure run is over.
                 self.noteWriteSucceeded()
             } catch {
                 self.reportWriteFailure(error)
@@ -975,13 +781,10 @@ final class LogFileWriter: @unchecked Sendable {
         }
     }
 
-    /// Mid-session counterpart to the init-time trim. Runs on `queue`. The trim rewrites the
-    /// file atomically (new inode), so the open handle must be closed first and reopened after —
-    /// otherwise subsequent appends would land in the orphaned old inode and vanish.
-    ///
-    /// The size check runs UNDER the trim lock: the other process may have just trimmed, and a
-    /// decision made from the pre-lock size would re-trim a file that's already back under the
-    /// cap (double-cutting fresh lines).
+    /// The mid-session trim. It writes a new inode, so the handle is closed first and reopened
+    /// after, or later appends would vanish into the old one. The size is checked under the lock,
+    /// since the other process may have just trimmed and a second cut would lose fresh lines.
+    /// Runs on `queue`.
     private func trimMidSessionIfOversized() {
         withTrimLock {
             guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
@@ -994,45 +797,26 @@ final class LogFileWriter: @unchecked Sendable {
         }
     }
 
-    /// Blocks until every append/clear enqueued before this call has finished. The barrier
-    /// behind `Logger.flushToDisk()`, which production calls at app termination (and the CLI
-    /// before process exit) so buffered lines survive the quit; tests also use it before
-    /// asserting on file contents.
+    /// Blocks until every append and clear enqueued before it has finished. Behind
+    /// `Logger.flushToDisk()` at quit (app and CLI); tests use it before reading the file.
     func flush() {
         queue.sync {}
     }
 
-    /// Truncates the log file to empty, keeping the open handle valid.
+    /// Truncates the log file to empty, keeping the open handle valid. Reopens first, as `append`
+    /// does, or after the CLI's atomic trim the clear would empty an orphaned inode and leave the
+    /// file full. A deleted log is therefore recreated empty, which is harmless: the history loader
+    /// reads no file and an empty file alike, and Settings then shows "Zero bytes".
     ///
-    /// Reopens first for exactly the reason `append` does. The app and the `synccloud` CLI share
-    /// `~/sync-cloud.log`, and the CLI's tail-trim rewrites it atomically (new inode). Truncating
-    /// the stale handle after such a replacement empties an inode nothing points at: the file on
-    /// disk keeps every line, so "Clear Log" appeared to do nothing and the Settings size readout
-    /// still reported a full log. See `reopenHandleIfStale`.
-    ///
-    /// Accepted side effect of that reopen, documented rather than fixed: when the log file has
-    /// been DELETED (not replaced), `reopenHandleIfStale` recreates it, so a clear now leaves an
-    /// empty file where it used to leave the path absent. Benign, and where it is visible at all it
-    /// is an improvement: the very next append would have created the file anyway; the Activity
-    /// Log's history loader already reads "no file" and "empty file" as the same `.loaded([])`;
-    /// Settings' size readout goes from blank (its stat returns nil for a missing file) to "Zero
-    /// bytes", which is the truth; and its Reveal in Finder, a no-op on a missing file, now works.
-    /// Avoiding it would mean either skipping the staleness check (the bug above) or teaching it a
-    /// clear-only "don't create" mode, i.e. re-splitting the one helper whose two copies drifted in
-    /// the first place.
-    ///
-    /// Clearing also re-arms the write-failure report: everything the old notice was written into
-    /// has just been deleted, so a failure after this point is news again rather than a repeat.
+    /// Clearing also re-arms the failure report, so a failure after it is news, not a repeat.
     func clear() {
         queue.async { [weak self] in
             guard let self else { return }
             self.reopenHandleIfStale()
-            // Re-armed BEFORE the writes below, so a clear that cannot write reports itself as the
-            // first failure of the new run instead of being swallowed by the old one's latch.
+            // Re-armed before the writes, so a clear that can't write reports itself as the first
+            // failure of the new run instead of being swallowed by the old latch.
             self.rearmWriteFailureReport()
-            // Both branches funnel their failure into the same report `append` uses. The fallback
-            // was the one write in this type that didn't: a `try?` on the path taken precisely when
-            // the handle is unopenable — i.e. when something is already wrong with the file.
+            // Both branches feed the same failure report `append` uses.
             do {
                 if let handle = self.handle {
                     try handle.truncate(atOffset: 0)

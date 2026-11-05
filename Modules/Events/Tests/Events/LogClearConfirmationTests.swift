@@ -5,10 +5,10 @@ import Foundation
 
 /// Pins that clearing the log asks first, and honours the answer.
 ///
-/// The Activity Log's trash button and Settings ▸ Advanced ▸ Clear Log both emptied the session and
-/// truncated the file on disk on one click. Both call `clearIfConfirmed` now, and `clearLogs` is
-/// internal, so a door that skips the question no longer compiles outside this package. Every
-/// Logger here writes a scratch file — never the real `~/sync-cloud.log`.
+/// Clearing empties the session and truncates the file, and can't be undone. Both buttons (the
+/// Activity Log's trash, Settings ▸ Advanced ▸ Clear Log) call `clearIfConfirmed`, and `clearLogs`
+/// is internal, so a button that skips the question doesn't compile outside this package. Every
+/// Logger here writes a scratch file, never the real `~/sync-cloud.log`.
 @MainActor
 @Suite struct LogClearConfirmationTests {
 
@@ -65,9 +65,9 @@ import Foundation
         #expect(logger.entries.isEmpty)
     }
 
-    /// **Escape cancels Clear Log.** Its Cancel answers Return, which takes Escape from it, so the
-    /// alert runs with a key monitor; this pins the monitor's choice on real key events against
-    /// an alert with Clear Log's buttons. `NativeAlerts.escapeAnswer` is the same rule in Design.
+    /// Escape cancels Clear Log. Its Cancel answers Return, which takes Escape from it, so the
+    /// alert runs with a key monitor; this pins the monitor's choice on real key events.
+    /// `NativeAlerts.escapeAnswer` is the same rule in Design.
     @Test func escapePressesCancelAndNothingElse() throws {
         let alert = NSAlert()
         alert.addButton(withTitle: Logger.clearLogName)

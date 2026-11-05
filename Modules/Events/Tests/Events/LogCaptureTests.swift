@@ -5,17 +5,13 @@ import EventsTestSupport
 
 /// What `LogCapture` promises every test that reads a log line through it.
 ///
-/// The shared buffer keeps the newest 1,000 lines, so a line other suites have logged past is gone
-/// from `Logger.shared.entries`, while a capture opened before it still holds it. That is the whole
-/// reason the capture exists — "A log assertion reading a window that has already rolled" in
-/// `docs/flaky-tests.md` — and none of the suites that use it can show it, because in a quiet run
-/// nothing rolls. These roll the buffer on purpose.
+/// A capture opened before a line still holds it after the shared 1,000-line buffer has rolled
+/// past it, which is why the capture exists ("A log assertion reading a window that has already
+/// rolled" in `docs/flaky-tests.md`). In a quiet run nothing rolls, so these roll it on purpose.
 ///
-/// **Members of `EventsTests`, not a suite of their own.** That suite empties `Logger.shared` with
-/// `clearLogs()`, which also drops lines still queued for it, and then counts what the buffer holds
-/// after one line. Measured 2026-09-27 as a suite of their own: 10 runs in 12 went red — these lost
-/// a line cleared before it was published in 3, and `testLoggerInfo` counted the flood in 7 — and
-/// with the clears taken out these failed in none of 12. Its `.serialized` keeps the two apart.
+/// Members of `EventsTests`, not a suite of their own: that suite clears `Logger.shared` and
+/// counts what it holds, so run in parallel the two would clear and count each other's lines. Its
+/// `.serialized` keeps them apart.
 extension EventsTests {
 
     @MainActor
@@ -23,8 +19,8 @@ extension EventsTests {
         let probe = "log-capture probe \(UUID().uuidString)"
         let log = LogCapture()
         await Logger.shared.info(probe).value
-        // More than the cap, in ONE flush: `flushPendingEntries` appends and then trims, and the
-        // capture has to have taken every line from the append before the trim publishes.
+        // More than the cap, in one flush: `flushPendingEntries` appends and then trims, and the
+        // capture must take every line from the append before the trim publishes.
         let flood = (0..<1_500).map { "log-capture flood \($0) \(probe)" }
         for line in flood { Logger.shared.debug(line) }
 
