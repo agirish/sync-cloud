@@ -4,27 +4,21 @@ import Design
 
 /// The illustrations that head the setup form's welcome strip.
 ///
-/// **Kept when the six-page welcome tour was retired, because the drawings were never the problem
-/// with it.** They are built from the app's own provider logos, SF Symbols and shapes — no new
-/// assets — and they are the one part of that screen that said something a sentence could not: what
-/// a Columns drill actually looks like, what "two panes" means before you have seen one.
+/// Built from the app's own provider logos, SF Symbols and shapes, with no new assets. They show
+/// what a sentence can't: what a Columns drill looks like, what "two panes" means before you have
+/// seen one.
 ///
-/// `SetupArtworkRenderTests` renders each case to a bitmap and reads it back, which is how the
-/// Browse illustration's three separate columns and its lit diagonal are held to being three
-/// separate columns and a diagonal.
+/// `SetupArtworkRenderTests` renders each case to a bitmap and reads it back, which holds the
+/// Browse illustration to three separate columns and a lit diagonal.
 enum SetupArt {
-    /// Which illustration a panel carries. Kept on plain data so reordering the strip can never
-    /// desync a drawing from its copy.
+    /// Which illustration a panel carries. Plain data, so reordering the strip can never desync a
+    /// drawing from its copy.
     ///
-    /// **Two cases outlive the panels that used them.** `welcome` heads the card itself rather than
-    /// a panel, and `transfer` and `duplicates` are the tour pages the fold to three panels
-    /// dropped. They are kept because `SetupIllustration` still draws them and the render tests still
-    /// check them — an illustration is cheap to keep and expensive to redraw — but nothing requires
-    /// every case to be used any more, which is why the old
-    /// `testEveryIllustrationIsUsedByExactlyOnePage` did not survive the fold. What replaced it is
-    /// the other direction: `everyPanelsArtworkIsDrawn` fails on a panel whose art nothing renders.
-    // CaseIterable so the render suite covers every page's art by construction — a case added
-    // here is rendered by `testEveryTourPagePaintsItsIllustration` without anyone remembering to.
+    /// Not every case heads a panel: `welcome` heads the card itself, and `transfer` and
+    /// `duplicates` are kept because an illustration is cheap to keep and expensive to redraw.
+    /// `everyPanelHasCopyAndItsOwnIllustration` checks that no two panels share one.
+    // CaseIterable so the render suite covers every case by construction: a case added here is
+    // rendered by `testEveryTourPagePaintsItsIllustration` without anyone remembering to.
     enum Art: Hashable, Sendable, CaseIterable {
         case welcome, browse, compare, transfer, duplicates, filing, edit
     }
@@ -32,12 +26,12 @@ enum SetupArt {
 
 // MARK: - The reveal
 
-/// Whether the setup art runs its reveal — the `onAppear` every illustration animates in from.
+/// Whether the setup art runs its reveal, the `onAppear` every illustration animates in from.
 ///
 /// Always on in the app. `SetupArtworkRenderTests` turns it off to draw each page as it stands
-/// before `onAppear`, the frame a reveal that never ran would leave on screen, and requires the
-/// revealed page to differ from it. Most pages paint part of themselves before the reveal, so
-/// without that comparison a page could lose its reveal with every ink check still passing.
+/// before `onAppear`, and requires the revealed page to differ from it. Most pages paint part of
+/// themselves before the reveal, so without that comparison a lost reveal would pass every ink
+/// check.
 private struct SetupArtRevealsKey: EnvironmentKey { static let defaultValue = true }
 
 extension EnvironmentValues {
@@ -58,8 +52,8 @@ private struct RevealOnAppear: ViewModifier {
 }
 
 private extension View {
-    /// Where every illustration starts its reveal, in place of `onAppear` — so that a render can ask
-    /// for the frame before it (`setupArtReveals`).
+    /// Where every illustration starts its reveal, in place of `onAppear`, so a render can ask for
+    /// the frame before it (`setupArtReveals`).
     func onReveal(_ reveal: @escaping () -> Void) -> some View {
         modifier(RevealOnAppear(reveal: reveal))
     }
@@ -75,10 +69,9 @@ private func providerAssetName(_ displayName: String) -> String? {
     case .dropbox:     return "dropbox"
     case .oneDrive:    return "onedrive"
     case .googleDrive: return "googledrive"
-    // `.folder` is unreachable from here and listed only for exhaustiveness: it is returned solely
-    // when a caller passes `isLocalFolder:`, and the tour classifies a bare display name. That the
-    // arm is dead is the right outcome rather than a gap to plumb around — the tour runs before any
-    // source has been added, so its two panes are always cloud accounts.
+    // `.folder` is unreachable here, listed for exhaustiveness: it comes back only when a caller
+    // passes `isLocalFolder:`, and this classifies a bare display name. The art runs before any
+    // source is added, so its two panes are always cloud accounts.
     case .box, .folder, .neutral: return nil
     }
 }
@@ -101,16 +94,15 @@ private struct ProviderGlyph: View {
     }
 }
 
-/// Small illustrations that head a welcome panel — built from the app's own provider logos, SF
-/// Symbols, and shapes (no new assets), tinted with each provider's brand hue and animated in on
-/// appear (motion gated on Reduce Motion). Decorative: the title and blurb carry the meaning, so
-/// the setup card marks the artwork `.accessibilityHidden(true)`.
+/// Small illustrations that head a welcome panel, tinted with each provider's brand hue and
+/// animated in on appear (motion gated on Reduce Motion). Decorative: the title and blurb carry the
+/// meaning, so the setup card marks the artwork `.accessibilityHidden(true)`.
 struct SetupIllustration: View {
     let art: SetupArt.Art
     let leftName: String
     let rightName: String
-    /// The sheet's accent. Handed in, because the `.tint` these drew in was never set above them —
-    /// so it was the SYSTEM accent, and a Coral sheet showed the Mac's blue.
+    /// The sheet's accent. Handed in, because nothing above sets `.tint`, so drawing in it would
+    /// show the system accent on a sheet of another hue.
     let accent: Color
 
     var body: some View {
@@ -131,7 +123,7 @@ private struct WelcomeArt: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
     @State private var breathe = false
-    /// The welcome halo breathes in the user-selected glass hue, matching the app accent (C7).
+    /// The welcome halo breathes in the user-selected glass hue, matching the app accent.
     let accent: Color
 
     private let providers = ["icloud", "googledrive", "dropbox", "onedrive"]
@@ -174,21 +166,19 @@ private struct WelcomeArt: View {
     }
 }
 
-/// Three columns opening left to right, each with the row that opened the next one lit — which is
-/// exactly what a Browse pane looks like once you have drilled into something.
+/// Three columns opening left to right, each with the row that opened the next one lit: a Browse
+/// pane after drilling in.
 ///
-/// Deliberately the *column* stack rather than a folder glyph: Columns is the default presentation,
-/// and the one thing a new user needs to expect is that clicking a folder opens a column beside it
-/// instead of expanding it in place. A folder icon would have said "files", which they knew.
+/// Columns, not a folder glyph: Columns is the default, and a new user needs to expect that
+/// clicking a folder opens a column beside it instead of expanding it in place.
 private struct BrowseArt: View {
     let accent: Color
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
 
-    /// Which row is lit in each column, and it must stay strictly ascending: the lit rows are read
-    /// as one diagonal — a path walked down and to the right — and any other arrangement reads as
-    /// three unrelated lists that happen to have a blue row each. The first draft ended on row 0
-    /// and did exactly that, which a pixel count could not have told me.
+    /// Which row is lit in each column. Must stay strictly ascending: the lit rows read as one
+    /// diagonal, a path walked down and to the right, and any other order reads as three unrelated
+    /// lists with a lit row each.
     private static let litRows = [1, 2, 3]
 
     /// Rows per column. Five rather than four so the columns read as lists with a little room
@@ -348,11 +338,9 @@ private struct DuplicatesArt: View {
                     Image(systemName: "checkmark.circle.fill")
                         .scaledFont(.system(size: 22))
                         .foregroundStyle(SemanticColor.success)
-                        // The knockout disc behind the check adapts light/dark (a hard-coded
-                        // `.white` glowed against the dark-mode art). It does NOT exactly match
-                        // the frosted glass card it sits on — that backdrop runs darker than
-                        // `windowBackgroundColor` in dark mode — but the disc is almost fully
-                        // covered by the glyph, so the near-miss is invisible.
+                        // The knockout disc adapts to light and dark; a fixed white would glow in
+                        // dark mode. It is lighter than the frosted card in dark mode, but the
+                        // glyph covers almost all of it, so the mismatch is invisible.
                         .background(Circle().fill(Color(nsColor: .windowBackgroundColor)).padding(2))
                         .offset(x: 7, y: 5)
                         .scaleEffect(appeared ? 1 : 0.2)
@@ -417,11 +405,9 @@ private struct FilingArt: View {
     }
 }
 
-/// A page of text with a caret in it, and a heading rule above — the editor, said in shapes.
-///
-/// Drawn rather than screenshotted for the reason every illustration here is: it has to survive a
-/// text-size change and both appearance modes, and it must paint something at any size the render
-/// suite asks it for.
+/// A page of text with a caret in it and a heading rule above: the editor, in shapes. Drawn, not
+/// screenshotted, like every illustration here, so it survives text-size changes and both
+/// appearances, and paints at any size the render suite asks for.
 private struct EditArt: View {
     let accent: Color
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

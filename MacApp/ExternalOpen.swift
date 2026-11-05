@@ -2,34 +2,27 @@ import Foundation
 import Sync
 import Dashboard
 
-/// **Files handed to SyncCloud from outside it** — Finder's double-click or Open With, a file dropped
-/// on the Dock icon, `open -a SyncCloud notes.md` — and where they go: into Edit, through
-/// `ContentView.handOffToEditor`, the hand-off every "Open in Edit" inside the app already takes.
-/// So a file from Finder settles the open document first, takes the left pane to its folder by tab
-/// (see ``pane(workspace:isReviewing:atLaunch:)`` for where it does not), and logs however it ends,
-/// exactly as ⌘O does.
+/// Files handed to SyncCloud from outside it (Finder's double-click or Open With, a drop on the
+/// Dock icon, `open -a SyncCloud notes.md`) and where they go: into Edit, through
+/// `ContentView.handOffToEditor`, the hand-off every in-app "Open in Edit" takes. So it settles the
+/// open document, takes the left pane to the file's folder by tab (except as
+/// ``pane(workspace:isReviewing:atLaunch:)`` says), and logs however it ends, as ⌘O does.
 ///
-/// **What Finder offers SyncCloud for is every kind of text macOS recognises** — the claim in
-/// `project.yml` is the parent type `public.text` — and that is what keeps an install from taking a
-/// kind of file away from the app that opens it: a claim on the specific type always outranks a
-/// claim on its parent (see the measurement written there). A file outside the claim can still
-/// arrive — Open With ▸ Other…, `open -a` — and is tried rather than refused: the editor's own read
-/// turns away what it cannot show (binary, too large) with its usual message, and a dotfile or a
-/// `Makefile` someone deliberately asked for opens. A file still in the cloud is fetched and then
-/// opened — see `ContentView.fetchExternalOpenFromCloud`.
+/// `project.yml` claims the parent type `public.text`, so an install never takes a kind of file
+/// from the app that claims its specific type (see the note there). A file outside the claim (Open
+/// With ▸ Other…, `open -a`) is tried, not refused: the editor's read turns away what it can't
+/// show. A file still in the cloud is fetched first (`ContentView.fetchExternalOpenFromCloud`).
 ///
-/// **One file in Edit, the rest in the file pane.** The first file of a batch opens; the others
-/// wait in the folder on screen, in a tab already showing theirs, or in a new tab per folder with
-/// its files selected — on whichever source holds it (``waitingFolders(_:)``). A folder is named in a banner rather than dropped without a word. **A launch from
-/// Finder opens Edit wide** ("Just the text"), the way someone who double-clicked a document
-/// expects to see it.
+/// The first file of a batch opens in Edit; the rest wait in the file pane, by folder and selected
+/// (``waitingFolders(_:)``). A folder is named in a banner, not dropped silently. A launch from
+/// Finder opens Edit wide ("Just the text"), as a double-clicked document should.
 enum ExternalOpen {
 
     /// What one batch of handed-over items comes to.
     struct Plan: Equatable {
-        /// The file Edit opens — the first file, in the order macOS handed them over.
+        /// The file Edit opens: the first file, in the order macOS handed them over.
         var opens: String?
-        /// Files after it. Edit holds one document, so these wait in the file pane instead — see
+        /// Files after it. Edit holds one document, so these wait in the file pane instead; see
         /// ``run(_:superseded:isFolder:handOff:placeRest:paneIsFolded:banner:setBanner:log:)``.
         var alsoAsked: [String] = []
         /// Folders, which Edit cannot open at all.
@@ -39,11 +32,9 @@ enum ExternalOpen {
         var ignored: [String] = []
     }
 
-    /// Sorts what arrived. Pure apart from `isFolder`, which the caller answers from the disk.
-    ///
-    /// **A path named twice is one item.** Finder hands a file over once per open, so a double-click
-    /// repeated during a launch arrives as the same path twice — and planning both put "“a.md”
-    /// wasn’t opened" on screen over `a.md`.
+    /// Sorts what arrived. Pure apart from `isFolder`, which the caller answers from the disk. A
+    /// path named twice is one item: a double-click repeated during a launch arrives twice, and
+    /// planning both would report the open file as not opened.
     static func plan(_ urls: [URL], isFolder: (String) -> Bool) -> Plan {
         var plan = Plan()
         var seen = Set<String>()
@@ -62,8 +53,8 @@ enum ExternalOpen {
         return plan
     }
 
-    /// The disk's answer for ``plan(_:isFolder:)``: a directory — a package such as `.rtfd` or
-    /// `.app` included, which Edit cannot open either — or a link to one.
+    /// The disk's answer for ``plan(_:isFolder:)``: a directory (including a package such as
+    /// `.rtfd` or `.app`, which Edit can't open either) or a link to one.
     static func isFolder(_ path: String) -> Bool {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
@@ -73,19 +64,18 @@ enum ExternalOpen {
     /// asks again when the hold clears.
     enum Hold: Equatable {
         /// The launch bootstrap is still putting the panes on their landing folders and restoring
-        /// their tabs — a hand-off before it ends has its pane move undone. ~40 ms on an ordinary
-        /// launch; see ``LaunchBootstrap``.
+        /// their tabs, and would undo a hand-off's pane move. About 40 ms on an ordinary launch;
+        /// see ``LaunchBootstrap``.
         case launch
         /// A Move to… / Copy to… question is on screen and owns the panes; a workspace switch under
         /// it would move the pane the answer is being picked in.
         case destinationPick
-        /// The divergence diff is on screen: the user is part-way through answering which version
-        /// of the open file wins. Opening another file under it left the diff drawn over a document
-        /// it does not describe.
+        /// The divergence diff is on screen, mid-answer about which version of the open file wins.
+        /// Opening another file would leave the diff over a document it doesn't describe.
         case divergenceQuestion
 
-        /// For the log line — names what the user has to finish, since that is what a report of
-        /// "I double-clicked and nothing happened" needs to find.
+        /// For the log line: names what the user has to finish, which is what "I double-clicked
+        /// and nothing happened" needs to find.
         var reason: String {
             switch self {
             case .launch: return "waiting for launch to finish"
@@ -104,19 +94,11 @@ enum ExternalOpen {
         return nil
     }
 
-    /// What the hand-off does to the left pane.
-    ///
-    /// **It stays put in Compare**, for the reason Compare's list of differences already passes
-    /// `.staysPut`: there the left pane is half of the comparison on screen, and re-rooting it
-    /// re-scopes the comparison, re-runs its scan and clears the session's "Ignore in comparison"
-    /// entries. A file double-clicked in Finder is not a request to do any of that. A guided review
-    /// counts as Compare whichever workspace is showing, because its scope is that comparison.
-    ///
-    /// **From Organize it follows only on the pane's own source**, as Organize's own doors do
-    /// (``EditorHandOffRun/pane(forDoorIn:isReviewing:)``): its results belong to that source.
-    ///
-    /// **Except at launch**, when the workspace is only the one restored from last time and there is
-    /// no comparison yet worth keeping: a launch from Finder always goes to the file's folder.
+    /// What the hand-off does to the left pane. It stays put in Compare, where the left pane is half
+    /// the comparison and re-rooting it would re-run the scan and clear the session's ignores; a
+    /// guided review counts as Compare in any workspace. From Organize it follows only on the
+    /// pane's own source (``EditorHandOffRun/pane(forDoorIn:isReviewing:)``). At launch there is no
+    /// comparison worth keeping yet, so it always goes to the file's folder.
     static func pane(workspace: Workspace, isReviewing: Bool, atLaunch: Bool) -> EditorHandOffRun.Pane {
         if atLaunch { return .followsTheFile }
         if workspace == .compare || isReviewing { return .staysPut }
@@ -129,21 +111,19 @@ enum ExternalOpen {
         var relativePath: String
     }
 
-    /// **The sidebar's own rule, so a file from Finder lands where the sidebar would take you.**
-    /// `SidebarSourceModel.owningSource` over the sidebar's claims (each source's root plus the
-    /// folders it links in — iCloud Drive's Desktop and Documents), longest root first; then the
-    /// path relativized against the owner's resolved root, through the link's name where it went
-    /// through one. Exactly what `openFolderSidebarShortcutInsideItsOwner` computes for a click.
+    /// The sidebar's own rule, so a file from Finder lands where the sidebar would take you:
+    /// `SidebarSourceModel.owningSource` over the sidebar's claims (each root plus its linked
+    /// folders, such as iCloud Drive's Desktop and Documents), longest root first, then the path
+    /// relativized against the owner's resolved root, as `openFolderSidebarShortcutInsideItsOwner`
+    /// does for a click.
     ///
-    /// **A source over the whole disk (`/`, "Macintosh HD") is the last resort, asked separately.**
-    /// `SidebarSourceModel.contains` cannot see inside `/` — it tests for a `"//"` prefix — and the
-    /// sidebar never needed it to, because its Macintosh HD row IS that source rather than a place
-    /// inside one. Widening `contains` would change which sidebar rows read "in Macintosh HD"; this
-    /// falls back to it only when no deeper source owns the folder.
+    /// A whole-disk source (`/`, "Macintosh HD") is a separate last resort:
+    /// `SidebarSourceModel.contains` can't see inside `/` (it tests for a `"//"` prefix), and
+    /// widening it would change which sidebar rows read "in Macintosh HD".
     ///
-    /// - Returns: `nil` when no configured source contains the folder — the file still opens, and
-    ///   the pane stays where it is. A source is never added for it: that is a configuration change
-    ///   the sidebar makes only on a click, with a notice and a way back.
+    /// - Returns: `nil` when no configured source contains the folder; the file still opens and the
+    ///   pane stays. A source is never added for it: the sidebar does that only on a click, with a
+    ///   notice and a way back.
     static func route(toFolder folder: String,
                       claims: [(id: String, name: String, path: String)],
                       roots: [String: String],
@@ -155,11 +135,9 @@ enum ExternalOpen {
         return SourceRoute(providerId: owner.id, relativePath: relative)
     }
 
-    /// **The files after the first, by folder** — first-seen order, each folder once whatever its
-    /// case. A folder waits in ONE tab with all of its files selected, so two notes from one folder
-    /// are two selected rows, not one selected and one forgotten. **The opened file's own folder is
-    /// a group like any other**: whether the pane went there is the live pane's answer, not this
-    /// one's — it stays put in Compare, and a folder in no source has nowhere to go.
+    /// The files after the first, by folder: first-seen order, each folder once whatever its case.
+    /// A folder waits in one tab with all its files selected. The opened file's own folder is a
+    /// group like any other, since whether the pane went there is the live pane's answer.
     static func waitingFolders(_ files: [String]) -> [(folder: String, files: [String])] {
         var groups: [(folder: String, files: [String])] = []
         var index: [String: Int] = [:]
@@ -176,9 +154,9 @@ enum ExternalOpen {
         return groups
     }
 
-    /// One line on receipt, written by the delegate before anything else can happen to the files —
-    /// so the log shows an open arrived even when the window then has to wait for it. Paths spelled
-    /// as ``plan(_:isFolder:)`` spells them, so one search finds both lines.
+    /// One line on receipt, written by the delegate first, so the log shows an open arrived even
+    /// when the window has to wait. Paths are spelled as ``plan(_:isFolder:)`` spells them, so one
+    /// search finds both lines.
     static func receiptLine(_ urls: [URL], atLaunch: Bool = false, droppedOnEdit: Bool = false) -> String {
         let how = droppedOnEdit ? "Dropped \(urls.count) item(s) on Edit's empty page"
             : "Handed \(urls.count) item(s) from outside the app"
@@ -186,9 +164,8 @@ enum ExternalOpen {
             + urls.map { $0.isFileURL ? $0.standardizedFileURL.path : $0.absoluteString }.joined(separator: ", ")
     }
 
-    /// One line per batch the window acts on, naming where each item went. **Worded as a decision**
-    /// — it is written before the hand-off, and the hand-off writes its own line for what then
-    /// happened (opened, read-only, refused or cancelled).
+    /// One line per batch the window acts on, naming where each item went. Worded as a decision,
+    /// since it comes before the hand-off, which logs what then happened.
     static func logLine(for plan: Plan, superseded: Int = 0) -> String {
         var parts: [String] = []
         if let opens = plan.opens { parts.append("handing \(opens) to Edit") }
@@ -214,13 +191,12 @@ enum ExternalOpen {
     /// What the window says about everything after the first file, or `nil` when there was nothing
     /// after it. Names a single item and counts several, the way the app's other banners do.
     ///
-    /// - Parameter unplaced: files that could not be put anywhere — their folder is in no source.
-    ///   Every other file after the first is in the file pane: in the open folder, or in a tab of its
-    ///   own.
+    /// - Parameter unplaced: files that couldn't be put anywhere because their folder is in no
+    ///   source. Every other file after the first is in the file pane.
     static func banner(for plan: Plan, unplaced: [String] = [], paneIsFolded: Bool = false) -> OperationBanner? {
         let placed = plan.alsoAsked.filter { !unplaced.contains($0) }
-        // Edit wide — a launch from Finder, or Just the text — folds the pane to its strip, and a
-        // banner pointing at a pane that is not on screen has to say where it went.
+        // Edit wide (a launch from Finder, or Just the text) folds the pane to its strip, so the
+        // banner says where the pane went.
         let pane = paneIsFolded ? "the file pane, folded to the strip at the left edge" : "the file pane"
         var sentences: [String] = []
         switch placed.count {
@@ -243,17 +219,12 @@ enum ExternalOpen {
         return unplaced.isEmpty && plan.folders.isEmpty ? .success(text) : .warning(text)
     }
 
-    /// **The act, for one batch, in its order** — plan, log, hand off, then the banner — as one
-    /// function a test can run, for the reason `EditorHandOffRun` is one: `ContentView` cannot be
-    /// built in a test, and the order is where this went wrong.
+    /// The act for one batch, in order (plan, log, hand off, banner), as one function a test can
+    /// run.
     ///
-    /// **The banner comes last and yields.** Set before the hand-off, it said "“b.md” wasn’t
-    /// opened" over a Cancel that had opened nothing either; set after it unconditionally, it
-    /// replaced the hand-off's own "Couldn't save …" — the one message about the user's work. So it
-    /// is skipped on a Cancel, and skipped when the hand-off put up a banner of its own.
-    ///
-    /// **The rest are placed only after the first is open** — and not at all after a Cancel, which
-    /// has to mean nothing happened: no file, no tabs.
+    /// The banner comes last and yields: skipped on a Cancel, and when the hand-off posted its own
+    /// (such as "Couldn't save …", which must not be covered). The rest are placed only after the
+    /// first is open, and not after a Cancel, which must mean nothing happened.
     ///
     /// - Parameters:
     ///   - placeRest: puts the files after the first in the file pane, against the pane as the
@@ -286,15 +257,12 @@ enum ExternalOpen {
         return (plan, outcome, unplaced)
     }
 
-    /// Fetches a file that is still in the cloud, by reading one byte of it — the read that makes
-    /// any File Provider (iCloud Drive, Dropbox, OneDrive, Google Drive) download it. The download
-    /// API is narrower: it serves iCloud and was measured working on Google Drive (2026-10-25), but
-    /// Dropbox and OneDrive are not measured, and where it refuses this read still works. Returns
-    /// whether the content is local afterwards.
+    /// Fetches a file still in the cloud by reading one byte of it, which makes any File Provider
+    /// download it. The download API works for iCloud and Google Drive but isn't known to for
+    /// Dropbox or OneDrive; this read works everywhere. Returns whether the content is local after.
     ///
-    /// **Bounded, and off the main thread.** The read blocks until the provider delivers, and a
-    /// provider that never answers must not keep the window waiting; after `timeout` this answers
-    /// `false` and the read is left to finish on its own.
+    /// Bounded and off the main thread: the read blocks until the provider delivers, so after
+    /// `timeout` this answers `false` and leaves the read to finish on its own.
     nonisolated static func fetch(
         _ path: String, timeout: Duration = .seconds(60),
         read: @escaping @Sendable (String) -> Void = { path in
@@ -308,8 +276,8 @@ enum ExternalOpen {
             let answer = AnswerOnce(continuation)
             DispatchQueue.global(qos: .userInitiated).async {
                 read(path)
-                // The file a link points to (TE206): the one-byte read fetched that, and the link
-                // itself was never in the cloud, so asking about it always answered "landed".
+                // Ask about the file a link points to, which the read fetched: the link itself is
+                // never in the cloud, so it would always answer "landed".
                 answer.give(isCloudOnly(MaterializationStatus.linkTarget(of: path)) == false)
             }
             let seconds = Double(timeout.components.seconds)
@@ -334,28 +302,23 @@ enum ExternalOpen {
     }
 }
 
-/// **Where the app delegate leaves what macOS handed over, until the window can act on it.**
-///
-/// The two are not alive at the same moments, which is why this exists: a cold launch from Finder
-/// delivers the files before the launch bootstrap has put the panes anywhere. So the delegate
-/// queues and the window takes, whenever it next may (``ExternalOpen/hold(launchIsFinished:isPickingDestination:isAnsweringDivergence:)``).
-///
-/// Owned by the delegate — the one object that outlives every window — and handed to `ContentView`
-/// by the App, as the editor document is.
+/// Where the app delegate leaves what macOS handed over until the window can act on it: a cold
+/// launch delivers files before the bootstrap has put the panes anywhere. The delegate queues; the
+/// window takes when it may (``ExternalOpen/hold(launchIsFinished:isPickingDestination:isAnsweringDivergence:)``).
+/// Owned by the delegate, which outlives every window, and handed to `ContentView` by the App.
 @MainActor
 final class ExternalOpenQueue: ObservableObject {
 
-    /// Bumped on every arrival — the value the window's `.onChange` watches, so that a second
-    /// arrival of the very same file still registers as a change.
+    /// Bumped on every arrival: the value the window's `.onChange` watches, so a second arrival of
+    /// the same file still registers as a change.
     @Published private(set) var arrivals = 0
 
     /// One entry per open, oldest first. Kept apart rather than flattened: a batch is one request.
-    /// `atLaunch`: it arrived before the app finished launching — the app was launched to open it.
+    /// `atLaunch`: it arrived before the app finished launching, so the app was launched to open it.
     private var batches: [(urls: [URL], atLaunch: Bool)] = []
 
-    /// Set while the window is acting on a batch. The hand-off can stop on a modal question about
-    /// the open document, and an arrival announced during it must wait for the answer rather than
-    /// start a second hand-off — and a second question — underneath the first.
+    /// Set while the window is acting on a batch. The hand-off can stop on a modal question, and an
+    /// arrival meanwhile must wait rather than start a second hand-off and question underneath it.
     var isOpening = false
 
     var isEmpty: Bool { batches.isEmpty }
@@ -368,14 +331,9 @@ final class ExternalOpenQueue: ObservableObject {
 
     /// The newest batch, and how many older ones it replaces; the queue is emptied.
     ///
-    /// **The newest wins, because that is what an open the window could act on at once would have
-    /// done.** Opened one after another, `a.md` then `b.md` leave `b.md` in Edit; queued behind a
-    /// launch they used to leave `a.md` and a banner calling `b.md` unopened. Taking the newest gives
-    /// the same end state either way, and asks at most one unsaved-changes question, not two.
-    ///
-    /// `atLaunch` is true when ANY of them arrived during launch: the newest can be a second
-    /// double-click made while the first was still launching the app, and the launch is still the
-    /// one the user is looking at.
+    /// The newest wins, as if each had been acted on at once: `a.md` then `b.md` leave `b.md` in
+    /// Edit, and at most one unsaved-changes question is asked. `atLaunch` is true when any arrived
+    /// during launch, since the newest may be a second double-click made while the app launched.
     func takeNewest() -> (batch: [URL], superseded: Int, atLaunch: Bool)? {
         guard let newest = batches.last else { return nil }
         defer { batches.removeAll() }

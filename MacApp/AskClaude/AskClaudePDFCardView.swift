@@ -3,7 +3,7 @@ import FileExplorer
 import SwiftUI
 import Sync
 
-/// What a PDF card needs from the app (TE294 step 3): its run, its doors, and what the window
+/// What a PDF card needs from the app: its run, its doors, and what the window
 /// knows that the card can't — whether Claude is answering, whether something else holds the tool.
 struct AskClaudePDFBridge {
     /// The card's options changed on the card — a strength, the pages typed, a row moved.
@@ -28,8 +28,8 @@ struct AskClaudePDFBridge {
     var stop: @MainActor (_ item: UUID) -> Void = { _ in }
 }
 
-/// **A card that runs one of SyncCloud's PDF tools on the person's click** (TE294). Designed for
-/// 240 pt, as the settings card is: names wrap, options sit under them, the run button is last.
+/// A card that runs one of SyncCloud's PDF tools on the person's click. Designed for 240 pt, as
+/// the settings card is: names wrap, options sit under them, the run button is last.
 /// The password fields live here and nowhere else — never in the card, the chat or its file.
 struct AskClaudePDFCardView: View {
     let itemID: UUID
@@ -123,9 +123,9 @@ struct AskClaudePDFCardView: View {
         }
     }
 
-    /// **The new file a row will make, as it is named before the write** — next to the original, or
-    /// in the folder chosen. Nil where the card says it elsewhere (Combine's name field) or can't
-    /// say yet (pages not readable).
+    /// The new file a row will make, as named before the write: next to the original, or in the
+    /// folder chosen. Nil where the card says it elsewhere (Combine's name field) or can't say yet
+    /// (pages not readable).
     static func planned(_ card: AskClaudePDFCard, _ row: AskClaudePDFCard.Row) -> String? {
         let place = card.folder.map { " in “\(($0 as NSString).lastPathComponent)”" } ?? ""
         func pages(extract: Bool) -> [Int]? {
@@ -273,9 +273,9 @@ struct AskClaudePDFCardView: View {
     /// Reorder draws this many pages of the new order, and a gap after them when there are more.
     static let reorderShown = 6
 
-    /// **The row of pages a card draws, in the order the new file has them** — Delete's pages
-    /// struck through among their neighbours, Reorder's first pages in their new order, the others'
-    /// pages each with one either side. Empty while the pages typed can't be read. The window draws
+    /// The row of pages a card draws, in the order the new file has them: Delete's pages struck
+    /// through among their neighbours, Reorder's first pages in their new order, the others' pages
+    /// each with one either side. Empty while the pages typed can't be read. The window draws
     /// exactly the pages this names.
     static func pageStrip(_ card: AskClaudePDFCard) -> [PageCell] {
         guard card.action.choosesPages || card.options.pages != nil, let row = card.rows.first,
@@ -461,8 +461,8 @@ struct AskClaudePDFCardView: View {
         isRunning ? "Waits for Claude to finish." : bridge()
     }
 
-    /// **Why there is no Undo, and what to do instead** — Undo lasts only as long as SyncCloud and
-    /// this chat do, and it never moves a file changed since.
+    /// Why there is no Undo, and what to do instead: Undo lasts only as long as SyncCloud and this
+    /// chat do, and it never moves a file changed since.
     static func noUndoNote(_ card: AskClaudePDFCard, held: Bool) -> String {
         let one = card.written.count == 1
         if held {
@@ -472,8 +472,8 @@ struct AskClaudePDFCardView: View {
             + (one ? "file" : "files") + " to the Trash yourself if you don’t want " + (one ? "it." : "them.")
     }
 
-    /// **A card SyncCloud quit under**: what it wrote before the quit is on disk, but the card
-    /// never heard of it — so it says where to look, the folder chosen if one was.
+    /// A card SyncCloud quit under: what it wrote before the quit is on disk, but the card never
+    /// heard of it, so it says where to look (the folder chosen, if one was).
     static func quitNote(_ card: AskClaudePDFCard) -> String {
         let place: String
         if let folder = card.folder {

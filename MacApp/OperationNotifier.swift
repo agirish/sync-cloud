@@ -5,14 +5,13 @@ import Settings
 import Sync
 import UserNotifications
 
-/// Mirrors an operation banner as a system notification when it lands while SyncCloud is in
-/// the background (General setting, default off) — banners live inside the window, so a long
-/// copy finishing behind another app was previously silent.
+/// Mirrors an operation banner as a system notification when it lands while SyncCloud is in the
+/// background (a General setting, off by default), since the banner itself lives inside the window.
 @MainActor
 enum OperationNotifier {
 
-    /// The gate, kept pure so it's testable without UNUserNotificationCenter: notify only
-    /// when the user opted in AND the app isn't frontmost (a visible banner is enough).
+    /// The gate, pure so it's testable without UNUserNotificationCenter: notify only when the user
+    /// opted in and the app isn't frontmost (a visible banner is enough).
     nonisolated static func shouldNotify(enabled: Bool, appIsActive: Bool) -> Bool {
         enabled && !appIsActive
     }
@@ -26,14 +25,13 @@ enum OperationNotifier {
         }
     }
 
-    /// `defaults`, `appIsActive` and `post` are injectable for the tests alone — the test host IS
-    /// the running app, so a test that wrote `.standard` would be writing the user's live General
-    /// settings, and `UNUserNotificationCenter` cannot be observed headless. Production callers
-    /// pass nothing and get exactly the previous behavior.
+    /// `defaults`, `appIsActive` and `post` are injectable for tests only: the test host is the
+    /// running app, so writing `.standard` would change the user's live settings, and
+    /// `UNUserNotificationCenter` can't be observed headless.
     ///
-    /// **Run Room TE227:** a message that ends a long run is titled with that run — "Merging
-    /// “Photos”" — rather than "Operation complete"; the body carries the detail line too; and the
-    /// request names the message, so a click opens the Activity window on it (``activityMessageKey``,
+    /// A message that ends a long run is titled with that run ("Merging “Photos”") rather than
+    /// "Operation complete"; the body carries the detail line too; and the request names the
+    /// message, so a click opens the Activity window on it (``activityMessageKey``,
     /// `SyncCloudAppDelegate`'s notification delegate).
     static func postIfEnabled(for banner: OperationBanner,
                               runTitle: String? = nil,
@@ -48,31 +46,30 @@ enum OperationNotifier {
         content.body = [banner.message, banner.detail].compactMap { $0 }.joined(separator: "\n")
         content.sound = .default
         content.userInfo = [activityMessageKey: banner.id.uuidString]
-        // Each banner is one completed outcome (success/warning/error — see the `.banner =`
-        // call sites), so it should surface as its own notification. The per-publish UUID gives
-        // every request a distinct identifier, so the system never coalesces two genuinely
+        // Each banner is one completed outcome, so it gets its own notification. The per-publish
+        // UUID gives every request a distinct identifier, so the system never coalesces two
         // different outcomes into one.
         post(UNNotificationRequest(identifier: banner.id.uuidString, content: content, trigger: nil))
     }
 
-    /// The notification's user-info key for the message it reports — Recent's row id.
+    /// The notification's user-info key for the message it reports: Recent's row id.
     nonisolated static let activityMessageKey = "activityMessage"
 
-    /// The run a message ends, by name — the last long run, when it ended a moment ago: within the
-    /// window's own rule for a run's ending (`ContentView.runOrigin(ending:)`). A run's message is
-    /// set in the turn its progress clears.
+    /// The title of the run a message ends, when the last long run ended a moment ago (the window's
+    /// rule for a run's ending, `ContentView.runOrigin(ending:)`). A run's message is set in the
+    /// turn its progress clears.
     nonisolated static func runTitle(lastFinished: (title: String?, ended: Date)?, now: Date = Date()) -> String? {
         guard let lastFinished, now.timeIntervalSince(lastFinished.ended) < 2 else { return nil }
         return lastFinished.title
     }
 
     private static func postToNotificationCenter(_ request: UNNotificationRequest) {
-        // The completion handler is the only signal this feature has. `add` fails silently when the
-        // user has revoked notification permission in System Settings — and this feature exists
-        // precisely for when the app is in the BACKGROUND, so a dropped notification is a dropped
-        // outcome the user never sees: the in-window banner is gone by the time they come back.
-        // Resolved on the main actor before the call (`Logger.shared` is MainActor-isolated) so the
-        // handler, which arrives on an arbitrary queue, only touches the logger's nonisolated API.
+        // The completion handler is the only signal. `add` fails silently when notification
+        // permission was revoked, and this posts only while the app is in the background, so a
+        // dropped notification is an outcome the user never sees: the in-window banner is gone by
+        // the time they come back. The logger is resolved on the main actor first (`Logger.shared`
+        // is MainActor-isolated), so the handler, which arrives on an arbitrary queue, touches only
+        // its nonisolated API.
         let logger = Logger.shared
         UNUserNotificationCenter.current().add(request) { error in
             guard let error else { return }
@@ -81,8 +78,8 @@ enum OperationNotifier {
     }
 }
 
-/// **One-way sync's notifications** (RD67, DC): a *Needs you* row's first, then its reminder,
-/// and the one information row that sends one. Its own opt-in, made at setup
+/// One-way sync's notifications: a Needs you row's first, then its reminder, and the one
+/// information row that sends one. Its own opt-in, made at setup
 /// (`OneWaySyncNoticeBoard.notifyKey`), apart from General's background-completion switch, and
 /// shown with SyncCloud in front too (`OperationNotificationClicks.willPresent`): a sync that
 /// stopped matters whichever app is in front.
@@ -119,9 +116,8 @@ enum OneWaySyncNotifier {
     }
 }
 
-/// **A notification's click opens that message in Activity** (Run Room TE227, R15): the window on
-/// Now with the row picked out — not the popover, which hangs from a main window that may be behind
-/// other apps.
+/// A notification's click opens that message in the Activity window, on Now with the row picked
+/// out; not the popover, which hangs from a main window that may be behind other apps.
 final class OperationNotificationClicks: NSObject, UNUserNotificationCenterDelegate {
     static let shared = OperationNotificationClicks()
 

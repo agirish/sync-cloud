@@ -2,9 +2,9 @@ import AppKit
 import Design
 import SwiftUI
 
-/// The static keyboard/mouse shortcut listing behind Window ▸ Keyboard Shortcuts (⌘/).
-/// Pure data, pinned by SyncCloudTests so the reference can't silently drift from reality —
-/// when a shortcut is added or changed, update this list and the pin test together.
+/// The static shortcut listing behind Window ▸ Keyboard Shortcuts (⌘/). Pure data, pinned by
+/// SyncCloudTests so it can't drift from the real chords: change a shortcut, update this list and
+/// its pin test together.
 enum ShortcutsReference {
     struct Item: Equatable {
         let keys: String
@@ -16,12 +16,9 @@ enum ShortcutsReference {
         let items: [Item]
     }
 
-    /// Where to break `groups` into two columns so their row counts come out closest.
-    ///
-    /// Counts a header as a row, because it occupies one. Never returns 0 or `count`, so both
-    /// columns hold something even for a degenerate list. Kept as the two-column case of
-    /// ``balancedColumns(_:count:)`` — the reference draws three now, but the two-way split is what
-    /// its tests pinned and what the general form is checked against.
+    /// Where to split `groups` into two columns so their row counts come out closest. A header
+    /// counts as a row. Never returns 0 or `count`, so both columns hold something. The two-column
+    /// case of ``balancedColumns(_:count:)``, kept because its tests check the general form.
     static func balancedSplit(_ groups: [Group]) -> Int {
         guard groups.count > 1 else { return groups.count }
         let weights = groups.map { $0.items.count + 1 }
@@ -37,19 +34,10 @@ enum ShortcutsReference {
         return best
     }
 
-    /// `groups` dealt into `count` columns, in order, so the TALLEST column is as short as it can be.
-    ///
-    /// **Three columns since the Text and Markup menus arrived** (roadmap RD1). The reference grew
-    /// by six chords and a text-size row, and two columns had no room left: the window was 800pt
-    /// against a 13" display's usable height, and the rows measured 779. Growing sideways is the
-    /// alternative that keeps the whole reference on screen — a reference you scroll is a
-    /// reference you stop reading — and the roadmap's own recommendation.
-    ///
-    /// Minimises the maximum column weight, a header counting as a row, over every way of cutting
-    /// the ordered list into `count` runs; the group order is the reading order and is never
-    /// reshuffled. Exhaustive rather than greedy, because greedy dealing put General and Panes —
-    /// the two biggest — together in one column and left the third nearly empty. Six groups into
-    /// three columns is ten cuts to compare, so exhaustive costs nothing.
+    /// `groups` dealt into `count` columns, in reading order, so the tallest column is as short as
+    /// it can be (a header counts as a row). Exhaustive, not greedy: greedy would put the two
+    /// biggest groups in one column and leave the third nearly empty. Six groups into three
+    /// columns is ten cuts, so exhaustive costs nothing.
     static func balancedColumns(_ groups: [Group], count: Int) -> [[Group]] {
         guard count > 1 else { return groups.isEmpty ? [] : [groups] }
         // Fewer groups than columns: one per column, and no empty columns after them.
@@ -81,44 +69,31 @@ enum ShortcutsReference {
 
     static let groups: [Group] = [
         Group(title: "General", items: [
-            // First, because it is the one entry that teaches all the others: hold it and the
-            // shortcuts below appear on the controls themselves. A reference nobody opens can't
-            // do that, which is the whole reason the reveal exists.
+            // First, because it teaches all the others: hold ⌥ and the shortcuts appear on the
+            // controls themselves.
             Item(keys: "Hold ⌥", action: "Show every on-screen shortcut as a key badge"),
-            // Derived from the bar rather than typed, because the bar has changed length three
-            // times and this row is the kind of thing that stays behind: it read "⌘ 1 – ⌘ 5" for a
-            // whole commit after the bar dropped to three segments, promising two chords that do
-            // nothing. `ShortcutsReferenceTests` pins the derived string against the enum.
+            // Derived from the bar, not typed, so the row can't promise chords the bar no longer
+            // has. `ShortcutsReferenceTests` pins the string against the enum.
             Item(keys: "⌘ 1 – ⌘ \(Workspace.allCases.count)",
                  action: "Switch workspace, in the bar’s order"),
-            // Second: it is the one shortcut that can reach a place not currently on screen — a
-            // workspace, one of Organize's lenses, a folder, a person, or an action — so it is
-            // the entry that makes the rest of this list optional. (Unnumbered on purpose: the
-            // count above is derived for exactly this reason, and Names folding into Renames took
-            // the rail from six to five.)
+            // Second: the one shortcut that reaches a place not on screen, which makes the rest of
+            // this list optional.
             Item(keys: "⌘ K", action: "Go to — any place, folder, person, or a typed path"),
-            // Routed by where the caret is, like ⌘F: the row has to name both meanings, because
-            // this is the one place a reader is told the chord has two.
+            // Routed by where the caret is, like ⌘F, so the row names both meanings.
             Item(keys: "⌘ I", action: "Show or hide the Info inspector — in Edit’s text, Italic"),
             Item(keys: "⌘ J", action: "Show or hide Ask Claude, to ask about the screen you’re on"),
-            // The panel's own key, not a menu chord (`AskClaudeWindow` catches it ahead of the
-            // field editor), so no registry check would ask for this row (TE311).
+            // The panel's own key, caught by `AskClaudeWindow` ahead of the field editor, not a
+            // menu chord, so no registry check asks for this row.
             Item(keys: "⌥ Space", action: "In Ask Claude, talk; again to send, Esc to cancel"),
             Item(keys: "⌘ L", action: "Open Activity — runs, messages, Sync History and the log"),
-            // The slider's own stops, from the keyboard — never a size Settings cannot reach. The
-            // same keys zoom a PDF whose pages have the keyboard (`PDFZoomVerbs`), so the row names
-            // both meanings, as ⌘I's does.
+            // The slider's own stops, never a size Settings can't reach. The same keys zoom a PDF
+            // that has the keyboard (`PDFZoomVerbs`), so the row names both, as ⌘I's does.
             Item(keys: "⌘ + / ⌘ − / ⌘ 0", action: "Bigger / smaller / default text size, or zoom a focused PDF"),
             Item(keys: "⌘ ,", action: "Open Settings"),
             Item(keys: "⌘ /", action: "Show this shortcuts reference"),
             Item(keys: "⌘ ?", action: "Open SyncCloud Help"),
-            // **One row for two stacks, and the wording has moved once already.** The editor's text
-            // view keeps its own undo stack, so the chord means two different things depending on
-            // where focus is. This read "(not typing)" — written when the parenthesis was the whole
-            // truth, because there was no editor — and it survived the Edit workspace arriving with
-            // an undo stack for precisely the typing it excludes. It now names both, in the order
-            // the reader meets them. Amended in place rather than split into a second row, because
-            // a new row re-breaks `balancedSplit`'s two columns and moves the window.
+            // One row for two undo stacks, since the editor's text view keeps its own. A second
+            // row would re-deal the columns and move the window.
             Item(keys: "⌘ Z / ⇧⌘ Z", action: "Undo / redo — the last file operation, or your typing in Edit"),
             // The progress window's Cancel. ⌘. and not Esc, which the window under it still owns
             // (`AppChord.cancelOperation`).
@@ -132,91 +107,52 @@ enum ShortcutsReference {
             Item(keys: "Esc", action: "Close the Settings overlay"),
         ]),
         Group(title: "Panes", items: [
-            // Undocumented until the ⌥-reveal work went looking for every real shortcut in the
-            // app and found this one had a control, a tooltip and no entry here.
-            // First in this group, because it decides which pane every other row here acts on.
-            // "In Compare" is load-bearing, not padding: this chord is the pane switch only where
-            // there are two panes, and in Browse it steps tabs instead. The Tabs group below states
-            // the split from the other side; leaving this row unqualified made one of the two wrong
-            // wherever the reader happened to be.
+            // First in the group: it decides which pane every row below acts on. "In Compare"
+            // matters, because in Browse this chord steps tabs instead (see Tabs).
             Item(keys: "⌃ ⇥", action: "In Compare, focus the other pane — aims ⌘F, ⌘[ / ⌘] and ⇧⌘N"),
-            // Routed by where the caret is (`FindInPaneCommand`), so the row has to say so — this
-            // is the only place a reader is told the chord has two destinations.
+            // Routed by where the caret is (`FindInPaneCommand`), so the row names both
+            // destinations.
             Item(keys: "⌘ F", action: "Find a file or folder in this pane — in Edit, in the document"),
             Item(keys: "⌘ [ / ⌘ ]", action: "Back / forward in the focused pane"),
-            // **One row, paired like ⌘[ / ⌘] directly above it** — and that is a height decision,
-            // not only a tidiness one. Two rows measured 740pt against a 700pt window; the window
-            // cannot simply follow, because 800pt is a 13" display's usable height and reaching it
-            // is what forced the three-column deal in the first place. Paired, the content is 704pt.
-            //
-            // Immediately under ⌘[ / ⌘], because the question a reader arrives with is how these
-            // differ from them, and "stops at the first" is the answer — this is the only place
-            // both pairs are seen together.
+            // One row, paired like ⌘[ / ⌘] above it, because two rows overflow the window. Placed
+            // right under ⌘[ / ⌘] so the reader sees the difference: these stop at the first column.
             Item(keys: "⌘ ↓ / ⌘ ↑", action: "In Columns, open the selected folder / close the rightmost column, stopping at the first"),
             Item(keys: "⌘ R", action: "Scan both panes for changes"),
             Item(keys: "⇧⌘ N", action: "New folder in the focused pane’s current folder"),
-            // **⌃⌘T joins the sidebar's row** (TE81), for ⌃⌘E's reason in Edit below: a row of its
-            // own does not fit this window. The two are the window's two side columns' switches.
+            // ⌃⌘T shares the sidebar's row because a row of its own doesn't fit; the two toggle the
+            // window's two side columns.
             Item(keys: "⌃⌘ S / ⌃⌘ T", action: "Show or hide sidebar / file list"),
             Item(keys: "⇧⌘ .", action: "Show or hide hidden files"),
             Item(keys: "⌘ ⌫", action: "Move the selected items to the Trash"),
             Item(keys: "Space", action: "Quick Look the selected item"),
             Item(keys: "⌘-click / ⇧-click", action: "Select multiple items"),
-            // Directly under the gesture that creates its precondition: two files ⌘-clicked in one
-            // pane is the whole enabling condition, and the row above is where a reader learns it.
+            // Under ⌘-click, which is how the two files it needs get selected.
             Item(keys: "⇧⌘ C", action: "Compare the two selected files side by side"),
             Item(keys: "⌥-click a breadcrumb", action: "Navigate both panes to that folder"),
         ]),
-        // **Its own group rather than two rows in Panes**, which was the cheaper option and the
-        // misleading one: both of these act on a document in one workspace, and a "Save" row under
-        // a heading about panes reads as an app-wide key that saves something in Browse.
+        // Its own group, not rows in Panes: these act on a document in Edit, and under a Panes
+        // heading "Save" would read as an app-wide key.
         Group(title: "Edit", items: [
-            // **⌘O shares ⌘N's row, on the ⌘S/⌘P and ⌘F precedents directly below.** The
-            // reference has 6pt of headroom in its 740pt window (734pt of rows, measured 2026-09-25
-            // — see `windowSize`) and a row costs ~30pt, so a row of its own does not fit — and
-            // neither does a row for any of Edit's other doors, which Help lists instead. Nor does
-            // a SECOND LINE on this one: the action column
-            // here holds about 35 characters, and every longer wording tried ("…— or open the
-            // selected one", "…/ open the selected file") wrapped and measured 749pt, which
-            // `theReferenceFitsItsWindowAtEveryTextSize` refuses. "New or selected" maps onto the
-            // keys in order, and "in Edit" stays because ⌘O fires from a Browse or Compare pane,
-            // not from inside Edit where this group otherwise lives. "file", not "text file": ⌘O
-            // opens a selected PDF too.
+            // ⌘O shares ⌘N's row: a row of its own doesn't fit the window, and neither does a
+            // longer wording that wraps. Edit's other entry points have no chord and are listed in
+            // Help. "In Edit" stays because ⌘O also fires from Browse and Compare; "file", not
+            // "text file", because it opens PDFs too.
             Item(keys: "⌘ N / ⌘ O", action: "New or selected file, in Edit"),
-            // **⌘P shares ⌘S's row, and that was measured rather than chosen for tidiness.** On a
-            // row of its own the reference stood 770pt against a 740pt window, which
-            // `theReferenceFitsItsWindowAtEveryTextSize` refuses — the same wall the editor's ⌘F
-            // row hit. The pairing also says the true thing: these are the two verbs that take the
-            // open document somewhere. "What Preview shows" is the half a reader could otherwise
-            // only learn by printing. File ▸ Export as PDF… is deliberately absent: it has no
-            // chord, and this is a reference to the keyboard.
+            // ⌘P shares ⌘S's row because a row of its own overflows the window; both take the open
+            // document somewhere. File ▸ Export as PDF… is left out: it has no chord.
             Item(keys: "⌘ S / ⌘ P", action: "Save the open document — or print what Preview shows"),
-            // One row for the three modes: they are one control, and rows are the budget here.
-            // **⌃⌘E joins it rather than taking a row of its own** (TE48): Text ▸ Expand sits under
-            // the three modes in the menu, it is the fourth answer to "how is the document shown",
-            // and a row of its own is ~36pt against the 6pt this window had left. The row was
-            // already two lines of action text, so the longer keys wrap beside it for nothing —
-            // as long as the action stays two lines: "…Split for Markdown — or Expand the
-            // document" made it three and measured 749pt, which the fit test refused.
+            // One row for the three modes, which are one control. ⌃⌘E joins it as the fourth way
+            // to show the document: a row of its own doesn't fit, and the action must stay at two
+            // lines or the window overflows.
             Item(keys: "⌃⌘ 1 / ⌃⌘ 2 / ⌃⌘ 3 / ⌃⌘ E",
                  action: "Markdown’s Source / Preview / Split, or Expand"),
-            // **The Markup chords, now that the Markup menu registers them.** This group carried a
-            // note refusing them while nothing answered the keys — a reference listing ⌘B for a
-            // chord nothing registers would be the one place in the app that lies about the
-            // keyboard. ⌘I is routed: the General row above names both meanings, and this one
-            // states the half that applies here.
+            // The Markup menu's chords. ⌘I is routed: the General row names both meanings, and this
+            // one the half that applies here.
             Item(keys: "⌘ B / ⌘ I", action: "Bold / italic, with the caret in the text"),
             Item(keys: "⇧⌘ X / ⇧⌘ K / ⇧⌘ L", action: "Strikethrough / inline code / link"),
-            // The find bar's own verbs. **No ⌘F row here, and it was tried.** The chord's two
-            // destinations are named on its one row in Panes; a second row for the editor's half
-            // pushed the reference past its window, which `theReferenceFitsItsWindowAtEveryTextSize`
-            // caught. A fact that fits on an existing row belongs on it.
-            // **⌃⌘L joins the find pair** (TE61) for ⌃⌘E's reason above: a row of its own does not
-            // fit this window, and going to a line is the third way to a place in the text. "Use the
-            // selection for find" lost three words to it: kept, the action wrapped and the reference
-            // measured 749pt, which `theReferenceFitsItsWindowAtEveryTextSize` refused.
-            // **⇧⌘G joins it** with the PDF reader's find, which steps both ways — and the text
-            // find bar too, which never had a way back.
+            // The find bar's verbs. No ⌘F row: its row in Panes names both destinations, and a
+            // second row overflows the window. ⌃⌘L and ⇧⌘G share this row for the same reason;
+            // ⇧⌘G steps back in both the text and the PDF find.
             Item(keys: "⌘ G / ⇧⌘ G / ⌘ E / ⌃⌘ L", action: "Find next / previous / use selection / go to line"),
             Item(keys: "Right-click", action: "Headings, lists and the rest of Markup — also Wrap Lines and spelling"),
         ]),
@@ -224,16 +160,13 @@ enum ShortcutsReference {
             Item(keys: "⌘ T", action: "New tab, at the folder this pane is showing"),
             Item(keys: "⌘ W", action: "Close the tab — or the window, on the last one"),
             Item(keys: "⇧⌘ ] / ⇧⌘ [", action: "Next / previous tab"),
-            // The split is stated, because one chord doing two things is exactly what a reference
-            // is for: ⌃⇥ has always been the pane switch, and Browse has one pane for it to switch
-            // between. The Go menu's item names whichever it will do. ⌃⇧⇥ (SH3) is Previous Tab
-            // everywhere — paired on one row, so the reference keeps its height.
+            // States the split, since one chord doing two things is what a reference is for: ⌃⇥
+            // switches panes in Compare and steps tabs in Browse, which has one pane. ⌃⇧⇥ is
+            // Previous Tab everywhere, paired here to save a row.
             Item(keys: "⌃ ⇥ / ⌃⇧ ⇥", action: "Next / previous tab — in Compare, ⌃⇥ is the other pane"),
             Item(keys: "⇧⌘ T", action: "Show or hide the tab bar"),
-            // **No ⌘-double-click row.** One sat here from v4.1, and v5.3 shipped it after the gesture
-            // it described had gone with the column row's tap gesture (`2e26a50f`, see
-            // `PaneColumnRowHasNoGestureTests`). The row above is the pointer's way to a new tab
-            // now. `testNoRowAdvertisesACommandDoubleClick` fails if the row comes back.
+            // No ⌘-double-click row: that gesture doesn't exist.
+            // `testNoRowAdvertisesACommandDoubleClick` fails if the row comes back.
             Item(keys: "Right-click a folder", action: "Open that folder in a new tab"),
             // ⌘1…⌘9 are the workspaces', and a reader coming from Finder or Safari will try them.
             Item(keys: "⌘ 1 – ⌘ \(Workspace.allCases.count)", action: "Switch workspace — never tabs"),
@@ -256,16 +189,9 @@ enum ShortcutsReference {
     ]
 }
 
-/// The **Window**-menu item that opens the shortcuts window, and the one thing in the app that
-/// registers ⌘/.
-///
-/// A separate View (not inline in the `.commands` builder) because `openWindow` is an Environment
-/// value, which the App struct itself doesn't carry.
-///
-/// **It was in Help until `cd87b08e`, and for two commits it was nowhere.** That commit moved the
-/// auxiliary windows out of Help — each was listed twice — and this was the only registration of
-/// ⌘/, so removing its call site removed the chord while the reference below went on listing it.
-/// `everyDeclaredChordIsOnAMenuItem` is what says so now.
+/// The Window-menu item that opens the shortcuts window, and the app's only registration of ⌘/.
+/// A separate View because `openWindow` is an Environment value the App struct doesn't carry.
+/// `everyDeclaredChordIsOnAMenuItem` fails if the chord loses this item.
 struct ShortcutsWindowCommand: View {
     @Environment(\.openWindow) private var openWindow
 
@@ -275,164 +201,41 @@ struct ShortcutsWindowCommand: View {
     }
 }
 
-/// The Help-menu shortcuts window: titled groups of key/action rows. Static content,
-/// sized to fit — no state beyond what `ShortcutsReference` provides.
+/// The shortcuts window: titled groups of key/action rows. Static content, sized to fit — no state
+/// beyond what `ShortcutsReference` provides.
 struct ShortcutsReferenceView: View {
-    /// The window is `.contentSize`-resizable — the user cannot enlarge it — so this frame has
-    /// to show the whole reference. The single 480pt column fit the sixteen rows it opened
-    /// with; the twelve menu-bar chords took it to twenty-nine, which is 865pt of column —
-    /// taller than a MacBook Air's screen — so the content went to two columns instead.
-    /// `theReferenceFitsItsWindowAtEveryTextSize` measures the laid-out content against this
-    /// number, so a future row can move it but never silently overflow it. The ScrollView is for
-    /// a screen shorter than the window, which the larger text sizes can reach.
+    /// The window at the default text size; ``windowSize(scale:)`` is the size drawn.
     ///
-    /// **560 → 600 when ⌘K was added.** The palette's row went into General, which is in the taller
-    /// left column, and the content measured 593pt — the test caught it, which is exactly what it
-    /// is for. Raising the window is the right half of its "raise windowSize or trim rows": every
-    /// row here documents a chord that exists, so trimming would mean hiding one. 600pt still fits
-    /// a 13" display's usable height with room to spare.
-    ///
-    /// **600 → 640 when ⌘? was listed.** Same column, same story, and the test caught it the same
-    /// way: the content went to 614pt the moment the Help chord got the row it should always have
-    /// had. 640 keeps a comparable margin and still clears a 13" display's usable height.
-    ///
-    /// **640 → 720 when the file clipboard arrived** (⌘A / ⌘X / ⌘C / ⌘V, §10). Four chords, and the
-    /// test caught it the same way for the third time — three rows measured 707pt, so they were
-    /// tightened to two and the content settled at **686pt measured**. 720 keeps a 34pt margin,
-    /// comparable to the 26pt the last raise left, and still clears a 13" display. The pattern is
-    /// worth naming now that it has repeated three times: **this window grows by chords, and the
-    /// test is the only thing that notices** — nothing about the reference looks wrong until it is
-    /// scrolled, and it is not scrollable.
-    ///
-    /// **720 → 780 when Browse's sidebar arrived** (⌃⌘S, §3). One row, in Panes beside the two
-    /// other show/hide rungs it belongs with, and the content went to **743pt** — the fourth time
-    /// the test has caught this and the first time a *single* row did it, which is the margin
-    /// telling the truth about how little was left. 780 left 37pt, comparable to the 34 the raise
-    /// before it left, and still cleared a 13" display's usable height.
-    ///
-    /// **780 → 740 when that row left again** (2026-08-20): the sidebar was held for v4.3
-    /// (`FolderSidebarModel.isEnabled`), and a row describing a column that cannot appear is the
-    /// same failure `testNoRowAdvertisesDragAndDrop` exists to catch. Content **measured 707pt**
-    /// with the row gone, so 740 left 33pt. **The first time this window came back down**, and it
-    /// came down for the reason it went up: the number is what the rows measure, not a high-water
-    /// mark.
-    ///
-    /// **740 → 760 when the row returned for v4.4** (item #13, the sidebar switched on). The fifth
-    /// time this has moved, and the first where the prediction in the paragraph above was wrong in
-    /// an interesting way: one row usually costs ~36pt and 780 was expected back, but the content
-    /// **measured 728pt** — a 21pt rise, because the row landed in *Panes* and `balancedSplit`
-    /// re-broke the two columns around it. So 740 still fit, with 12pt to spare.
-    ///
-    /// **Raised anyway, and 12pt is the reason.** Every other raise here left 33–37pt, and this
-    /// window cannot be resized by hand — 12pt is inside one line of ordinary text reflow, so
-    /// "it fits today" and "it fits after a system font metric moves" are different claims. 760
-    /// leaves **32pt**, squarely in the band the last four raises settled into, and stays under the
-    /// 60pt ceiling `theReferenceFitsItsWindowAtEveryTextSize` puts on empty space. Measured, not
-    /// guessed: the number came from rendering `ShortcutsReferenceContent` at this width.
-    ///
-    /// **The Edit group cost nothing, and that is worth recording rather than assuming.** ⌘N and
-    /// ⌘S arrived as a group of their own (a header plus two rows — three rows by `balancedSplit`'s
-    /// counting, ~100pt of the ~36pt-a-row arithmetic every raise above used). The content still
-    /// **measures 728pt**: the new group landed in the shorter column and the split re-broke around
-    /// it, so the tall column did not grow. The sixth time this file has been measured, the second
-    /// time rows were added without the window moving, and the same lesson both times — the number
-    /// comes from rendering it, never from adding up rows.
-    ///
-    /// **760 → 800 when ⇧⌘C arrived** (CC15.3 — compare two selected files). The seventh move, and
-    /// the first where a single row cost the full ~36pt rather than being absorbed by a re-break:
-    /// it landed in *Panes*, under the ⌘-click row that creates its precondition, and Panes is
-    /// already the taller column, so `balancedSplit` had nothing to give. Content **measured
-    /// 779pt** against a 760pt window — caught by the test for the seventh time, and again by
-    /// nothing else. 800 leaves **21pt**, below the 33–37pt band the middle raises settled into
-    /// and above the 12pt that was judged too tight in the v4.4 note. Two things make 21 the right
-    /// number rather than 815: this row cannot be trimmed (it documents a chord that exists, the
-    /// standing rule here), and the group it joined is the one a re-break would move next, so
-    /// buying margin now would likely be spending it twice. Measured, not guessed.
-    ///
-    /// **Two columns → three, 880×800 → 1240×700, when the Text and Markup menus arrived** (v5.3,
-    /// roadmap RD1). Seven rows joined at once — the three view modes, the five markup chords on two
-    /// rows, the find bar's pair, and a text-size row in General — and two columns could not hold
-    /// them: at 800pt the window was already at a 13" display's usable height, so the reference had
-    /// nowhere to grow but sideways. The eighth move, and the first that changed the SHAPE rather
-    /// than the number: `ShortcutsReference.balancedColumns` deals the groups into three columns of
-    /// the closest weight, in reading order, and the width grew by one column's worth. The height
-    /// came down for the same reason it had gone up — it is what the rows measure, and three
-    /// columns of the same rows are shorter: the content **measured 668pt** at this width (the
-    /// first guess of 640 was caught by the test, as every number above was), so 700 leaves 32pt,
-    /// in the band the earlier raises settled into and under the test's 60pt ceiling on empty space.
-    ///
-    /// **700 → 740 when the RD5 column pair arrived**, the ninth move and the same story as the
-    /// eight before it: the test caught it, at 740pt of content against a 700pt window. The pair
-    /// went in as ONE row (`⌘ ↓ / ⌘ ↑`, like `⌘ [ / ⌘ ]` above it) rather than two, which is what
-    /// keeps this a 19pt raise instead of a 40pt one — its action text wraps to a second line, so
-    /// it costs about half a row rather than none. **Sideways is no longer the escape it was**: the
-    /// width is already three columns, and the groups are atomic, so the tallest column cannot be
-    /// cut below the tallest GROUP however they are dealt. The content measured 719pt then, so 740
-    /// left 21pt — in the same band, under the 60pt ceiling, and still 60pt below the 800pt that a
-    /// 13" display makes the practical limit.
-    ///
-    /// **It now measures 734pt, leaving 6pt** — measured 2026-09-25 on the v5.4 line by printing
-    /// the height `theReferenceFitsItsWindowAtEveryTextSize` reads (TE35 had measured the same 734
-    /// with and without the row it dropped). That is under the 12pt the v4.4 note above judged too
-    /// tight, and the window was deliberately not raised for it: Edit's later doors — the ＋ and ×
-    /// above the document, File ▸ Close Document, Open in Edit in Compare's differences and
-    /// Duplicates' copies — carry no chord of their own and went to Help, not to rows here. The
-    /// next row that has to go in will need about a row's worth, ~36pt, on this number.
-    ///
-    /// **740 → 760 when ⇧⌘G arrived** with the PDF reader's find (2026-10-17). Not a row: it joined
-    /// the find row, whose keys then wrapped to a second line beside a one-line action, and the
-    /// content measured **749pt**. 760 leaves 11pt, still 40pt below the 800pt a 13" display allows.
-    ///
-    /// **760 → 762, and 12pt is a floor now** (2026-10-24). 11pt is under the 12pt the v4.4 note
-    /// judged too tight, and Largest had slipped to 8pt (819pt of rows in 827), so the fit test now
-    /// holds every stop to at least 12pt under the last row as well as at most 60pt. 762 leaves 13pt
-    /// here; `heightPerGrowth` went 240 → 250 for the larger stops.
-    ///
-    /// **This is the size at the default text size; ``windowSize(scale:)`` is the one drawn.** It
-    /// was this constant at every size, so above Default the rows outgrew it and the window
-    /// scrolled, and the longest key strings wrapped in a keys column that stayed 165pt while its
-    /// type grew. `theReferenceFitsItsWindowAtEveryTextSize` holds every selectable stop to the
-    /// same fit and the same 60pt ceiling on empty space this number was held to.
+    /// The window can't be resized by hand, so this must fit every row.
+    /// `theReferenceFitsItsWindowAtEveryTextSize` renders the rows and holds every text size to
+    /// 12–60pt of space under the last row. Take the number from that measurement, never from
+    /// adding up rows. Keep the height under ~800pt, a 13" display's usable height: when rows
+    /// outgrow it, pair chords on an existing row before raising it. The ScrollView only covers a
+    /// screen shorter than the window.
     static let windowSize = CGSize(width: 1240, height: 736)
 
     /// The keys column at the default text size.
     static let keysColumnWidth: CGFloat = 165
 
-    /// How much the reference's type grows at `scale` — the callout rows', which are most of it,
-    /// through the app's own ramp (`FontSize.scaledPointSize`), not a flat multiply: above Default
-    /// the ramp damps, and a window grown by the raw percentage would leave a band of nothing
-    /// under the last row.
+    /// How much the reference's type grows at `scale`, through the app's own ramp
+    /// (`FontSize.scaledPointSize`). Not a flat multiply: the ramp damps above Default, and a
+    /// window grown by the raw percentage would leave empty space under the last row.
     static func growth(scale: CGFloat) -> CGFloat {
         FontSize.scaledPointSize(12, scale: scale) / 12
     }
 
-    /// The window at `scale`. **The width grows with the type and the height far less**, and both
-    /// halves were measured rather than reasoned: a window widened with its type wraps fewer
-    /// action lines, so the rows grow much less than the type does. Grown in both directions by
-    /// the type’s own factor, the window left 64–153pt of nothing under the last row from 110% up
-    /// (rows measured 734–819pt against 798–972pt windows), and still overflowed at 90%. Growing
-    /// the height by `heightPerGrowth` per unit keeps every stop inside the 60pt ceiling.
+    /// The window at `scale`. The width grows with the type; the height grows much less, because a
+    /// wider window wraps fewer action lines. Grown by the type's factor both ways, it would leave
+    /// up to 150pt empty at the large sizes and still overflow at 90%.
     static func windowSize(scale: CGFloat) -> CGSize {
         let k = growth(scale: scale)
         return CGSize(width: (windowSize.width * k).rounded(),
                       height: (windowSize.height + heightPerGrowth * (k - 1)).rounded())
     }
 
-    /// Points of window height per unit of type growth — fitted to the rows measured at every
-    /// stop, 688pt at 90% to 819pt at 135% (2026-10-23), not to the 760 a flat multiply would use.
-    ///
-    /// **250, up from 240**, so every stop keeps 12–60pt under its last row. Measured 2026-10-24:
-    /// 240 left Largest 8pt (819pt of rows in 827). 250 leaves it 13pt, and 120% — the stop
-    /// nearest the 60pt ceiling, 738pt of rows — 59pt, so this cannot rise much further without
-    /// re-measuring.
-    ///
-    /// **258, with the default window 760**, on 2026-11-03: the ⌃⇥ row lost ⇧⌘P with View ▸ File
-    /// Preview and stopped wrapping at 90%, which left 90% 62pt under its last row. The base came
-    /// down 2pt for 90% and the growth went up to give the large stops those points back.
-    ///
-    /// **260, with the default window 736**, on 2026-11-04: General lost its ⇧⌘P row, which no
-    /// chord answered once View ▸ File Preview had gone. Rows measured 656pt at 90% to 794pt at
-    /// 135%; this leaves 15–57pt under the last row at every stop, Largest the tightest.
+    /// Points of window height per unit of type growth, fitted to the rows measured at every text
+    /// size (656pt at 90% to 794pt at 135%) so each keeps 15–57pt under its last row. Re-measure
+    /// when a row changes; Largest has the least room.
     static let heightPerGrowth: CGFloat = 260
 
     static func keysColumnWidth(scale: CGFloat) -> CGFloat {
@@ -452,12 +255,9 @@ struct ShortcutsReferenceView: View {
     /// The visible size of the screen this window is on, once it is in one — see `WindowScreenReader`.
     @State private var windowScreen: CGSize?
 
-    /// The screen to fit inside: the window's own, else the main screen until the window has one.
-    ///
-    /// **Not `NSScreen.main` alone.** That is the screen with the key window, which is the main
-    /// window's screen when ⌘/ is pressed — so on a two-display desk the reference opened sized
-    /// for the other display, cut off on a laptop panel or cramped on a large one, and kept that
-    /// size when dragged across.
+    /// The screen to fit inside: the window's own, else the main screen until it has one. Not
+    /// `NSScreen.main` alone, which is the key window's screen: on two displays the reference would
+    /// open sized for the other one and keep that size when dragged across.
     static func screenToFit(window: CGSize?, main: CGSize?) -> CGSize? { window ?? main }
 
     var body: some View {
@@ -520,20 +320,10 @@ struct WindowScreenReader: NSViewRepresentable {
     }
 }
 
-/// The rows themselves, split from the ScrollView so the fits-the-window test can measure their
-/// laid-out height — a ScrollView reports whatever frame it is given, never its content's size.
-///
-/// Two columns of groups, because one column of the full reference is taller than a small display.
-///
-/// **Split where the ROWS balance, not at the middle of the list.** It was the midpoint, and a
-/// fifth group broke it: three groups landed left and two right, giving a 29-row column against a
-/// 15-row one and a content height of 918pt against a 640pt window — the exact failure
-/// `theReferenceFitsItsWindowAtEveryTextSize` exists to catch, on a window the user cannot
-/// enlarge. Balancing by row count keeps the reading order (General, Panes, Tabs, …) and puts the
-/// break wherever the two columns come out closest, so a sixth group cannot reintroduce it.
-///
-/// **Three columns since v5.3**, dealt by `balancedColumns` — the same balancing, generalised,
-/// after the Edit group grew past what two columns could hold in a window a 13" display can show.
+/// The rows, split from the ScrollView so the fit test can measure their laid-out height — a
+/// ScrollView reports the frame it is given, never its content's size. The groups are dealt into
+/// columns by `balancedColumns`, which balances rows in reading order, so adding a group can't
+/// leave one column far taller than the rest.
 struct ShortcutsReferenceContent: View {
     @Environment(\.appFontScale) private var fontScale
 
@@ -569,16 +359,10 @@ struct ShortcutsReferenceContent: View {
                 }
             }
         }
-        // **Each column takes its own ideal height, whatever the row beside it proposes.** Without
-        // this, the three-column layout compressed the third column: its top rows rendered on one
-        // line with an ellipsis and the whole column sat 13pt low, while the two-column version
-        // had never shown it. Rendered and read back rather than reasoned about — a standalone
-        // probe reproduced it with the reference's own strings, and the effect scaled with how many
-        // rows sat below (a column holding only Tabs was fine; Tabs over Differences truncated its
-        // first row; all three groups truncated two). The column's `Text`s are flexible in height,
-        // so a proposal short of the ideal shrinks them from the top; pinning the vertical size to
-        // the ideal is what makes a `Text` in this list wrap rather than truncate. Horizontal stays
-        // flexible so the columns still share the width equally.
+        // Each column takes its own ideal height, whatever the row beside it proposes. Otherwise a
+        // short proposal shrinks the column's flexible `Text`s from the top and its first rows
+        // truncate with an ellipsis. Horizontal stays flexible so the columns share the width
+        // equally.
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
     }

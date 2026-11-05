@@ -6,36 +6,20 @@ import Settings
 import Sync
 import Design
 
-/// **The folder sidebar** — the host half. The column itself is `Dashboard.FolderSidebarView`;
-/// what lives here is where its rows come from and what a click does.
-///
-/// Held and unreachable from 2026-08-20 until v4.4, so that the column could arrive Finder-shaped
-/// rather than as two ungrouped lists under one source. Live since item #13 landed.
+/// The folder sidebar, host half. The column itself is `Dashboard.FolderSidebarView`; this file
+/// holds where its rows come from and what a click does.
 extension ContentView {
 
     // MARK: - Which pane a row acts on
 
-    /// **The pane a sidebar row acts on**, written as a question rather than as `true`.
-    ///
-    /// In a single-source workspace this is always the left pane, which is the only one there is.
-    /// Compare is the case that decides the shape: two panes and two sources, where a row has to
-    /// act on the one the user is working in. Hardcoding `isLeft: true` here — which is what the
-    /// v4.2 draft did throughout — is precisely the surgery reaching those workspaces would have
-    /// had to undo, and it did not have to be undone.
+    /// The pane a sidebar row acts on, written as a question rather than as `true`. In a
+    /// single-source workspace it is the left pane, the only one there is; in Compare a row acts on
+    /// the pane the user is working in.
     var folderSidebarTargetIsLeft: Bool {
-        // **The pane the user is working in — the same answer the action bar and the lens scans
-        // get, and the one the accent border draws.**
-        //
-        // Two earlier rules died here. It followed `PaneLogic.activePane` — which pane holds a
-        // SELECTION — and that was reported unusable in the one workspace where it mattered: with
-        // nothing selected the answer is always the left pane, so aiming the right pane at a folder
-        // meant first selecting a file in it, which nothing tells you and which a click on that
-        // pane's background undoes. A pair of capsules in the sidebar header replaced it and fixed
-        // that, at the cost of a control that could disagree with everything else on screen.
-        //
-        // `focusedPane` is neither. It survives a deselect by construction (see
-        // `PaneLogic.focusedSideAfterSelectionWrite`), which is exactly what the selection rule
-        // could not do, and it is set by working in a pane rather than by a control beside it.
+        // The pane the user is working in: the same answer the action bar and the lens scans get,
+        // and the one the accent border draws. Not `PaneLogic.activePane`, which follows the
+        // selection and answers the left pane whenever nothing is selected. `focusedPane` survives
+        // a deselect (`PaneLogic.focusedSideAfterSelectionWrite`) and is set by working in a pane.
         guard selectedWorkspace == .compare else { return true }
         return focusedPane == .left
     }
@@ -44,12 +28,10 @@ extension ContentView {
         folderSidebarTargetIsLeft ? leftProviderId : rightProviderId
     }
 
-    /// Whether the column is on screen — the one rule, so `browseLayout`'s `if` and the refresh's
-    /// guard cannot come to disagree about it.
-    ///
-    /// **In Edit the preference is Expand's to override**: while Expand holds the sidebar off
-    /// (`EditorExpand.hidesSidebar`) the column is down whatever the shared preference says, and
-    /// the preference is never written for it — hiding it in Edit must not hide it in Compare.
+    /// Whether the column is on screen: the one rule, so `browseLayout`'s `if` and the refresh's
+    /// guard cannot disagree. In Edit, Expand can override the preference: while
+    /// `EditorExpand.hidesSidebar` holds it off the column is down, and the preference is never
+    /// written for it, since hiding it in Edit must not hide it in Compare.
     var folderSidebarIsShowing: Bool {
         FolderSidebarModel.isShowing(
             workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar,
@@ -58,9 +40,9 @@ extension ContentView {
             preference: folderSidebarPreference(for: selectedWorkspace) && !folderSidebarHeldByExpand)
     }
 
-    /// **Which switch a workspace's sidebar reads** — Edit its own, off until shown (asked
-    /// 2026-10-17); every other workspace the one they share. ⌃⌘S writes the same one it reads
-    /// (`setFolderSidebarVisible`), so showing it in Edit leaves the others as they were.
+    /// Which switch a workspace's sidebar reads: Edit its own, off until shown; every other
+    /// workspace the one they share. ⌃⌘S writes the same one it reads (`setFolderSidebarVisible`),
+    /// so showing it in Edit leaves the others as they were.
     func folderSidebarPreference(for workspace: Workspace) -> Bool {
         workspace == .editor ? editorSidebarVisible : browseSidebarVisible
     }
@@ -70,7 +52,7 @@ extension ContentView {
         selectedWorkspace == .editor && editorExpand.hidesSidebar
     }
 
-    /// Whether Edit's sidebar is drawn, whichever workspace is on screen — what Expand records as
+    /// Whether Edit's sidebar is drawn, whichever workspace is on screen: what Expand records as
     /// put away when it starts from a launch that may land before the window is on Edit. In Edit
     /// the column survives a collapsed pane, so only the preference and Expand decide it.
     var editorSidebarIsShowing: Bool {
@@ -81,7 +63,7 @@ extension ContentView {
             preference: editorSidebarVisible && !editorExpand.hidesSidebar)
     }
 
-    /// Whether the sidebar can be switched on here at all — the toolbar button and View ▸ Sidebar
+    /// Whether the sidebar can be switched on here at all. The toolbar button and View ▸ Sidebar
     /// both ask this, so neither can offer a column the other refuses.
     var folderSidebarIsAvailable: Bool {
         FolderSidebarModel.appliesTo(
@@ -91,7 +73,7 @@ extension ContentView {
     }
 
     /// ⌃⌘S's act, from the toolbar and View ▸ Sidebar alike. Showing it while Expand holds it off
-    /// lifts the hold (`EditorExpand.sidebarShownByHand`) — otherwise the press would flip a
+    /// lifts the hold (`EditorExpand.sidebarShownByHand`); otherwise the press would flip a
     /// preference that is already on and nothing would appear.
     func setFolderSidebarVisible(_ visible: Bool) {
         if visible && folderSidebarHeldByExpand {
@@ -102,77 +84,47 @@ extension ContentView {
         if selectedWorkspace == .editor { editorSidebarVisible = visible } else { browseSidebarVisible = visible }
     }
 
-    /// The provider root the target pane is on, expanded.
-    ///
-    /// Expanded, matching `FolderJumpStore.key(forRoot:)`, which expands before keying: a folder
-    /// source is stored with its `~` intact and the two spellings never met, which is the defect
-    /// that comment records.
+    /// The provider root the target pane is on, expanded to match `FolderJumpStore.key(forRoot:)`,
+    /// which expands before keying. A folder source is stored with its `~` intact, and the two
+    /// spellings would never match.
     var folderSidebarRoot: String {
         (settings.rootPath(for: folderSidebarProviderId) as NSString).expandingTildeInPath
     }
 
-    /// **Enabled sources, not merely available ones.**
-    ///
-    /// This was the last open question on the design page, and the two surfaces genuinely
-    /// disagreed: ⌘K builds its rows from `settings.enabledProviders` while the v4.2 refresh read
-    /// `settings.availableProviders`, so a source switched off in Settings would have appeared in
-    /// one and not the other. Enabled wins, because it is what the pane header's own dropdown
-    /// offers — a sidebar row that switched the pane to a source the header will not list would be
-    /// a way into a state the rest of the app says you cannot reach.
+    /// Enabled sources, not merely available ones, as ⌘K and the pane header's dropdown list them.
+    /// A row for a source switched off in Settings would switch the pane to a source the header
+    /// will not list.
     var folderSidebarProviders: [CloudProvider] { settings.enabledProviders }
 
     // MARK: - Rows
 
-    /// Re-reads every source's lists and checks them against the disk.
+    /// Re-reads every source's lists and checks them against the disk. Called from the places the
+    /// answer can change, not from `body`: a `stat` does not belong in a render.
     ///
-    /// Called from the places the answer can change rather than from `body` — a `stat` does not
-    /// belong in a render.
+    /// Only while the column is showing, since the refresh `stat`s every provider root and its
+    /// triggers fire in every workspace. Several triggers fire together on one workspace switch, and
+    /// a pass is a hundred-odd `stat` chains, any of which can block for as long as a sleeping drive
+    /// or a dead network mount takes to answer. So:
     ///
-    /// **Only where there is a sidebar to fill.** The refresh `stat`s every provider root, and its
-    /// triggers fire on every workspace: sitting in Compare with the column switched off would
-    /// otherwise pay for a walk of eleven roots on every pane move.
-    /// **Coalesced to one refresh per turn, and the disk work is off the main actor.**
+    /// - One per turn: a ticket is taken here and checked after the hop, so triggers that fire in
+    ///   one main-actor turn produce one walk, the last one's. It is checked again after the walk,
+    ///   so an answer overtaken while it was out is dropped rather than drawn over a newer one.
+    /// - Off the main actor: the disk work runs in a detached task, as `refreshEditorRail` in
+    ///   `ContentView+Editor.swift` does. `@AppStorage` and `FolderJumpStore` (`@MainActor`) are
+    ///   read BEFORE the hop, so the walk is handed values.
     ///
-    /// Both halves came out of the same measurement. One Edit↔Organize switch fired this **two to
-    /// four times**: `onChange(of: leftRelativePath)` (the lens entry re-homed the rail then; it no
-    /// longer moves the pane, so that trigger now fires only for a real navigation),
-    /// `onChange(of: selectedWorkspace)`, `onChange(of: panesHiddenForCurrentTab)` (Editor defaults
-    /// to panes-hidden and Organize does not, so that transition really does change it), and
-    /// `FolderJumpStore.shared.objectWillChange` through a `DispatchQueue.main.async`. Every one of
-    /// those was a full pass, and a full pass is a `fileExists` per provider root plus one per
-    /// surviving pin and recent, a `mountedVolumeURLs` with a `resourceValues` read per volume, an
-    /// `isMountedFolder` per standard place and per device and per source root, and a
-    /// `resolvingSymlinksInPath` — an `lstat` per path component — for every place against every
-    /// root. With eleven sources that is upwards of a hundred `stat` chains, done up to four times,
-    /// **synchronously on the main actor**. On healthy local disks it is milliseconds; on a
-    /// sleeping external drive or an unresponsive network mount any single one of them blocks the
-    /// window for as long as the filesystem takes to answer.
-    ///
-    /// - **One per turn**: a ticket is taken here and checked after the hop, so the four triggers
-    ///   that fire together in one main-actor turn produce one walk — the last one's, with the
-    ///   newest inputs. It is checked a second time after the walk returns, so an answer that was
-    ///   overtaken while it was out is dropped rather than drawn over a newer one.
-    /// - **Off the main actor**: everything that touches the disk moves to a detached task, in the
-    ///   shape `ContentView+Editor.swift`'s `refreshEditorRail` already uses. What stays here is
-    ///   what only the main actor can answer — `@AppStorage`, and `FolderJumpStore`, which is
-    ///   `@MainActor` — read BEFORE the hop so the walk is handed values rather than reaching back
-    ///   for them.
-    ///
-    /// **The on-screen guard still comes first**, and every input to it still has a trigger of its
-    /// own (`SidebarRefreshTriggerTests`): the guard drops whatever fires while the column is
-    /// hidden, and nothing re-runs it on the way back. Coalescing does not change that — it only
-    /// decides how many of the surviving calls do work.
+    /// The on-screen guard comes first, and every input to it has a trigger of its own
+    /// (`SidebarRefreshTriggerTests`): the guard drops whatever fires while the column is hidden,
+    /// and nothing re-runs it on the way back.
     func refreshFolderSidebarRows() {
         guard folderSidebarIsShowing else { return }
 
         sidebarRefresh.ticket &+= 1
         let ticket = sidebarRefresh.ticket
 
-        // **Everything the main actor owns, read on it, now.** `FolderJumpStore` is `@MainActor`
-        // and `browseSidebarFavoritePlacesRaw` is this view's `@AppStorage`; neither may be touched
-        // from the walk. These are memory reads — dictionary lookups and an array — so taking them
-        // per call, before the coalescing has settled, costs nothing and keeps the winning call's
-        // inputs the freshest ones.
+        // Everything the main actor owns, read on it now. `FolderJumpStore` is `@MainActor` and
+        // `browseSidebarFavoritePlacesRaw` is this view's `@AppStorage`; neither may be touched
+        // from the walk. These are memory reads, so taking them per call costs nothing.
         let providers = folderSidebarProviders
         let inputs = FolderSidebarWalkInputs(
             providers: providers,
@@ -183,20 +135,16 @@ extension ContentView {
                                         recents: FolderJumpStore.shared.recentPaths(forRoot: root),
                                         pinned: FolderJumpStore.shared.pinnedPaths(forRoot: root))
             },
-            // **Uncapped**, because the cap belongs after the walk. Two more filters run on the
-            // far side — a root that is no longer a source, and everything the column already
-            // lists under Favorites or Locations — and both of them would otherwise be subtracting
-            // from an already-counted eight, leaving the section short by however well they worked.
-            // `FolderSidebarModel.rows` takes `recentsLimit` and applies it last.
-            // In whichever mode the heading shows — the same subtractions and the same cap
-            // downstream, so the three lists differ only in which folders qualify and their order.
+            // Uncapped: two filters run after the walk (a root that is no longer a source, and
+            // folders already under Favorites or Locations), and capping first would leave the
+            // section short. `FolderSidebarModel.rows` applies `recentsLimit` last. Whichever mode
+            // the heading shows gets the same subtractions and cap.
             recents: FolderJumpStore.shared.visitsAcrossRoots(
                 folderSidebarRecentsMode, landings: Self.folderSidebarLandings(providers), limit: .max),
             favoriteOrder: FolderJumpStore.shared.favoriteOrder,
             favoritePlaces: folderSidebarFavoritePlaces)
-        // **The volume walk, only when something can have changed it.** See
-        // `knownMountedVolumes` — nil here means "walk it", and the walk happens inside the
-        // detached task below rather than on the way into it.
+        // The volume walk only when something can have changed it (`knownMountedVolumes`). Nil
+        // means "walk it", inside the detached task below.
         let known = Self.knownMountedVolumes
 
         Task { @MainActor in
@@ -205,9 +153,8 @@ extension ContentView {
             let resolved = await Task.detached(priority: .userInitiated) {
                 Self.resolveFolderSidebarRows(inputs, volumes: known ?? Self.mountedVolumes())
             }.value
-            // The walk can be overtaken while it is out — a mount, a pin, another switch. A late
-            // answer drawn over a newer one is the stale list this column's whole trigger set
-            // exists to prevent.
+            // The walk can be overtaken while it is out (a mount, a pin, another switch); a late
+            // answer must not be drawn over a newer one.
             guard ticket == sidebarRefresh.ticket else { return }
 
             Self.knownMountedVolumes = resolved.volumes
@@ -215,25 +162,20 @@ extension ContentView {
             folderSidebarRows = resolved.rows
             folderSidebarLocationRows = resolved.locations
             folderSidebarShortcutRows = resolved.shortcuts
-            // **Every mounted volume you could eject in Finder, source or not.** Keyed by mount
-            // point because a card SyncCloud has not been given still draws a row, and refusing to
-            // eject it for that reason would be an odd rule for a verb about the hardware. The
-            // internal check keeps the startup disk out — `isRemovable` is already false for it, so
-            // this is the belt to that braces.
+            // Every mounted volume you could eject in Finder, source or not, keyed by mount point.
+            // The internal check is a second guard keeping the startup disk out.
             folderSidebarEjectablePaths = Set(resolved.volumes.filter { $0.isRemovable && !$0.isInternal }
                                                   .map { FolderSidebarView.mountKey($0.path) })
-            // **A NARROWER set, and the difference is a promise the dialog would otherwise break.**
-            // Eject is offered on anything Finder would eject, which includes a network share —
-            // Finder draws one an eject arrow. But a share is not `isLocal`, so unmounting it does
-            // NOT forget its sources (`MountedVolumeMemory.Facts.isDetachable`), and a confirmation
-            // telling the user their source is about to go would be describing something that will
-            // not happen.
+            // A narrower set. Eject is offered on a network share too, but a share is not
+            // `isLocal`, so unmounting it does NOT forget its sources
+            // (`MountedVolumeMemory.Facts.isDetachable`); a confirmation saying the source will go
+            // would be false.
             folderSidebarDetachablePaths = Set(resolved.volumes.filter(\.losesItsSourcesOnUnmount)
                                                   .map { FolderSidebarView.mountKey($0.path) })
         }
     }
 
-    /// One source's remembered lists as the store holds them — read on the main actor, checked
+    /// One source's remembered lists as the store holds them: read on the main actor, checked
     /// against the disk off it.
     struct RememberedSource: Sendable {
         let root: String
@@ -252,9 +194,8 @@ extension ContentView {
         let favoritePlaces: [String]
     }
 
-    /// Everything one refresh resolves, plus the volume walk it used — the unmount record needs the
-    /// same list the rows were built from, and re-walking for it is what this whole change exists
-    /// to stop.
+    /// Everything one refresh resolves, plus the volume walk it used: the unmount record needs the
+    /// same list the rows were built from, without walking again.
     struct FolderSidebarResolution: Sendable {
         let rows: [FolderSidebarRow]
         let locations: [SidebarSourceRow]
@@ -262,22 +203,19 @@ extension ContentView {
         let volumes: [SidebarSourceModel.Volume]
     }
 
-    /// **The whole disk-touching half of a refresh, off the main actor.**
-    ///
-    /// `nonisolated` is the point, not an annotation: every `stat` in a refresh is in here or in
-    /// what it calls, and each of them can block for seconds on a sleeping disk or a network mount
-    /// that has stopped answering.
-    /// - Parameter links: the folders a source root links in from outside — the machine's own
-    ///   table by default, a test's own otherwise. Passed on to both halves that need it, so the
-    ///   place rows and the Recents subtraction agree about where `Documents` really is.
+    /// The disk-touching half of a refresh, off the main actor. `nonisolated` is the point: every
+    /// `stat` in a refresh is in here or what it calls, and each can block for seconds on a
+    /// sleeping disk or a dead network mount.
+    /// - Parameter links: the folders a source root links in from outside; the machine's table by
+    ///   default. Passed to both halves, so the place rows and the Recents subtraction agree about
+    ///   where `Documents` really is.
     nonisolated static func resolveFolderSidebarRows(
         _ inputs: FolderSidebarWalkInputs,
         volumes: [SidebarSourceModel.Volume],
         links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders
     ) -> FolderSidebarResolution {
-        // One `reachable` call per source. Each `stat`s that root once for both of its lists —
-        // under an unreachable network mount every one of those can block, which is why the store
-        // answers both lists in a single pass rather than being asked twice.
+        // One `reachable` call per source, which `stat`s the root once for both lists: under an
+        // unreachable network mount every `stat` can block.
         let sources: [FolderSidebarModel.Source] = inputs.remembered.map { source in
             let remembered = Self.reachableFolders(recents: source.recents, pinned: source.pinned,
                                                    under: source.root)
@@ -292,10 +230,8 @@ extension ContentView {
         return FolderSidebarResolution(
             rows: FolderSidebarModel.rows(
                 sources: sources, recents: inputs.recents, favoriteOrder: inputs.favoriteOrder,
-                // **From the rows this very pass built**, not from a second enumeration of what the
-                // column ought to contain. The places depend on the user's Favorites list, on what
-                // is mounted and on which folders a source already claims; a copy of that reasoning
-                // written here would answer differently the first time any of the three moved.
+                // From the rows this pass built, not a second enumeration: the places depend on
+                // Favorites, mounts and source claims, and a copy of that reasoning would drift.
                 listedElsewhere: Self.folderSidebarListedElsewhere(
                     places.locations + places.shortcuts, roots: sources.map(\.root), links: links)),
             locations: places.locations,
@@ -305,32 +241,22 @@ extension ContentView {
 
     // MARK: - The mounted volumes, walked once per mount event
 
-    /// **The last volume walk, kept until something can have changed it.**
+    /// The last volume walk, kept until something can have changed it. The walk can block under an
+    /// unreachable network mount, and the mounted set changes only when macOS says so
+    /// (`didMount`, `willUnmount`, `didUnmount`, `didRenameVolume`), so it belongs to those events,
+    /// not to every pane move.
     ///
-    /// `mountedVolumeURLs` plus a `resourceValues` read per volume is not free, and under an
-    /// unreachable network mount each of those reads can block — the same reason the `reachable`
-    /// call answers both of its lists in a single pass. The set of mounted volumes changes only
-    /// when macOS says so, and the app already subscribes to all three notifications that say it
-    /// (`didMount`, `willUnmount`, `didUnmount`) plus `didRenameVolume`. So the walk belongs to
-    /// those events, not to every pane move — and a refresh that happens to run while a network
-    /// share is wedged now costs nothing at all for this half.
-    ///
-    /// `nil` means "not walked yet": the launch walk in `onAppear` fills it, and every one of the
-    /// four notification handlers empties it. Invalidating rather than re-walking in the handler is
-    /// deliberate — `willUnmount` fires while the volume is going away, and a synchronous walk at
-    /// that moment is the one most likely to block.
+    /// `nil` means "not walked yet": the launch walk in `onAppear` fills it, and each of the four
+    /// handlers empties it. They invalidate rather than re-walk because `willUnmount` fires while
+    /// the volume is going away, when a synchronous walk is most likely to block.
     @MainActor static var knownMountedVolumes: [SidebarSourceModel.Volume]?
 
     /// Forgets the cached walk. Called from every notification that can change what is mounted.
     @MainActor static func forgetMountedVolumes() { knownMountedVolumes = nil }
 
-    /// The mounted volumes as last seen, walking only if nothing has been seen yet.
-    ///
-    /// **For the recorders, which must never be the thing that blocks.** `willUnmount` is the
-    /// sharpest case: it is the last chance to record what a volume WAS, and it arrives while that
-    /// volume is being torn down. The cached answer was taken while the volume was healthy, which
-    /// is the answer that handler wants; the walk is the fallback for a process that has somehow
-    /// not made one yet.
+    /// The mounted volumes as last seen, walking only if nothing has been seen yet. For the
+    /// recorders, which must never block: `willUnmount` arrives while the volume is torn down, and
+    /// wants the answer taken while it was healthy.
     @MainActor static func mountedVolumesAsLastSeen() -> [SidebarSourceModel.Volume] {
         if let known = knownMountedVolumes { return known }
         let walked = mountedVolumes()
@@ -338,24 +264,17 @@ extension ContentView {
         return walked
     }
 
-    /// **Each source's landing folder**, keyed the way the recents are — what Recents subtracts,
-    /// so that merely visiting a source does not write a row for a place Locations already lists.
+    /// Each source's landing folder, keyed the way the recents are: what Recents subtracts, so
+    /// visiting a source does not add a row for a place Locations already lists.
     ///
-    /// The provider's own `openAt` rather than `SettingsManager.openAtIfReachable`: the fallback
-    /// answers the *root* when the landing has gone, and the root is never a recent anyway
-    /// (`recordVisit` refuses to write one), so the two agree wherever the answer can matter —
-    /// while the plain value keeps this a read of eleven structs instead of eleven more `stat`s on
-    /// a path this refresh has already checked.
-    ///
-    /// **`static`, and taking its providers**, so the keying below is reachable from a test:
-    /// `ContentView` is a `View` with `@State` and cannot be instantiated, and the keying is the
-    /// half that silently does nothing when it is wrong — a raw `~/Dropbox` matches no root the
-    /// store holds, and the section comes back looking exactly as it did before the fix.
+    /// The provider's own `openAt`, not `SettingsManager.openAtIfReachable`: that falls back to the
+    /// root, which is never a recent anyway, so the plain value agrees and costs no `stat`.
+    /// `static` and taking its providers so a test can reach the keying, which fails silently: a
+    /// raw `~/Dropbox` matches no root the store holds.
     nonisolated static func folderSidebarLandings(_ providers: [CloudProvider]) -> [String: String] {
-        // Keyed exactly as the store writes its recents, and as `sources` above is built —
-        // `key(forRoot:)` expands the `~` a folder source keeps in its stored path, which is the
-        // spelling the two would otherwise never meet on. An empty `openAt` is carried rather than
-        // skipped: it means the source lands on its root, which is a place no recent can name.
+        // Keyed as the store writes its recents: `key(forRoot:)` expands the `~` a folder source
+        // keeps in its stored path. An empty `openAt` is carried, not skipped: it means the source
+        // lands on its root, which no recent can name.
         var landings: [String: String] = [:]
         for provider in providers {
             landings[FolderJumpStore.key(forRoot: provider.rootPath)] = provider.openAt
@@ -363,32 +282,19 @@ extension ContentView {
         return landings
     }
 
-    /// **Everything the column already offers under another heading, per source root** — what
-    /// Recents subtracts so the same folder is not drawn twice in one 180pt column.
+    /// Everything the column already offers under another heading, per source root: what Recents
+    /// subtracts so one folder is not drawn twice. Each place row this refresh built (Favorites'
+    /// places, every Locations row) is re-expressed relative to each source root, so `~/Documents`
+    /// and a home-rooted source's recent `Documents` count as one folder.
     ///
-    /// Takes the place rows this refresh actually built — Favorites' places and every Locations row
-    /// — and re-expresses each of their absolute paths as a path relative to each source root.
-    /// `~/Documents` is a Favorites place and, under a source rooted at the home folder, also the
-    /// recent `Documents`; those are one folder and the sidebar should say so once.
+    /// `PathBoundary.relativize`, not string prefixes: iCloud Drive's `Desktop` and `Documents` are
+    /// links into the container, two spellings no prefix comparison relates
+    /// (`PathBoundary.LinkedFolders`). The table is passed in so a test can supply its own.
+    /// Lexical, with no `stat`: this runs once per source per row.
     ///
-    /// **`PathBoundary.relativize` rather than string prefixes**, for the case that made this worth
-    /// having at all: iCloud Drive's `Desktop` and `Documents` are links into the container, so a
-    /// recent recorded as `Documents` under the iCloud root and the Favorites place at
-    /// `~/Documents` are the same folder by two spellings that no prefix comparison relates
-    /// (`PathBoundary.LinkedFolders`). The links table answers it; the table is passed in rather
-    /// than read here so a test can supply its own.
-    ///
-    /// **Lexical, and deliberately no `stat`.** The recents are stored as paths relative to a root,
-    /// which is exactly the space this arithmetic works in, and this runs once per source per row
-    /// — resolving symlinks for each of those would put a few hundred disk reads on a refresh that
-    /// exists partly to stop doing that.
-    ///
-    /// An EMPTY relative path is dropped: it means the row *is* the root, and a root is never a
-    /// recent (`FolderJumpStore.recordVisit` refuses to write one), so an entry for it cannot
-    /// exist to be subtracted. Keeping it would put `""` in every set for no reader.
-    ///
-    /// Roots come in already normalised through `FolderJumpStore.key(forRoot:)` — they are the
-    /// built `Source.root`s — so the keys here meet the ones the recents are stored under.
+    /// An empty relative path (the row is the root) is dropped, since a root is never a recent
+    /// (`FolderJumpStore.recordVisit` refuses one). Roots arrive normalised through
+    /// `FolderJumpStore.key(forRoot:)`, so the keys meet the ones the recents are stored under.
     nonisolated static func folderSidebarListedElsewhere(
         _ rows: [SidebarSourceRow], roots: [String],
         links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> [String: Set<String>] {
@@ -414,35 +320,20 @@ extension ContentView {
         let band: SidebarSourceRow.Band
     }
 
-    /// **Every place row, built place-first** — and that order is the whole fix.
+    /// Every place row, built place-first. A place decides its own name, symbol and band; a
+    /// provider whose root is that folder only lends it an id and makes it `.configured`. So adding
+    /// a place as a source (which clicking one does) changes what clicking it does, and nothing
+    /// else. Built provider-first, `Macintosh HD` would turn into a cloud-band row named `/`, and
+    /// Desktop or Downloads kept as folder sources would land in Locations, not Favorites.
     ///
-    /// The first cut built these provider-first: every `CloudProvider` became a row in the cloud
-    /// band, and the canonical places were appended afterwards with anything already a source
-    /// filtered out. That is backwards, and it produced two bugs the moment a place *became* a
-    /// source, which is exactly what clicking one does:
-    ///
-    /// - **A promoted volume jumped bands and lost its name.** Clicking `Macintosh HD` added `/` as
-    ///   a folder source, whose `defaultDisplayName` for a volume root is the path itself — so the
-    ///   row moved up among the cloud accounts and started reading `/`.
-    /// - **Desktop and Downloads never reached Favorites** for anyone who already had them as
-    ///   folder sources: they matched a provider, so the shortcut rows filtered them out and the
-    ///   provider rows drew them in Locations.
-    ///
-    /// Building places first inverts it: a place decides its own name, symbol and band, and a
-    /// provider whose root is that folder merely lends it an id and makes it `.configured`. Adding
-    /// a place as a source can then change what clicking it does, and nothing else.
-    ///
-    /// **`nonisolated static`, taking the user's Favorites list rather than reading it.** Every
-    /// `stat` this makes — the Trash probe, one per place, one per source root — plus a
-    /// `resolvingSymlinksInPath` for every place against every root now runs off the main actor, and
-    /// a function that reads `@AppStorage` cannot. The list is read on the main actor by
-    /// `refreshFolderSidebarRows` and handed down, which is the same shape `volumes` already had.
-    /// - Parameter links: the folders a source root links in from outside — iCloud Drive's
-    ///   `Desktop` and `Documents` (`PathBoundary.LinkedFolders`). The machine's own table by
-    ///   default; a test passes its own. It widens what a source CONTAINS (so `~/Documents` reads
-    ///   "in iCloud" and clicking it navigates there) without widening what a source IS: only a
-    ///   root proper claims a place as `.configured`, which is what keeps the iCloud row in
-    ///   Locations — a Documents favorite that claimed the provider outright took its row away.
+    /// `nonisolated static`, taking the Favorites list rather than reading `@AppStorage`, because
+    /// every `stat` here runs off the main actor. `refreshFolderSidebarRows` reads the list and
+    /// hands it down, as it does `volumes`.
+    /// - Parameter links: the folders a source root links in from outside: iCloud Drive's
+    ///   `Desktop` and `Documents` (`PathBoundary.LinkedFolders`). The machine's table by default;
+    ///   a test passes its own. It widens what a source CONTAINS (so `~/Documents` reads "in
+    ///   iCloud" and clicking it navigates there) without widening what a source IS: only a root
+    ///   proper claims a place as `.configured`, which keeps the iCloud row in Locations.
     nonisolated static func buildFolderSidebarPlaceRows(_ providers: [CloudProvider],
                                                         volumes: [SidebarSourceModel.Volume],
                                                         favoritePlaces: [String],
@@ -479,9 +370,8 @@ extension ContentView {
                 : nil
             return SidebarSourceRow(
                 id: owner?.id ?? place.path,
-                // **The place's name, not the source's.** A folder source over `/` is named `/`,
-                // and over `~` is named for the account's short name; neither is what the row
-                // should read once the place has a name of its own.
+                // The place's name, not the source's: a folder source over `/` is named `/`, and
+                // over `~` for the account's short name.
                 name: place.name,
                 detail: container.map { "in \($0.name)" },
                 symbol: place.symbol, absolutePath: place.path, band: place.band,
@@ -499,11 +389,9 @@ extension ContentView {
             let root = (provider.rootPath as NSString).expandingTildeInPath
             return SidebarSourceRow(
                 id: provider.id, name: provider.displayName, detail: detail,
-                // **The provider's own mark**, which is what the tab strip and the pane header
-                // already wear — `ProviderLogo` resolves it to a bundled brand asset or an SF
-                // Symbol, so a cloud account gets its own silhouette and a folder source keeps
-                // `folder.fill`. It replaced a uniform `cloud` for every account, which left five
-                // Google/OneDrive rows distinguishable only by the account qualifier beside them.
+                // The provider's own mark, as the tab strip and pane header wear it: `ProviderLogo`
+                // resolves it to a bundled brand asset or an SF Symbol, so a cloud account gets its
+                // own silhouette and a folder source keeps `folder.fill`.
                 symbol: provider.imageName,
                 absolutePath: root, band: .cloud, state: .configured,
                 isAvailable: Self.isMountedFolder(root))
@@ -516,18 +404,13 @@ extension ContentView {
         SidebarFavoritePlaces.places(from: browseSidebarFavoritePlacesRaw)
     }
 
-    /// **Every write to the Favorites places goes through here**, so bytes this build could not
-    /// read are salvaged rather than overwritten.
+    /// Every write to the Favorites places goes through here, so bytes this build could not read
+    /// are salvaged rather than overwritten. `SidebarFavoritePlaces.places(from:)` answers the
+    /// standard set for an unreadable value, which is right to SHOW but would destroy the user's
+    /// real list if the next Add, Remove or drag wrote it back.
     ///
-    /// `SidebarFavoritePlaces.places(from:)` answers the standard set for an unreadable value as
-    /// well as an absent one, which is the right thing to SHOW. It is the wrong thing to then write
-    /// back: the next Add, Remove or drag would encode that set over a key that still held the
-    /// user's real list, and the loss would happen on the write rather than on the read that caused
-    /// it — the shape six stores were carrying when v4.3 went looking for it.
-    ///
-    /// One funnel rather than a guard at each of the three call sites, because a fourth verb added
-    /// later would be written without it; and the salvage runs before the write rather than at
-    /// launch so it cannot fire for a value nothing was about to destroy.
+    /// One funnel, so a new verb cannot skip the guard; the salvage runs at the write, not at
+    /// launch, so it fires only for a value about to be overwritten.
     func writeFolderSidebarFavoritePlaces(_ places: [String]) {
         if SidebarFavoritePlaces.isUnreadable(browseSidebarFavoritePlacesRaw) {
             UserDefaults.standard.set(browseSidebarFavoritePlacesRaw,
@@ -537,23 +420,15 @@ extension ContentView {
         browseSidebarFavoritePlacesRaw = SidebarFavoritePlaces.encoded(places)
     }
 
-    /// **Re-bands every place row against the user's Favorites list**, which is the one thing that
-    /// decides which of the two sections a place is drawn in.
+    /// Re-bands every place row against the user's Favorites list, which alone decides which
+    /// section a place is drawn in. Applied after the rows are built, since favoriting changes
+    /// nothing else the builder worked out, and a cloud account has no `KnownPlace` to rebuild from.
     ///
-    /// Applied after the rows are built rather than while enumerating them, because a row's band is
-    /// only half its identity: the builder has already worked out the name, the symbol, whether a
-    /// source claims the folder and whether it is mounted, and none of that changes by being
-    /// favorited. Enumerating from the favorites list instead would mean re-deriving all of it for
-    /// a place that has no `KnownPlace` entry — which is every cloud account.
-    ///
-    /// A standard folder the user has removed is dropped rather than moved: `.shortcut` is the only
-    /// band Desktop has, so there is no Locations row for it to fall back to. That is Finder's
-    /// behaviour too, and `SidebarFavoritePlaces.restoring` is the way back.
-    ///
-    /// **Home and the startup disk are the other case**, and they are in Favorites by default:
-    /// each is built as a `.device` row and re-banded UP into Favorites here, so taking either out
-    /// moves it back to Locations rather than off the column. Nothing special-cases them — the
-    /// asymmetry falls out of which band the builder gave the row.
+    /// A standard folder the user removed is dropped, not moved: `.shortcut` is Desktop's only band,
+    /// so there is no Locations row to fall back to. Finder does the same, and
+    /// `SidebarFavoritePlaces.restoring` is the way back. Home and the startup disk are built as
+    /// `.device` rows and re-banded up into Favorites, so removing either moves it back to
+    /// Locations rather than off the column.
     nonisolated static func applyFolderSidebarFavoritePlaces(
         to rows: [SidebarSourceRow], favoritePlaces: [String]) -> [SidebarSourceRow] {
         let wanted = Set(favoritePlaces.map(Self.resolved))
@@ -566,13 +441,9 @@ extension ContentView {
         }
     }
 
-    /// Splits one pass of ``buildFolderSidebarPlaceRows(_:)`` into the two sections.
-    ///
-    /// **One pass, and a partition rather than a sort.** Two calls would enumerate the mounted
-    /// volumes twice per refresh; and `sorted(by:)` on the band is not a stable sort in Swift, so
-    /// the cloud accounts — which all share a band — would have been free to shuffle between
-    /// renders. Walking the bands in order and appending keeps every row's relative position
-    /// exactly as the builder produced it.
+    /// Splits one pass of ``buildFolderSidebarPlaceRows(_:)`` into the two sections. A partition,
+    /// not a sort: `sorted(by:)` is not stable in Swift, so the cloud accounts, which share a band,
+    /// could shuffle between renders.
     nonisolated static func splitFolderSidebarPlaceRows(
         _ providers: [CloudProvider], volumes: [SidebarSourceModel.Volume],
         favoritePlaces: [String],
@@ -583,10 +454,8 @@ extension ContentView {
         for band in [SidebarSourceRow.Band.cloud, .device, .trash] {
             locations += all.filter { $0.band == band }
         }
-        // **Favorites are drawn in the order the list holds them**, not in the order the builder
-        // happened to produce them. The builder's order is bands — standards, then devices, then
-        // clouds — which would silently re-sort the section every time a place was added, and would
-        // undo a reorder the moment a disk was mounted.
+        // Favorites in the list's order, not the builder's band order, which would re-sort the
+        // section when a place is added and undo a reorder when a disk mounts.
         let favorites = Dictionary(all.filter(\.isFavoriteShortcut).map { (Self.resolved($0.absolutePath), $0) },
                                    uniquingKeysWith: { first, _ in first })
         return (locations, favoritePlaces.compactMap { favorites[Self.resolved($0)] })
@@ -599,9 +468,8 @@ extension ContentView {
 
     /// Every folder a source CONTAINS, for the "in <source>" test: its root, plus each folder the
     /// root links in from outside, under that source's id and name. `~/Documents` is inside iCloud
-    /// through the container's `Documents` link even though no string arithmetic on the two paths
-    /// says so — and resolving symlinks does not help either, because the link points the other
-    /// way, from the container out to the real folder.
+    /// through the container's `Documents` link; resolving symlinks can't show it, because the link
+    /// points from the container out to the real folder.
     nonisolated static func folderSidebarClaims(_ providers: [CloudProvider],
                                                 links: PathBoundary.LinkedFolders) -> [(id: String, name: String, path: String)] {
         providers.flatMap { provider -> [(id: String, name: String, path: String)] in
@@ -611,18 +479,11 @@ extension ContentView {
         }
     }
 
-    /// Home, then the mounted volumes — the startup disk first, then everything else by name.
-    ///
-    /// Both home and the startup disk are in `SidebarFavoritePlaces.standard`, so on an untouched
-    /// install `applyFolderSidebarFavoritePlaces` lifts them into Favorites and what is left of
-    /// this band in Locations is the external disks. They are still built HERE, which is what lets
-    /// them fall back rather than disappear when they are removed from Favorites.
-    ///
-    /// **Sorted rather than left in mount order**, which is arrival order and therefore differs
-    /// between boots; a sidebar whose disks rearranged themselves would look broken. Same reason
-    /// the favorites and source orders are partitioned rather than sorted by an optional rank.
-    /// **Takes the walk rather than making one**, so a refresh that also has to record what those
-    /// volumes ARE (for the unmount that cannot ask) pays for `mountedVolumeURLs` once.
+    /// Home, then the mounted volumes: the startup disk first, then the rest by name, since mount
+    /// order differs between boots. Home and the startup disk are in
+    /// `SidebarFavoritePlaces.standard`, so `applyFolderSidebarFavoritePlaces` lifts them into
+    /// Favorites; building them here lets them fall back to Locations when removed. Takes the walk
+    /// rather than making one, so a refresh pays for `mountedVolumeURLs` once.
     nonisolated static func deviceEntries(_ volumes: [SidebarSourceModel.Volume])
         -> [(name: String, symbol: String, path: String)] {
         let home = SidebarSourceModel.homeEntry
@@ -630,12 +491,9 @@ extension ContentView {
             .map { (name: $0.name, symbol: $0.symbol, path: $0.path) }
     }
 
-    /// The volumes macOS says are mounted and browsable.
-    ///
-    /// `skipHiddenVolumes` keeps out the things Finder also hides — the preboot and recovery
-    /// partitions, and the read-only system volume that a modern macOS mounts beside the data one.
-    /// Anything that fails to answer its resource values is dropped rather than drawn under a
-    /// guessed name.
+    /// The volumes macOS says are mounted and browsable. `skipHiddenVolumes` keeps out what Finder
+    /// hides (preboot, recovery, the read-only system volume). A volume that fails to answer its
+    /// resource values is dropped rather than drawn under a guessed name.
     nonisolated static func mountedVolumes() -> [SidebarSourceModel.Volume] {
         let keys: [URLResourceKey] = [.volumeNameKey, .volumeIsRemovableKey, .volumeIsEjectableKey,
                                       .volumeIsInternalKey, .volumeIsBrowsableKey, .volumeIsLocalKey]
@@ -648,15 +506,12 @@ extension ContentView {
             return SidebarSourceModel.Volume(
                 name: name, path: url.path,
                 isRemovable: (values.volumeIsRemovable ?? false) || (values.volumeIsEjectable ?? false),
-                // `volumeIsInternal` is optional on some volume types; absent is not internal,
-                // which is the safe direction — a wrong glyph on an unusual disk beats promoting
-                // an external one to the top of the list.
+                // Optional on some volume types. Absent is not internal, the safe direction: a
+                // wrong glyph on an unusual disk beats promoting an external one to the top.
                 isInternal: values.volumeIsInternal ?? false,
-                // **Absent reads as local**, which is what a card whose filesystem does not answer
-                // the key is. It is read at all because a network share is *ejectable* — Finder
-                // draws it an eject arrow — so removable-or-ejectable alone cannot tell a Wi-Fi
-                // drop from a card being pulled, and only the second means the sources on it are
-                // gone. Removability still has to agree before anything is removed.
+                // Absent reads as local, which a card that doesn't answer the key is. Needed
+                // because a network share is ejectable too, and only a local volume's unmount means
+                // its sources are gone. Removability must still agree before anything is removed.
                 isLocal: values.volumeIsLocal ?? true)
         }
     }
@@ -678,56 +533,41 @@ extension ContentView {
                 .trimmingCharacters(in: CharacterSet(charactersIn: " -_."))
             return trimmed.isEmpty ? nil : trimmed
         }
-        // `someone.work@gmail.com` reads as `someone.work` — the local part is what tells three Drive
-        // accounts apart, and the domain is the same on all three.
+        // `someone.work@gmail.com` reads as `someone.work`: the local part tells Drive accounts
+        // apart; the domain is the same on all of them.
         return String(id[id.startIndex..<at])
     }
 
-    /// Symlinks resolved on both sides, which is the whole point of the containment check: under
-    /// macOS's Desktop & Documents syncing `~/Desktop` is a link into `com~apple~CloudDocs`, and a
-    /// plain string comparison says it has nothing to do with iCloud Drive.
+    /// Symlinks resolved on both sides, for the containment check: under Desktop & Documents
+    /// syncing `~/Desktop` is a link into `com~apple~CloudDocs`, which a plain string comparison
+    /// would not relate to iCloud Drive.
     nonisolated static func resolved(_ path: String) -> String {
         URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
             .resolvingSymlinksInPath().path
     }
 
-    /// **Which pane a sidebar click will act on, said out loud** — and only where that is a real
-    /// question.
-    ///
-    /// `nil` outside Compare: with one pane there is nothing to disambiguate, and a caption saying
-    /// "opens in the pane" is noise on a 180pt column.
-    ///
-    /// The side comes from the one rule (`folderSidebarTargetIsLeft` →
-    /// `PaneLogic.focusedPaneIsLeft`), so this line, the accent border, the action bar, the
-    /// pane-scoped chords and the Compare lens menus cannot come to different answers.
+    /// Which pane a sidebar click will act on, said out loud. `nil` outside Compare, where there is
+    /// one pane. The side comes from `folderSidebarTargetIsLeft`, so this line, the accent border,
+    /// the action bar, the pane-scoped chords and the Compare lens menus all agree.
     var folderSidebarTarget: SidebarTarget? {
         guard selectedWorkspace == .compare else { return nil }
-        // The SIDE and nothing else. It carried the target pane's provider name too, which read as
-        // a scoping claim the column does not make: these rows come from every enabled source.
+        // The side only. A provider name would read as a scoping claim the column does not make:
+        // these rows come from every enabled source.
         return SidebarTarget(targetsRight: !folderSidebarTargetIsLeft)
     }
 
-    /// **Whether this pane is the one the user is working in**, and therefore whether it wears the
-    /// accent border.
-    ///
-    /// Compare only: everywhere else there is one pane, and marking it would answer a question
-    /// nobody asked.
-    ///
-    /// **It used to require the sidebar to be on screen, and that gate is gone deliberately.** The
-    /// mark named a sidebar destination then. It names the focused pane now — the pane ⌘F opens on,
-    /// the pane Copy and Move act on, and the pane a lens scan reads — none of which care whether
-    /// the folder column is showing. Keeping the gate would have hidden the answer in exactly the
-    /// state that has no other way to reach it, which is what `focusedPaneSide`'s own comment means
-    /// by having no resting indicator.
+    /// Whether this pane is the one the user is working in, and so wears the accent border.
+    /// Compare only: elsewhere there is one pane. Not gated on the sidebar showing: the mark names
+    /// the focused pane (where ⌘F opens, what Copy, Move and a lens scan act on), which has no
+    /// other resting indicator.
     func paneIsFocusedPane(isLeft: Bool) -> Bool {
         guard selectedWorkspace == .compare else { return false }
         return isLeft == folderSidebarTargetIsLeft
     }
 
-    /// **The accent this pane's cards border themselves with**, or nil when it is not the
-    /// destination — resolved once here so the column's three `paneCardIfNeeded` calls cannot come
-    /// to disagree about whether the pane is marked, which is the one way a stack of cards can
-    /// contradict itself.
+    /// The accent this pane's cards border themselves with, or nil when it is not the destination.
+    /// Resolved once here so the column's three `paneCardIfNeeded` calls cannot disagree about
+    /// whether the pane is marked.
     func paneCardAccent(isLeft: Bool) -> Color? {
         ActivePaneMark.cardAccent(
             isFocused: paneIsFocusedPane(isLeft: isLeft),
@@ -737,23 +577,15 @@ extension ContentView {
 
     // MARK: - The column
 
-    /// **A card, framed exactly as the Info inspector is** — the same `bottomSectionCard` call with
-    /// the same four arguments, so the two panels flanking the pane are one decision rather than
-    /// two that happen to agree today.
-    ///
-    /// It was flush and undecorated until 2026-08-24, separated from the pane by a plain `Divider`.
-    /// That reads as a Finder sidebar, which is where the shape came from — but Finder's window is
-    /// one opaque surface with a rule down it, and this one is a floating card over glass. A flat
-    /// column against a card is not the same idiom drawn smaller; it is the absence of the idiom,
-    /// and it left the window with a card on the right of the pane and nothing on its left.
-    ///
-    /// The card supplies its own half-gutter (`cardInset`), which is why the seam beside it is a
-    /// clear strip — see `folderSidebarResizeHandle`.
-    /// - Parameter width: the width the column should DRAW at, which is not always
-    ///   `browseSidebarWidth`. Browse can afford whatever the user stored; a lens workspace shares
-    ///   its row with a rail and a panel that have hard minimums, so it passes a clamped value
-    ///   (`PaneLogic.lensSidebarWidth`). Passed in rather than resolved here because the clamp
-    ///   needs the row's width, which only the layout has.
+    /// A card, framed exactly as the Info inspector is: the same `bottomSectionCard` call with the
+    /// same four arguments, so the two panels flanking the pane are one decision. The window is a
+    /// floating card over glass, so a flat Finder-style column would leave nothing matching on the
+    /// pane's left. The card supplies its own half-gutter (`cardInset`), so the seam beside it is
+    /// a clear strip (`folderSidebarResizeHandle`).
+    /// - Parameter width: the width the column should DRAW at, not always `browseSidebarWidth`. A
+    ///   lens workspace shares its row with a rail and a panel that have hard minimums, so it
+    ///   passes a clamped value (`PaneLogic.lensSidebarWidth`), which needs the row's width that
+    ///   only the layout has.
     func folderSidebar(width: CGFloat) -> some View {
         FolderSidebarView(
             folderRows: folderSidebarRows,
@@ -789,10 +621,9 @@ extension ContentView {
             onShowEnclosingFolder: { row in showFolderSidebarRowEnclosingFolder(row) },
             onToggleSourceFavorite: { source in toggleFolderSidebarPlaceFavorite(source) },
             onRemoveSource: { source in removeFolderSidebarSource(source) },
-            // **Folder sources only, and taken from the settings list rather than from the row.**
-            // A row's `.configured` state says a source claims that folder, not which KIND of
-            // source — and `removeFolderSource` ignores a discovered account's id, so offering the
-            // item on one would name an act that silently does nothing.
+            // Folder sources only, from the settings list, not the row: `.configured` doesn't say
+            // which kind of source, and `removeFolderSource` ignores a discovered account's id, so
+            // offering Remove on one would silently do nothing.
             removableSourceIds: Set(settings.folderSources.map(\.id)),
             onEjectSource: { source in ejectFolderSidebarVolume(source) },
             ejectablePaths: folderSidebarEjectablePaths,
@@ -805,17 +636,15 @@ extension ContentView {
             onMoveSource: { from, to in moveFolderSidebarSource(from: from, to: to) },
             onFavoriteRecent: { row, to in favoriteRecentByDrag(row, to: to) },
             onForgetRecent: { row in forgetFolderSidebarRecent(row) },
-            // One-way sync's Syncs (RD67 ED): Compare's sidebar only.
+            // One-way sync's Syncs: Compare's sidebar only.
             syncs: selectedWorkspace == .compare ? AnyView(OneWaySyncSidebarSection(onSetUp: { openOneWaySyncSetup() })) : nil)
         .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
     }
 
-    /// **Which rows have a door to their vendor's own settings, and what the menu item says.**
-    /// Built from the enabled providers rather than from the rows, because a row that is not a
-    /// configured source carries a path for an id, and a path is not a provider. An application
-    /// door whose app is not installed is left out — the menu's absent-not-disabled rule; the
-    /// title travels with the capability because it differs per vendor (see
-    /// `CloudProvider.settingsDoorTitle`).
+    /// Which rows have a door to their vendor's own settings, and what the menu item says. Built
+    /// from the enabled providers, not the rows: a row that is not a configured source carries a
+    /// path for an id. A door whose app is not installed is left out (absent, not disabled); the
+    /// title differs per vendor (`CloudProvider.settingsDoorTitle`).
     var folderSidebarProviderSettingsTitles: [String: String] {
         folderSidebarProviders.reduce(into: [:]) { titles, provider in
             guard let door = provider.settingsDoor, let title = provider.settingsDoorTitle,
@@ -833,22 +662,16 @@ extension ContentView {
         ProviderSettingsOpener.open(door)
     }
 
-    /// The stored width, **clamped on read**.
-    ///
-    /// Clamped here rather than only on write, because the stored value is a plain `@AppStorage`
-    /// double that a later build, a different range, or a hand-edited plist can put outside the
-    /// bounds — and an unclamped read is how a column ends up 4pt wide with no way to grab its
-    /// divider. Writing is clamped too; this is the half that cannot be bypassed.
+    /// The stored width, clamped on read as well as on write: a later build, a different range or
+    /// a hand-edited plist can put the `@AppStorage` double out of bounds, leaving a column too
+    /// narrow to grab its divider.
     var browseSidebarWidth: CGFloat {
         min(max(CGFloat(browseSidebarWidthRaw), FolderSidebarView.minWidth), FolderSidebarView.maxWidth)
     }
 
-    /// Which sections are folded, decoded from the one persisted string.
-    ///
-    /// Stored as comma-joined raw values rather than as a `Set` in its own key per section: three
-    /// keys for one answer is three things to keep in step, and a section added later would need a
-    /// fourth. An unrecognised value is ignored rather than treated as a section, so a string
-    /// written by a later build cannot fold something this one cannot draw.
+    /// Which sections are folded, decoded from one comma-joined string rather than a key per
+    /// section. An unrecognised value is ignored, so a string written by a later build cannot fold
+    /// something this one cannot draw.
     var folderSidebarCollapsedSections: Set<FolderSidebarView.Section> {
         Set(browseSidebarCollapsed.split(separator: ",")
             .compactMap { FolderSidebarView.Section(rawValue: String($0)) })
@@ -859,9 +682,9 @@ extension ContentView {
         RecentsMode(rawValue: browseSidebarRecentsMode) ?? .recents
     }
 
-    /// **A pane moved to a folder** — the Revisited and Frequent half of a visit. The store settles the folder
-    /// the pane left, and a check after the stay threshold counts this one while the pane is still
-    /// there, so a folder joins Revisited without the user having to move on first.
+    /// A pane moved to a folder: the Revisited and Frequent half of a visit. The store settles the
+    /// folder the pane left, and a check after the stay threshold counts this one while the pane is
+    /// still there, so a folder joins Revisited without the user having to move on first.
     func noteFolderArrival(pane: String, root: String, relativePath: String) {
         FolderJumpStore.shared.noteArrival(pane: pane, root: root, relativePath: relativePath,
                                            name: (relativePath as NSString).lastPathComponent)
@@ -874,23 +697,18 @@ extension ContentView {
     func toggleFolderSidebarSection(_ section: FolderSidebarView.Section) {
         var folded = folderSidebarCollapsedSections
         if folded.contains(section) { folded.remove(section) } else { folded.insert(section) }
-        // Sorted so the stored string is the same for the same set — an unordered join would
-        // rewrite the key on every toggle with no change of meaning.
+        // Sorted so the same set always stores the same string.
         browseSidebarCollapsed = folded.map(\.rawValue).sorted().joined(separator: ",")
     }
 
     // MARK: - What a click does
 
-    /// A plain click re-scopes the pane; ⌘ opens the folder in a new tab.
-    ///
-    /// **`focusOn` and not a column drill**, which is the same choice the ⌘K palette makes
-    /// (`revealInSourcePane`): a jump from a remembered list is a change of *where the pane is*,
-    /// not a step through the stack the breadcrumb is walking. Sending it through the stack would
-    /// leave the breadcrumb describing a route the user never took.
-    /// - Parameter side: an explicit pane, from the row's context menu. `nil` means "wherever the
-    ///   sidebar is pointed", which is the click path. Passed rather than read so the context menu
-    ///   can open one folder on the other side WITHOUT moving the target — picking a side for one
-    ///   folder is not a statement about the next one.
+    /// A plain click re-scopes the pane; ⌘ opens the folder in a new tab. `focusOn`, not a column
+    /// drill, as the ⌘K palette does (`revealInSourcePane`): a jump changes where the pane is, and
+    /// a drill would leave the breadcrumb showing a route the user never took.
+    /// - Parameter side: an explicit pane, from the row's context menu; `nil` means wherever the
+    ///   sidebar is pointed. Passed so the menu can open one folder on the other side WITHOUT
+    ///   moving the target.
     func openFolderSidebarRow(_ row: FolderSidebarRow, inNewTab: Bool, side: Bool? = nil) {
         guard FolderSidebarModel.canOpen(row) else { return }
         let isLeft = side ?? folderSidebarTargetIsLeft
@@ -899,15 +717,10 @@ extension ContentView {
             openInNewTab(absolutePath: absolute, isLeft: isLeft)
             return
         }
-        // **A row from another source switches the source first.** Both sections span every account
-        // now, so the pane's current provider and the row's root are routinely different — and
-        // `focusOn` takes a path relative to whatever root the pane is already on, so without this
-        // the pane would resolve `Health` against the wrong account and land somewhere real and
-        // wrong, which is worse than landing nowhere.
-        //
-        // Asked of the pane the row is OPENING ON — `isLeft`, which the context menu can point at
-        // the non-target pane — not of `folderSidebarRoot`, which always describes the target.
-        // Asking the target answers for the wrong pane exactly when `side` is doing its job.
+        // A row from another source switches the source first: `focusOn` takes a path relative to
+        // the pane's current root, and would otherwise land somewhere real and wrong in the wrong
+        // account. Asked of the pane the row is OPENING ON (`isLeft`), not of `folderSidebarRoot`,
+        // which describes the target and is wrong exactly when `side` is set.
         let paneRoot = (settings.rootPath(for: isLeft ? leftProviderId : rightProviderId) as NSString)
             .expandingTildeInPath
         if FolderJumpStore.key(forRoot: paneRoot) != row.root {
@@ -922,28 +735,19 @@ extension ContentView {
         syncManager.focusOn(relativePath: row.relativePath, isLeft: isLeft)
     }
 
-    /// **Opens the folder a row LIVES IN, on the pane the sidebar is pointed at.**
-    ///
-    /// The row itself answers "take me there"; this answers "show me where that is", which is a
-    /// different question and the one you ask when a favorite's name has stopped being enough —
-    /// two `Legal` folders in one account, or a recent you no longer recognise. Finder's own verb,
-    /// and the same wording, because it is the same idea.
-    ///
-    /// Routed through `openFolderSidebarRow` rather than reimplementing the jump: a row from
-    /// another account still has to switch the source first, and that rule is subtle enough
-    /// (`focusOn` resolves against whatever root the pane is on) that a second copy of it would be
-    /// a second place for it to go wrong.
+    /// Opens the folder a row LIVES IN, on the pane the sidebar is pointed at: Finder's verb, for
+    /// when a name is not enough (two `Legal` folders, a recent you no longer recognise). Routed
+    /// through `openFolderSidebarRow`, so a row from another account still switches the source
+    /// first.
     func showFolderSidebarRowEnclosingFolder(_ row: FolderSidebarRow, side: Bool? = nil) {
         guard let parent = FolderSidebarModel.enclosingFolder(of: row) else { return }
         Logger.shared.info("Sidebar: showing “\(row.name)” in its enclosing folder (\(parent.relativePath.isEmpty ? "the source root" : parent.relativePath))")
         openFolderSidebarRow(parent, inNewTab: false, side: side)
     }
 
-    /// Adds an unfavourited row, removes a favourited one — the same toggle the pane header's jump
-    /// menu and the breadcrumb offer, through the same store call, so the three cannot disagree.
-    ///
-    /// **Keyed by the row's own root**, not the pane's: a favorite in another account is removable
-    /// from here without visiting it first, which is the point of the section spanning sources.
+    /// Adds an unfavourited row, removes a favourited one: the same store call as the pane
+    /// header's jump menu and the breadcrumb, so the three cannot disagree. Keyed by the row's own
+    /// root, not the pane's, so a favorite in another account is removable without visiting it.
     func toggleFolderSidebarFavorite(_ row: FolderSidebarRow) {
         let wasFavorite = row.group == .pinned
         FolderJumpStore.shared.togglePin(root: row.root, relativePath: row.relativePath, name: row.name)
@@ -951,15 +755,10 @@ extension ContentView {
         refreshFolderSidebarRows()
     }
 
-    /// **Takes one row out of Recents.**
-    ///
-    /// **Keyed by the row's own root**, like the favorite toggle beside it: the section spans every
-    /// source, so a stale recent in an account the panes are not showing is removable without
-    /// visiting it first.
-    ///
-    /// No confirmation, and nothing to undo — the entry is a record of a visit, and going back to
-    /// the folder writes it again (`FolderJumpStore.forgetRecent`). That is a different bargain
-    /// from Remove Source next door, which takes a configured source out of the app.
+    /// Takes one row out of Recents. Keyed by the row's own root, like the favorite toggle, so a
+    /// recent in an account the panes are not showing is removable without visiting it. No
+    /// confirmation or undo: the entry records a visit, and going back writes it again
+    /// (`FolderJumpStore.forgetRecent`).
     func forgetFolderSidebarRecent(_ row: FolderSidebarRow) {
         guard row.group == .recents else { return }
         FolderJumpStore.shared.forgetRecent(root: row.root, relativePath: row.relativePath)
@@ -967,18 +766,15 @@ extension ContentView {
         refreshFolderSidebarRows()
     }
 
-    /// **Puts a place in Favorites, or takes it out.** The place-row counterpart to
-    /// `toggleFolderSidebarFavorite`, which answers the same question for a remembered folder.
-    ///
-    /// Two lists, deliberately, rather than one: a remembered folder is a path *inside* a source
-    /// and is stored against that source's root, while a place is a root in its own right and may
-    /// not belong to any source at all — an unplugged disk, or `~/Downloads` on a machine that has
-    /// never added it. Forcing a place into `FolderJumpStore` would mean inventing a root for it.
+    /// Puts a place in Favorites, or takes it out: the place-row counterpart to
+    /// `toggleFolderSidebarFavorite`. Two lists, because a remembered folder is a path inside a
+    /// source, while a place may belong to no source at all (an unplugged disk, `~/Downloads` never
+    /// added), and `FolderJumpStore` would need a root invented for it.
     func toggleFolderSidebarPlaceFavorite(_ source: SidebarSourceRow) {
         guard SidebarSourceModel.favoriteVerb(for: source) != nil else { return }
         let places = folderSidebarFavoritePlaces
-        // Toggled on the STORED spelling where there is one, so a row whose path resolves through a
-        // symlink does not add a second entry naming the same folder.
+        // Toggled on the STORED spelling where there is one, so a row whose path resolves through
+        // a symlink does not add a second entry for the same folder.
         let stored = places.first { Self.resolved($0) == Self.resolved(source.absolutePath) }
         let next = SidebarFavoritePlaces.toggling(stored ?? source.absolutePath, in: places)
         writeFolderSidebarFavoritePlaces(next)
@@ -986,23 +782,13 @@ extension ContentView {
         refreshFolderSidebarRows()
     }
 
-    /// **Adds a folder in a PANE to Favorites, or takes it out.**
-    ///
-    /// The third route to the same list, and the one that was missing. The sidebar's own rows can
-    /// only manage folders that are already listed — favorites you have, and recents you have been
-    /// to — and the pane header's jump menu acts on the folder the pane is SHOWING. Neither is
-    /// where you are standing when you decide a folder is worth keeping, which is looking at it in
-    /// a pane.
-    ///
-    /// Keyed to the pane the row belongs to rather than to the focused pane: a context menu does
-    /// not move focus, so a right-click in the other pane would otherwise be filed against the
-    /// wrong account — and usually still succeed, because the same relative path exists on both
-    /// sides often enough for that to be the ordinary case rather than the corner one.
+    /// Adds a folder in a PANE to Favorites, or takes it out: the route for a folder you are
+    /// looking at in a pane, which the sidebar rows and the header's jump menu don't cover. Keyed
+    /// to the row's pane, not the focused one: a context menu does not move focus, and a
+    /// right-click in the other pane would be filed against the wrong account, often silently.
     func toggleFavorite(forPaneFolder node: FileNode, isLeft: Bool) {
-        // **The same rule the MENU asked**, not a second copy of it. `isFolderFavorite` decides
-        // whether the item reads "Add" or "Remove" and this decides what the click does; deriving
-        // the root and the relative path twice is how those two come to disagree, and the disagreement
-        // is invisible — the label would offer to remove a folder the toggle then adds.
+        // The same rule the menu's `isFolderFavorite` asked, not a second copy, so the label and
+        // the click cannot disagree about Add and Remove.
         guard let place = PaneActionDelegate.favoritePlace(
             nodePath: node.id, isDirectory: node.isDirectory,
             paneRoot: settings.rootPath(for: isLeft ? leftProviderId : rightProviderId)) else {
@@ -1031,10 +817,8 @@ extension ContentView {
         let isLeft = side ?? folderSidebarTargetIsLeft
         switch source.state {
         case .configured:
-            // **A new tab lands at the source's root**, not at whatever folder it was last showing.
-            // A source row points at one place whether you click it, ⌘-click it or drop on it;
-            // resolving to a last-visited folder would make one row mean two destinations depending
-            // on the gesture, and the destination is one the row does not show you beforehand.
+            // A new tab lands at the source's root, not its last folder: a row points at one
+            // place whether you click it, ⌘-click it or drop on it.
             if inNewTab {
                 openInNewTab(absolutePath: source.absolutePath, isLeft: isLeft)
             } else {
@@ -1046,42 +830,31 @@ extension ContentView {
         case .unknown:
             promoteFolderSidebarShortcut(source, isLeft: isLeft, inNewTab: inNewTab)
         case .revealOnly:
-            // The Trash, and only the Trash. It is a place worth having a row for and not a place
-            // worth scanning, so the row hands it to the one app whose job it is.
+            // The Trash, and only the Trash: worth a row, not a scan, so it opens in Finder.
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: source.absolutePath)
         }
     }
 
     /// A local shortcut whose folder lives inside a source the app already has: switch to that
-    /// source and navigate to the folder, adding nothing.
-    ///
-    /// This is the case macOS's Desktop & Documents syncing creates, and the reason
-    /// `SidebarSourceModel.owningSource` resolves symlinks: promoting `~/Desktop` would put a
-    /// second source over a tree iCloud already scans — double work, and Storage counting the same
+    /// source and navigate to the folder, adding nothing. Desktop & Documents syncing creates this
+    /// case, and is why `SidebarSourceModel.owningSource` resolves symlinks: promoting `~/Desktop`
+    /// would put a second source over a tree iCloud already scans, and Storage would count the
     /// bytes twice.
-    /// - Parameter isLeft: the pane resolved by the caller — the context menu's explicit side, or
-    ///   the target. **Passed rather than re-read**, which is the point: this branch read
-    ///   `folderSidebarTargetIsLeft` itself, so "Open in Right Pane" on a shortcut that lives
-    ///   inside another source would silently have opened it on the target side instead. One of
-    ///   three `.state` branches behaving differently from the other two is precisely the kind of
-    ///   thing nobody would think to try.
+    /// - Parameter isLeft: the pane resolved by the caller (the context menu's side, or the
+    ///   target). Passed, never re-read from `folderSidebarTargetIsLeft`, so "Open in Right Pane"
+    ///   works here as in the other `.state` branches.
     func openFolderSidebarShortcutInsideItsOwner(_ source: SidebarSourceRow, ownerId: String,
                                                  owner: String, inNewTab: Bool, isLeft: Bool) {
         let resolved = Self.resolved(source.absolutePath)
-        // By ID, never by display name: `.inside` carries the id `owningSource` resolved precisely
-        // so that two same-named sources — the collision this section's qualifiers exist for —
-        // cannot make this pick the wrong one and count-strip against the wrong root.
+        // By id, never by display name, so two same-named sources cannot pick the wrong root.
         guard let provider = folderSidebarProviders.first(where: { $0.id == ownerId }) else {
             Logger.shared.warning("Sidebar: \(source.name) claims to be in \(owner), which is not an enabled source")
             return
         }
         let root = Self.resolved((provider.rootPath as NSString).expandingTildeInPath)
-        // The path relative to the owning source's root — `focusOn` takes a relative path, and the
-        // shortcut only knows its absolute one. Containment re-checked rather than assumed: the
-        // row was built earlier, and a source path edited since would make a blind count-strip
-        // produce a garbage relative path against the new root. `PathBoundary`, so a folder the
-        // root links in from outside — `~/Documents` under iCloud Drive — relativizes through the
-        // link's name (`Documents`), which a prefix strip on the resolved paths cannot do.
+        // `focusOn` takes a path relative to the owning root. Containment is re-checked, since a
+        // source path edited after the row was built would make a blind strip produce garbage.
+        // `PathBoundary`, so `~/Documents` under iCloud Drive relativizes through the link's name.
         guard let relative = PathBoundary.relativize(resolved, under: root) else {
             Logger.shared.warning("Sidebar: \(source.name) is no longer inside \(owner) — its source has moved")
             return
@@ -1090,13 +863,10 @@ extension ContentView {
             openInNewTab(absolutePath: resolved, isLeft: isLeft)
             return
         }
-        // Compared against the pane being opened on, matching the provider write beside it —
-        // comparing the target pane's provider here while setting the `isLeft` pane's was the
-        // missed half of the fix this function's own doc describes.
+        // Compared against the pane being opened on, matching the provider write below.
         let alreadyOnIt = provider.id == (isLeft ? leftProviderId : rightProviderId)
-        // The place IS the source's root — so the ordinary provider switch, which re-homes the pane
-        // at its new source's landing folder, already lands exactly where this click means. Nothing
-        // to preserve, so nothing to arm.
+        // The place IS the source's root, so the ordinary provider switch lands where this click
+        // means. Nothing to arm.
         guard !relative.isEmpty else {
             if !alreadyOnIt { setFolderSidebarProvider(provider.id, isLeft: isLeft) }
             return
@@ -1106,19 +876,13 @@ extension ContentView {
             syncManager.focusOn(relativePath: relative, isLeft: isLeft)
             return
         }
-        // **A bare provider write would throw this navigation away**, and that is what the row did
-        // until 2026-09-08: `onChange(of: leftProviderId)` fires on the NEXT view update and calls
-        // `retargetPane()`, which re-homes the pane at its new source's landing folder — so
-        // clicking `Downloads` while `~` was a source switched to Home folder and landed at Home's
-        // root, with the folder the user actually clicked silently dropped. Reported as "it jumps
-        // to home".
-        //
-        // `CommandPaletteHost.switchSourceAndReveal` had already solved exactly this for ⌘K's
-        // cross-source Go to Folder, and its three statements are copied here in its order, each
-        // position load-bearing: `focusOn` first so both writes land in one synchronous turn and
-        // the visit is recorded against the NEW root; the ARMED provider write second, because it
-        // is the write whose handler must find the navigation already done; the reload last,
-        // because it resolves both providers out of `enabledProviders` by the ids as they now are.
+        // **A bare provider write would throw this navigation away:** `onChange(of: leftProviderId)`
+        // fires on the next update and `retargetPane()` re-homes the pane at the source's landing
+        // folder, dropping the folder the user clicked. Same three statements, in the same order,
+        // as `CommandPaletteHost.switchSourceAndReveal`: `focusOn` first, so both writes land in
+        // one turn and the visit is recorded against the NEW root; the ARMED provider write second,
+        // so its handler finds the navigation done; the reload last, resolving both providers by
+        // the ids as they now are.
         syncManager.focusOn(relativePath: relative, isLeft: isLeft)
         adoptProviderForTab(provider.id, isLeft: isLeft,
                             log: "Sidebar: \(source.name) opened inside \(owner) on the "
@@ -1127,41 +891,28 @@ extension ContentView {
     }
 
     /// A local folder SyncCloud has not been given: add it as a folder source, open it, and say so.
-    ///
-    /// **Never silent, and taken back inline rather than with ⌘Z.** The undo stack is the window's
-    /// `UndoManager` and it holds *file* operations — `FileSyncManager` registers sync runs on it
-    /// and verifies the top is still that run before reversing. Putting a configuration change on
-    /// the same stack means someone who moved forty files, clicked a shortcut, then pressed ⌘Z
-    /// gets a source removed instead of their move back: correct undo semantics, wrong answer.
+    /// Taken back from the notice, not with ⌘Z: the window's `UndoManager` holds file operations,
+    /// and a source change on it would make ⌘Z after a move remove the source instead of undoing
+    /// the move.
     func promoteFolderSidebarShortcut(_ source: SidebarSourceRow, isLeft: Bool, inNewTab: Bool) {
-        // `addFolderSource` answers an existing source by *returning its id* rather than minting a
-        // duplicate — including when the path is a discovered provider's own root, because that
-        // account "knows things about that folder that a folder source would throw away". So this
-        // is safe even if the containment check above missed a case: the worst outcome is a switch
-        // to the source that was already there.
-        // Whether the call MINTED a source, decided by membership taken BEFORE the call — taken
-        // after, it cannot tell "just added" from "already existed". The row can name a folder
-        // that is already a source, merely a *disabled* one the enabled-only builder cannot see;
-        // on that path the after-the-fact test answered true, put "Added" on screen, and offered
-        // a Remove that would have deleted a source the user configured long ago.
+        // `addFolderSource` returns an existing source's id rather than minting a duplicate, even
+        // for a discovered provider's own root, so a missed containment case only switches to the
+        // source already there. Whether it MINTED one is decided by membership taken BEFORE the
+        // call: the row can name a disabled source the enabled-only builder cannot see, and an
+        // after-the-fact test would say "Added" and offer a Remove that deletes the user's source.
         let knownBefore = Set(settings.folderSources.map(\.id) + settings.availableProviders.map(\.id))
         let id = settings.addFolderSource(path: source.absolutePath)
         let wasAdded = !knownBefore.contains(id)
-        // A pre-existing source reached from a "not added yet" row can only be a disabled one —
-        // enabled sources draw as `.configured`. The click means "use this folder", so switch it
-        // back on; pointing the pane at a disabled provider would land in a state the pane
-        // header's own menu cannot reach.
+        // A pre-existing source reached from a "not added yet" row can only be a disabled one
+        // (enabled ones draw as `.configured`). The click means "use this folder", so switch it on;
+        // a pane on a disabled provider is a state the header's menu cannot reach.
         if !wasAdded && !settings.isEnabled(id) {
             settings.setEnabled(true, for: id)
             Logger.shared.info("Sidebar: re-enabled \(source.name) (\(id)) — promoted while disabled")
         }
-        // **No rename here, deliberately.** A promoted volume root used to be called `/`, and this
-        // wrote the sidebar's own word over it — until `FolderSource.defaultDisplayName` learned to
-        // ask the volume for its name, which fixes it at the source for every way a source can be
-        // added, not just this one. Writing an override on top would now be worse than redundant:
-        // it marks the source as user-renamed in Settings, and for the home folder it would replace
-        // the deliberate "Home folder" with the account's short name — the exact reading-as-a-person
-        // problem that special case exists to avoid.
+        // No rename here: `FolderSource.defaultDisplayName` names a volume root after the volume.
+        // An override would mark the source user-renamed in Settings, and would replace the home
+        // folder's deliberate "Home folder" with the account's short name.
         if inNewTab {
             openInNewTab(absolutePath: source.absolutePath, isLeft: isLeft)
         } else {
@@ -1174,36 +925,23 @@ extension ContentView {
         refreshFolderSidebarRows()
     }
 
-    /// **Ejects the volume a row sits on** — Finder's verb, in the place the user is already
-    /// looking at the card.
-    ///
-    /// It does not remove the source itself, and deliberately: the *unmount* does that, through
-    /// `didUnmountNotification` → `forgetFolderSidebarSourcesOnUnmount`. One path for "this volume
-    /// went away" means an eject from here and an eject from Finder land in exactly the same state,
-    /// rather than this one having to remember to do both halves and the Finder one only getting
-    /// whichever half the notification carries.
-    ///
-    /// **A refused eject is reported, not swallowed.** macOS refuses when a file on the card is
-    /// open — in this app or another — and a menu item that silently does nothing is the failure
-    /// mode this whole area has been reported for twice.
+    /// Ejects the volume a row sits on: Finder's verb, where the user is looking at the card. It
+    /// does not remove the source itself; the unmount does, through `didUnmountNotification` →
+    /// `forgetFolderSidebarSourcesOnUnmount`, so an eject from here and from Finder end the same.
+    /// A refused eject (a file on the card is open, here or elsewhere) is reported, not swallowed.
     func ejectFolderSidebarVolume(_ source: SidebarSourceRow) {
         let url = URL(fileURLWithPath: source.absolutePath)
         let name = source.name
-        // **Off the main thread, because ejecting is not instant.** macOS flushes the volume's
-        // buffers before it unmounts, which on a card with writes still in flight takes seconds —
-        // and `unmountAndEjectDevice(at:)` is synchronous, so on the main thread that is a frozen
-        // window with no indication of why. This app has already shipped one wedged main thread
-        // (the `getxattr` inside a `body` getter, 2026-07-30); a known-slow syscall does not go
-        // back on it.
+        // Off the main thread: macOS flushes the volume's buffers before it unmounts, which can
+        // take seconds, and `unmountAndEjectDevice(at:)` is synchronous, so on the main thread it
+        // would freeze the window.
         Task {
             do {
                 try await Self.ejectVolume(at: url)
                 Logger.shared.info("User ejected \(name) (\(url.path))")
             } catch {
-                // **The real reason, not a guess at it.** "Something is still using it" is the
-                // common case and not the only one — a disk that will not spin down and a volume
-                // that refuses for its own reasons both land here, and naming the wrong cause
-                // sends the user looking for a file that is not open.
+                // The real reason, not a guess: "something is still using it" is common but not
+                // the only cause, and naming the wrong one sends the user hunting for an open file.
                 Logger.shared.warning("Could not eject \(name): \(error.localizedDescription)")
                 folderSidebarNotice = FolderSidebarNotice(
                     message: "Could not eject \(name). \(error.localizedDescription)",
@@ -1212,28 +950,23 @@ extension ContentView {
         }
     }
 
-    /// The eject itself, on a background thread. `nonisolated` so the `await` really does leave the
-    /// main actor — an `async` member of a `@MainActor` type would hop straight back onto it and
-    /// block exactly as before, which is the way this fix fails silently.
+    /// The eject itself, on a background thread. **`nonisolated`, so the `await` really leaves the
+    /// main actor:** an `async` member of a `@MainActor` type would hop back onto it and block,
+    /// silently.
     nonisolated static func ejectVolume(at url: URL) async throws {
         try await Task.detached(priority: .userInitiated) {
             try NSWorkspace.shared.unmountAndEjectDevice(at: url)
         }.value
     }
 
-    /// **Forgets the sources on a volume that has just been unmounted.**
+    /// Forgets the sources on a volume that has just been unmounted. Ejecting a card means the
+    /// user is done with it, so its source goes rather than dimming, which is what an asleep source
+    /// does. Safe silently, like the rename-follow: an unmount is an event the app is told about,
+    /// never an inference.
     ///
-    /// Ejecting a card is the user saying they are done with it, so its source goes rather than
-    /// dimming — dimming is what a source that is *asleep* does, and until this the two looked
-    /// identical. Safe to do silently for the same reason the rename-follow is: an unmount is an
-    /// event the app is told about, never an inference from a source having stopped answering.
-    ///
-    /// **`MountedVolumeMemory` decides whether the volume counted**, because the fact cannot be
-    /// read once it has gone: a network share is ejectable too, so without that record a Wi-Fi drop
-    /// and a card being pulled are one event. A volume SyncCloud never saw mounted is left alone.
-    ///
-    /// The pins and recents under that root are kept — they are keyed by path, so the card comes
-    /// back whole if it is plugged in and added again.
+    /// `MountedVolumeMemory` decides whether the volume counted, since that can't be read once it
+    /// has gone: a network share is ejectable too. A volume SyncCloud never saw mounted is left
+    /// alone. Pins and recents under the root are kept, keyed by path, so the card comes back whole.
     func forgetFolderSidebarSourcesOnUnmount(_ note: Notification) {
         guard let unmounted = NSWorkspace.DidUnmountVolumeMessage.makeMessage(note) else {
             Logger.shared.warning("A volume was unmounted but the notification did not say which — nothing removed")
@@ -1242,20 +975,15 @@ extension ContentView {
         let path = unmounted.volumeURL.path
         defer {
             MountedVolumeMemory.shared.forget(volume: path)
-            // **Unconditional, and it is the half that is easy to leave out.** The volume's own
-            // Locations row is built from the mounted-volume walk, so it is stale the moment this
-            // fires — whether or not anything was removed. Returning early on "nothing to remove"
-            // left a card that was never a source drawn in the column until some unrelated edit
-            // happened to refresh it.
+            // Unconditional: the volume's own Locations row comes from the mounted-volume walk,
+            // so it is stale the moment this fires, whether or not a source was removed.
             refreshFolderSidebarRows()
         }
         guard MountedVolumeMemory.shared.isDetachable(volume: path) else { return }
         let removed = settings.removeFolderSources(onVolume: path)
         guard !removed.isEmpty else { return }
-        // **"No longer connected", not "ejected".** `didUnmount` fires for a card pulled out of the
-        // reader as readily as for one ejected in Finder, and macOS does not say which happened —
-        // so a message naming the tidy one would be telling the user something the app does not
-        // know, in the exact case where they did the untidy thing.
+        // "No longer connected", not "ejected": `didUnmount` fires for a pulled card as for an
+        // ejected one, and macOS does not say which.
         folderSidebarNotice = FolderSidebarNotice(
             message: removed.count == 1
                 ? "\(removed[0]) is no longer connected — removed it as a source."
@@ -1263,12 +991,9 @@ extension ContentView {
             action: .dismiss)
     }
 
-    /// Records what a volume is while it is still mounted, for the unmount that cannot ask.
-    ///
-    /// Fed from three places, because no one of them covers every card: the launch walk (a card
-    /// already in the reader), `didMountNotification` (one inserted while the app runs), and the
-    /// sidebar's own refresh — which is NOT enough on its own, since it returns early whenever the
-    /// column is hidden.
+    /// Records what a volume is while it is still mounted, for the unmount that cannot ask. Fed
+    /// from the launch walk, `didMountNotification` and the sidebar's refresh; the refresh alone is
+    /// NOT enough, since it returns early while the column is hidden.
     static func rememberMountedVolumes(_ volumes: [SidebarSourceModel.Volume]) {
         MountedVolumeMemory.shared.record(volumes.map {
             (path: $0.path,
@@ -1276,20 +1001,14 @@ extension ContentView {
         })
     }
 
-    /// **Takes a folder source out of the app, from the column where the user is looking at it.**
+    /// Takes a folder source out of the app, from the column. For a row that cannot come back,
+    /// such as a source on a volume renamed while SyncCloud was quit: it draws dimmed like an asleep
+    /// one, and would otherwise need Settings ▸ Sources.
     ///
-    /// The row this exists for is one that cannot come back: a source rooted on a volume renamed
-    /// while SyncCloud was quit names a mount point that will never return. It draws dimmed, and
-    /// dimmed means "asleep" everywhere else in this column, so the row said nothing about being
-    /// dead and there was no way to act on it short of Settings ▸ Sources.
-    ///
-    /// **Not the same act as the notice's Remove beside it.** That one takes back a promotion this
-    /// session made and is exactly reversible; this one is confirmed first, because the id it drops
-    /// carries the name override, the landing folder and the enabled flag with it. The confirmation
-    /// lives in the view — see `pendingSourceRemoval`.
-    ///
-    /// The notice is cleared when it named the source being removed, so its Remove cannot be left
-    /// on screen offering to remove something that is already gone.
+    /// Not the notice's Remove, which takes back this session's promotion exactly. This one is
+    /// confirmed first (`pendingSourceRemoval`, in the view), because the id carries the name
+    /// override, landing folder and enabled flag. A notice naming the removed source is cleared, so
+    /// its Remove cannot offer to remove something already gone.
     func removeFolderSidebarSource(_ source: SidebarSourceRow) {
         settings.removeFolderSource(id: source.id)
         if folderSidebarNotice?.sourceId == source.id { folderSidebarNotice = nil }
@@ -1299,8 +1018,7 @@ extension ContentView {
     /// Undoes a promotion the user did not mean. Removes only what this added, and only while the
     /// notice offering it is still on screen.
     func actOnFolderSidebarNotice(_ notice: FolderSidebarNotice) {
-        // The line goes either way — a `switch` rather than an `if`, so a third kind added later
-        // has to say what its link does instead of silently inheriting one of these.
+        // A `switch`, not an `if`, so a new kind has to say what its link does.
         switch notice.action {
         case .undoPromotion(let sourceId):
             settings.removeFolderSource(id: sourceId)
@@ -1315,26 +1033,14 @@ extension ContentView {
 
     /// Moves a favorite within the section, and records the whole resulting sequence.
     ///
-    /// **The order is stored separately from membership** (`FolderJumpStore.favoriteOrder`), because
-    /// Favorites spans every source: the section is a concatenation of per-root lists, and a drag
-    /// that moves a Dropbox favorite above an iCloud one has no representation in per-root arrays.
-    /// The section is one flat list with badges and no visible boundary inside it, so an order that
-    /// stopped at a source would be a constraint the user cannot see — the row would snap back for
-    /// no reason.
-    /// **Favorites holds two lists, and the drag index spans both of them.**
+    /// The order is stored apart from membership (`FolderJumpStore.favoriteOrder`), because
+    /// Favorites spans every source: a Dropbox favorite above an iCloud one has no place in
+    /// per-root arrays, and an order that stopped at a source boundary the user cannot see would
+    /// snap rows back.
     ///
-    /// The section draws the place rows first and the remembered folders after, in one index space
-    /// — so index 0 is a place and index `places` is the first folder. This member used to hand
-    /// that combined index straight to the folder-favorites list, which is the same defect
-    /// `moveFolderSidebarSource` documents one screen down: with the standard places present (three
-    /// of them at the time), dragging the FIRST remembered folder asked to move item 3 of a list
-    /// that had two, and
-    /// `SidebarReorder.moved` returned it unchanged, so remembered folders could not be reordered
-    /// at all; dragging a place row reordered a remembered folder instead. Neither wrote anything
-    /// visible, which is why it survived.
-    ///
-    /// The two lists live in different stores and mean different things, so a row moves within its
-    /// own half — `clampedDrop` in the view is what stops the insertion line promising otherwise.
+    /// The drag index spans two lists: place rows first, remembered folders after, so index
+    /// `places` is the first folder. Each list lives in its own store, so a row moves within its
+    /// own half, and `clampedDrop` in the view keeps the insertion line from promising otherwise.
     func moveFolderSidebarFavorite(from: Int, to: Int) {
         let move = SidebarReorder.favoritesMove(from: from, to: to,
                                                 places: folderSidebarShortcutRows.count)
@@ -1345,11 +1051,10 @@ extension ContentView {
         }
     }
 
-    /// Reorders the Favorites place rows — Desktop, and anything else put there.
+    /// Reorders the Favorites place rows: Desktop, and anything else put there.
     func moveFolderSidebarFavoritePlace(from: Int, to: Int) {
         // Indexed against the DRAWN rows, then mapped back to stored paths: the stored list can
-        // name a place that is not on screen (an unplugged disk), and indexing the stored list with
-        // a drawn index is exactly the mismatch this file has been bitten by twice.
+        // name a place that is not on screen (an unplugged disk).
         let drawn = folderSidebarShortcutRows.map { Self.resolved($0.absolutePath) }
         guard drawn.indices.contains(from) else { return }
         let moved = SidebarReorder.moved(drawn, from: from, to: to)
@@ -1357,22 +1062,17 @@ extension ContentView {
         let stored = folderSidebarFavoritePlaces
         let byResolved = Dictionary(stored.map { (Self.resolved($0), $0) },
                                     uniquingKeysWith: { first, _ in first })
-        // **A place that is not on screen keeps its slot.** The stored list outlives the drawn one
-        // — an unplugged volume keeps its entry and draws no row — and writing the reordered
-        // visible rows followed by the leftovers moved every one of those to the end, so dragging
-        // Desktop up sent an unplugged disk to the bottom of a list nothing on screen mentioned.
+        // A place that is not on screen keeps its slot. Appending the leftovers instead would send
+        // an unplugged disk to the bottom whenever another row is dragged.
         let next = SidebarReorder.resplicing(stored.map(Self.resolved), visibleInNewOrder: moved)
         writeFolderSidebarFavoritePlaces(next.compactMap { byResolved[$0] })
         Logger.shared.info("Sidebar: moved favorite place “\(folderSidebarShortcutRows[from].name)” to position \(min(to, moved.count))")
         refreshFolderSidebarRows()
     }
 
-    /// **Indexed against the DRAWN favorites, then written back into the stored ones**, which are
-    /// not the same list: `reachable` drops a favorite whose folder has been deleted and the
-    /// builder drops one whose whole source is gone, so the column can be showing four of six.
-    /// Indexing the stored list with a drawn index moves a row the user cannot see — the same
-    /// mismatch `moveFolderSidebarSource` and `moveFolderSidebarFavoritePlace` each document, and
-    /// the third place it had to be fixed.
+    /// Indexed against the DRAWN favorites, then written back into the stored ones, which differ:
+    /// `reachable` drops a favorite whose folder is deleted and the builder drops one whose source
+    /// is gone. A drawn index into the stored list would move a row the user cannot see.
     func moveFolderSidebarFavoriteFolder(from: Int, to: Int) {
         let drawn = FolderSidebarModel.rows(folderSidebarRows, in: .pinned)
         guard drawn.indices.contains(from) else { return }
@@ -1385,39 +1085,22 @@ extension ContentView {
         let moved = SidebarReorder.resplicing(allKeys, visibleInNewOrder: movedKeys)
             .compactMap { byKey[$0] }
         FolderJumpStore.shared.setFavoriteOrder(moved)
-        // **Reorders are logged, and that is not decoration.** A drag rewrites a persisted
-        // preference with no visible confirmation beyond the rows settling, so when one of these
-        // moved the WRONG entry there was nothing anywhere to say what it had done — which is
-        // exactly how the Locations drag reordered the wrong source for as long as it did. Naming
-        // what moved makes the next such bug one log line away instead of a bisect.
-        // Named off the DRAWN list, which is the one `from` and `to` are indices into. Reading the
-        // stored list with them printed whichever favorite happened to sit at that position in a
-        // list the user was not looking at.
+        // Logged because a drag rewrites a persisted preference with no other record, so a drag
+        // that moved the wrong entry is one log line away. Named off the DRAWN list, the one
+        // `from` and `to` index into.
         Logger.shared.info("Sidebar: moved favorite “\(drawn[from].name)” to position \(min(to, keys.count))")
         refreshFolderSidebarRows()
     }
 
-    /// Moves a source, and records the order **in Settings** rather than in the sidebar.
+    /// Moves a source, and records the order in Settings rather than in the sidebar, so the
+    /// sidebar and the pane-header dropdown show one order. The stored list is provider ids, so a
+    /// source that disappears leaves no hole and a new one appends.
     ///
-    /// One order, read by everything: a sidebar and a pane-header dropdown showing the same eleven
-    /// accounts in two different sequences is the drift that makes a user distrust both. The stored
-    /// list is provider ids, so a source that disappears leaves no hole and a newly connected one
-    /// appends rather than jumping to the front.
-    ///
-    /// **Indexed against `folderSidebarLocationRows` — the exact list the drag measured.**
-    ///
-    /// It indexed `folderSidebarProviders` until this was reviewed, and the two are not the same
-    /// list: a provider whose folder is a canonical place is CLAIMED by that place and drawn in
-    /// Favorites (`buildFolderSidebarPlaceRows`), so it is absent from Locations. With `~/Desktop`
-    /// and `~/Downloads` as folder sources — an ordinary setup, and the one on this machine — the
-    /// cloud band is the provider list minus two, and every index past the first claimed one
-    /// addressed the wrong source. Dragging one cloud row reordered a different one, and dragging
-    /// a device row indexed past the end and silently did nothing.
-    ///
-    /// **Rows that are not sources contribute nothing**, and sources not drawn here keep their
-    /// existing positions — see `SidebarReorder.reordering`. Writing the visible ones out followed
-    /// by the rest would shove every untouched source to the end of the dropdown as a side effect
-    /// of a drag in a different section.
+    /// Indexed against `folderSidebarLocationRows`, the exact list the drag measured, not
+    /// `folderSidebarProviders`: a provider whose folder is a canonical place is claimed by it and
+    /// drawn in Favorites (`buildFolderSidebarPlaceRows`), so the two lists differ and an index
+    /// into the wrong one moves the wrong source. Rows that are not sources contribute nothing,
+    /// and sources not drawn here keep their positions (`SidebarReorder.reordering`).
     func moveFolderSidebarSource(from: Int, to: Int) {
         let shown = folderSidebarLocationRows
         guard shown.indices.contains(from) else { return }
@@ -1433,20 +1116,16 @@ extension ContentView {
         refreshFolderSidebarRows()
     }
 
-    /// **A recent dragged into Favorites**, landing where it was dropped.
-    ///
-    /// Two writes, in this order: the folder becomes a favorite, then the section's order is
-    /// rewritten with it at the drop index. Doing it the other way round would set an order naming a
-    /// key that is not a favorite yet, which `orderedFavorites` would ignore — so the row would be
-    /// added and then appear at the bottom, one place from where it was aimed.
+    /// A recent dragged into Favorites, landing where it was dropped. Two writes, in this order:
+    /// the folder becomes a favorite, then the order is rewritten with it at the drop index. The
+    /// other way round, `orderedFavorites` would ignore an order naming a key not yet a favorite,
+    /// and the row would land at the bottom.
     func favoriteRecentByDrag(_ row: FolderSidebarRow, to: Int) {
-        // **`to` arrives in the section's combined index space** — place rows first, remembered
-        // folders after — and this reorders the remembered folders alone, so the places have to
-        // come off it. `clampedDrop` has already stopped it landing in the first half.
+        // `to` is in the section's combined index space (places first, then folders); this
+        // reorders the folders alone. `clampedDrop` has already kept it out of the first half.
         let target = max(0, to - folderSidebarShortcutRows.count)
-        // The drop index is a position among the folders ON SCREEN, so the sequence it lands in is
-        // built from those and then respliced into the stored list — which holds every favorite,
-        // including ones no source can currently reach. Same rule as `moveFolderSidebarFavoriteFolder`.
+        // The drop index is among the folders ON SCREEN, so the sequence is built from those and
+        // respliced into the stored list, as in `moveFolderSidebarFavoriteFolder`.
         let added = FolderJumpStore.favoriteKey(root: row.root, relativePath: row.relativePath)
         var visible = FolderSidebarModel.rows(folderSidebarRows, in: .pinned)
             .map { FolderJumpStore.favoriteKey(root: $0.root, relativePath: $0.relativePath) }
@@ -1455,9 +1134,8 @@ extension ContentView {
         FolderJumpStore.shared.togglePin(root: row.root, relativePath: row.relativePath, name: row.name)
         let favorites = FolderJumpStore.shared.favoriteVisitsAcrossRoots()
         let allKeys = favorites.map { FolderJumpStore.favoriteKey(root: $0.root, relativePath: $0.relativePath) }
-        // `togglePin` toggles: a recent that was somehow already a favorite has just been REMOVED,
-        // and there is no row left to place. Refresh and stop rather than writing an order naming
-        // a key that is not a favorite, which `orderedFavorites` would silently drop.
+        // `togglePin` toggles: a recent that was already a favorite has just been REMOVED. Refresh
+        // and stop rather than write an order naming a key that is not a favorite.
         guard allKeys.contains(added) else {
             refreshFolderSidebarRows()
             return
@@ -1476,23 +1154,18 @@ extension ContentView {
     }
 }
 
-/// A promotion that can still be taken back — the inline alternative to ⌘Z.
+/// A notice at the foot of the column: a promotion that can still be taken back (the inline
+/// alternative to ⌘Z), or a fact to dismiss.
 struct FolderSidebarNotice: Equatable, Identifiable {
 
-    /// **What the notice's link does, and whether there is one at all.**
-    ///
-    /// The column posts two kinds of notice now and they are not symmetric. A promotion is an act
-    /// *this column* performed and can undo exactly. An eject-removal is a consequence of something
-    /// the user did in Finder to hardware that is no longer attached — there is no folder left for
-    /// an "undo" to re-add a source at, so the notice states the fact and stops.
+    /// What the notice's link does. A promotion is an act this column performed and can undo
+    /// exactly. An eject-removal follows hardware that is gone, with no folder left to re-add a
+    /// source at, so that notice states the fact.
     enum Action: Equatable {
-        /// Take back the promotion this session made — the source `addFolderSource` created.
+        /// Take back the promotion this session made: the source `addFolderSource` created.
         case undoPromotion(sourceId: String)
-        /// **Just clear the line.** A notice about a volume that has gone has nothing to undo — the
-        /// hardware is not there for a re-added source to point at — but it still needs a way OFF
-        /// the column: nothing else in this file clears a notice, so an actionless one would sit at
-        /// the bottom of the sidebar for the rest of the session. A fact worth stating once is not
-        /// a fact worth stating permanently.
+        /// Just clear the line. Nothing else in this file clears a notice, so without it a notice
+        /// about a gone volume would stay for the rest of the session.
         case dismiss
     }
 
@@ -1507,9 +1180,8 @@ struct FolderSidebarNotice: Equatable, Identifiable {
     let message: String
     let action: Action
 
-    /// **Keyed by the message**, because a notice no longer always has a source to be about.
-    /// Distinct messages are distinct notices, which is all `Identifiable` is asked for here — the
-    /// column shows one at a time.
+    /// Keyed by the message, since not every notice has a source. The column shows one at a time,
+    /// so distinct messages are enough.
     var id: String { message }
 
     /// The source a promotion notice is about, where there is one. `nil` for every other kind, so

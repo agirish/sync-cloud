@@ -1,15 +1,12 @@
 import Sync
 
-/// The launch-restore DECISION, separated from the `View`-extension glue that executes it.
+/// The launch-restore decision, kept apart from the `View`-extension glue that executes it.
 ///
-/// `restoreBrowseTabs` lives on a `View` extension nothing can instantiate, so for as long as the
-/// decision lived inline, every one of its branches was pinned by source scans alone — a refactor
-/// that kept the spellings while changing the behavior passed the whole repo. `PaneTabsStore.restore`
-/// already owns dropping and re-rooting; what remained unowned was the *account* of it: which lines
-/// are said, in what order, what is installed, and whether the pane must adopt the active tab's
-/// provider before the tab is applied. That account is this value, computed purely so a test can
-/// execute every branch — the ordering rules the old scans asserted as text (a claim of a restore
-/// must not precede the guard that can abandon it) are now the order of `Plan.lines`.
+/// `restoreBrowseTabs` lives on a `View` extension nothing can instantiate, so a test can't run it.
+/// `PaneTabsStore.restore` owns dropping and re-rooting; this owns the account of it: which lines
+/// are logged, in what order, what is installed, and whether the pane must adopt the active tab's
+/// provider first. It is computed purely so a test can execute every branch, including the rule
+/// that no claim of a restore precedes the guard that can abandon it.
 enum BrowseTabRestorePlan {
 
     struct Line: Equatable {
@@ -42,11 +39,10 @@ enum BrowseTabRestorePlan {
         var plan = Plan()
         let side = PaneSideChoice.name(isLeft)
 
-        // **What the restore threw away, before what it kept.** `PaneTabsStore.restore` drops an
-        // entry whose source this pane cannot be pointed at; the commonest way is the user
-        // switching a source OFF in Settings — reversible there, not here. Dropping is right
-        // (a tab that cannot be opened is not a place), doing it in silence is not: the strip is
-        // rewritten by the first save, so those tabs are gone for good. He audits this log.
+        // What the restore threw away, before what it kept. `PaneTabsStore.restore` drops an
+        // entry whose source this pane can't show, usually one switched off in Settings. Dropping
+        // is right, but never silently: the first save rewrites the strip, so those tabs are gone
+        // for good.
         let dropped = storedCount - (outcome?.list.count ?? 0)
         if dropped > 0 {
             plan.lines.append(Line(level: .warning, message:
@@ -55,11 +51,10 @@ enum BrowseTabRestorePlan {
         }
 
         guard let restored = outcome?.list, !restored.isSeedState else {
-            // **The abandoned restore lost a folder too, and this is the only branch that can say
-            // so truthfully.** A one-entry strip whose only folder is gone re-roots to `""` —
-            // exactly the seed state — so nothing is installed, and the "at its source root" line
-            // below would claim a tab came back that did not. At most one folder can reach this
-            // branch, because the seed state is a one-tab strip.
+            // An abandoned restore can still have lost a folder, and only this branch can say so
+            // truthfully: a one-entry strip whose folder is gone re-roots to `""`, the seed state,
+            // so nothing is installed and the "at its source root" line below would be false. At
+            // most one folder reaches here, since the seed state is a one-tab strip.
             if let lost = (outcome?.lostFolders ?? []).first {
                 plan.lines.append(Line(level: .warning, message:
                     "Did not restore the \(side) browse tab “\(lost)”: its "
@@ -69,11 +64,10 @@ enum BrowseTabRestorePlan {
             return plan
         }
 
-        // **What came back at the wrong place, which the dropped count cannot see.** A tab whose
-        // FOLDER is gone is re-rooted rather than dropped, and the restored strip then looks
-        // exactly like one the user left at the root — the first save writes the root over the
-        // stored path for good. The stored path is the last place that folder is named at all, so
-        // it is named here, per side. He audits this log.
+        // What came back at the wrong place, which the dropped count can't see. A tab whose
+        // folder is gone is re-rooted, not dropped, and the first save writes the root over the
+        // stored path for good. The stored path is the last place that folder is named, so it is
+        // logged here, per side.
         for lost in outcome?.lostFolders ?? [] {
             plan.lines.append(Line(level: .warning, message:
                 "Restored the \(side) browse tab “\(lost)” at its source root: "

@@ -5,15 +5,11 @@ import FileExplorer
 
 /// "Find duplicates of this" on a pane row: the workspace switch, the decision about whether the
 /// results on screen already answer the question, and the reveal request handed to the Duplicates
-/// lens.
+/// lens. Kept out of `ContentView` so the decision can be tested; what the lens does with the
+/// request is `DuplicateReveal`'s, in FileExplorer.
 ///
-/// Extracted from `ContentView` for the reason `DuplicateReviewCoordinator` was — everything in
-/// `ContentView` itself is untestable (`MacApp/` is in no SPM package and its `body` needs a
-/// window), and this is the half of the handoff that decides something. What the *lens* then does
-/// with the request is decided in `DuplicateReveal`, over in FileExplorer.
-///
-/// Stateless, like its sibling: it holds bindings and closures over `ContentView`'s state, so a
-/// fresh one per use is equivalent to the methods it replaced.
+/// Stateless: it holds bindings and closures over `ContentView`'s state, so a fresh one per use
+/// is fine.
 @MainActor
 struct DuplicateRevealCoordinator {
     let syncManager: FileSyncManager
@@ -24,9 +20,9 @@ struct DuplicateRevealCoordinator {
     /// switch that is about to happen.
     @Binding var revealRequest: DuplicateRevealRequest?
 
-    /// The absolute, tilde-expanded folder the pane on this side is showing — the root a scan for
-    /// that source would walk. A closure because it is derived from live `@AppStorage`/`@State`
-    /// that moves between the coordinator being built and being called.
+    /// The absolute, tilde-expanded folder the pane on this side is showing, the root a scan would
+    /// walk. A closure because the live `@AppStorage`/`@State` it reads can change between building
+    /// the coordinator and calling it.
     let paneRoot: @MainActor (_ isLeft: Bool) -> String
     /// Starts a Find Duplicates scan of `root`.
     let startScan: @MainActor (URL) -> Void
@@ -44,19 +40,14 @@ struct DuplicateRevealCoordinator {
 
     /// The decision, as a pure function of the scan state.
     ///
-    /// **"Current" means the existing results actually cover this file, not that a scan has ever
-    /// run.** `duplicateScanRoot` is published only on completion, so a non-nil root is a
-    /// completed scan — but a completed scan of `~/Documents` says nothing about a file in
-    /// `~/Projects`, and revealing against it would answer "no duplicates of X" from results that
-    /// never looked. Containment against the scanned root is the honest test, and it is the same
-    /// `PathBoundary` math the rest of this feature uses.
+    /// "Current" means the existing results cover this file, not that a scan has ever run: a
+    /// completed scan of `~/Documents` would answer "no duplicates" for a file in `~/Projects`
+    /// without having looked. `duplicateScanRoot` is published only on completion, so containment
+    /// under it (`PathBoundary`) is the test.
     ///
-    /// **The scan root falls back to the file's own folder.** `paneRoot` is normally an ancestor
-    /// of the row's file and is the right root — it is what the shipped "Find Duplicates" button
-    /// scans, and a duplicate is relational, so a wider root finds more. But nothing structurally
-    /// guarantees containment (a pane can be re-rooted while a menu is open), and a scan that does
-    /// not contain the file is one that cannot answer the question. Falling back keeps the request
-    /// answerable; it does not silently widen it.
+    /// The scan root is `paneRoot` when it contains the file, since a wider root finds more, and
+    /// otherwise the file's own folder: a pane can be re-rooted while a menu is open, and a root
+    /// that doesn't contain the file can't answer.
     static func decide(
         filePath: String,
         paneRoot: String,
@@ -74,11 +65,8 @@ struct DuplicateRevealCoordinator {
     }
 
     /// Opens Duplicates on this file and reveals its group, scanning first when nothing current
-    /// covers it.
-    ///
-    /// The request is set for EVERY decision, including the one that starts a scan: it is what the
-    /// lens resolves against when results land, so setting it only on the no-scan path would make
-    /// the common first-use case — no scan yet — reveal nothing at all.
+    /// covers it. The request is set for every decision, a scan included: the lens resolves it when
+    /// results land, so without it a first use, with no scan yet, would reveal nothing.
     func findDuplicates(of node: FileNode, isLeft: Bool) {
         guard !node.isDirectory else { return }
         apply(decision: Self.decide(filePath: node.id,
@@ -88,10 +76,9 @@ struct DuplicateRevealCoordinator {
               path: node.id)
     }
 
-    /// The same ask, from a surface that has only a path — the `notScanned` empty state's recovery
-    /// button, whose original request has been consumed by the time it is pressed. The pane root
-    /// is the file's own folder: that is what the button's caption promises to scan, and it is a
-    /// root that provably contains the file, so this ask can always be answered.
+    /// The same ask from a surface that has only a path: the `notScanned` empty state's recovery
+    /// button, whose original request is already consumed. The root is the file's own folder, which
+    /// is what the button promises to scan and always contains the file.
     func findDuplicates(ofPath path: String) {
         apply(decision: Self.decide(filePath: path,
                                     paneRoot: (path as NSString).deletingLastPathComponent,
@@ -105,11 +92,10 @@ struct DuplicateRevealCoordinator {
         selectedWorkspace = .filing
         organizeLens = .duplicates
         if case .scanThenReveal(let root) = decision, !root.isEmpty {
-            // The request remembers the completed-scan root as it stands NOW, so the lens keeps
-            // waiting until the scan started below has actually published — `isScanning` alone
-            // has a hole: it flips inside the scan task's first hop, behind an await of the
-            // previous task, and the lens's resolve can run in that window, answer from the OLD
-            // results, and consume the request before the paid-for scan lands.
+            // The request records the completed-scan root as it is now, so the lens waits until
+            // the scan started below publishes. `isScanning` alone isn't enough: it flips only
+            // after the scan task awaits the previous one, and a resolve in that window would
+            // answer from the old results and consume the request.
             revealRequest = DuplicateRevealRequest(
                 path: path,
                 awaitsScanReplacing: .init(root: syncManager.duplicateScanRoot))

@@ -4,9 +4,8 @@ import SwiftUI
 /// The frame every setup screen is drawn in: a crumb strip and the text-size control above, the
 /// content and its Why panel in the middle, the lock line and the buttons below.
 ///
-/// **One card, ten screens.** The chrome is identical on every screen so that only the question
-/// changes as the user moves — the form this replaces changed the shape of its card between steps,
-/// and a container that resizes under a form draws the eye to the container.
+/// One card, ten screens. The chrome is identical on every screen so only the question changes as
+/// the user moves: a container that resizes under a form draws the eye to the container.
 struct SetupScreenCard<Content: View, Why: View>: View {
     /// The crumb strip's screens, or empty for a screen that shows a title instead.
     var crumbs: [SetupFlow.Screen] = []
@@ -19,13 +18,13 @@ struct SetupScreenCard<Content: View, Why: View>: View {
     var onBack: (() -> Void)?
     var skipTitle: String?
     var onSkip: (() -> Void)?
-    /// A second way forward beside the primary — Learn Again, over a reading already in hand.
+    /// A second way forward beside the primary: Learn Again, over a reading already in hand.
     var secondaryTitle: String? = nil
     var onSecondary: (() -> Void)? = nil
     var isSecondaryDisabled = false
     var primaryTitle: String
     var onPrimary: () -> Void
-    /// Set when the screen's primary action cannot be taken yet — Learn with no folder chosen, or
+    /// Set when the screen's primary action can't be taken yet: Learn with no folder chosen, or
     /// Save while the last press is still writing.
     var isPrimaryDisabled = false
     var onDismiss: () -> Void
@@ -35,7 +34,7 @@ struct SetupScreenCard<Content: View, Why: View>: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.appFontScale) private var fontScale
 
-    /// The card's own geometry moves by `chromeScale`, not by the text scale — see its doc comment.
+    /// The card's own geometry moves by `chromeScale`, not by the text scale; see its doc comment.
     private var scale: CGFloat { SetupSheetMetrics.chromeScale(fontScale) }
 
     var body: some View {
@@ -43,30 +42,21 @@ struct SetupScreenCard<Content: View, Why: View>: View {
             topBar
             Divider().opacity(0.5)
             HStack(alignment: .top, spacing: 0) {
-                // **The content column scrolls, and the chrome does not.** The card is one fixed
-                // height for every screen — that is the whole point of it — but two of the screens
-                // grow with the user's own data: Locations draws a row per location, and People a
-                // chip per name. Without a scroll view a VStack taller than its frame is not
-                // clipped at the bottom, it is *centred and clipped at both ends*, so the first
-                // thing to go is the crumb strip at the top and the primary button at the bottom —
-                // the two things a person needs to get out of the screen. Nine locations at 110%
-                // text is enough to do it.
+                // The content column scrolls, and the chrome doesn't. The card is one fixed height,
+                // but Locations draws a row per location and People a chip per name. Without a
+                // scroll view a VStack taller than its frame is centred and clipped at both ends,
+                // so the crumb strip at the top and the primary button at the bottom, the way out
+                // of the screen, go first.
                 //
-                // `.basedOnSize` so a screen that fits does not rubber-band: bounce on a card that
-                // has nothing to scroll reads as a broken window.
+                // `.basedOnSize` so a screen that fits doesn't rubber-band: bounce on a card with
+                // nothing to scroll reads as a broken window.
                 //
-                // **`minHeight` is what makes the screens' own `Spacer`s work.** A `ScrollView`
-                // proposes `nil` height to its content, so a `VStack` inside one is exactly as tall
-                // as its subviews and a `Spacer(minLength: 0)` in it gets nothing to expand into —
-                // every screen here ends in one, and adding the scroll view quietly made all ten
-                // inert. What that costs is composition: the closing line each screen means to sit
-                // at the foot of the card rode up under the controls instead, while the Why panel
-                // beside it went on closing at the bottom of *its* column, so the two halves of one
-                // card disagreed about where the floor was.
-                //
-                // Giving the content at least the column's own height restores it, and costs the
-                // overflow case nothing: `minHeight` is a floor, so a screen taller than the card
-                // still grows past it and still scrolls.
+                // `minHeight` makes the screens' own `Spacer`s work. A `ScrollView` proposes `nil`
+                // height, so a `VStack` inside is exactly as tall as its subviews and a trailing
+                // `Spacer(minLength: 0)` has nothing to expand into: each screen's closing line
+                // would ride up under its controls while the Why panel beside it closes at the
+                // bottom of its column. `minHeight` is a floor, so a screen taller than the card
+                // still grows past it and scrolls.
                 GeometryReader { proxy in
                     ScrollView(.vertical) {
                         content()
@@ -94,9 +84,9 @@ struct SetupScreenCard<Content: View, Why: View>: View {
                     .scaledFont(.callout.weight(.medium))
                     .foregroundStyle(.secondary)
             } else {
-                // The strip's own capsule inset is cancelled on the leading edge so the first
-                // crumb's *text* lands on the card's inset rather than 7pt inside it. The capsule
-                // still has its padding; what moves is where the row starts.
+                // The strip's capsule inset is cancelled on the leading edge so the first crumb's
+                // text lands on the card's inset rather than 7pt inside it. The capsule keeps its
+                // padding; only where the row starts moves.
                 SetupCrumbStrip(screens: crumbs, current: current, tint: tint)
                     .padding(.leading, -SetupCrumbStrip.capsuleInset * scale)
             }
@@ -123,12 +113,12 @@ struct SetupScreenCard<Content: View, Why: View>: View {
     }
 }
 
-/// The bar under every screen: Back, the lock line, and at most three buttons — Skip, a
-/// secondary, and the primary.
+/// The bar under every screen: Back, the lock line, and at most three buttons (Skip, a secondary,
+/// the primary).
 ///
-/// **Its own view so a fit test can measure it.** `SetupSheetMetrics.contentHeight` subtracts
-/// `footerHeight` from the card, so a real footer taller than that constant makes every height the
-/// sheet computes optimistic by the difference — and the only way to know is to lay one out.
+/// Its own view so a fit test can measure it: `SetupSheetMetrics.contentHeight` subtracts
+/// `footerHeight` from the card, so a footer taller than that constant makes every height the sheet
+/// computes optimistic, and only laying one out shows it.
 struct SetupFooter: View {
     var onBack: (() -> Void)?
     var skipTitle: String?
@@ -139,16 +129,16 @@ struct SetupFooter: View {
     var primaryTitle: String
     var onPrimary: () -> Void
     var isPrimaryDisabled = false
-    /// Forces the lock line on or off — for a test's reference render. Nil follows
+    /// Forces the lock line on or off, for a test's reference render. Nil follows
     /// ``showsPrivacyLine``.
     var privacyLine: Bool? = nil
 
     @Environment(\.appFontScale) private var fontScale
 
-    /// Whether the centred lock line is drawn: **not beside a secondary button.** Structure after
-    /// a failed Save carries Back, "Continue Without Saving" and "Save and Start Reading", and the
-    /// buttons then reach under the centre — the line, an overlay that reserves no width, sat on
-    /// top of them.
+    /// Whether the centred lock line is drawn: not beside a secondary button. Structure after a
+    /// failed Save carries Back, "Continue Without Saving" and "Save and Start Reading", which
+    /// reach under the centre, and the line, an overlay that reserves no width, would sit on top of
+    /// them.
     var showsPrivacyLine: Bool { privacyLine ?? (secondaryTitle == nil) }
 
     private var scale: CGFloat { SetupSheetMetrics.chromeScale(fontScale) }
@@ -174,11 +164,11 @@ struct SetupFooter: View {
                 .help(ShortcutHint.tooltip(primaryTitle, "↩"))
                 .disabled(isPrimaryDisabled)
         }
-        // **Centred on the card, not between the buttons.** Two `Spacer`s put it at the midpoint of
-        // whatever was left over, so it slid left on Welcome (no Back) and right on Structure (a
-        // long primary title) — a line that moves between screens reads as a line that means
-        // something different on each. An overlay reserves no width, so it cannot push the buttons
-        // around; `theFooterPiecesDoNotCollide` is what holds them apart.
+        // Centred on the card, not between the buttons: two `Spacer`s would put it at the midpoint
+        // of what is left over, sliding it between screens (no Back on Welcome, a long primary
+        // title on Structure), and a line that moves reads as meaning something different on each.
+        // An overlay reserves no width, so it can't push the buttons around;
+        // `theFooterPiecesDoNotCollide` holds them apart.
         .overlay {
             if showsPrivacyLine {
                 Label(SetupFlow.privacyFooter, systemImage: "lock")
@@ -195,7 +185,7 @@ struct SetupFooter: View {
 }
 
 extension SetupScreenCard where Why == EmptyView {
-    /// A screen with no Why panel — Welcome, Structure and Summary, which are their own explanation.
+    /// A screen with no Why panel: Welcome, Structure and Summary, which are their own explanation.
     init(crumbs: [SetupFlow.Screen] = [],
          current: SetupFlow.Screen,
          title: String? = nil,
@@ -221,8 +211,8 @@ extension SetupScreenCard where Why == EmptyView {
 
 /// Where the user is, in one line.
 ///
-/// **One accessibility element, not eight.** Read out screen by screen it is eight unlabelled
-/// words before the question; read as "Step 3 of 8, You" it is the sentence a person would say.
+/// One accessibility element, not eight: read crumb by crumb it is eight unlabelled words before
+/// the question; read as "Step 3 of 8, You" it is the sentence a person would say.
 struct SetupCrumbStrip: View {
     let screens: [SetupFlow.Screen]
     let current: SetupFlow.Screen
@@ -239,12 +229,10 @@ struct SetupCrumbStrip: View {
 
     /// The gaps between and inside the crumbs, at the current text size.
     ///
-    /// **This is why the strip truncated when the text got SMALLER.** Eight crumbs carry seven
-    /// gaps, sixteen capsule insets and eight number-to-name gaps — about 186pt of fixed chrome
-    /// against text that shrank to 90% inside a card that shrank with it, so the words gave up the
-    /// width the padding kept. Rendered at 90% the strip read "1 Locat… 5 Count… Workspac…
-    /// Appeara…": four of the eight steps unreadable, at the size chosen by someone fitting more
-    /// on screen. The padding is part of the type here, so it moves with it.
+    /// The padding scales with the type. Eight crumbs carry about 186pt of fixed gaps and insets,
+    /// so with fixed padding, smaller text in a card that shrinks with it would give the words'
+    /// width to the padding and truncate the crumbs ("Locat…", "Count…") at the size chosen to fit
+    /// more on screen.
     private var gap: CGFloat { 6 * scale }
     private var inset: CGFloat { Self.capsuleInset * scale }
 
@@ -258,8 +246,8 @@ struct SetupCrumbStrip: View {
                             .scaledFont(.caption2.weight(.semibold))
                             .monospacedDigit()
                             // Label colour, as the name beside it: the tint is the current step's
-                            // wash, and a number in the tint on it is a coloured word on its own
-                            // wash (DS1).
+                            // wash, and a number in the tint on it would be a coloured word on its
+                            // own wash.
                             .foregroundStyle(isCurrent ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
                     }
                     Text(screen.displayName)
@@ -289,11 +277,10 @@ struct SetupCrumbStrip: View {
 /// The column on the right of a question screen: why SyncCloud is asking, and what happens if the
 /// user changes nothing.
 ///
-/// **Tinted with the accent rather than papered.** The app has no paper colour and inventing one
-/// for this panel would put a surface in the window that nothing else shares. The accent at 9% over
-/// the card follows the Accent setting and both appearance modes, so the panel is recognisably part
-/// of this app rather than a note stuck onto it — and picking a colour on the Appearance screen
-/// shows here at once.
+/// Tinted with the accent rather than papered: the app has no paper colour, and inventing one would
+/// put a surface in the window that nothing else shares. The accent at 9% over the card follows the
+/// Accent setting and both appearance modes, so the panel reads as part of this app, and picking a
+/// colour on the Appearance screen shows here at once.
 struct SetupWhyPanel<Content: View>: View {
     var title = "Why SyncCloud asks"
     /// The closing line: what happens if the user changes nothing, or skips.
@@ -309,8 +296,8 @@ struct SetupWhyPanel<Content: View>: View {
 
     /// How much of the accent the panel's ink carries.
     ///
-    /// Lower in dark mode: the same blend that reads as tinted body text on white reads as a
-    /// coloured stripe on black, because the accent is the lighter of the two there.
+    /// Lower in dark mode: the blend that reads as tinted body text on white reads as a coloured
+    /// stripe on black, where the accent is the lighter of the two.
     static var inkBlend: Double { 0.55 }
     static var inkBlendDark: Double { 0.40 }
 
@@ -322,10 +309,10 @@ struct SetupWhyPanel<Content: View>: View {
             content()
             Spacer(minLength: 0)
             if let footnote {
-                // **A rule, because the gap above it is 400pt on a short screen.** The footnote is
-                // pinned to the foot of the column on purpose — it is the answer to the question
-                // above it — but with nothing between them the space reads as a hole rather than as
-                // the panel's own structure.
+                // A rule, because on a short screen the gap above it is tall. The footnote is
+                // pinned to the column's foot on purpose (it answers the question above), but with
+                // nothing between them the space reads as a hole rather than as the panel's
+                // structure.
                 Divider().opacity(0.35)
                 VStack(alignment: .leading, spacing: 2) {
                     if let footnoteLead {
@@ -340,8 +327,8 @@ struct SetupWhyPanel<Content: View>: View {
                 }
             }
         }
-        // The panel's own text column is what is left of its width after the card's inset, so the
-        // last word on this side of the card ends where the ✕ and the primary button do.
+        // The panel's text column is its width less the card's inset, so the last word on this side
+        // ends where the ✕ and the primary button do.
         .frame(width: SetupWhyMetrics.textWidth(scale: scale), alignment: .leading)
         .frame(maxHeight: .infinity, alignment: .top)
         .padding(.horizontal, SetupSheetMetrics.inset(scale: scale))
@@ -364,8 +351,8 @@ enum SetupWhyMetrics {
     static let baseWidth: CGFloat = 250
     /// The column at a given text size.
     ///
-    /// **A share of the card, not a constant** — see `SetupSheetMetrics.whyWidth(scale:)` for what
-    /// the constant did to the panel's own prose at 135%.
+    /// A share of the card, not a constant; see `SetupSheetMetrics.whyWidth(scale:)` for what a
+    /// constant does to the panel's prose at large text sizes.
     static func width(scale: CGFloat) -> CGFloat {
         baseWidth * SetupSheetMetrics.chromeScale(scale)
     }
@@ -381,21 +368,18 @@ enum SetupWhyMetrics {
 
 /// The disclosure that holds what Settings already offers for this screen's subject.
 ///
-/// **Closed by default, and it says what is inside before it is opened.** The subtitle is what
-/// makes it a decision rather than a mystery: a chevron labelled only "More options" is a thing to
-/// click to find out, which is exactly what a setup screen should not need.
+/// Closed by default, and it says what is inside before it is opened. The subtitle makes it a
+/// decision rather than a mystery: a chevron labelled only "More options" is a thing to click to
+/// find out, which a setup screen should not need.
 struct SetupMoreOptions<Content: View>: View {
-    /// The disclosure's own name. "More options" for the Settings rows it usually holds; the
-    /// suggestion screens name what is inside instead — "6 names SyncCloud found".
+    /// The disclosure's own name: "More options" for the Settings rows it usually holds; the
+    /// suggestion screens name what is inside instead ("6 names SyncCloud found").
     var title = "More options"
     let subtitle: String
-    /// Whether it starts open.
-    ///
-    /// **The suggestion screens need this, and it is not a decoration.** People and Countries put
-    /// the answer first and the candidates behind this — but on a first run there is no answer yet
-    /// and the candidates are the only thing on the screen, so a disclosure closed by default would
-    /// leave the question with nothing under it. Open when there is nothing chosen, closed once
-    /// there is.
+    /// Whether it starts open. People and Countries put the answer first and the candidates behind
+    /// this, but on a first run there is no answer yet and the candidates are all there is, so a
+    /// closed disclosure would leave the question with nothing under it. Open when nothing is
+    /// chosen, closed once something is.
     var startsOpen = false
     @ViewBuilder var content: () -> Content
 
@@ -435,15 +419,13 @@ struct SetupMoreOptions<Content: View>: View {
 
 /// The sheet's vertical rhythm.
 ///
-/// **One number, because the screens had six.** They were written over a week and each picked its
-/// own `VStack(spacing:)` — 12 on three screens, 14 on four, and the blocks inside them anywhere
-/// from 4 to 8 — so moving between screens the gap between a heading and the first control changed
-/// under a card that is deliberately the same size on all ten. The value is the gap between a
-/// screen's top-level blocks; `groupSpacing` is the gap inside one.
+/// One number for every screen, so the gap between a heading and the first control doesn't change
+/// as the user moves through a card that is deliberately the same size on all ten. This is the gap
+/// between a screen's top-level blocks; `groupSpacing` is the gap inside one.
 enum SetupRhythm {
-    /// Between a screen's own blocks — heading, controls, note.
+    /// Between a screen's own blocks: heading, controls, note.
     static let blockSpacing: CGFloat = 16
-    /// Inside one block — a label and the control it names.
+    /// Inside one block: a label and the control it names.
     static let groupSpacing: CGFloat = 7
 }
 
@@ -466,7 +448,7 @@ struct SetupHeading: View {
     }
 }
 
-/// A quiet boxed note — the empty states and the refusals.
+/// A quiet boxed note: the empty states and the refusals.
 struct SetupNote: View {
     let text: String
     var systemImage: String?
@@ -488,17 +470,12 @@ struct SetupNote: View {
     }
 }
 
-/// The one chip the sheet draws — a name form, a country, a proposed person, a person on the list.
+/// The one chip the sheet draws: a name form, a country, a proposed person, a person on the list.
 ///
-/// **Extracted because four screens had drawn four of them.** They agreed on nothing that mattered
-/// and disagreed on everything that shows: the roster's chips sat 3pt tall against everybody else's
-/// 4, on a ground at 14% against 8% and 16%, and the proposed-person chip alone carried a `+` where
-/// the two beside it carried a tick. Read down the sheet that is four different controls for one
-/// idea — *this thing is on the list, or it is not* — and the differences are all noise, because
-/// none of them was a decision anyone made.
-///
-/// The leading glyph is the one thing that still varies, and it varies for a reason: a tick says
-/// the chip is a switch, a `+` says the chip is a one-way add onto the list below it.
+/// One view so every screen's chips share height, ground and glyph rules: they are one idea (this
+/// thing is on the list, or it isn't), and differences between screens would be noise. The leading
+/// glyph is the one thing that varies, for a reason: a tick says the chip is a switch, a `+` that
+/// it is a one-way add onto the list below.
 struct SetupChip<Trailing: View>: View {
     /// What the glyph says the chip does.
     enum Mark {
@@ -506,7 +483,7 @@ struct SetupChip<Trailing: View>: View {
         case tick(Bool)
         /// A one-way add: pressing it puts the name on the list below.
         case add
-        /// Already on the list — a statement, not a control.
+        /// Already on the list: a statement, not a control.
         case person
     }
 
@@ -515,12 +492,12 @@ struct SetupChip<Trailing: View>: View {
     var detail: String?
     /// Whether the chip's ground is the heavier one. The tick's own state, where there is one.
     var isFilled = false
-    /// The sheet's accent, for a lit tick and the `+` — handed in, because a `.tint` nothing set
-    /// is the system's.
+    /// The sheet's accent, for a lit tick and the `+`. Handed in, because a `.tint` nothing set is
+    /// the system's.
     var accent: Color = LiquidGlassHue.stored().accentColor
     @ViewBuilder var trailing: () -> Trailing
 
-    /// The chip's metrics, shared so a fifth caller cannot quietly pick its own.
+    /// The chip's metrics, shared so a new caller can't quietly pick its own.
     static var horizontalInset: CGFloat { 9 }
     static var verticalInset: CGFloat { 4 }
 
@@ -574,13 +551,13 @@ extension SetupChip where Trailing == EmptyView {
 struct FlowChips: View {
     let items: [String]
     var subtitle: (String) -> String? = { _ in nil }
-    /// What a chip's ✕ does. nil draws no ✕ — a list that cannot be changed offers no way to.
+    /// What a chip's ✕ does. nil draws no ✕: a list that can't be changed offers no way to.
     let onRemove: ((String) -> Void)?
 
     var body: some View {
         if items.isEmpty {
-            // Nothing. The field below is the whole affordance, and "None yet" floating above it
-            // read as a warning about an empty list rather than as an ordinary starting point.
+            // Nothing. The field below is the whole affordance, and "None yet" above it would read
+            // as a warning about an empty list rather than an ordinary starting point.
             EmptyView()
         } else {
             WrapLayout(spacing: 6) {
@@ -602,9 +579,9 @@ struct FlowChips: View {
             } label: {
                 Image(systemName: "xmark")
                     .scaledFont(.caption2)
-                    // `hoverInk` rather than a flat `.foregroundStyle(.secondary)`:
-                    // the style cannot lift a label's ink from outside, because the
-                    // label's own modifier is applied inside it.
+                    // `hoverInk` rather than a flat `.foregroundStyle(.secondary)`: the style can't
+                    // lift a label's ink from outside, because the label's own modifier is applied
+                    // inside it.
                     .hoverInk()
                     // Room for the wash, cancelled below.
                     .padding(3)
@@ -657,7 +634,7 @@ struct WrapLayout: Layout {
 
 
 /// How much the card's height actually grew, published by the sheet so the one element sized in
-/// points — Structure's tree box — can follow the card rather than the type.
+/// points, Structure's tree box, can follow the card rather than the type.
 ///
 /// See ``SetupSheetMetrics/cardScale(availableSize:scale:)`` for why the two differ.
 private struct SetupCardScaleKey: EnvironmentKey { static let defaultValue: CGFloat = 1 }

@@ -3,45 +3,42 @@ import Sync
 import Design
 import FileExplorer
 
-/// Which surface shows the result message (Banner Room, CA).
+/// Which surface shows the result message.
 enum ResultMessageHome: Hashable {
     /// A pane's file list, in one stack with its action bar.
     case pane(isLeft: Bool)
-    /// The lens or the editor beside a source pane — the half of the window that has no file list.
+    /// The lens or the editor beside a source pane: the half of the window with no file list.
     case workspace
-    /// The toolbar's capsule — a long run's ending, when the reader has moved on from where it was
-    /// started (Run Room CG, CP).
+    /// The toolbar's capsule: a long run's ending, when the reader has moved on from where it was
+    /// started.
     case toolbar
 }
 
-/// **Where a result message goes**: where the reader was working when it arrived.
+/// Where a result message goes: where the reader was working when it arrived.
 ///
-/// - **Browse** has one pane and nothing else, so it goes there.
-/// - **Compare** sends it to the focused pane. Every pane action — a row click, the header's
-///   Delete, the bar's Copy, ⌘⌫ — moves focus to its pane before it acts, so this is the pane the
-///   action happened in, and it covers only that pane's list, never the seam's ⇄ and 🔗 (TE212).
-/// - **Organize and Edit** send it to their source pane when that is where the reader last clicked,
-///   and otherwise to the lens or the editor — where To File's moves, Duplicates' merges and the
+/// - Browse has one pane and nothing else, so it goes there.
+/// - Compare sends it to the focused pane. Every pane action (a row click, the header's Delete,
+///   the bar's Copy, ⌘⌫) focuses its pane before it acts, so this is the pane the action happened
+///   in. It covers only that pane's list, never the seam's ⇄ and 🔗.
+/// - Organize and Edit send it to their source pane when the reader last clicked there, and
+///   otherwise to the lens or the editor, where To File's moves, Duplicates' merges and the
 ///   editor's saves happen. A collapsed pane is no place for it.
 ///
-/// **A long run's ending goes where it was started, if that is still on screen; otherwise to the
-/// capsule** (Run Room CG, CP). Nothing in the app runs unattended (R3), so "background" is a copy,
-/// a merge, a PDF tool or Save as PDF that ends after the reader moved to another workspace — a
-/// merge clicked in Organize finishing four minutes later in Browse. That ending would land in a
-/// pane the reader is not looking at, or in Browse's, about something Browse never did. Recent keeps
-/// it either way.
+/// A long run's ending goes where it was started if that is still on screen, otherwise to the
+/// capsule. Nothing runs unattended, so "background" means a copy, merge, PDF tool or Save as PDF
+/// that ends after the reader moved to another workspace; its ending would otherwise land in a pane
+/// the reader isn't looking at, about something that workspace never did. Recent keeps it either way.
 enum ResultMessageRoute {
-    /// Whether a run's ending goes to the capsule: it was started in another workspace than the one
-    /// on screen. `nil` — no run ended just now — is the result of a click, which stays.
+    /// Whether a run's ending goes to the capsule: it was started in a workspace other than the one
+    /// on screen. `nil` (no run ended just now) is a click's result, which stays.
     static func endsInCapsule(startedIn origin: Workspace?, showing current: Workspace) -> Bool {
         guard let origin else { return false }
         return origin != current
     }
 
-    /// **Whether the capsule mirrors a run's ending that a pane shows** (2026-10-29): the run was
-    /// on screen in the capsule, so its ending stays there too, as long as the pane's message does,
-    /// rather than the capsule vanishing the instant the run ends — a delete's run lasted a fifth of
-    /// a second, and read as a notification too short to see. A click's result had no run there.
+    /// Whether the capsule mirrors a run's ending that a pane shows. The run was on screen in the
+    /// capsule, so its ending stays there as long as the pane's message does, rather than vanishing
+    /// the instant a fast run (a delete takes a fifth of a second) ends. A click's result had no run.
     static func mirrorsInCapsule(startedIn origin: Workspace?, showing current: Workspace) -> Bool {
         guard let origin else { return false }
         return origin == current
@@ -66,30 +63,30 @@ extension ContentView {
                                        lastWorkedInPane: resultMessageInPane)
     }
 
-    /// Every surface showing the message — its home, and the capsule when it mirrors a pane's.
-    /// Empty when there is none.
+    /// Every surface showing the message: its home, and the capsule when it mirrors a pane's. Empty
+    /// when there is none.
     var resultMessageSurfaces: Set<ResultMessageHome> {
         guard syncManager.banner != nil else { return [] }
         return capsuleShowsMessage ? [resultMessageHome, .toolbar] : [resultMessageHome]
     }
 
-    /// Where the run whose ending `banner` is was started — a pane PDF tool's or Save as PDF's
-    /// own, or the long file operation that ended a moment ago. `nil` for a click's result.
+    /// Where the run whose ending `banner` is was started: a pane PDF tool's or Save as PDF's own, or
+    /// the long file operation that ended a moment ago. `nil` for a click's result.
     func runOrigin(ending banner: OperationBanner) -> Workspace? {
         if let pending = pendingResultOrigin { return pending }
         guard let ended = syncManager.lastFinishedRun?.ended, Date().timeIntervalSince(ended) < 2 else { return nil }
         return fileOperationOrigin
     }
 
-    /// The long file operation `banner` may be the ending of — none for a pane PDF tool's or Save
-    /// as PDF's result, which ends a run of its own: a copy that ended a moment before it, saying
-    /// nothing, must not lend the PDF's message its title, its stop or its minutes.
+    /// The long file operation `banner` may be the ending of. None for a pane PDF tool's or Save as
+    /// PDF's result, which ends a run of its own: a silent copy that ended just before must not lend
+    /// the PDF's message its title, its stop or its minutes.
     func fileRunEnded(by banner: OperationBanner) -> (started: Date, ended: Date, title: String?, cancelled: Bool)? {
         paneToolResultDoors?.banner.id == banner.id ? nil : syncManager.lastFinishedRun
     }
 
-    /// The message as the capsule draws it (CG, TE233) — nil unless the message is the capsule's,
-    /// or a run's ending the capsule mirrors from a pane, with the pane's buttons left to the pane.
+    /// The message as the capsule draws it: nil unless the message is the capsule's, or a run's
+    /// ending the capsule mirrors from a pane, with the pane's buttons left to the pane.
     var capsuleMessage: ProgressCapsuleMessage? {
         guard let banner = syncManager.banner else { return nil }
         if resultMessageHome != .toolbar {
@@ -124,9 +121,9 @@ extension ContentView {
         }
     }
 
-    /// **The message leaves on its own** — its time ran out, or ✕ — rather than being undone or
-    /// followed, which clear it where it is. The capsule's folds into its ring and flies into the
-    /// Activity button (`ResultMessageExit`); every other message just goes.
+    /// The message leaves on its own (its time ran out, or ✕), rather than being undone or followed,
+    /// which clear it where it is. The capsule's folds into its ring and flies into the Activity
+    /// button (`ResultMessageExit`); every other message just goes.
     func retireResultMessage() {
         guard let banner = syncManager.banner else { return }
         let anchors = CapsuleFlightAnchors.shared.frames()
@@ -168,13 +165,13 @@ extension ContentView {
         }
     }
 
-    /// The message this pane shows, or nil when it is shown elsewhere — or there is none.
+    /// The message this pane shows, or nil when it is shown elsewhere or there is none.
     func paneResultMessage(isLeft: Bool) -> OperationBanner? {
         guard let banner = syncManager.banner, resultMessageHome == .pane(isLeft: isLeft) else { return nil }
         return banner
     }
 
-    /// Organize and Edit's other half's message host — the lens or the editor.
+    /// The message host for Organize and Edit's other half: the lens or the editor.
     var workspaceResultMessageHost: WorkspaceResultMessageHost {
         let banner = resultMessageHome == .workspace ? syncManager.banner : nil
         return WorkspaceResultMessageHost(message: banner.map { AnyView(resultMessageView($0, on: .workspace)) },
@@ -182,12 +179,12 @@ extension ContentView {
                                           onClick: { noteResultRegion(inPane: false) })
     }
 
-    /// Records where the reader is working in Organize and Edit — from a click in either half.
+    /// Records where the reader is working in Organize and Edit, from a click in either half.
     func noteResultRegion(inPane: Bool) {
         if resultMessageInPane != inPane { resultMessageInPane = inPane }
     }
 
-    /// Re-renders a pane column when its overlay stack's edge moved without a selection change — a
+    /// Re-renders a pane column when its overlay stack's edge moved without a selection change: a
     /// scroll, or a message measuring taller than its estimate.
     func paneOverlayFlip(isLeft: Bool) -> () -> Void {
         {
@@ -203,10 +200,9 @@ extension ContentView {
         if !barNodes.isEmpty {
             paneActionBar(isLeft: isLeft, selectionNodes: barNodes)
                 .padding(10)
-                // Feed the padded bar's real footprint to the placement math, so the
-                // flip-to-top triggers exactly when a bottom bar would cover the
-                // selected row — not at a guessed fixed band. Writes to the shared
-                // class, so no view invalidation.
+                // The padded bar's real footprint feeds the placement math, so it flips to the top
+                // exactly when a bottom bar would cover the selected row. Writes to the shared class,
+                // so no view invalidation.
                 .background(
                     GeometryReader { proxy in
                         Color.clear
@@ -214,17 +210,15 @@ extension ContentView {
                             .onChange(of: proxy.size.height) { _, h in placement.coverage = h }
                     }
                 )
-                // Re-key on the edge so a scroll-crossing flip is a clean cross-fade (old
-                // copy fades out at one edge, new fades in at the other) rather than an
-                // alignment snap. A selection-driven edge change carries no animation
-                // context, so it lands instantly; a scroll flip runs inside the callback's
-                // `withAnimation`, so it cross-fades.
+                // Re-keyed on the edge so a scroll flip cross-fades (out at one edge, in at the
+                // other) instead of snapping. A selection-driven change carries no animation context
+                // and lands instantly; a scroll flip runs inside the callback's `withAnimation`.
                 .id(atTop)
                 .transition(.move(edge: atTop ? .top : .bottom).combined(with: .opacity))
         }
     }
 
-    /// The result message's half: on the list's side of the bar, with the bar's 10pt gutters — and
+    /// The result message's half: on the list's side of the bar, with the bar's 10pt gutters, and
     /// none between the two, where the bar's own padding already is.
     func paneMessagePiece(isLeft: Bool, message: OperationBanner, atTop: Bool, besideBar: Bool,
                           placement: PaneBarPlacement) -> some View {
@@ -234,9 +228,9 @@ extension ContentView {
             .padding(.horizontal, 10)
             .padding(atTop ? .bottom : .top, 10)
             .padding(atTop ? .top : .bottom, besideBar ? 0 : 10)
-            // Its real footprint, as the bar's. A message that wraps measures taller than the
-            // placement's estimate, which can put the row it is guarding inside the zone — so a
-            // new height re-resolves, and a flip re-renders the column.
+            // Its real footprint, like the bar's. A wrapped message measures taller than the
+            // placement's estimate, which can put the row it guards inside the zone, so a new height
+            // re-resolves and a flip re-renders the column.
             .background(
                 GeometryReader { proxy in
                     Color.clear
@@ -263,11 +257,11 @@ extension ContentView {
             glassLevel: glassLevel,
             canUndo: undoManager?.canUndo ?? false,
             onUndo: {
-                // Greyed during a run (CF); refused here too, should a press slip past the grey.
+                // Greyed during a run; refused here too, should a press slip past the grey.
                 guard !refusedWhileRunLocked() else { return }
-                // The same reversal ⌘Z performs: this operation registered exactly one
-                // (grouped) undo step and its banner is the newest, so it sits on top of
-                // the stack. Clear the banner so the affordance doesn't linger post-undo.
+                // The same reversal ⌘Z performs: this operation registered one grouped undo step and
+                // its banner is the newest, so that step is on top. Clear the banner so it doesn't
+                // linger after the undo.
                 undoManager?.undo()
                 syncManager.banner = nil
             },
@@ -277,9 +271,9 @@ extension ContentView {
             accessory: ruleOfferAccessory(for: banner))
     }
 
-    /// **"Save as rule…" in the "Filed …" message** (Banner Room, CB), while the offer that move
-    /// made still rides in it. Organize only: the review sheet the offer ends in is the lens's. The
-    /// button observes the session itself — the window owns it without observing it.
+    /// "Save as rule…" in the "Filed …" message, while the offer that move made still rides in it.
+    /// Organize only: the review sheet the offer ends in is the lens's. The button observes the
+    /// session itself; the window owns it without observing it.
     func ruleOfferAccessory(for banner: OperationBanner) -> AnyView? {
         guard selectedWorkspace == .filing else { return nil }
         return AnyView(FilingRuleOfferButton(session: lensSession, bannerID: banner.id, syncManager: syncManager,
@@ -287,7 +281,7 @@ extension ContentView {
                                              onOpenChange: { ruleOfferIsOpen = $0 }))
     }
 
-    /// Opens one of a finished result's doors — to the files still there, or says they are gone.
+    /// Opens one of a finished result's doors to the files still there, or says they are gone.
     func performFollowUp(_ followUp: OperationBanner.FollowUp) {
         guard let doors = paneToolResultDoors, doors.banner.id == syncManager.banner?.id else { return }
         func here(_ paths: [String]) -> [String]? {
@@ -308,16 +302,16 @@ extension ContentView {
         }
     }
 
-    /// A pane-launched PDF tool's or Save as PDF's ending, shown as the result message (TE207).
+    /// A pane-launched PDF tool's or Save as PDF's ending, shown as the result message.
     func postPaneToolResult(_ result: PaneToolResult) {
         paneToolResultDoors = result
         pendingResultOrigin = result.source == .saveAsPDF ? saveAsPDFOrigin : paneToolOrigin
         syncManager.banner = result.banner
     }
 
-    /// Everything a new message owes beyond its timer: VoiceOver hears it (TE211), and a rule offer
-    /// riding in the message it replaced leaves with that message (CB). Returns whether the message
-    /// is the capsule's, for its timer.
+    /// Everything a new message owes beyond its timer: VoiceOver hears it, and a rule offer riding
+    /// in the message it replaced leaves with that message. Returns whether the message is the
+    /// capsule's, for its timer.
     @discardableResult
     func resultMessageChanged(from old: OperationBanner?, to banner: OperationBanner?) -> Bool {
         // A capsule problem's dot waits only while its message is on screen or in flight: replaced,
@@ -326,7 +320,7 @@ extension ContentView {
         lensSession.retireRuleOffer(unlessRiding: banner?.id)
         if paneToolResultDoors?.banner.id != banner?.id { paneToolResultDoors = nil }
         guard let banner else { return false }
-        // Where its run was started decides whether it is the capsule's (CG, CP).
+        // Where its run was started decides whether it is the capsule's.
         let origin = runOrigin(ending: banner)
         let toCapsule = ResultMessageRoute.endsInCapsule(startedIn: origin, showing: selectedWorkspace)
         pendingResultOrigin = nil
@@ -334,16 +328,16 @@ extension ContentView {
         capsuleMirrorID = ResultMessageRoute.mirrorsInCapsule(startedIn: origin, showing: selectedWorkspace) ? banner.id : nil
         OperationBannerView.announce(banner, offersUndo: banner.isUndoable && (undoManager?.canUndo ?? false)
                                      && runWriteLockReason == nil)
-        // Copied into Activity's Recent as it is published (Run Room R9), not spoken again (R19). A
-        // problem the capsule showed for its ten seconds while the reader worked elsewhere leaves the
-        // Activity button's dot (CS).
+        // Copied into Activity's Recent as it is published, not spoken again. A problem the
+        // capsule showed for its ten seconds while the reader worked elsewhere leaves the Activity
+        // button's dot.
         ActivityCenter.shared.record(banner, run: syncManager.lastRecordedRun,
                                      finishedRun: fileRunEnded(by: banner).map { ($0.started, $0.ended, $0.cancelled) },
                                      seen: NSApp.isActive && !toCapsule, dotWaits: toCapsule)
         return toCapsule
     }
 
-    /// Where a Recent row's buttons go: this window's own doors (R12).
+    /// Where a Recent row's buttons go: this window's own doors.
     var activityDoors: ActivityDoors {
         ActivityDoors(
             openInEdit: { path in _ = handOffToEditor(path) },
@@ -378,9 +372,9 @@ extension ContentView {
     }
 }
 
-/// **Edit's own results into Recent** (Run Room R18): its PDF tools' and Fill & Sign's, which set
-/// their banner on Edit's model and never pass through the window's message. Observed here, in a
-/// view of its own, so the window does not observe Edit's PDF model.
+/// Edit's own results into Recent: its PDF tools' and Fill & Sign's, which set their banner on
+/// Edit's model and never pass through the window's message. A view of its own, so the window does
+/// not observe Edit's PDF model.
 struct ActivityEditRecorder: View {
     @ObservedObject var tools: EditorPDFTools
 
@@ -394,9 +388,9 @@ struct ActivityEditRecorder: View {
     }
 }
 
-/// **The result message over the lens or the editor** — Organize and Edit's half that has no file
-/// list (`ResultMessageHome.workspace`). At the foot, centred, no wider than a sentence needs: the
-/// lens's header card and Edit's format bar are at the top, and they are controls.
+/// The result message over the lens or the editor: Organize and Edit's half with no file list
+/// (`ResultMessageHome.workspace`). At the foot, centred, no wider than a sentence needs, because
+/// the lens's header card and Edit's format bar at the top are controls.
 ///
 /// Also where a click in that half is noted, so the next message knows the reader is working here.
 struct WorkspaceResultMessageHost: ViewModifier {
@@ -424,8 +418,8 @@ struct WorkspaceResultMessageHost: ViewModifier {
     }
 }
 
-/// Opens the Activity window when ``ActivityCenter`` asks — a notification's click, which arrives
-/// in the app delegate, outside any view that can open a window.
+/// Opens the Activity window when ``ActivityCenter`` asks: a notification's click, which arrives in
+/// the app delegate, outside any view that can open a window.
 struct ActivityWindowOpener: View {
     @ObservedObject var center: ActivityCenter
     @Environment(\.openWindow) private var openWindow

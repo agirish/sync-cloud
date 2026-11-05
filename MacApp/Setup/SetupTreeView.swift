@@ -4,13 +4,12 @@ import Sync
 
 /// The learned tree, with SyncCloud's reading of each folder beside it.
 ///
-/// **A real outline, not a printed summary.** The point of the Structure screen is that the user
-/// can check the reading, and checking means going to the folder they are unsure about — so rows
-/// open and close, the keyboard moves through them the way Finder's does, and the box is a fixed
-/// height so the switch below it never moves.
+/// A real outline, not a printed summary: the Structure screen exists so the user can check the
+/// reading, which means going to the folder they are unsure about. So rows open and close, and the
+/// box is a fixed height so the switch below it never moves.
 struct SetupTreeView: View {
     let profile: FolderProfile
-    /// The sibling map and shape findings for `profile`, derived once by the model — see
+    /// The sibling map and shape findings for `profile`, derived once by the model; see
     /// ``FolderProfileReadings``.
     let readings: FolderProfileReadings
     let rootName: String
@@ -26,8 +25,8 @@ struct SetupTreeView: View {
     private var children: [String: [String]] { readings.children }
     private var shapes: [String: StructureFinding] { readings.shapes }
 
-    /// In the loose view, the folders a route names — and every ancestor of them, so a route is
-    /// reachable without hunting.
+    /// In the loose view, the routes keyed by the folder each names, so a route hangs under its
+    /// home.
     private var routedPaths: [String: [SetupLooseFileRouting.LooseFileRoute]] {
         Dictionary(grouping: routes.filter { $0.isReady && $0.home != nil },
                    by: { $0.home ?? "" })
@@ -35,10 +34,9 @@ struct SetupTreeView: View {
 
     /// One line of the outline, already positioned.
     ///
-    /// **Flattened rather than drawn recursively.** A SwiftUI view that calls itself cannot have
-    /// its opaque return type inferred — the type would be defined in terms of itself — and the
-    /// idiomatic escape is to compute the visible rows first. It also makes the list `LazyVStack`
-    /// can actually be lazy about.
+    /// Flattened rather than drawn recursively: a SwiftUI view that calls itself can't have its
+    /// opaque return type inferred (the type would be defined in terms of itself), so the visible
+    /// rows are computed first. That also gives `LazyVStack` a list it can be lazy about.
     struct Row: Identifiable {
         enum Kind: Equatable {
             case folder(hasChildren: Bool, isOpen: Bool)
@@ -103,16 +101,10 @@ struct SetupTreeView: View {
             .padding(8)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        // **A fade at the foot, because the box is a fixed height and the tree is not.** Its last
-        // visible row is cut through the middle of its own glyphs — a hard horizontal slice across
-        // a word, which reads as a drawing bug rather than as "there is more of this below".
-        //
-        // **It has to fade the ROWS, and the first version faded the ground.** That was a wash
-        // overlaid at `Color.secondary.opacity(0.05)` — the same value as the box's own fill, so it
-        // was invisible on the background and did nothing at all to the glyphs it was drawn over.
-        // At 135% the box's 281pt no longer landed on a row boundary and the tree ended in a row
-        // sliced through the middle: exactly the defect the fade was added for, with the fade in
-        // place. A mask removes the ink, which is the only thing that reads as a continuation.
+        // A fade at the foot, because the box is a fixed height and the tree isn't: a last row cut
+        // through its glyphs reads as a drawing bug, not as "there is more below". It must fade the
+        // rows themselves, so it is a mask that removes ink; a wash the colour of the box's own
+        // fill would be invisible and leave the sliced row as it was.
         .mask(
             LinearGradient(
                 stops: [.init(color: .black, location: 0),
@@ -169,8 +161,8 @@ struct SetupTreeView: View {
         }
         .buttonStyle(.hoverAffordance(.row))
         .disabled(!hasChildren)
-        // One row, one sentence: the name and what SyncCloud made of it, which is the whole thing
-        // being checked here.
+        // One row, one sentence: the name and what SyncCloud made of it, the thing being checked
+        // here.
         .accessibilityLabel("\(name), \(reading)")
     }
 
@@ -203,7 +195,7 @@ struct SetupTreeView: View {
         }
     }
 
-    /// What the number on the right of a row counts — folders inside, or files where files go.
+    /// What the number on the right of a row counts: folders inside, or files where files go.
     private func count(_ entry: FolderProfileEntry?, hasChildren: Bool) -> String {
         guard let entry else { return "" }
         if hasChildren { return "\(entry.subfolderCount)" }
@@ -221,7 +213,7 @@ struct SetupTreeView: View {
     /// Opens along one deep path, so the depth the walk learned is visible and the rest stays
     /// folded.
     ///
-    /// **Deepest rather than first**: a tree opened along its first branch shows whatever sorts
+    /// Deepest rather than first: a tree opened along its first branch shows whatever sorts
     /// earliest, which on a real disk is as likely to be `Archive` as anything worth looking at.
     private func seedOpenPath() {
         guard !didSeedOpenPath else { return }

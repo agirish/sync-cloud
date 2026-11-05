@@ -1,13 +1,11 @@
 import AppKit
 import Design
 
-/// **⌘L on Window ▸ Activity** (Run Room TE232). The entry is the one SwiftUI writes for the
-/// Activity scene, which carries no key equivalent, and neither way of giving it one works: a
-/// scene's `.keyboardShortcut` never reaches the automatic entry, and suppressing it for a
-/// hand-written item — beside Keyboard Shortcuts', which is suppressed for ⌘/ — takes the main
-/// window's own "SyncCloud" opener out of the menu (both measured 2026-10-27). So the key is put on
-/// SwiftUI's item, and put back whenever SwiftUI rebuilds the menu, as `GoMenuDuplicates` does for
-/// its items.
+/// Puts ⌘L on Window ▸ Activity. SwiftUI writes that entry for the Activity scene with no key
+/// equivalent, and neither direct fix works: a scene's `.keyboardShortcut` never reaches the
+/// automatic entry, and suppressing it for a hand-written item also takes the main window's
+/// "SyncCloud" opener out of the menu. So the key goes on SwiftUI's item, and back on whenever
+/// SwiftUI rebuilds the menu, as `GoMenuDuplicates` does for its items.
 @MainActor
 enum ActivityMenuKey {
     private static var observers: [NSObjectProtocol] = []

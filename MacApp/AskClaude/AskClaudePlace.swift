@@ -1,15 +1,15 @@
 import SwiftUI
 import Design
 
-/// The folder Claude sees: the one the next question describes (TE260). The header names it under
-/// the title; the shield's popover gives its whole path and every privacy control.
+/// The folder Claude sees: the one the next question describes. The header names it under the
+/// title; the shield's popover gives its whole path and every privacy control.
 struct AskClaudePlace: Equatable {
     var source: String
     /// Relative to the source; empty at its top.
     var folder: String
     var itemCount: Int?
     var isHidden: Bool
-    /// In a folder shared without asking (TE321); never while hidden.
+    /// In a folder shared without asking; never while hidden.
     var isShared = false
     /// Whether the pane showing it is on screen. Go to This Folder is for when it isn't: Edit and
     /// Organize can fold their file pane away.
@@ -41,8 +41,8 @@ struct AskClaudePlace: Equatable {
     var access: AskClaudeFolderAccess { isHidden ? .hide : isShared ? .share : .ask }
 }
 
-/// What Claude gets from a folder (his call on TE321): asked each time, shared without asking, or
-/// hidden. Whole documents always ask.
+/// What Claude gets from a folder: asked each time, shared without asking, or hidden. Whole
+/// documents always ask.
 enum AskClaudeFolderAccess: CaseIterable {
     case ask, share, hide
 

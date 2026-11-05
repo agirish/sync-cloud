@@ -1,20 +1,17 @@
 import Foundation
 
-/// The first launch of a build where the preview lives in the Info inspector (TE318, his call
-/// 2026-11-04): Info opens for anyone who had the in-pane preview on, and the preview is folded
-/// away for anyone who had it off.
+/// The first launch of a build where the preview lives in the Info inspector: Info opens for
+/// anyone who had the in-pane preview on, and the preview is folded away for anyone who had it off.
 ///
-/// Without it every upgrade lost the preview without a word. It defaulted to on in every pane, so
-/// selecting a file showed one; Info, which now holds it, defaults to closed — so the same click
-/// showed nothing anywhere until the user found ⌘I. And someone who had turned the preview off but
-/// kept Info open for its details found a preview taking most of the panel.
+/// Without it an upgrade would lose the preview silently: the in-pane preview defaulted to on, but
+/// Info defaults to closed, so a click would show nothing until ⌘I. And someone with the preview off
+/// but Info open would find a preview filling the panel.
 ///
-/// **Once, stamped.** After the first launch Info stays as the user leaves it; a later close is never
-/// undone. A new install has no preview setting stored, which reads as the default — on — so it
-/// starts with Info open too.
+/// Runs once, stamped, so a later close of Info is never undone. A new install has no preview
+/// setting, which reads as the default (on), so it starts with Info open too.
 enum InfoPreviewMigration {
-    /// The in-pane preview's two settings, no longer read by anything else: Compare and the rail's,
-    /// and Browse's own. Spelled out because the constants that named them went with the preview.
+    /// The in-pane preview's two settings, read by nothing else now: Compare and the rail's, and
+    /// Browse's. Spelled out because no other constant names them.
     static let comparePreviewKey = "paneColumnShowsPreview"
     static let browsePreviewKey = "paneColumnShowsPreviewBrowse"
     /// The stamp that says this has run.

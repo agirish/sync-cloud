@@ -3,34 +3,22 @@ import AppKit
 import Design
 import FileExplorer
 
-/// The content behind Help ▸ SyncCloud Help (⌘?). Pure data — a handful of sections, each a
-/// list of topics, each topic a short article of typed blocks — kept UI-free so SyncCloudTests
-/// can pin the shape (unique ids, resolvable cross-links, no empty copy) without a view.
+/// The content behind Help ▸ SyncCloud Help (⌘?). Pure data (sections of topics, each a short
+/// article of typed blocks), kept UI-free so SyncCloudTests can pin the shape (unique ids,
+/// resolvable cross-links, no empty copy) without a view.
 ///
-/// Every article is a hand-maintained mirror of what the app actually does; when a feature
-/// changes, update the matching topic and the pin test together. Deliberately no Sync/Events
-/// dependency: this is words about the app, not the app's logic. The `FileExplorer` import below
-/// is the view half's, for the one wrapping layout the related chips need — nothing in ``HelpBook``
-/// itself reads it, which is what keeps the data testable without a view.
+/// Every article is a hand-maintained mirror of what the app does: when a feature changes, update
+/// its topic and the pin test together. No Sync/Events dependency, since this is words about the
+/// app. The `FileExplorer` import is only for the view half's wrapping layout for related chips.
 enum HelpBook {
 
-    /// *Requires macOS N or later.* — **read off the bundle, never typed.**
-    ///
-    /// This bullet was the literal `"Requires macOS 15 or later."` until v4.2, and it stayed that
-    /// way across **two** major bumps: it is the one claim in the book a reader consults *before*
-    /// downloading, and nothing about a wrong answer fails — the app simply refuses to launch on a
-    /// Mac the book told them was fine. The v4.2 pass corrected the number to 26, which fixes this
-    /// install and re-arms the identical trap for v5: a literal that is right today is exactly what
-    /// the last one was.
-    ///
-    /// So the number comes from `LSMinimumSystemVersion`, which Xcode writes into the built
-    /// `Info.plist` from `project.yml`'s `deploymentTarget`. Raising the deployment target now
-    /// moves this sentence with it, in the same edit, with nobody remembering to.
-    ///
-    /// **The fallback is vague on purpose.** With no key to read — which is every host that is not
-    /// the app bundle — this says nothing about a version rather than guessing at one. A stale
-    /// number reads as authoritative; "a recent version" reads as what it is, and the app-target
-    /// test below is what keeps the real bundle off that path.
+/// *Requires macOS N or later*, read off the bundle, never typed: a hand-typed number goes stale
+/// across major bumps, and a reader checks it before downloading. It comes from
+/// `LSMinimumSystemVersion`, which Xcode writes from `project.yml`'s `deploymentTarget`, so
+/// raising the target moves this sentence too.
+///
+/// The fallback is vague on purpose: with no key to read (any host but the app bundle) it names no
+/// version rather than a stale one. The app-target test keeps the real bundle off that path.
     static var minimumSystemRequirement: String {
         guard let raw = Bundle.main.object(forInfoDictionaryKey: "LSMinimumSystemVersion") as? String,
               !raw.isEmpty else {
@@ -49,8 +37,8 @@ enum HelpBook {
         case bullets([String])
         /// A highlighted aside — a tip or a safety note — set off with a bulb.
         case tip(String)
-        /// The difference-badge key: icon + mood + label + one-line meaning. Only "Reading the
-        /// list" uses it, but modeling it as data keeps that legend testable and consistent.
+        /// The difference-badge key: icon, mood, label and one-line meaning. Only "Reading the
+        /// list" uses it; as data, the legend stays testable and consistent.
         case legend([LegendItem])
 
         /// Flattened text of the block, for the sidebar search index.
@@ -66,12 +54,12 @@ enum HelpBook {
         }
     }
 
-    /// The mood of a legend row — maps to the same semantic colors the differences list uses,
-    /// resolved to a concrete `Color` at render time so this stays pure data.
+    /// The mood of a legend row: the semantic colors the differences list uses, resolved to a
+    /// concrete `Color` at render time so this stays pure data.
     enum Mood: Equatable {
         case accent, warning, danger, success, neutral
-        /// The Differences list's name-conflict yellow (`DifferenceGlyph.color(for: .nameConflict)`)
-        /// — softer than danger-red, which the list never paints for a conflict.
+        /// The Differences list's name-conflict yellow (`DifferenceGlyph.color(for: .nameConflict)`),
+        /// softer than danger-red, which the list never paints for a conflict.
         case caution
         /// The copy-direction tints the Differences list actually paints
         /// (`DifferenceGlyph.color(toRight:)`): blue for →, purple for ←.
@@ -93,7 +81,7 @@ enum HelpBook {
         /// The body, top to bottom.
         let blocks: [Block]
         /// Ids of related topics, rendered as tappable chips. Every id must resolve to a real
-        /// topic — `HelpBookTests` enforces it.
+        /// topic; `HelpBookTests` enforces it.
         let related: [String]
 
         init(intro: String, blocks: [Block] = [], related: [String] = []) {
@@ -105,7 +93,7 @@ enum HelpBook {
 
     /// A navigable entry in the sidebar.
     struct Topic: Equatable {
-        /// Stable identifier used for selection and cross-links — never shown to the user.
+        /// Stable identifier used for selection and cross-links, never shown to the user.
         let id: String
         let title: String
         let systemImage: String
@@ -234,8 +222,8 @@ enum HelpBook {
                 ],
                 related: ["pdf-workspace", "what-is-synccloud", "folder-sidebar", "browse-workspace", "keyboard-shortcuts"]
             )),
-            // **PDFs have a page of their own** (TE171): about 2,000 words of them were five bullets
-            // in "Write in a text file", where nobody looking for how to sign a form would read.
+            // PDFs have a page of their own, where someone looking for how to sign a form will find
+            // it.
             Topic(id: "pdf-workspace", title: "Read, fill and sign a PDF", systemImage: "signature", article: Article(
                 intro: "A PDF opens in Edit to be read, searched, changed with its tools, or filled in and signed — and the file you opened is never changed: every change is written to a new PDF beside it.",
                 blocks: [
@@ -311,9 +299,8 @@ enum HelpBook {
                 related: ["reading-differences", "sync-preferences"]
             )),
         ]),
-        // **Ask Claude has a section of its own** (v7.0): it was one 800-word paragraph inside
-        // "Suggestions and AI", where nobody looking for what the chat can see or change would
-        // read. Each page answers one question a reader brings to it.
+        // Ask Claude has a section of its own, each page answering one question a reader brings
+        // to it: what the chat can see, what it can change, and so on.
         Section(title: "Ask Claude", topics: [
             Topic(id: "ask-claude", title: "Ask Claude", systemImage: "bubble.left.and.text.bubble.right", article: Article(
                 intro: "Ask Claude is a chat panel over the window that answers questions about what you’re looking at and takes you places in SyncCloud. Open it with ⌘J, View ▸ Ask Claude, or the Ask Claude button in the toolbar. It uses your own Anthropic API key from Settings ▸ Intelligence, and nothing is sent until you ask.",
@@ -420,11 +407,11 @@ enum HelpBook {
                 intro: "After a scan, every item that isn’t identical on both sides appears here. A badge tells you what changed and which way a copy would go.",
                 blocks: [
                     .legend([
-                        // The badge shapes below mirror DifferenceGlyph exactly (the filled card
-                        // variants) — the legend must show the symbols the list actually draws.
+                        // The badge shapes mirror `DifferenceGlyph` exactly (the filled card
+                        // variants): the legend must show the symbols the list draws.
                         LegendItem(systemImage: "arrow.right.circle.fill", mood: .copyRight, title: "Only on the left", detail: "Missing on the right — copy it over"),
                         LegendItem(systemImage: "arrow.left.circle.fill", mood: .copyLeft, title: "Only on the right", detail: "Missing on the left — copy it back"),
-                        // One row, one badge: the list renders a single glyph for a date OR size
+                        // One row, one badge: the list draws a single glyph for a date or size
                         // mismatch, so the legend doesn't invent two.
                         LegendItem(systemImage: "arrow.triangle.2.circlepath", mood: .warning, title: "Different date or size", detail: "One copy is newer than the other, or the contents differ"),
                         LegendItem(systemImage: "exclamationmark.triangle.fill", mood: .caution, title: "Name conflict", detail: "Same name once surrounding spaces, trailing dots, and Unicode form are normalized — or differing only by case where the volume ignores case"),
@@ -564,26 +551,19 @@ enum HelpBook {
                 related: ["organize-workspace", "automation-rules", "intelligence",
                           "restructure-scaffold", "on-device-reading"]
             )),
-            // The one article about SyncCloud OPENING a file rather than reading its name — and
-            // the only place the app makes a privacy claim in its own words.
+            // The one article about SyncCloud opening a file rather than reading its name, and the
+            // only place the app makes a privacy claim in its own words.
             //
-            // **Every sentence is checkable against the code, and that is the bar it was written
-            // to.** `ContentSignalExtractor` is PDFKit, Vision and NaturalLanguage and opens no
-            // socket. `FilingSurvey.document(fromPage1:stamp:salt:)` keeps 400 characters, stores
-            // ordinary words as themselves and hashes anything carrying a digit under a salt minted
-            // on this Mac. Exactly three files in the repo reference `URLSession`, and all three
-            // are the Refine path named in the last paragraph — `NoTelemetryTests` is what keeps
-            // that sentence true after somebody adds a fourth.
+            // Every sentence must stay checkable against the code: `ContentSignalExtractor` is
+            // PDFKit, Vision and NaturalLanguage and opens no socket;
+            // `FilingSurvey.document(fromPage1:stamp:salt:)` keeps 400 characters and hashes
+            // anything with a digit under a salt minted on this Mac; and `NoTelemetryTests` keeps
+            // the network code to the paths named in the last paragraph.
             //
-            // **The exception is volunteered rather than left to be found.** An article claiming
-            // "nothing leaves this Mac" over an app that has a Refine button is one a reader stops
-            // believing the moment they meet the button, and then disbelieves the true parts with
-            // it. So the claim is scoped to the reading, and the one thing that is not the reading
-            // is named here in the article's own voice.
-            //
-            // **Two words are unavailable in this file** — `testNoArticleUsesRetiredVocabulary`
-            // bans "tidy" and "filing" — which is why this says "To File" and "Organize's
-            // suggestions" rather than the shorter nouns.
+            // The exception is volunteered: claiming "nothing leaves this Mac" beside a Refine
+            // button would make a reader doubt the true parts too, so the claim is scoped to the
+            // reading. `testNoArticleUsesRetiredVocabulary` bans "tidy" and "filing", hence "To
+            // File" and "Organize's suggestions".
             Topic(id: "on-device-reading", title: "Reading your documents",
                   systemImage: "doc.text.magnifyingglass", article: Article(
                 intro: "Some of what Organize knows comes from opening your files and reading a little of them, rather than going on their names alone. All of that happens on this Mac, using the same parts of macOS that draw you a preview — and none of what it reads is sent anywhere.",
@@ -766,10 +746,9 @@ enum HelpBook {
             )),
         ]),
         Section(title: "Settings and more", topics: [
-            // The id stays `providers` — it is a frozen identifier that cross-links and the
-            // settings deep link both resolve through, and it is not copy. The title is copy, and
-            // it follows the tab: that pane lists plain folders alongside the cloud accounts, which
-            // is why it stopped being called Providers.
+            // The id stays `providers`: cross-links and the settings deep link resolve through it,
+            // and it is not copy. The title follows the tab, which lists plain folders alongside
+            // the cloud accounts.
             Topic(id: "providers", title: "Sources and connections", systemImage: "externaldrive", article: Article(
                 intro: "Settings ▸ Sources is where SyncCloud lists everywhere it can work: the cloud accounts it found on this Mac, and any folder you add yourself. Rename them, hide the ones you don’t use, or point one somewhere else.",
                 blocks: [
@@ -994,11 +973,10 @@ enum HelpBook {
     /// The topic with the given id, or nil.
     static func topic(id: String) -> Topic? { allTopics.first { $0.id == id } }
 
-    /// **The page ⌘? opens at: the workspace's own** (TE169). It opened at "Set up SyncCloud" in
-    /// every one, which is the page for a Mac that has not been set up — the reader pressing ⌘? in
-    /// Compare wants Compare. Help ▸ Set Up SyncCloud… is still the way to setup itself. A pointer
-    /// to a named page (Settings' "Reading your documents", say) still opens that page instead.
-    /// Edit with a PDF open opens at the PDF's page (TE171), not the text file's.
+    /// The page ⌘? opens at: the workspace's own, since a reader pressing ⌘? in Compare wants
+    /// Compare (Help ▸ Set Up SyncCloud… is the way to setup). A pointer to a named page
+    /// (Settings' "Reading your documents", say) opens that page instead. Edit with a PDF open
+    /// opens at the PDF's page.
     static func topicID(for workspace: Workspace, pdfIsOpen: Bool = false) -> String {
         switch workspace {
         case .browse: return "browse-workspace"
@@ -1013,8 +991,8 @@ enum HelpBook {
         sections.first { $0.topics.contains { $0.id == id } }?.title
     }
 
-    /// Sections filtered to topics matching `query` (case-insensitive over title + intro +
-    /// body). An empty/whitespace query returns everything; sections with no match drop out.
+    /// Sections filtered to topics matching `query` (case-insensitive over title, intro and body).
+    /// An empty or whitespace query returns everything; sections with no match drop out.
     static func filteredSections(matching query: String) -> [Section] {
         let needle = searchFolded(query.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !needle.isEmpty else { return sections }
@@ -1026,8 +1004,8 @@ enum HelpBook {
 }
 
 extension HelpBook {
-    /// **Text as search compares it: lowercased, and ’ and ‘ read as '** (TE173). Help writes
-    /// "doesn’t" and a keyboard types "doesn't", so a search for the words it says found nothing.
+    /// Text as search compares it: lowercased, with ’ and ‘ read as '. Help writes "doesn’t" and a
+    /// keyboard types "doesn't", and both must match.
     static func searchFolded(_ text: String) -> String {
         text.lowercased().replacingOccurrences(of: "’", with: "'").replacingOccurrences(of: "‘", with: "'")
     }
@@ -1043,10 +1021,9 @@ extension HelpBook.Topic {
 }
 
 extension HelpBook.Mood {
-    /// The concrete color for a legend icon — the same semantic vocabulary the differences list
-    /// uses (copyRight/copyLeft = the blue/purple direction tints, warning = a mismatch,
-    /// caution = the yellow name-conflict badge). `.accent` is the hue the user picked, handed in
-    /// by the article.
+    /// The concrete color for a legend icon, in the differences list's vocabulary
+    /// (copyRight/copyLeft are the blue and purple direction tints, warning a mismatch, caution the
+    /// yellow name-conflict badge). `.accent` is the user's hue, handed in by the article.
     func color(accent: Color) -> Color {
         switch self {
         case .accent: return accent
@@ -1054,10 +1031,9 @@ extension HelpBook.Mood {
         case .danger: return SemanticColor.error
         case .success: return SemanticColor.success
         case .neutral: return .secondary
-        // The exact colors DifferenceGlyph paints in the real list (it's internal to
-        // FileExplorer, so the values are mirrored here): nameConflict = caution-yellow,
-        // → = blue, ← = purple. The legend must describe what the list renders, not a
-        // nicer palette.
+        // The exact colors `DifferenceGlyph` paints (mirrored, since it is internal to
+        // FileExplorer): nameConflict caution-yellow, → blue, ← purple. The legend must describe
+        // what the list renders.
         case .caution: return SemanticColor.caution
         case .copyRight: return .blue
         case .copyLeft: return .purple
@@ -1067,10 +1043,9 @@ extension HelpBook.Mood {
 
 // MARK: - Menu commands
 
-/// The Window ▸ Sync History item — Activity on its History tab (TE232): the durable, exportable,
-/// reversible history, under the name it had as a window of its own. A separate View (not inline in
-/// the `.commands` builder) because `openWindow` is an Environment value the App struct doesn't
-/// carry — the same reason `ShortcutsWindowCommand` exists.
+/// The Window ▸ Sync History item: Activity on its History tab, the durable, exportable,
+/// reversible history. A separate View, not inline in `.commands`, because `openWindow` is an
+/// Environment value the App struct doesn't carry, as with `ShortcutsWindowCommand`.
 struct SyncHistoryWindowCommand: View {
     @Environment(\.openWindow) private var openWindow
 
@@ -1084,78 +1059,51 @@ struct SyncHistoryWindowCommand: View {
 
 // MARK: - Resizing
 
-/// Which part of the Help card's frame a resize drag has hold of.
-///
-/// The card stays **centred**, so a drag moves the grabbed edge and the opposite one moves with
-/// it — see ``HelpCardSize/resized(from:by:grip:within:)`` for why that means doubling the
-/// translation rather than adding it.
-/// The Help card's eight grips.
-///
-/// **A forward to ``ResizableCardGrip``, not a second table.** The direction table this used to
-/// spell out — `.leading` grows the card when dragged LEFT — moved to `Design` when the Compare
-/// Copies overlay became resizable too, because two copies of a sign table can only agree by
-/// luck. The name stays so this file's 29 test references keep naming the thing they test.
+/// The Help card's eight grips: a forward to ``ResizableCardGrip`` in `Design`, which Compare
+/// Copies shares, so there is one direction table. The card stays centred, so a drag moves the
+/// opposite edge too; see ``HelpCardSize/resized(from:by:grip:within:)``. The name stays because
+/// the tests use it.
 typealias HelpCardGrip = ResizableCardGrip
 
-/// The Help card's size: its bounds, and the one rule that resolves a drag into a new one.
-///
-/// **Pure, because the view around it cannot be built in a test.** `HelpView` is a SwiftUI `View`
-/// with `@State` and `@AppStorage`; a clamp written inline there is a clamp no test can flip. The
-/// call site is pinned separately so the rule cannot become one nobody calls.
+/// The Help card's size: its bounds, and the one rule that resolves a drag into a new one. Pure,
+/// because `HelpView` can't be built in a test; the call site is pinned separately so the rule
+/// can't become one nobody calls.
 enum HelpCardSize {
 
-    /// What the card opens at on a machine that has never resized it — the size it was fixed at
-    /// before it could be resized at all, so nothing about the default view changes.
+    /// What the card opens at on a machine that has never resized it.
     static let initial = CGSize(width: 760, height: 520)
 
-    /// The floor. The sidebar is a fixed 220pt and does not shrink, so the width floor is really
-    /// a floor on the ARTICLE column: 560 leaves it 339pt, which still sets a bullet's second
-    /// line without hyphenating. Below this the article stops being readable rather than merely
-    /// getting narrow.
+    /// The floor. The sidebar is a fixed 220pt, so the width floor is really the article column's:
+    /// 560 leaves it 339pt, which still sets a bullet's second line without hyphenating.
     static let minimum = CGSize(width: 560, height: 400)
 
-    /// The topic rail's width. Fixed, and it does NOT grow with the card — so a title too long for
-    /// it is too long at every card size, which is why `everyTopicTitleFitsTheRail` measures
-    /// against this rather than against whatever the card happens to be.
+    /// The topic rail's width. Fixed, not growing with the card, so a title too long for it is too
+    /// long at every card size; `everyTopicTitleFitsTheRail` measures against this.
     static let sidebarWidth: CGFloat = 220
 
-    /// The width a topic's title has to set in, derived from the row rather than written down
-    /// twice: the rail, less the row's outer 6pt inset a side, its inner 8pt a side, the 18pt
-    /// glyph, and the 9pt between glyph and text.
-    ///
-    /// **A title wider than this wraps; it used to be truncated.** The row set `lineLimit(1)`, so
-    /// anything over the budget lost its tail to an ellipsis — silently, and invisibly to every
-    /// test that reads the copy as data, where the string is whole. "Who your documents belong to"
-    /// shipped that way and read "Who your documents be…" in the rail, and five other titles were
-    /// already over it at Default. `HelpRailFitTests` measures against this so the replacement
-    /// bar — no title needs more than two lines — is about the rail the card really draws.
+    /// The width a topic's title has to set in, derived from the row: the rail, less the row's 6pt
+    /// outer and 8pt inner inset a side, the 18pt glyph, and the 9pt between glyph and text. A
+    /// title wider than this wraps (truncating would silently lose its tail);
+    /// `HelpRailFitTests` holds every title to two lines at this width.
     static let sidebarTitleWidth: CGFloat = sidebarWidth - 2 * 6 - 2 * 8 - 18 - 9
 
-    /// The defaults keys. Two, rather than one archived `CGSize`, because a width that survives a
-    /// height's decoding failure is strictly better than losing both — and `@AppStorage` reads
-    /// `Double` natively.
+    /// The defaults keys. Two, not one archived `CGSize`, so a width survives a height's decoding
+    /// failure; and `@AppStorage` reads `Double` natively.
     static let widthDefaultsKey = "helpCardWidth"
     static let heightDefaultsKey = "helpCardHeight"
 
-    /// The new size for a drag of `translation` that started with the card at `start`.
-    ///
-    /// **The translation is doubled, and that is what keeps the pointer on the grip.** The card is
-    /// centred in the overlay, so half of any growth goes to each side: to move the trailing edge
-    /// 10pt right, the width has to grow 20. Adding the translation once would leave the edge
-    /// drifting at half the pointer's speed, which reads as lag rather than as a rule.
+    /// The new size for a drag of `translation` that started with the card at `start`. The
+    /// translation is doubled because the card is centred: half of any growth goes to each side,
+    /// so moving an edge 10pt takes 20pt of growth, or the edge would lag the pointer.
     static func resized(from start: CGSize, by translation: CGSize,
                         grip: HelpCardGrip, within available: CGSize) -> CGSize {
         ResizableCardSize.resized(from: start, by: translation, grip: grip,
                                   minimum: minimum, within: available)
     }
 
-    /// A size held to the floor and to what the window can actually show.
-    ///
-    /// **The `max(minimum, available)` is live, not defensive padding.** `GeometryReader` reports
-    /// `.zero` on its first layout pass, and clamping straight to `available` there would collapse
-    /// the card to nothing on the frame it appears. Preferring the floor when the window is
-    /// smaller than the card also fails in the safer direction: an overflowing card is legible and
-    /// a 0×0 one is gone.
+    /// A size held to the floor and to what the window can show. The `max(minimum, available)`
+    /// matters: `GeometryReader` reports `.zero` on its first pass, and clamping to that would
+    /// collapse the card. An overflowing card is legible; a 0×0 one is gone.
     static func clamped(_ size: CGSize, within available: CGSize) -> CGSize {
         ResizableCardSize.clamped(size, minimum: minimum, within: available)
     }
@@ -1164,9 +1112,8 @@ enum HelpCardSize {
 // MARK: - Overlay
 
 /// The in-window Help overlay (⌘? / Help ▸ SyncCloud Help): a dimmed backdrop behind a centered
-/// card, mirroring the Settings and Welcome overlays so the three read as one system. Click
-/// outside, Esc, or the ✕ all dismiss. Living inside the main window (rather than a separate
-/// scene) keeps it floating over the content even in full screen.
+/// card, like the Settings and Welcome overlays. Click outside, Esc or the ✕ dismiss. Inside the
+/// main window, not a separate scene, so it floats over the content even in full screen.
 struct HelpOverlay: View {
     let glassHue: LiquidGlassHue
     let glassLevel: GlassLevel
@@ -1176,10 +1123,8 @@ struct HelpOverlay: View {
     let onClose: () -> Void
 
     var body: some View {
-        // The card can now be dragged bigger, so it needs to know what "bigger" runs out at.
-        // `GeometryReader` here rather than inside the card: this view already fills the window,
-        // and the card's own geometry is the thing being resized — reading the size from inside it
-        // would be reading the answer out of the question.
+        // The card can be dragged bigger, so it needs to know where "bigger" runs out. Read here,
+        // where this view fills the window, not inside the card, whose size is what is changing.
         GeometryReader { proxy in
             ZStack {
                 OverlayScrim(level: glassLevel)
@@ -1195,52 +1140,45 @@ struct HelpOverlay: View {
         .transition(.opacity)
     }
 
-    /// The card, decorated exactly like the Settings and Welcome cards: the accent tint, then the
-    /// glass material at the level's face value via `groundedGlassCard`. It used to floor `.clear`
-    /// to `.frosted` because this card sits over live app content; the ground under the content
-    /// answers that without collapsing Clear and Frosted into the same card.
+    /// The card, decorated like the Settings and Welcome cards: the accent tint, then the glass
+    /// material at the level's face value via `groundedGlassCard`, whose ground keeps Clear and
+    /// Frosted distinct over live content.
     @ViewBuilder
     private func card(available: CGSize) -> some View {
         HelpView(available: available, openAt: openAt, onClose: onClose)
-            // Help's own controls take the window's hue, not the Mac's accent (DS4).
+            // Help's own controls take the window's hue, not the Mac's accent.
             .nativeControlAccent(glassHue)
             .contentSurface(hue: glassHue, tint: surfaceTint)
-            // No hairline overlay here: `groundedGlassCard` now draws it for BOTH schemes. Adding
-            // one on top put a second border over the dark specular edge.
+            // No hairline overlay here: `groundedGlassCard` draws it for both schemes, and a second
+            // would double the dark specular edge.
             .groundedGlassCard(level: glassLevel)
             .overlayPanelShadow()
     }
 }
 
 /// The Help card's content: a searchable topic sidebar on the left and the selected article on
-/// the right.
-///
-/// **Resizable, and still an overlay.** It was fixed at 760×520 on the argument that the content
-/// is bounded — which is true of the sidebar and false of the articles, whose longest ones run
-/// well past the card and scroll. Nothing else about the overlay changes: the scrim, the centring,
-/// the glass card and all three ways out are as they were. The size is dragged from any edge or
-/// corner, held between ``HelpCardSize/minimum`` and what the window can show, and remembered.
+/// the right. Resizable from any edge or corner, held between ``HelpCardSize/minimum`` and what
+/// the window can show, and remembered, since the longest articles scroll well past the default.
 struct HelpView: View {
-    /// What the window can show — the ceiling a drag is clamped to. Passed in rather than measured
-    /// here because this view IS the thing being measured.
+    /// What the window can show, the ceiling a drag is clamped to. Passed in, not measured here,
+    /// because this view is what is being measured.
     let available: CGSize
     let onClose: () -> Void
 
     @State private var selectedTopicID: String
-    /// The part of the topic list on screen — for the selection lens.
+    /// The part of the topic list on screen, for the selection lens.
     @State private var visibleTopics = SelectionLensVisibleRegion()
-    /// Help wears the hue the user picked, like the card it sits on (`HelpOverlay` tints that).
-    /// It used to keep the SYSTEM accent (C7), when its on-fill label came from a helper that
-    /// could not take the hue; the row has paired a deepened fill with white since.
+    /// Help wears the hue the user picked, like the card it sits on (`HelpOverlay` tints that); the
+    /// row pairs a deepened fill with white.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
     /// The open topic's fill: the hue, deepened. Named once, because the selection lens wears it too.
     private var topicFill: Color { glassHue.accentFillColor }
-    /// The topic list's selection lens — see `SelectionLens`.
+    /// The topic list's selection lens; see `SelectionLens`.
     static let topicLensChannel = SelectionLensChannel("help.topics")
     @State private var query: String = ""
 
-    /// The remembered size. Two `Double`s rather than an archived `CGSize` — see
+    /// The remembered size. Two `Double`s, not an archived `CGSize`; see
     /// ``HelpCardSize/widthDefaultsKey``.
     @AppStorage(HelpCardSize.widthDefaultsKey) private var storedWidth: Double
         = HelpCardSize.initial.width
@@ -1248,17 +1186,14 @@ struct HelpView: View {
         = HelpCardSize.initial.height
 
     /// The size for the drag in progress, or nil when none is. Kept apart from the stored pair so
-    /// a drag that is abandoned mid-flight leaves nothing written, and so the defaults are touched
-    /// once per drag rather than once per frame.
+    /// an abandoned drag writes nothing, and the defaults are written once per drag, not per frame.
     @State private var dragging: CGSize?
 
     init(available: CGSize, openAt topic: String? = nil, onClose: @escaping () -> Void) {
         self.available = available
         self.onClose = onClose
-        // An addressable opening topic, so a surface can point at its own page instead of
-        // dropping the reader at the front of the book (proposal O14). An id that does not
-        // resolve opens the front, which is the same thing the book does with no id at all —
-        // a broken pointer must not be a blank card.
+        // An opening topic, so a surface can point at its own page. An id that doesn't resolve
+        // opens the front, as no id does: a broken pointer must not be a blank card.
         let opening = topic.flatMap { id in
             HelpBook.sections.contains { $0.topics.contains { $0.id == id } } ? id : nil
         }
@@ -1268,21 +1203,16 @@ struct HelpView: View {
 
     private var results: [HelpBook.Section] { HelpBook.filteredSections(matching: query) }
 
-    /// The size to draw at: the live drag if there is one, otherwise what was remembered — and
-    /// clamped either way, because the window may have been made smaller since, or the stored pair
-    /// may have come from a larger display.
+    /// The size to draw at: the live drag if there is one, otherwise what was remembered, clamped
+    /// either way since the window may have shrunk or the stored pair come from a larger display.
     private var size: CGSize { dragging ?? baseSize }
 
-    /// The size with no drag in progress — what is remembered, held to what the window can show.
+    /// The size with no drag in progress: what is remembered, held to what the window can show.
     ///
-    /// **This is also every drag's base, which is why no drag-start needs capturing.**
-    /// `DragGesture.translation` is cumulative from the drag's start, and the remembered pair does
-    /// not move until `commitDrag` writes it on release, so this expression is constant for the
-    /// whole gesture. The first version stashed the size on the first `onChanged` instead, in a
-    /// second piece of `@State` that had to be cleared in `commitDrag` — and a gesture that ends
-    /// without `onEnded` (interrupted, cancelled) left both set, so the NEXT drag on that grip
-    /// re-based on the stale start and jumped by the previous drag's delta before following the
-    /// pointer. Deriving the base removes the variable and the failure with it.
+    /// This is also every drag's base, so no drag start is captured. `DragGesture.translation` is
+    /// cumulative, and the stored pair doesn't change until `commitDrag` writes it on release.
+    /// A captured start would survive a gesture that ends without `onEnded`, and the next drag
+    /// would jump by the previous one's delta.
     private var baseSize: CGSize {
         HelpCardSize.clamped(CGSize(width: storedWidth, height: storedHeight), within: available)
     }
@@ -1305,19 +1235,13 @@ struct HelpView: View {
 
     // MARK: Resize handles
 
-    /// The eight grips, laid over the card's own edges and corners.
+    /// The eight grips, laid over the card's own edges and corners. Corners come after edges, so
+    /// they sit on top where an edge strip runs under them.
     ///
-    /// **Corners after edges, deliberately.** An edge strip runs the card's whole side, so it sits
-    /// under both corners at that end; declaring the corners last puts them on top, where a
-    /// diagonal drag expects to find them.
-    ///
-    /// **8pt strips and 16pt corners, and those numbers are clearances rather than taste.** The
-    /// grips sit OVER the content, the way a window's own resize band does, so anything they cover
-    /// stops being clickable. The two controls close enough to matter both clear them: the close
-    /// button is inset 16pt horizontally and 12pt vertically, so the trailing strip (8) and the top
-    /// strip (8) stop short of it and the 16pt corner ends exactly where it begins; the sidebar's
-    /// search field is inset 10pt, clearing the leading strip by 2. Thickening either of these
-    /// without re-measuring those two would take the ✕ or the field with it.
+    /// The 8pt strips and 16pt corners are clearances. The grips sit over the content, so what
+    /// they cover can't be clicked: the close button is inset 16pt by 12pt, so the strips stop short
+    /// of it and the corner ends where it begins, and the search field is inset 10pt, 2 clear of the
+    /// leading strip. Re-measure both before thickening a grip.
     private var resizeHandles: some View {
         ZStack {
             edgeGrip(.top)
@@ -1331,15 +1255,15 @@ struct HelpView: View {
         }
     }
 
-    /// One side, using the window's own seam component so the fixed-coordinate-space rule that
-    /// every other resize in this app follows is not re-derived here.
+    /// One side, using the window's own seam component, so the fixed-coordinate-space rule every
+    /// other resize here follows isn't re-derived.
     private func edgeGrip(_ grip: HelpCardGrip) -> some View {
         ResizeHandle(
             axis: grip.vertical == 0 ? .horizontal : .vertical,
             thickness: 8,
-            // NEVER `.local`: the strip moves as the card it resizes grows, so in its own space
-            // the gesture feeds back on itself and the drag stutters. `ResizeHandle` documents
-            // this and requires the parameter for exactly this reason.
+            // **Never** `.local`: the strip moves as the card grows, so in its own space the gesture
+            // feeds back on itself and the drag stutters. `ResizeHandle` requires the parameter for
+            // this reason.
             coordinateSpace: .global,
             onDrag: { apply($0.translation, grip: grip) },
             onCommit: commitDrag
@@ -1347,9 +1271,9 @@ struct HelpView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: grip.alignment)
     }
 
-    /// One corner. `ResizeHandle` is single-axis by construction — it draws a strip and shows a
-    /// column-or-row pointer — so the diagonal grips are their own small view rather than a third
-    /// axis bolted onto a component four pane seams depend on.
+    /// One corner. `ResizeHandle` is single-axis by construction (a strip, a column-or-row
+    /// pointer), so the diagonal grips are their own small view rather than a third axis on a
+    /// component four pane seams depend on.
     private func cornerGrip(_ grip: HelpCardGrip) -> some View {
         Color.clear
             .frame(width: 16, height: 16)
@@ -1363,8 +1287,8 @@ struct HelpView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: grip.alignment)
     }
 
-    /// Resolve a drag into a live size, always from ``baseSize`` — see there for why the drag's
-    /// starting size needs no capturing.
+    /// Resolve a drag into a live size, always from ``baseSize``; see there for why no starting
+    /// size is captured.
     private func apply(_ translation: CGSize, grip: HelpCardGrip) {
         dragging = HelpCardSize.resized(from: baseSize, by: translation,
                                         grip: grip, within: available)
@@ -1434,14 +1358,13 @@ struct HelpView: View {
                 }
                 .padding(.vertical, 6)
                 // Frosted and Clear: the open topic's fill as one glass lens that glides between
-                // rows (RD46). On the padded stack, the scroll view's content, so `visibleTopics`
-                // is in the lens's own coordinates; a move to a topic off screen — a link from an
-                // article, a search — switches instantly.
+                // rows. On the scroll view's content, so `visibleTopics` is in the lens's own
+                // coordinates; a move to a topic off screen (a link, a search) switches instantly.
                 .selectionLensHost(Self.topicLensChannel, selected: selectedTopicID,
                                    style: .fill(.roundedRect(Radius.chip), color: topicFill),
                                    visibleRegion: visibleTopics)
             }
-            // Into the region, not `@State` — a state write re-rendered all of Help per scroll frame.
+            // Into the region, not `@State`: a state write would re-render Help every scroll frame.
             .selectionLensTracksVisibleRegion(visibleTopics)
         }
     }
@@ -1472,12 +1395,9 @@ struct HelpView: View {
 
     private func topicRow(_ topic: HelpBook.Topic) -> some View {
         let isSelected = topic.id == selectedTopicID
-        // White on a DEEPENED accent fill, which is what a native selected row has always been:
-        // AppKit's alternateSelectedControlTextColor returns white under every accent because it
-        // pairs with `selectedContentBackgroundColor`, a darkened accent — the old bug here was
-        // pairing a label with the RAW accent (white-on-Yellow, ~1.6:1). Rather than flip the label
-        // dark on the light accents, this row now deepens its fill like every other solid accent
-        // surface in the app, so the Help sidebar reads the same as the buttons beside it.
+        // White on a deepened accent fill, as a native selected row is: AppKit's
+        // alternateSelectedControlTextColor pairs with a darkened accent, and white on the raw
+        // accent fails contrast on light hues (white on Yellow is about 1.6:1).
         let accentFill = topicFill
         let onAccent = Color.white
         return Button {
@@ -1489,14 +1409,10 @@ struct HelpView: View {
                     .selectionLensLabelInk(isSelected: isSelected, onFill: onAccent, unselected: Color.secondary)
                 Text(topic.title)
                     .selectionLensLabelInk(isSelected: isSelected, onFill: onAccent, unselected: Color.primary)
-                    // **No `lineLimit`, matching `SettingsRail.railRow`**, which has never had
-                    // one. The rail is fixed at 220pt and does not widen when the card is
-                    // resized, so a `lineLimit(1)` here does not shorten a long title — it
-                    // TRUNCATES it, silently, and worse the larger the text. Measured: five
-                    // titles were already past the 165pt a row gives them at Default, and
-                    // "Activity Log and troubleshooting" wanted 213pt at Large — on the one
-                    // surface a reader enlarges the type to read. Wrapping costs a taller row
-                    // in a rail that already scrolls; truncating costs the word.
+                    // No line limit, like `SettingsRail.railRow`: the rail is a fixed 220pt and
+                    // doesn't widen with the card, so a one-line limit would truncate a long
+                    // title, worse at larger text sizes. Wrapping costs a taller row in a rail
+                    // that already scrolls.
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
@@ -1515,16 +1431,12 @@ struct HelpView: View {
             .selectionLensStop(Self.topicLensChannel, id: topic.id)
         }
         // Selected already wears the accent fill, so it takes the ring-and-lift treatment; the
-        // rest wash the same shape they would fill if chosen.
-        // `.filled` for the open topic at Solid; under the lens it takes `.row`, with no lift or
-        // shadow to cast from a label that no longer has a fill under it (`SelectionLens`).
+        // rest wash the same shape. Under the lens the open topic takes `.row`, with no lift or
+        // shadow, since its label no longer has a fill under it (`SelectionLens`).
         .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: glassHue.accentColor, unselected: .row,
                                         shape: .roundedRect(6))
-        // **Which topic is open is carried by ink and fill, and neither is audible.** Without this
-        // every row announces as "<Title>, button" and the one that is open is indistinguishable
-        // from the ten that are not. `SettingsRail.railRow` is this row with this line — the same
-        // shape, the same accent fill, the same selection question — so the omission was a copy
-        // that stopped one line early rather than a decision.
+        // Which topic is open is shown by ink and fill, neither of which VoiceOver hears, so mark
+        // it selected, as `SettingsRail.railRow` does.
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .padding(.horizontal, 6)
     }
@@ -1545,7 +1457,7 @@ struct HelpView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         } else {
-            // Only reachable if a search leaves the selection off-list; keep it graceful.
+            // Only reachable if a search leaves the selection off the list; keep it graceful.
             EmptyStateView(
                 icon: "book",
                 title: "Choose a topic from the list.",
@@ -1555,8 +1467,8 @@ struct HelpView: View {
     }
 }
 
-/// Renders one `HelpBook.Article`: an eyebrow + title + intro, the typed body blocks, and a
-/// row of related-topic chips that jump the selection.
+/// Renders one `HelpBook.Article`: an eyebrow, title and intro, the typed body blocks, and a row
+/// of related-topic chips that jump the selection.
 struct HelpArticleView: View {
     let topic: HelpBook.Topic
     let sectionTitle: String?
@@ -1671,23 +1583,13 @@ struct HelpArticleView: View {
     }
 }
 
-/// The related-topic chips under an article, wrapping onto as many rows as they need.
+/// The related-topic chips under an article, wrapping onto as many rows as they need. Each shows a
+/// real topic's title and jumps the selection; `HelpBookTests` validates the ids.
 ///
-/// Each chip shows a real topic's title and jumps the selection when clicked. Ids are validated by
-/// `HelpBookTests`, so a lookup miss here would be a test failure, not a runtime surprise.
-///
-/// **This was an `HStack`, and "Flexible" was the only flexible thing about it.** An `HStack` given
-/// more children than fit does not wrap — it squeezes — and a capsule with a fixed 12pt horizontal
-/// inset has nowhere to give but its label, so the text wrapped *inside* the chip. At five chips on
-/// the 515pt article column that rendered "Clear out dupli-cates" hyphenated across two lines
-/// inside a tall oval. It degraded quietly at three or four long titles too; five is where it
-/// stopped being deniable, and only a render showed it — a layout test measures the row, and a
-/// squeezed row is exactly as wide as an intact one.
-///
-/// `FileExplorer.FlowLayout` rather than a third wrapping layout in this repo: it is the more
-/// complete of the two already here (it clamps an over-wide child to the row instead of drawing
-/// past the edge) and its geometry is tested in `FlowLayoutMathTests`. Spelled with its module so
-/// it cannot be confused with `Settings.FlowLayout`, which is a different type of the same name.
+/// A wrapping layout, not an `HStack`: an `HStack` squeezes rather than wraps, so a long title
+/// would wrap and hyphenate inside its capsule. `FileExplorer.FlowLayout` clamps an over-wide child
+/// to the row and is tested in `FlowLayoutMathTests`; named with its module so it can't be
+/// confused with `Settings.FlowLayout`.
 private struct FlexibleChips: View {
     let ids: [String]
     let onSelect: (String) -> Void

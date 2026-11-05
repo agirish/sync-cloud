@@ -7,16 +7,16 @@ import FileExplorer
 import FoundationModels
 #endif
 
-/// Reading a file for Ask Claude (RD69 v7.0, TE240 and TE239), all of it on this Mac.
+/// Reading a file for Ask Claude, all of it on this Mac.
 ///
-/// **On-device first (decision DS).** The text is extracted here and Apple’s on-device model
-/// answers the question from it; Claude gets that answer. The text itself reaches Claude only when
-/// “Let Claude read files” is on (decision DQ) or the person presses the panel’s Send button, and
-/// then only the passage that answers, never the whole file.
+/// On-device first: the text is extracted here and Apple’s on-device model answers the question
+/// from it; Claude gets that answer. The text itself reaches Claude only when “Let Claude read
+/// files” is on or the person presses the panel’s Send button, and then only the passage that
+/// answers, never the whole file.
 ///
-/// **A scanned PDF is read by OCR (TE264).** A page whose text layer is empty, or all but, is drawn
-/// on the PDFKit lane and its words read with Vision (`PictureText`), and its text goes the same
-/// way as a text layer's.
+/// A scanned PDF is read by OCR: a page whose text layer is empty, or all but, is drawn on the
+/// PDFKit lane and its words read with Vision (`PictureText`), and its text goes the same way as a
+/// text layer's.
 enum AskClaudeReading {
 
     /// Pages read from one PDF: plenty for a question, and bounded for a 600-page scan.
@@ -24,7 +24,7 @@ enum AskClaudeReading {
     /// What the on-device model gets: its window here is 8,192 tokens (macOS 27), shared with its
     /// instructions and answer, so about 4,000 tokens of text.
     static let onDeviceChars = 16_000
-    /// What Claude may get: about 1,500 tokens, the cap deep dive 1 set — 6,000 characters of
+    /// What Claude may get: about 1,500 tokens, 6,000 characters of
     /// Latin text, fewer of a script nearer a token a character (``claudePassage(from:question:paged:)``).
     static let claudeTokens = 1_500
     static let claudeChars = 6_000
@@ -37,16 +37,16 @@ enum AskClaudeReading {
     /// The longest on-device answer passed on: an answer, not the document.
     static let maxAnswerChars = 400
     /// The most of a document Share All Content sends: about 40,000 tokens, a long report and not a
-    /// book (his call on TE319, decision IU). Past it, the first pages that fit go, named as such.
+    /// book. Past it, the first pages that fit go, named as such.
     static let wholeTokens = 40_000
 
     /// Pages read by OCR from one PDF. A scanned page holds about 2,000–3,000 characters, so ten
     /// more than fill `onDeviceChars`, and the passage that answers is chosen from them.
     static let maxOCRPages = 10
     /// How long OCR may run, after the text layer is read: the pages read by then are used. A warm
-    /// Vision reads a page in 0.1–0.5 s (2026-11-02), but a request that needs a model Vision
-    /// hasn't loaded under this bundle id yet — its first, or the first of a language — waits
-    /// 25–90 s, and the question that runs out of time is told asking again may read more.
+    /// Vision reads a page in 0.1–0.5 s, but a request needing a model Vision hasn't loaded under
+    /// this bundle id yet (its first, or the first of a language) waits 25–90 s, so a question that
+    /// runs out of time is told asking again may read more.
     static let ocrTimeout: Duration = .seconds(30)
     /// A page whose text layer has fewer letters and digits than this is read by OCR: a scanner
     /// may lay its own name, or a page number, over the picture.
@@ -125,11 +125,10 @@ enum AskClaudeReading {
     /// A file's text, one string per page (cut into parts for a file without pages), or nil for a
     /// kind it can't read, or one that takes longer than `extractTimeout`.
     ///
-    /// **The question stops waiting; the read can't be stopped.** A task group would wait for its
-    /// slow child however it was cancelled, so the first answer of the read and a timer wins, and a
-    /// read past the limit finishes on its own and is dropped. A PDF's read still holds the app's
-    /// one PDFKit lane until it ends; only the question is let go. A question stopped while it waits
-    /// lets go the same way, at once.
+    /// The question stops waiting; the read can't be stopped. A task group would wait for its slow
+    /// child however it was cancelled, so the first of the read and a timer wins, and a read past
+    /// the limit finishes on its own and is dropped. A PDF's read still holds the app's one PDFKit
+    /// lane until it ends. A question stopped while it waits lets go the same way, at once.
     nonisolated static func extract(_ path: String) async -> [String]? {
         await bounded(extractTimeout, work: { await extractNow(path) }) { stopped in
             if !stopped { Logger.shared.warning("Ask Claude: reading \((path as NSString).lastPathComponent) took over \(extractTimeout) and was left to finish") }
@@ -338,15 +337,15 @@ enum AskClaudeReading {
         let cut = text.count > limit
         if cut { text = String(text.prefix(limit)) }
         let place: String
-        // One page uncut is all of it, whether or not the question's words are on it: "the start"
-        // named it as part, and its button read Share Content where it is All Content.
+        // One page uncut is all of it, whether or not the question's words are on it, so it is
+        // named "the text", never a part.
         if pages.count == 1 { place = cut ? "the start of the text" : "the text" }
         else if !paged { place = first == 0 && last == pages.count - 1 && !cut ? "the text" : "part of the text" }
         else { place = first == last ? "page \(first + 1)" : "pages \(first + 1)–\(last + 1)" }
         return (text, place)
     }
 
-    /// **The passage Claude may get, held to about `claudeTokens` whatever the script**: 6,000
+    /// The passage Claude may get, held to about `claudeTokens` whatever the script: 6,000
     /// characters of Chinese or Japanese would be some 4,700 tokens, not 1,500. Cut again by the
     /// estimate, three times at most: a mixed passage may land on other pages the second time.
     nonisolated static func claudePassage(from pages: [String], question: String, paged: Bool = true) -> (text: String, whereInFile: String) {
@@ -361,7 +360,7 @@ enum AskClaudeReading {
         return found
     }
 
-    /// **All the text read, for Share All Content**, held to `wholeTokens`: every page with text,
+    /// All the text read, for Share All Content, held to `wholeTokens`: every page with text,
     /// in order, until the next would pass the cap. `isAll` only when that is every page of the
     /// file and nothing was left unread (past `maxPages`, OCR's limit or its time), so the button
     /// never says "all" of a document it didn't read. Nil when there's no text.
@@ -411,9 +410,9 @@ enum AskClaudeReading {
     /// The on-device model's answer to `question` from `text`. Bounded at 60 s; a cold model takes
     /// about 27 s, a warm one about 5 (Filing's timing).
     ///
-    /// **Capped**, in tokens asked for and characters passed on: the answer is what reaches Claude
-    /// with Let Claude read files off, and a document that tells the model to repeat itself must
-    /// not get its text out that way.
+    /// Capped, in tokens asked for and characters passed on: the answer is what reaches Claude with
+    /// Let Claude read files off, and a document that tells the model to repeat itself must not get
+    /// its text out that way.
     @MainActor
     static func answerOnDevice(_ question: String, from text: String, file: String) async -> OnDeviceAnswer {
         #if canImport(FoundationModels)

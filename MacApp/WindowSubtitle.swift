@@ -1,22 +1,18 @@
 import SwiftUI
 import AppKit
 
-/// **What this window is looking at, in words** — the pair being compared, or the one source a lens
-/// is working.
+/// What this window is looking at, in words: the pair being compared, or the one source a lens is
+/// working.
 ///
-/// The window has no visible title bar (`.windowStyle(.hiddenTitleBar)`), which is why nothing has
-/// ever set `NSWindow.title` here beyond the app's own name. But two surfaces read that string
-/// whether or not it is drawn — **the Window menu** and **Mission Control** — and both of them
-/// have been showing "SyncCloud" for a window that could be on any pair of folders in any cloud.
-///
-/// Pure and separate from the view so the wording can be asserted directly; `WindowChromeBinder`
-/// below is the only thing that touches AppKit.
+/// The title bar is hidden, but the Window menu and Mission Control still read the window's name,
+/// and "SyncCloud" alone says nothing about which folders it is on. Pure, so the wording can be
+/// asserted directly; `WindowChromeBinder` below is the only thing that touches AppKit.
 enum WindowSubtitle {
 
     /// One pane's location: who it is and where in them.
     struct Source: Equatable {
-        /// The provider's display name, or nil when the id resolves to no configured provider —
-        /// which is a real state (a provider removed while a tab remembers it), not a defect.
+        /// The provider's display name, or nil when the id resolves to no configured provider, a
+        /// real state (a provider removed while a tab remembers it).
         var provider: String?
         /// The path within that provider's root. Empty at the root.
         var relativePath: String
@@ -27,15 +23,12 @@ enum WindowSubtitle {
         }
     }
 
-    /// The glyph between the two sides. `⇄` and not `↔`: it is the same arrow pair the app already
-    /// uses for the swap control, so the two cannot come to mean different things.
+    /// The glyph between the two sides: `⇄`, the arrow pair the swap control already uses, so the
+    /// two cannot come to mean different things.
     static let pairSeparator = " ⇄ "
 
-    /// One side, as `iCloud/Documents` — or just `iCloud` at its root, where a trailing slash would
-    /// claim a folder that is not there.
-    ///
-    /// Returns nil rather than a placeholder for an unresolved provider: a window named "—" is
-    /// worse in the Window menu than a window named after the app.
+    /// One side, as `iCloud/Documents`, or just `iCloud` at its root. Nil, not a placeholder, for an
+    /// unresolved provider: a window named after the app beats one named "—".
     static func describe(_ source: Source) -> String? {
         guard let provider = source.provider, !provider.isEmpty else { return nil }
         let path = source.relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -43,11 +36,8 @@ enum WindowSubtitle {
     }
 
     /// The window's name: both sides on a comparison, the single source on a lens, nil when
-    /// neither side resolves.
-    ///
-    /// **A side that does not resolve drops out rather than making the whole line nil.** A
-    /// comparison with one provider removed is still meaningfully "the iCloud/Documents window",
-    /// and that is more use in a Window menu than the app's name.
+    /// neither side resolves. A side that does not resolve drops out, since one named side is more
+    /// use in the Window menu than the app's name.
     static func text(mode: TopPaneVisibility.Mode, left: Source, right: Source) -> String? {
         let sides = mode == .compare ? [left, right] : [left]
         let named = sides.compactMap(describe)
@@ -57,20 +47,14 @@ enum WindowSubtitle {
 
 /// Puts `WindowSubtitle.text` onto the real `NSWindow`.
 ///
-/// **`subtitle` only, and the reason is measured rather than assumed**
-/// (`WindowChromeBinderTests.theWindowListEntryComposesTitleAndSubtitle`). The first draft of this
-/// set `title` instead, reasoning that a hidden titlebar means `subtitle` is drawn nowhere and
-/// therefore read by nothing. AppKit disagrees: it composes the window-list entry as
-/// **`"<title> (<subtitle>)"`**, so with the scene's own `Window("SyncCloud", …)` title left alone
-/// the Window menu reads
+/// Sets `subtitle` only. AppKit composes the window-list entry as `"<title> (<subtitle>)"`
+/// (`WindowChromeBinderTests.theWindowListEntryComposesTitleAndSubtitle`), so with the scene's own
+/// title left alone the Window menu reads
 ///
 ///     SyncCloud (iCloud/Documents ⇄ Dropbox/Documents)
 ///
-/// — which names the app *and* the place, and is distinguishable from the scene's opener above it.
-/// Setting `title` as well would have produced the pair twice in one entry, in parentheses.
-///
-/// Clearing it back to `""` is what a window with nothing to say wants: the entry falls back to
-/// plain "SyncCloud" rather than keeping a pair that is no longer true.
+/// Setting `title` too would show the pair twice. With nothing to say it clears to `""`, and the
+/// entry falls back to plain "SyncCloud".
 struct WindowChromeBinder: NSViewRepresentable {
     let subtitle: String?
 
@@ -80,11 +64,9 @@ struct WindowChromeBinder: NSViewRepresentable {
         (view as? Probe)?.subtitle = subtitle
     }
 
-    /// A zero-sized view whose only job is to have a `window`.
-    ///
-    /// The write has to happen in **two** places and neither is sufficient alone: `updateNSView`
-    /// runs before the view is in a window on first mount (`view.window` is nil there), and
-    /// `viewDidMoveToWindow` runs once and would miss every later change of location.
+    /// A zero-sized view whose only job is to have a `window`. The write happens in two places,
+    /// neither enough alone: on first mount `updateNSView` runs before there is a window, and
+    /// `viewDidMoveToWindow` runs once and would miss every later change.
     final class Probe: NSView {
         var subtitle: String? { didSet { apply() } }
 

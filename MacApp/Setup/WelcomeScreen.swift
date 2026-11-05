@@ -4,16 +4,14 @@ import SwiftUI
 /// The card that opens the sheet: what the app is, what it is about to ask, and where the answers
 /// stay.
 ///
-/// **Nobody who works on this ever sees it.** It renders once per install, on a machine that has
-/// never run SyncCloud — which is why its copy is data in ``SetupFlow`` with tests derived from it
-/// rather than literals written here.
+/// It renders once per install, on a Mac that has never run SyncCloud, so nobody working on the
+/// app sees it. That is why its copy is data in ``SetupFlow``, with tests derived from it, rather
+/// than literals here.
 struct WelcomeScreen: View {
     let paneNames: (String, String)
     let hue: LiquidGlassHue
-    /// What the card promises the sheet will ask. **Injectable for one reason**: the only test that
-    /// can prove this list is *drawn* rather than merely declared is one that renders the card twice
-    /// and finds it shorter without the rows. Three tests asserted the table while nothing drew it
-    /// at all, for two commits.
+    /// What the card promises the sheet will ask. Injectable so a test can render the card with and
+    /// without the rows and prove the list is drawn, not merely declared.
     var rows: [SetupFlow.OutlineRow] = SetupFlow.outline
 
     var body: some View {
@@ -30,13 +28,9 @@ struct WelcomeScreen: View {
             HStack(alignment: .top, spacing: 10) {
                 ForEach(SetupFlow.panels, id: \.title) { panel in
                     VStack(spacing: 6) {
-                        // **The box first, then the scale.** It was framed at the box *already
-                        // multiplied by the scale* and then scaled again, so each drawing was
-                        // proposed a 66×48 box and shrunk to 29×21 inside it — which is why the
-                        // four of them came out at four different sizes: each one overflowed its
-                        // frame by however much its own natural drawing exceeded 66pt, and the
-                        // overflow is what you saw. Framed at the box the drawings were designed
-                        // against, they scale as a set.
+                        // The box first, then the scale. Framed at the box the drawings were
+                        // designed against, they scale as a set; framed at the already-scaled box,
+                        // each would overflow by a different amount and come out a different size.
                         SetupIllustration(art: panel.art,
                                           leftName: paneNames.0, rightName: paneNames.1,
                                           accent: hue.accentColor)

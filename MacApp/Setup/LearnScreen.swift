@@ -5,10 +5,9 @@ import Sync
 
 /// Screen 2: the folder SyncCloud reads, and the only disclosure in the sheet that matters.
 ///
-/// **The disclosure is drawn here, above the button that does the reading.** It was once made on
-/// the screen *after* the walk had already run, which is not a disclosure; the notes are drawn from
-/// ``SetupFlow/surveyPrivacyNote`` and ``SetupFlow/surveyThirdPartyNote`` verbatim, because a
-/// paraphrase of them has already lost four of the five things the app promises.
+/// The disclosure is drawn here, above the button that does the reading; made after the walk, it
+/// would disclose nothing. The notes are ``SetupFlow/surveyPrivacyNote`` and
+/// ``SetupFlow/surveyThirdPartyNote`` verbatim, because a paraphrase loses what the app promises.
 struct LearnScreen: View {
     @ObservedObject var model: SetupModel
     @ObservedObject var settings: SettingsManager
@@ -77,14 +76,12 @@ struct LearnScreen: View {
 
             Spacer(minLength: 0)
 
-            // **Above the button, always.** `theDisclosureIsDrawnOnTheStepThatAsksForIt` pins the
+            // Above the button, always. `theDisclosureIsDrawnOnTheScreenThatAsksForIt` pins the
             // gate, this pair of notes and their order against the button below.
             if SetupFlow.disclosureScreen == .learn {
-                // **One hanging indent for both paragraphs, not a `Label` and then a bare
-                // `Text`.** A `Label` indents its wrapped lines under the title; the paragraph
-                // after it started at the container's own edge, so the disclosure — the most
-                // carefully worded thing on the sheet — was drawn with two different left margins
-                // one line apart.
+                // One hanging indent for both paragraphs, not a `Label` then a bare `Text`: a
+                // `Label` indents its wrapped lines under the title while the next paragraph starts
+                // at the container's edge, giving the disclosure two left margins one line apart.
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "lock")
                         .scaledFont(.caption)

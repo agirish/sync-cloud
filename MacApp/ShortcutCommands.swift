@@ -8,31 +8,24 @@ import Sync
 
 // MARK: - Menu-bar shortcuts
 //
-// Every chord in the ⌥-reveal follow-up lands here as a MENU ITEM, on the `FindInPaneCommand`
-// pattern: the window publishes what each item needs through `.focusedSceneValue`, the item reads
-// it with `@FocusedValue`, and `nil` renders it disabled. A menu item is the only form that (a)
-// fires no matter where focus sits — a focus-scoped `.onKeyPress` never sees a key while focus is
-// in a file table, which is where it always is — and (b) documents itself in the menu bar.
+// Every chord here is a menu item, on the `FindInPaneCommand` pattern: the window publishes what
+// each item needs through `.focusedSceneValue`, the item reads it with `@FocusedValue`, and `nil`
+// disables it. Only a menu item fires wherever focus sits (a focus-scoped `.onKeyPress` never sees
+// a key while a file table has focus) and documents itself in the menu bar. None may move into a
+// per-row context menu: a `.keyboardShortcut` there registers one key equivalent per row.
 //
-// None of these may ever move into a per-row context menu: a `.keyboardShortcut` there registers
-// one key equivalent PER ROW.
-//
-// Deliberate, and documented at `ShortcutRevealMachine`: none of these chords can fire *through*
-// the ⌥-hold reveal (⌘R arrives as ⌥⌘R and matches nothing) — look, release, press. That holds
-// only while no registered chord contains ⌥, which is why fold-all is ⇧⌘F and not ⌥⌘F: the
-// first cut used ⌥⌘F, and a user reading the magnifier's ⌘F badge who pressed ⌘F while still
-// holding ⌥ folded every folder. `AppChordTests` guards the no-⌥ invariant itself.
+// No chord may contain ⌥ (`AppChordTests`), so none fires through the ⌥-hold reveal
+// (`ShortcutRevealMachine`): ⌘R arrives as ⌥⌘R and matches nothing. That is why fold-all is ⇧⌘F,
+// not ⌥⌘F, which ⌘F pressed with ⌥ still held would trigger.
 
 // MARK: Focused values published by ContentView
 
 /// View ▸ Organize ▸ the five sections, and the one that is current.
 ///
-/// **Not a `Binding<OrganizeLens?>`, deliberately.** Writing the stored key directly is what the
-/// palette's `aimOrganize` exists to prevent: the aim — which pane, which provider root — has to be
-/// read *before* the workspace moves, because moving it changes the answer. A binding would let a
-/// menu item set the lens and leave the workspace behind, or move the workspace and resolve the
-/// scope against the wrong tree. The closure routes through the same call ⌘K's Organize rows use,
-/// so there is one way to aim Organize rather than two.
+/// Not a `Binding<OrganizeLens?>`: writing the stored key directly is what the palette's
+/// `aimOrganize` exists to prevent. The aim (which pane, which provider root) must be read before
+/// the workspace moves, because moving it changes the answer. The closure goes through the call
+/// ⌘K's Organize rows use, so there is one way to aim Organize.
 struct OrganizeLensSwitch {
     /// The section showing now — `nil` is the overview, or any workspace that is not Organize — for
     /// the checkmark.
@@ -40,50 +33,45 @@ struct OrganizeLensSwitch {
     /// Selects a section, switching to Organize if the window is elsewhere.
     let select: (OrganizeLens) -> Void
 
-    /// **Which section the menu ticks — nothing, unless Organize is the workspace on screen.**
-    ///
-    /// The stored key survives leaving Organize, which is what makes ⌘3 return you where you were.
-    /// Ticking it from Browse would be a checkmark claiming a section is showing when the window is
-    /// displaying something else entirely — the menu asserting a state the user can see is false.
-    /// Selecting a section from elsewhere still works and still switches workspace; only the
-    /// *claim* is withheld.
+    /// Which section the menu ticks: none unless Organize is on screen. The stored key survives
+    /// leaving Organize, so ⌘3 returns you where you were, but ticking it from Browse would claim a
+    /// section is showing when it isn't. Selecting a section from elsewhere still switches
+    /// workspace.
     static func tick(workspace: Workspace, stored: OrganizeLens?) -> OrganizeLens? {
         workspace == .filing ? stored : nil
     }
 }
 
-/// File ▸ the four verbs Organize offers on a row, aimed at the pane selection instead.
+/// File ▸ the verbs Organize offers on a row, aimed at the pane selection instead.
 ///
-/// **One value for four items** for `TransferShortcut`'s reason: they read one selection and would
-/// otherwise be four chances to disagree about it. Each closure is `nil` on its own though, because
-/// unlike the transfers these become available at different moments — a folder can be organized
-/// when a file cannot, and only a risky name can be fixed.
+/// One value for all of them, for `TransferShortcut`'s reason: they read one selection and would
+/// otherwise be several chances to disagree about it. Each closure is `nil` on its own, because
+/// they become available at different moments: a folder can be organized when a file cannot, and
+/// only a risky name can be fixed.
 struct OrganizeVerbs {
     /// A single selected folder. Files are not organized; the lens is about where things live.
     let organizeFolder: (() -> Void)?
     /// A single selection of either kind — a folder's duplicates are its contents'.
     let findDuplicates: (() -> Void)?
-    /// Both `nil` unless the single selection's name is one the app would rewrite. Rare, and that
-    /// is the argument for the row menu carrying them too rather than instead: the badge that
-    /// explains *why* is on the row, and a menu item cannot show it.
+    /// Both `nil` unless the single selection's name is one the app would rewrite. The row menu
+    /// carries them too, because the badge that explains why is on the row, and a menu item can't
+    /// show it.
     let fixName: (() -> Void)?
     let keepName: (() -> Void)?
-    /// §5.5's ledger undo — the one verb here that is selection-FREE: it acts on the newest
-    /// landing in the Restructure ledger, so it is offered whenever one can be undone. In this
-    /// menu (never Edit) so it cannot sit beside ⌘Z's Undo and be mistaken for it — ROADMAP v5
-    /// §11's one hard constraint on the verb.
+    /// The Restructure ledger's undo, the one selection-free verb here: it acts on the newest
+    /// landing, so it is offered whenever one can be undone. In this menu, never Edit, so it can't
+    /// sit beside ⌘Z's Undo and be mistaken for it.
     let undoReorganisation: (() -> Void)?
-    /// §11's two deferred verbs, landed (proposal O10). Both act on the finding the selected
-    /// folder resolves to — `nil`, and so greyed, when it resolves to none, when the selection
-    /// is not a single folder, or when there is no survey to resolve against.
+    /// Both act on the finding the selected folder resolves to, and are `nil` (greyed) when it
+    /// resolves to none, the selection is not a single folder, or there is no survey.
     ///
-    /// They open a surface the workspace owns rather than presenting one themselves: a sheet
-    /// from the menu bar sits outside the anchor that keeps it alive across a lens switch.
+    /// They open a surface the workspace owns rather than presenting one: a sheet from the menu
+    /// bar sits outside the anchor that keeps it alive across a lens switch.
     let planShape: (() -> Void)?
     let setUpLikeSiblings: (() -> Void)?
 
-    /// During a long run (BZ): the verbs that write go silent; Organize, Find Duplicates, Keep Name
-    /// (a list the app keeps, not a file) and Plan — whose sheet's Apply greys itself — stay.
+    /// During a long run the verbs that write go silent; Organize, Find Duplicates, Keep Name (a
+    /// list the app keeps, not a file) and Plan, whose sheet's Apply greys itself, stay.
     func lockingWrites() -> OrganizeVerbs {
         OrganizeVerbs(organizeFolder: organizeFolder, findDuplicates: findDuplicates,
                       fixName: nil, keepName: keepName, undoReorganisation: nil,
@@ -91,46 +79,43 @@ struct OrganizeVerbs {
     }
 }
 
-/// File ▸ the verbs the row menu has always had, over the pane selection.
+/// File ▸ the row menu's verbs, over the pane selection, so none of them needs a right-click on
+/// the right row to be found.
 ///
-/// **Reachable only by right-clicking the right row until now.** Every one has a working handler
-/// and no menu-bar route, so none of them can be found without already knowing where to look.
-///
-/// One value rather than six, on `TransferShortcut`'s argument: they read one selection, and six
+/// One value rather than six, for `TransferShortcut`'s reason: they read one selection, and six
 /// values would be six chances to disagree about it.
 struct PaneRowVerbs {
     /// A single folder, when the pane can open tabs at all.
     let openInNewTab: (() -> Void)?
     /// A single node of either kind.
     let quickLook: (() -> Void)?
-    /// A single TEXT FILE, handed to the Edit workspace — the fourth door onto `handOffToEditor`,
-    /// and the only one with a key. `nil` for a folder, for a multi-selection, and for a file the
-    /// editor does not open; see `PaneRowVerbAvailability.resolve`.
+    /// A single file the editor opens, handed to Edit through `handOffToEditor`; the only door
+    /// there with a key. `nil` for a folder, a multi-selection, or a file the editor does not open
+    /// (see `PaneRowVerbAvailability.resolve`).
     let openInEditor: (() -> Void)?
-    /// The row menu's Download offer for the selection (roadmap RD2) — `CloudDownloadOffer`, the
-    /// row's own question: Download for one cloud-only file, Download All for a folder in a cloud
-    /// location or several items. `nil` for anything with nothing to fetch, and for a file whose
-    /// badge has not been resolved yet — see `shortcutPaneRowVerbs`, which is where the cache read
-    /// is explained.
+    /// The row menu's Download offer for the selection (`CloudDownloadOffer`, the row's own
+    /// question): Download for one cloud-only file, Download All for a folder in a cloud location
+    /// or several items. `nil` when there is nothing to fetch, or a file's badge is not resolved yet
+    /// (see `shortcutPaneRowVerbs`).
     let download: SelectionDownload?
     let revealInFinder: (() -> Void)?
     let rename: (() -> Void)?
     /// The destination picker, for any selection. `true` moves, `false` copies.
     let chooseDestination: ((Bool) -> Void)?
-    /// Ignore/Include, whose **title flips with the selection's state** — the row menu resolves the
-    /// same pair from `isNodeIgnored`, and a menu item that named only one direction would be wrong
-    /// half the time. `nil` when the workspace has no comparison to ignore anything from.
+    /// Ignore/Include, whose title flips with the selection's state as the row menu's does (from
+    /// `isNodeIgnored`); naming one direction would be wrong half the time. `nil` when the
+    /// workspace has no comparison.
     let ignore: IgnoreToggle?
-    /// The row menu's PDF Tools for the selection — `PanePDFToolOffer.forSelection`, the row's own
-    /// question — or `nil` where the row shows none. Not an item in this group: File ▸ PDF Tools
-    /// reads it, below Print…, wherever Edit is not showing a PDF (`PDFToolsMenu.source`).
+    /// The row menu's PDF Tools for the selection (`PanePDFToolOffer.forSelection`), or `nil` where
+    /// the row shows none. Not an item in this group: File ▸ PDF Tools reads it wherever Edit is not
+    /// showing a PDF (`PDFToolsMenu.source`).
     let pdfTools: SelectionPDFTools?
     /// The row menu's Save as PDF for the selection — `SaveAsPDFOffer.forSelection`, the row's own
     /// question — or `nil` where the row shows none, which greys File ▸ Save as PDF.
     let saveAsPDF: SelectionSaveAsPDF?
 
-    /// During a long run (BZ): Rename, Copy to… / Move to…, PDF Tools and Save as PDF go silent;
-    /// the verbs that only open, show or fetch stay, as does Ignore (a list the app keeps).
+    /// During a long run Rename, Copy to… / Move to…, PDF Tools and Save as PDF go silent; the verbs
+    /// that only open, show or fetch stay, as does Ignore (a list the app keeps).
     func lockingWrites() -> PaneRowVerbs {
         PaneRowVerbs(openInNewTab: openInNewTab, quickLook: quickLook, openInEditor: openInEditor,
                      download: download, revealInFinder: revealInFinder, rename: nil,
@@ -175,22 +160,19 @@ enum PaneRowVerbAvailability {
         let ignore: Bool
     }
 
-    /// **Download is not decided here** but by `CloudDownloadOffer`, the row menu's own rule, in
-    /// `shortcutPaneRowVerbs` — so File ▸ Download offers Download All for a folder or several
-    /// items exactly where the row menu does.
+    /// Download is not decided here but by `CloudDownloadOffer`, the row menu's own rule, in
+    /// `shortcutPaneRowVerbs`, so File ▸ Download offers what the row menu does.
     ///
-    /// **Get Info is absent**, for the reason the mockup settled: it wants Finder's ⌘I, which is
-    /// the Info Inspector here, and the inspector already answers it without leaving the window.
+    /// No Get Info: it wants Finder's ⌘I, which is the Info inspector here and already answers it.
     static func resolve(selectionCount: Int, isDirectory: Bool,
                         canOpenInNewTab: Bool, isComparing: Bool, opensInEdit: Bool) -> Answer {
         let single = selectionCount == 1
         return Answer(
             openInNewTab: single && isDirectory && canOpenInNewTab,
             singleNodeVerbs: single,
-            // The same three terms every other door applies, in the same order: one row, a file,
-            // and a file the editor opens. `opensInEdit` is answered by `EditableText.opensInEdit`
-            // at the call site — the row menu's own gate — so this item and that menu cannot
-            // disagree: text, or a PDF, which opens read-only.
+            // The three terms every other door applies, in order: one row, a file, one the
+            // editor opens. `opensInEdit` comes from `EditableText.opensInEdit`, the row menu's own
+            // gate, so this item and that menu agree: text, or a PDF, which opens read-only.
             openInEditor: single && !isDirectory && opensInEdit,
             // A destination pick works on a batch; the picker prunes nested nodes downstream
             // (`FileOperations` does it again), so a folder and its child cannot both travel.
@@ -200,21 +182,17 @@ enum PaneRowVerbAvailability {
     }
 }
 
-/// Text ▸ and Markup ▸ — everything the menu bar can ask of the editor's open document.
+/// Text ▸ and Markup ▸: everything the menu bar can ask of the editor's open document. One value,
+/// published only while Edit is the workspace and a document is open, so `nil` greys both menus
+/// at once and Bold and Split can't disagree.
 ///
-/// **One value, published only while Edit is the workspace and a document is open**; `nil`
-/// otherwise, which greys every item in both menus at once — the way Compare's items follow a
-/// comparison. The two menus are two halves of one question ("what can be done to the document
-/// on screen"), and a value that answers it once cannot answer differently for Bold than for Split.
-///
-/// The verbs that EDIT the buffer are not closures here at all: they go through
+/// The verbs that edit the buffer are not here: they go through
 /// `EditorDocumentSurface.applyMarkup`, resolved from the key window's first responder at
-/// key-press, because whether ⌘B means the document depends on where the caret is and a value
-/// published at render time cannot know that. What this carries is the document-level state the
-/// menu ticks (the mode, whether a preview is possible, autosave) and the closures that change it.
+/// key-press, since whether ⌘B means the document depends on where the caret is. This carries
+/// the state the menu ticks and the closures that change it.
 struct EditorVerbs {
-    /// The mode being DRAWN — `.edit` for a file with nothing to preview, whatever the capsule last
-    /// remembered — so the tick agrees with the capsule.
+    /// The mode being drawn (`.edit` for a file with nothing to preview), so the tick agrees with
+    /// the capsule.
     let mode: EditorMode
     /// Whether Preview and Split are on offer. False for a plain-text file, where the capsule is
     /// hidden and the two items disable rather than offering a preview of nothing.
@@ -224,17 +202,15 @@ struct EditorVerbs {
     /// Text ▸ Autosave This File — the header switch's state and its toggle, or `nil` where the
     /// header withholds the switch (a refusal, a read-only decode), by the same rule.
     let autosave: AutosaveSwitch?
-    /// Whether the Markup verbs may write. False on a read-only document, where the context menu
-    /// withholds its Markup submenu too — false in Preview, where no text view is on screen for a
-    /// verb to reach, so every Markup item would be a chord that does nothing — and false in a file
-    /// that is not Markdown (``canMarkUp(isReadOnly:isMarkdown:hasTextView:)``).
+    /// Whether the Markup verbs may write. False on a read-only document (the context menu
+    /// withholds Markup too), in Preview (no text view for a verb to reach), and in a file that is
+    /// not Markdown (``canMarkUp(isReadOnly:isMarkdown:hasTextView:)``).
     let canMarkUp: Bool
     /// Whether Find Next and Use Selection for Find have a text view to act on. False in Preview
     /// for the reason `canMarkUp` is: the preview is a rendering, and there is no find bar over it.
     let canFind: Bool
-    /// Text ▸ Go to Line… (TE61): opens the status line's field, or `nil` in Preview — editable or
-    /// not, since a rendered page has no source line to put the caret on
-    /// (`EditorWorkspaceView.offersGoToLine`).
+    /// Text ▸ Go to Line…: opens the status line's field, or `nil` in Preview, editable or not,
+    /// since a rendered page has no source line (`EditorWorkspaceView.offersGoToLine`).
     let goToLine: (() -> Void)?
 
     struct AutosaveSwitch {
@@ -244,21 +220,19 @@ struct EditorVerbs {
 
     /// Whether the two menus are offered at all, as a pure rule.
     ///
-    /// **Edit must be the WORKSPACE, not merely the owner of a document.** The document outlives a
-    /// workspace switch (it is held by the app), so a test on the path alone would leave Markup ▸
-    /// Bold live from Browse, aimed at text that is not on screen. A refused document — too large,
-    /// still in the cloud, not text — has nothing to mark up, preview or autosave either.
+    /// Edit must be the workspace, not merely own a document: the document outlives a workspace
+    /// switch, so a test on the path alone would leave Markup ▸ Bold live from Browse. A refused
+    /// document (too large, still in the cloud, not text) has nothing to offer either.
     ///
-    /// Extracted for `OrganizeVerbAvailability`'s reason: `ContentView` cannot be built in a test,
-    /// so a rule left inline there is a rule no test can flip.
+    /// Pure because `ContentView` can't be built in a test.
     /// `theEditorVerbsAreResolvedThroughTheRule` pins the call site.
     static func isOffered(workspace: Workspace, hasDocument: Bool, isRefused: Bool) -> Bool {
         workspace == .editor && hasDocument && !isRefused
     }
 
-    /// **Whether the Markup items, and so their chords, are live** — a writable Markdown file with a
-    /// text view on screen. Not Markdown: the verbs would write `**` and `- ` into a `.txt`, a
-    /// `.yaml` or a `.json`, so the menu greys there and ⌘B never fires (FMT-18).
+    /// Whether the Markup items and their chords are live: a writable Markdown file with a text
+    /// view on screen. In a `.txt`, `.yaml` or `.json` the verbs would write `**` and `- `, so the
+    /// menu greys there.
     static func canMarkUp(isReadOnly: Bool, isMarkdown: Bool, hasTextView: Bool) -> Bool {
         !isReadOnly && isMarkdown && hasTextView
     }
@@ -267,19 +241,18 @@ struct EditorVerbs {
     /// one. `EditorMode.resolved` has already narrowed the mode for a plain-text file, so this is
     /// asked of the mode being drawn.
     static func hasTextView(in mode: EditorMode, previewEditing: Bool = false) -> Bool {
-        // Preview is a text view while Edit in Preview is on (TE67): its verbs and Find are made
-        // through Preview's translation.
+        // Preview is a text view while Edit in Preview is on: its verbs and Find go through
+        // Preview's translation.
         mode != .preview || previewEditing
     }
 }
 
-/// **The find verbs for a PDF open in Edit** — ⌘F, ⌘G, ⇧⌘G and ⌘E, aimed at the PDF reader's own
-/// find bar (`EditorPDFFind`).
+/// The find verbs for a PDF open in Edit (⌘F, ⌘G, ⇧⌘G, ⌘E), aimed at the PDF reader's own find
+/// bar (`EditorPDFFind`).
 ///
-/// **Beside ``EditorVerbs``, not inside it.** Those are a text document's verbs and are `nil` while
-/// a PDF is open — the text document is empty then, by design (`EditorPDFDocument`) — and making
-/// them pretend a document is open would light Markup and the modes over a PDF. These carry only
-/// what a PDF's find needs.
+/// Beside ``EditorVerbs``, not inside it: those are a text document's and are `nil` while a PDF
+/// is open (`EditorPDFDocument`), and faking a document would light Markup and the modes over a
+/// PDF.
 struct PDFFindVerbs {
     /// Whether the PDF has text to search — its facts' "Text selectable". An image-only PDF still
     /// opens the bar, which says why there is nothing to find; it has nothing to step through.
@@ -289,29 +262,28 @@ struct PDFFindVerbs {
     /// Uses the reader's selection as the query. False when nothing is selected.
     let useSelection: () -> Bool
 
-    /// **Edit must be the workspace and the PDF OPEN** — not loading, refused, or locked: a locked
-    /// PDF offers no find, and ⌘F there goes to the pane search as it would with nothing open.
+    /// Edit must be the workspace and the PDF open, not loading, refused or locked: a locked PDF
+    /// offers no find, and ⌘F there goes to the pane search.
     /// `theFindVerbsAreResolvedThroughTheRule` pins the call site.
     static func isOffered(workspace: Workspace, hasPDF: Bool, phase: EditorPDFDocument.Phase) -> Bool {
         workspace == .editor && hasPDF && phase == .open
     }
 }
 
-/// **⌘+, ⌘− and ⌘0 for a PDF whose pages have the keyboard** — the reader's Zoom In, Zoom Out and
-/// Actual Size (Phase 5a, decided 2026-10-17).
+/// ⌘+, ⌘− and ⌘0 for a PDF whose pages have the keyboard: the reader's Zoom In, Zoom Out and
+/// Actual Size.
 ///
-/// **The same chords as View ▸ Text Size, not new ones.** Those items read this value and, while it
-/// is published, act on the PDF and are titled for it (``TextSizeMenuRoute``); the moment the pane
-/// or the sidebar takes the keyboard it is `nil` again and they change the app's text size, as
-/// they do from every other window.
+/// The same chords as View ▸ Text Size. Those items read this value and, while it is published,
+/// act on the PDF and are titled for it (``TextSizeMenuRoute``); once the pane or sidebar takes
+/// the keyboard it is `nil` and they change the app's text size again.
 struct PDFZoomVerbs {
     /// The ladder's next stop up (`true`) or down — nothing past either end.
     let zoom: (_ in: Bool) -> Void
     let actualSize: () -> Void
 
-    /// **Edit, the PDF open, and its pages first responder in the key window.** A PDF merely being
-    /// open is ``PDFFindVerbs``' rule — ⌘F means the PDF wherever the keyboard is — and is not
-    /// enough here: ⌘+ is the whole app's text size until the reader is the one being read.
+    /// Edit, the PDF open, and its pages first responder in the key window. Open alone is
+    /// ``PDFFindVerbs``' rule and is not enough: ⌘+ is the app's text size until the reader has
+    /// the keyboard.
     static func isOffered(workspace: Workspace, hasPDF: Bool, phase: EditorPDFDocument.Phase,
                           readerHasFocus: Bool) -> Bool {
         PDFFindVerbs.isOffered(workspace: workspace, hasPDF: hasPDF, phase: phase) && readerHasFocus
@@ -328,8 +300,8 @@ struct PDFZoomVerbs {
     }
 }
 
-/// **Where View ▸ Text Size's three items go, and what they are called** — out of the items so a
-/// test can hold the rule, as ``FindMenuRoute`` is.
+/// Where View ▸ Text Size's three items go and what they are called, kept out of the items so a
+/// test can hold the rule, as with ``FindMenuRoute``.
 enum TextSizeMenuRoute {
     enum Verb: CaseIterable { case bigger, smaller, defaultSize }
 
@@ -379,11 +351,11 @@ enum TextSizeMenuRoute {
     }
 }
 
-/// **File ▸ PDF Tools** — the open PDF's tools in the menu bar: the header's Tools menu, drawn
-/// from the same `EditorPDFToolsMenuEntry.entries` by the same `EditorPDFToolsMenuItems`, so the
-/// two cannot disagree about an item, its title or whether it is live. **Anywhere Edit is not
-/// showing a PDF, it is a pane row's PDF Tools** for the focused pane's selection, drawn by the
-/// row's own `PanePDFToolsMenuItems` — one PDF or a batch, and greyed where the row hides them.
+/// File ▸ PDF Tools: the open PDF's tools in the menu bar, drawn from the header's
+/// `EditorPDFToolsMenuEntry.entries` by the same `EditorPDFToolsMenuItems`, so the two agree on
+/// every item. Anywhere Edit is not showing a PDF, it is a pane row's PDF Tools for the focused
+/// pane's selection, drawn by the row's own `PanePDFToolsMenuItems`, greyed where the row hides
+/// them.
 enum PDFToolsMenu {
     /// What File ▸ PDF Tools acts on.
     enum Source: Equatable {
@@ -393,47 +365,44 @@ enum PDFToolsMenu {
         case selection(PanePDFToolOffer)
     }
 
-    /// **The PDF on screen first**, then the selection; `nil` greys the menu. In Edit the pane's
-    /// selection is usually that same PDF — and the header's tools reach its pages, which a row's do
-    /// not.
+    /// The PDF on screen first, then the selection; `nil` greys the menu. In Edit the selection is
+    /// usually that same PDF, and the header's tools reach its pages, which a row's do not.
     static func source(openPDF: Bool, selection: PanePDFToolOffer?) -> Source? {
         if openPDF { return .openPDF }
         return selection.map(Source.selection)
     }
 
-    /// **Where the header draws its Tools menu, the menu bar offers it**: Edit on screen, a PDF in
-    /// it, open or locked — Remove Password is the one tool a file locked to open takes. The rule is
-    /// the header's for a second reason: the header's menu is what presents the tools' sheets, so an
-    /// item offered where it is not mounted would ask for a sheet nothing shows.
+    /// Offered where the header draws its Tools menu: Edit on screen with a PDF, open or locked
+    /// (Remove Password is the one tool a locked file takes). The header's menu presents the tools'
+    /// sheets, so an item offered where it is not mounted would ask for a sheet nothing shows.
     /// `thePDFToolsAreResolvedThroughTheRule` pins the call site.
     static func isOffered(workspace: Workspace, hasPDF: Bool, phase: EditorPDFDocument.Phase) -> Bool {
         workspace == .editor && hasPDF && (phase == .open || phase == .locked)
     }
 }
 
-/// **File ▸ Fill & Sign and Save Filled Copy** — the header's Fill & Sign button and its save pill's
-/// Save, drawn by `EditorPDFFillSignMenuItems` over the open PDF's own Fill & Sign and tools. The
-/// tools ride along because Save is greyed while any of them runs, as the pill's is.
+/// File ▸ Fill & Sign and Save Filled Copy: the header's Fill & Sign button and its save pill's
+/// Save, drawn by `EditorPDFFillSignMenuItems`. The tools ride along because Save greys while any
+/// of them runs, as the pill's does.
 struct PDFFillSignVerbs {
     let fill: EditorPDFFillSign
     let tools: EditorPDFTools
 
-    /// **Edit and the PDF open** — where the header draws the button and the toolbar goes under it;
-    /// a locked PDF has neither. `theFillAndSignIsResolvedThroughTheRule` pins the call site.
+    /// Edit and the PDF open, where the header draws the button; a locked PDF has neither.
+    /// `theFillAndSignIsResolvedThroughTheRule` pins the call site.
     static func isOffered(workspace: Workspace, hasPDF: Bool, phase: EditorPDFDocument.Phase) -> Bool {
         workspace == .editor && hasPDF && phase == .open
     }
 }
 
-/// **Text ▸ the page controls of a PDF open in Edit** — the capsule view menu's Fit Page, Fit Width
+/// Text ▸ the page controls of a PDF open in Edit: the capsule view menu's Fit Page, Fit Width
 /// and Actual Size, its − and +, and its page field, on the slots and chords Source / Preview /
-/// Split and Go to Line… have for text: the zoom stands where the modes stand, and the page field
-/// is a PDF's Go to Line. One item per chord whichever file is open, so nothing is registered twice.
+/// Split and Go to Line… have for text. One item per chord whichever file is open, so nothing is
+/// registered twice.
 ///
-/// **Beside ``EditorVerbs``, not inside it**, for ``PDFFindVerbs``' reason: those are a text
-/// document's, and `nil` while a PDF is open. The view state is carried rather than a snapshot of
-/// it because the window does not observe it — a page turn must not re-render the window — so the
-/// fit's tick is read by the menu item itself (`PDFFitCommands`).
+/// Beside ``EditorVerbs``, for ``PDFFindVerbs``' reason. The view state is carried, not a
+/// snapshot, because the window must not observe it (a page turn would re-render the window), so
+/// the fit's tick is read by the menu item itself (`PDFFitCommands`).
 struct PDFPageVerbs {
     let view: EditorPDFViewState
     /// Text ▸ Go to Page…: the capsule's page field, or `nil` where no capsule is drawn — a PDF
@@ -461,9 +430,8 @@ struct PDFPageVerbs {
     }
 }
 
-/// **Where Edit ▸ Find… and Text ▸ Find Next / Find Previous / Use Selection for Find go** — one
-/// rule each, out of the menu items so a test can hold them (the items are views that only a
-/// running menu bar builds).
+/// Where Edit ▸ Find… and Text ▸ Find Next / Find Previous / Use Selection for Find go: one rule
+/// each, kept out of the menu items (views only a running menu bar builds) so a test can hold them.
 enum FindMenuRoute {
     enum Destination: Equatable { case pdf, document, pane, nowhere }
 
@@ -506,7 +474,7 @@ enum FindMenuRoute {
     }
 
     /// ⌘E: the PDF reader's selection; else the text view's. With nothing selected in the PDF it
-    /// beeps (TE204), the app's answer to a key that doesn't apply — it was silent.
+    /// beeps, the app's answer to a key that doesn't apply.
     @MainActor
     static func useSelection(pdf: PDFFindVerbs?, refuse: () -> Void = { NSSound.beep() },
                              performDocumentFind: (NSTextFinder.Action) -> Bool) {
@@ -525,52 +493,42 @@ enum FindMenuRoute {
 
 /// Which mode a menu request may set, as a pure rule.
 ///
-/// `EditorMode.resolved(_:isMarkdown:)` already says what a file can DRAW; this asks the
-/// question from the menu's side — may this request be honoured at all — and answers no rather
-/// than silently narrowing a `.preview` to `.edit`, because a menu item that "worked" by doing
-/// something other than what it says is the failure a greyed item exists to prevent.
+/// `EditorMode.resolved(_:isMarkdown:)` says what a file can draw; this asks whether the menu's
+/// request may be honoured at all, and answers no rather than narrowing a `.preview` to `.edit`,
+/// because an item that does something other than what it says is what greying prevents.
 enum EditorModeSwitch {
     static func accepts(_ mode: EditorMode, isMarkdown: Bool) -> Bool {
         EditorMode.resolved(mode, isMarkdown: isMarkdown) == mode
     }
 }
 
-/// Text ▸ Expand ⌃⌘E (TE48) — the header's Expand button, as a menu item: its state and its toggle.
+/// Text ▸ Expand ⌃⌘E: the header's Expand button as a menu item, its state and its toggle.
 ///
-/// **Its own value, not a member of `EditorVerbs`**, because it is offered where those are not: on
-/// the empty page while it is lit, where the lit button is the only way back to the files. Routed on
-/// the Edit workspace's own state — this value, published by `ContentView` — and never on
-/// `TextEditingChord`: ⌃⌘E is not one of the field editor's bindings, and expanding is about the
-/// window, wherever the caret is.
+/// Its own value, not part of `EditorVerbs`, because it is offered where those are not: on the
+/// empty page while lit, where the button is the only way back to the files. Routed on the Edit
+/// workspace's state, never on `TextEditingChord`: ⌃⌘E is not a field-editor binding, and
+/// expanding is about the window wherever the caret is.
 struct EditorExpandSwitch {
     let isOn: Bool
     let toggle: () -> Void
 
-    /// **Where the header draws the button, the menu offers the item** — one rule for both doors.
-    /// Edit must be the workspace (the bit is Edit's, and a ⌃⌘E in Browse would fold Browse's pane
-    /// for a reason Browse cannot show); then any open document, refused ones included, since the
-    /// header draws the button over a refusal too; and on the empty page only while it is on — the
-    /// rule `EditorWorkspaceView.emptyHeaderContent` states for the button.
+    /// Offered where the header draws the button: one rule for both doors. Edit must be the
+    /// workspace (a ⌃⌘E in Browse would fold Browse's pane for a reason Browse can't show); then any
+    /// open document, refused ones included; and on the empty page only while it is on, the rule
+    /// `EditorWorkspaceView.emptyHeaderContent` states for the button.
     static func isOffered(workspace: Workspace, hasDocument: Bool, isOn: Bool) -> Bool {
         workspace == .editor && (hasDocument || isOn)
     }
 }
 
-/// ⌘I's two meanings, and the rule that picks (decision B, 2026-09-01).
+/// ⌘I's two meanings, and the rule that picks one. `AppChord.italic` is `AppChord.infoInspector`:
+/// View ▸ Info Inspector and Markup ▸ Italic both register it, and both route the same way when
+/// the key fired them, so AppKit's choice of item doesn't matter: with the caret in the document's
+/// text it means Italic, anywhere else the inspector. Clicked, each does only what its title says.
 ///
-/// **One chord, resolved at key-press.** `AppChord.italic` IS `AppChord.infoInspector`; both
-/// View ▸ Info Inspector and Markup ▸ Italic register it, so both items show ⌘I and AppKit fires
-/// one of them — the first enabled in menu-bar order, which is View's. **Both handlers route
-/// identically when the KEY fired them**, so the outcome does not depend on which item AppKit
-/// chose: with the caret in the document's text the key means Italic, anywhere else it means the
-/// inspector. Clicked with the mouse, each item does only what its title says — View ▸ Info
-/// Inspector toggles the inspector, Markup ▸ Italic italicises — because a menu item under the
-/// pointer that did something else would be lying, and a click has no ambiguity to resolve.
-///
-/// The caret test is `EditorDocumentSurface.caretTextView` — the caret in the document's text
-/// itself — never `TextEditingChord`, which is true of every field editor and would italicise the
-/// ⌘K field. In the find bar's own field ⌘I is the inspector, by the same rule that makes Bold
-/// refuse there.
+/// The caret test is `EditorDocumentSurface.markupTextView` (the caret in a Markdown document's
+/// own text), never `TextEditingChord`, which is true of every field editor and would italicise
+/// the ⌘K field.
 enum InspectorOrItalic {
     enum Choice: Equatable { case italic, inspector }
 
@@ -578,23 +536,15 @@ enum InspectorOrItalic {
     /// `NSApp.keyWindow`.
     @MainActor
     static func choose(in window: NSWindow?) -> Choice {
-        // In a file that is not Markdown, Italic does not apply (FMT-18), so the key is the inspector's.
+        // In a file that is not Markdown Italic does not apply, so the key is the inspector's.
         EditorDocumentSurface.markupTextView(in: window) != nil ? .italic : .inspector
     }
 
     /// Whether a menu action was reached by its key equivalent rather than a click.
-    ///
-    /// `NSApp.currentEvent` during a menu action is the event that produced it: the `keyDown` for
-    /// a key equivalent, the mouse-up that ended menu tracking for a click. Decided by the MOUSE
-    /// side, and only by a button event — a click is a press or a release, and nothing else is one.
-    /// Everything else, including `nil` (which no user gesture produces) and a stray `mouseMoved`
-    /// that could be current if the action were ever dispatched a turn late, is treated as the key,
-    /// so the only way to lose decision B's routing is a genuine click. A menu navigated with the
-    /// arrow keys and committed with Return therefore still routes, which is what a keyboard user
-    /// pressing Return on "Italic" with the caret in a search field would least be surprised by.
-    ///
-    /// `aMenuItemsActionRunsSynchronously` pins the premise this rests on: the item's action runs
-    /// inside the dispatch of the event that fired it, so `currentEvent` is that event.
+    /// `NSApp.currentEvent` during the action is the event that produced it; only a mouse-button
+    /// event counts as a click, and anything else (`nil`, a stray `mouseMoved`) is treated as the
+    /// key, so only a genuine click loses the caret routing. `aMenuItemsActionRunsSynchronously`
+    /// pins the premise that the action runs inside that event's dispatch.
     static func firedByKey(_ event: NSEvent?) -> Bool {
         guard let event else { return true }
         switch event.type {
@@ -615,17 +565,13 @@ enum InspectorOrItalic {
 
 /// Whether ⌘A means the focused pane's rows.
 ///
-/// **The differences table can own the selection, and then it does not.** Registering ⌘A on a menu
-/// item took the chord app-wide, so it fires wherever the user is standing — including a Compare
-/// window whose selection lives in the Differences table. Selecting the whole pane there changes a
-/// selection the user was not looking at, and the pane's selection is what `⌘⌫` and the transfer
-/// verbs then act on: a chord meaning "select what I am working in" would have quietly re-aimed
-/// the destructive ones at something else.
+/// Not while the Differences table owns the selection. ⌘A is app-wide, so it fires in a Compare
+/// window whose selection lives in that table; selecting the whole pane there would change a
+/// selection the user isn't looking at, and re-aim ⌘⌫ and the transfer verbs at it.
 ///
-/// The table has no select-all of its own, so withholding costs nothing that existed — and a
-/// disabled item does not consume its key equivalent, so `⌘A` still reaches a text field's own
-/// select-all underneath. This is the rule the transfer chords already follow
-/// (`DifferencesShortcutRules.transferAvailable`), applied to the one chord that was missing it.
+/// The table has no select-all of its own, so withholding costs nothing, and a disabled item
+/// doesn't consume its key equivalent, so ⌘A still reaches a text field's select-all. The
+/// transfer chords follow the same rule (`DifferencesShortcutRules.transferAvailable`).
 enum SelectAllScope {
     static func appliesToPane(surface: SelectionSurface?) -> Bool {
         surface != .differences
@@ -638,19 +584,13 @@ enum SelectAllScope {
     }
 }
 
-/// ⌘X, ⌘C, ⌘V and ⌘A while Edit's file pane is folded (TE153, decision BR).
+/// ⌘X, ⌘C, ⌘V and ⌘A while Edit's file pane is folded: the pane's selection is off screen, so
+/// falling through to the pane would copy, paste into or select rows nobody can see. They beep
+/// instead, as `TextEditingChord` does for verbs a page has no meaning for.
 ///
-/// **The pane's selection is not on screen, so the pane's verbs do not apply.** Outside the text
-/// and the PDF, those four chords used to fall through to the pane: ⌘C in the Files or Outline
-/// list, the Pages grid or the empty page copied the pane's selected row, which is normally the
-/// open file; ⌘V pasted files into its folder; ⌘A selected everything there. All of it happened in
-/// a pane nobody could see. Folded, they beep instead — the app's answer to a key that does not
-/// apply, as `TextEditingChord` gives a page the verbs it has no meaning for.
-///
-/// What still answers is decided before this is reached: the caret's own text, the reader's,
-/// the Pages grid's ⌘A (`SelectAllScope`) and the words selected in Preview
-/// (`TextEditingChord.selectionCopier`). Published as closures that beep rather than as `nil`, so
-/// the items stay live (`theEditItemsAreNeverDisabled`) and the refusal is heard.
+/// The caret's text, the reader's, the Pages grid's ⌘A (`SelectAllScope`) and Preview's selected
+/// words (`TextEditingChord.selectionCopier`) answer before this. Closures that beep, not `nil`,
+/// so the items stay live (`theEditItemsAreNeverDisabled`) and the refusal is heard.
 enum EditorFoldedPaneKeys {
     static func refuses(workspace: Workspace, paneFolded: Bool) -> Bool {
         workspace == .editor && paneFolded
@@ -662,10 +602,9 @@ enum EditorFoldedPaneKeys {
 
 /// Which of the four verbs a selection offers, as a pure rule.
 ///
-/// Extracted for `DifferencesShortcutRules`' reason: the resolver reads `ContentView` state and a
-/// `View` cannot be built in a test, so a rule left inline is a rule no test can flip. Every
-/// parameter here changes an answer — one that could not would be a parameter the view had stopped
-/// passing correctly with nothing failing.
+/// Pure for `DifferencesShortcutRules`' reason: the resolver reads `ContentView` state and a
+/// `View` can't be built in a test. Every parameter changes an answer; one that couldn't would be
+/// a parameter the view could stop passing correctly with nothing failing.
 enum OrganizeVerbAvailability {
     struct Answer: Equatable {
         let organizeFolder: Bool
@@ -674,11 +613,9 @@ enum OrganizeVerbAvailability {
         let keepName: Bool
     }
 
-    /// **One selected thing, always.** Each verb takes a single `FileNode`: organizing two folders
-    /// is two questions, and "find duplicates of this" has no referent for two things at once. With
-    /// several rows selected every item disables rather than quietly acting on the first — the
-    /// failure mode a menu cannot show and the row menu never had, because a right-click has one
-    /// row under the pointer by construction.
+    /// One selected thing, always. Each verb takes a single `FileNode`, and "find duplicates of
+    /// this" has no referent for two things. With several rows selected every item disables rather
+    /// than quietly acting on the first, which the row menu never risks: a right-click has one row.
     static func resolve(selectionCount: Int, isDirectory: Bool, isRisky: Bool) -> Answer {
         guard selectionCount == 1 else {
             return Answer(organizeFolder: false, findDuplicates: false, fixName: false, keepName: false)
@@ -855,10 +792,9 @@ private struct StatusBarVisibleKey: FocusedValueKey {
 
 /// View ▸ Tab Bar's state, which a `Binding<Bool>` cannot carry.
 ///
-/// The switch has THREE states, not two: off, on, and **on-because-a-second-tab-is-open** — where
-/// it is ticked and disabled, so it can never hide a strip whose tabs would then be unreachable.
-/// A nil binding (how every other view switch in this file spells "disabled") renders unticked and
-/// disabled, which would show the tab bar's switch OFF while a tab bar is on screen.
+/// Three states: off, on, and on because a second tab is open, where it is ticked and disabled so
+/// it can't hide a strip whose tabs would then be unreachable. A nil binding (how this file spells
+/// disabled elsewhere) renders unticked, which would show the switch off over a visible tab bar.
 struct TabBarSwitch {
     let isOn: Bool
     /// A second tab is open: the strip is on screen whatever the preference says.
@@ -867,58 +803,38 @@ struct TabBarSwitch {
 
     /// The rule, as a value: a second tab forces the switch on and freezes it there.
     ///
-    /// Extracted so it can be tested — `ContentView` is a `View` with `@State` and cannot be
-    /// instantiated in a test — and pinned at its call site by
-    /// `PaneTabWiringTests.theTabBarSwitchIsResolvedThroughTheRule`, because a rule nothing calls
-    /// is one revert away from being decoration.
+    /// Pure because `ContentView` can't be built in a test, and pinned at its call site by
+    /// `PaneTabWiringTests.theTabBarSwitchIsResolvedThroughTheRule`.
     static func resolve(hasSecondTab: Bool, preference: Bool,
                         set: @escaping (Bool) -> Void) -> TabBarSwitch {
         TabBarSwitch(isOn: hasSecondTab || preference, isForced: hasSecondTab, set: set)
     }
 }
 
-/// Edit ▸ Cut / Copy / Paste, as one value.
+/// Edit ▸ Cut / Copy / Paste, as one value: they ask one question (which pane, and what is
+/// selected in it), and three closures could disagree by a render, the drift
+/// `ShortcutValuePublisher` exists to prevent. `cut` and `copy` are `nil` with nothing selected;
+/// `paste` is `nil` when neither clipboard holds files.
 ///
-/// **The three travel together because they are one question asked three ways** — *which pane, and
-/// what is selected in it* — and a value that answers it once cannot answer it differently for Copy
-/// than for Paste. Published as three separate closures they could disagree by a render: the pane
-/// chords resolve through `paneSearchTargetIsLeft`, and a focus change between two `@FocusedValue`
-/// reads is exactly the drift `ShortcutValuePublisher` exists to prevent.
-///
-/// `cut` and `copy` are `nil` with nothing selected; `paste` is `nil` when neither clipboard holds
-/// files.
-///
-/// **A `nil` here does not disable the menu item, and must not be made to.** `CutCommand`,
-/// `CopyCommand` and `PasteCommand` are never `.disabled` — see the reasoning on `CutCommand` and
-/// the guard `EditMenuTests.theEditItemsAreNeverDisabled` — because a menu item cannot know
-/// where the caret is when it renders, and greying Copy over an empty selection would grey it out
-/// while somebody is typing in the ⌘K field. So the item stays live, `TextEditingChord.route`
-/// picks the meaning at fire time, and `nil` makes the *file* half a no-op rather than making the
-/// item unavailable. This sentence used to say the opposite, which is one reading away from
-/// "fixing" these into `.disabled(…)` and taking ⌘C from every text field in the app.
+/// **A `nil` here does not disable the menu item, and must not be made to.** The items are never
+/// `.disabled` (`EditMenuTests.theEditItemsAreNeverDisabled`): an item can't know where the caret
+/// is, and greying Copy over an empty selection would take ⌘C from every text field.
+/// `TextEditingChord.route` picks the meaning at fire time; `nil` makes only the file half a no-op.
 struct ClipboardActions {
     let cut: (() -> Void)?
     let copy: (() -> Void)?
     let paste: (() -> Void)?
 }
 
-/// ⌘W's payload — **three states, because an optional closure only has two and ⌘W needs three.**
+/// ⌘W's payload: three states, because an optional closure has only two.
 ///
-/// `nil` (nothing published) and `.suspended` used to arrive as the same `nil`, and
-/// `CloseTabCommand` treated that one value as "close the key window". That is right for one of
-/// them and wrong for the other:
+/// - Nothing published: an auxiliary `Window` scene (Keyboard Shortcuts, Activity Log, Sync
+///   History) is key, and ⌘W, which took File ▸ Close's place, must still close the window.
+/// - `.suspended`: the destination picker or the ⌘K palette owns the keyboard, and closing the
+///   window would drop an in-flight pick whose file operation awaits an answer.
 ///
-/// - **nothing published** — one of the three auxiliary `Window` scenes (Keyboard Shortcuts,
-///   Activity Log, Sync History) is key. None of them publishes a focused value, and this item
-///   took File ▸ Close's place, so ⌘W still has to close the window. Unchanged.
-/// - **`.suspended`** — the main window is there, but the destination picker or the ⌘K palette
-///   owns the keyboard. ⌘W closed the WINDOW out from under an in-flight pick: the overlay is up
-///   precisely because a file operation is waiting on an answer, and every other chord is silenced
-///   for that reason. Taking the whole window is the one thing worse than tunnelling.
-///
-/// Not a second focused value beside the closure, deliberately: two values that must be read
-/// together are two values one call site can forget to read together, and a `switch` over this is
-/// the compiler noticing when a fourth state appears.
+/// One enum, not two focused values that must be read together; a `switch` over it lets the
+/// compiler see a fourth state.
 enum CloseTabAction {
     /// A pane published a tab to close. On its last tab that closure closes the window itself,
     /// which is Finder's ⌘W and why this is never withheld at one tab.
@@ -926,24 +842,21 @@ enum CloseTabAction {
     /// A pane is present but an overlay owns the keyboard: ⌘W does nothing at all.
     case suspended
 
-    /// The publisher's rule, as a value — static so the three-way resolution can be tested without
-    /// a scene, and so the suspension cannot be expressed anywhere but here.
+    /// The publisher's rule, static so the three-way resolution can be tested without a scene and
+    /// the suspension can't be expressed anywhere else.
     ///
-    /// `suspended` wins over a live closure rather than trusting the caller to have nil'd it: the
-    /// argument is already `effectiveCloseTab`, which is suspension-filtered, so the two agree —
-    /// but a value that decides the same thing twice should not be able to disagree with itself.
+    /// `suspended` wins over a live closure rather than trusting the caller to have nil'd it. The
+    /// argument is already the suspension-filtered `effectiveCloseTab`, but a value that decides
+    /// the same thing twice shouldn't be able to disagree with itself.
     static func resolve(suspended: Bool, _ close: (() -> Void)?) -> CloseTabAction? {
         if suspended { return .suspended }
         return close.map(CloseTabAction.closeTab)
     }
 
-    /// Whether ⌘W is refusing right now — **the one thing the menu item needs to read, and the
-    /// reason this enum cannot be `Equatable`.**
-    ///
-    /// `.closeTab` holds a closure, so there is no `==` to compare `self` against `.suspended`
-    /// with; a `case` test is the only form available and a computed property is where it belongs
-    /// rather than at the call site. Deliberately NOT true for `nil`: nothing published means an
-    /// auxiliary window, where this item stands in for File ▸ Close and must stay live.
+    /// Whether ⌘W is refusing right now, the one thing the menu item reads. `.closeTab` holds a
+    /// closure, so the enum can't be `Equatable` and a `case` test is the only form; it lives here
+    /// rather than at the call site. Not true for `nil`: nothing published means an auxiliary
+    /// window, where this item stands in for File ▸ Close and must stay live.
     var isSuspended: Bool {
         if case .suspended = self { return true }
         return false
@@ -952,23 +865,20 @@ enum CloseTabAction {
 
 /// ⌃⇥'s payload: where it will move focus, and doing it.
 ///
-/// The name travels with the action for the same reason `FoldAllAction` carries its verb — the menu
-/// item is the only resting surface that says which pane is focused now, so it has to read "Focus
-/// Dropbox" rather than "Switch Pane". A menu title that named neither pane would leave the state
-/// completely unreadable.
-/// Not `Equatable`, matching `FoldAllShortcut` — a focused value needs no equality, and the
-/// hand-written one this used to carry compared only `targetName`, so two switches pointing at
-/// different panes' closures could compare equal. An `==` nothing calls and that cannot be right
-/// is worse than none.
+/// The name travels with the action, as `FoldAllAction` carries its verb, because the menu item
+/// is the only resting surface that says which pane is focused: it reads "Focus Dropbox", not
+/// "Switch Pane".
+///
+/// Not `Equatable`, like `FoldAllShortcut`: a focused value needs no equality, and an `==` on
+/// `targetName` alone could call two switches with different closures equal.
 struct PaneFocusSwitch {
     /// The pane this moves focus TO, by its provider display name.
     let targetName: String
     /// What the item reads instead of "Focus <pane>", when the chord is not a pane switch at all.
     ///
-    /// **⌃⇥ means two different things, and it has to.** In Compare it moves focus between the two
-    /// panes; in Browse there is only one pane, so the chord is dead there — which is exactly why
-    /// the v4.x roadmap scopes tab cycling onto it rather than spending a new chord. One key, one
-    /// menu item, and a title that says which of the two you are about to get.
+    /// ⌃⇥ means two things: in Compare it moves focus between the two panes; in Browse, with one
+    /// pane, it cycles tabs rather than spending a new chord. One key, one menu item, and a title
+    /// that says which you are about to get.
     let overrideTitle: String?
     let run: () -> Void
 
@@ -983,10 +893,9 @@ struct PaneFocusSwitch {
         PaneFocusSwitch(targetName: "", overrideTitle: NextTabCommand.title, run: run)
     }
 
-    /// The menu item's title. A rule rather than an inline ternary because it is the ONLY resting
-    /// answer to "which pane is focused?" — the panes carry no indicator — so it is worth a test.
-    /// The `nil` form is what a disabled item shows: it names no pane, because there is no second
-    /// pane to name on a single-source workspace.
+    /// The menu item's title, as a rule because it is the only resting answer to "which pane is
+    /// focused?" (the panes carry no indicator). The `nil` form, a disabled item's, names no pane,
+    /// since a single-source workspace has no second pane.
     static func menuTitle(for focus: PaneFocusSwitch?) -> String {
         guard let focus else { return "Focus Other Pane" }
         return focus.overrideTitle ?? "Focus \(focus.targetName)"
@@ -1022,18 +931,17 @@ extension FocusedValues {
         set { self[PaneOpenSelectedFolderKey.self] = newValue }
     }
 
-    /// ⌘↑ — close the focused pane's rightmost column. `nil` outside Columns and `nil` at the root
-    /// column, where — unlike ⌘[ — it deliberately does NOT fall through to the focus history.
+    /// ⌘↑: close the focused pane's rightmost column. `nil` outside Columns and at the root
+    /// column, where, unlike ⌘[, it does not fall through to the focus history.
     /// See ``ContentView/shortcutEnclosingFolder``.
     var paneEnclosingFolder: (() -> Void)? {
         get { self[PaneEnclosingFolderKey.self] }
         set { self[PaneEnclosingFolderKey.self] = newValue }
     }
 
-    /// Opens the pair viewer on the focused pane's two selected files. `nil` when the selection
-    /// is not exactly two files — see `PaneLogic.compareOffer(for:)`, which is the same rule the
-    /// action bar's Compare button reads, so the menu item and the button cannot disagree about
-    /// when comparing is possible.
+    /// Opens the pair viewer on the focused pane's two selected files. `nil` unless the selection
+    /// is exactly two files, by `PaneLogic.compareOffer(for:)`, the rule the action bar's Compare
+    /// button reads, so the two can't disagree.
     var compareTwoFiles: (() -> Void)? {
         get { self[CompareTwoFilesKey.self] }
         set { self[CompareTwoFilesKey.self] = newValue }
@@ -1053,31 +961,31 @@ extension FocusedValues {
         set { self[NewFolderInFocusedPaneKey.self] = newValue }
     }
 
-    /// ⌘S — writes the editor's open document. **Present whenever an editable document is open**,
-    /// clean or not (`shortcutSaveDocument`); on a clean one with nothing stopped it writes nothing
-    /// (TE145).
+    /// ⌘S: writes the editor's open document. Present whenever an editable document is open,
+    /// clean or not (`shortcutSaveDocument`); on a clean one with nothing stopped it writes
+    /// nothing.
     var saveDocument: (() -> Void)? {
         get { self[SaveDocumentKey.self] }
         set { self[SaveDocumentKey.self] = newValue }
     }
 
-    /// ⌘N — opens the editor's naming row. Published from **every** workspace, not only the
-    /// editor: the folder sidebar spans them all, so "the current folder" always has an answer, and
-    /// from anywhere else this switches to the editor first and opens the row there.
+    /// ⌘N: opens the editor's naming row. Published from every workspace: the folder sidebar
+    /// spans them all, so "the current folder" always has an answer, and from elsewhere this
+    /// switches to the editor first.
     var newTextFile: (() -> Void)? {
         get { self[NewTextFileKey.self] }
         set { self[NewTextFileKey.self] = newValue }
     }
 
-    /// File ▸ Close Document — puts the editor's open document away (TE46). `nil` outside Edit or
-    /// with nothing open, which is what greys the item.
+    /// File ▸ Close Document: puts the editor's open document away. `nil` outside Edit or with
+    /// nothing open, which greys the item.
     var closeDocument: (() -> Void)? {
         get { self[CloseDocumentKey.self] }
         set { self[CloseDocumentKey.self] = newValue }
     }
 
-    /// File ▸ Print… and File ▸ Export as PDF… — the open document as pages (roadmap RD9). `nil`
-    /// outside Edit, or with nothing openable open, which is what greys both items.
+    /// File ▸ Print… and File ▸ Export as PDF…: the open document as pages. `nil` outside Edit, or
+    /// with nothing openable open, which greys both items.
     var documentPrint: DocumentPrintActions? {
         get { self[DocumentPrintKey.self] }
         set { self[DocumentPrintKey.self] = newValue }
@@ -1089,7 +997,7 @@ extension FocusedValues {
         set { self[ShowHiddenFilesKey.self] = newValue }
     }
 
-    /// The focused pane's type filter (RD70), for View ▸ Filter by Type. `nil` with no pane on screen.
+    /// The focused pane's type filter, for View ▸ Filter by Type. `nil` with no pane on screen.
     var paneTypeFilter: PaneTypeFilterControl? {
         get { self[PaneTypeFilterKey.self] }
         set { self[PaneTypeFilterKey.self] = newValue }
@@ -1101,7 +1009,7 @@ extension FocusedValues {
         set { self[InfoInspectorKey.self] = newValue }
     }
 
-    /// Ask Claude's panel (RD69). Nil while a destination pick is up.
+    /// Ask Claude's panel. `nil` while a destination pick is up.
     var askClaude: Binding<Bool>? {
         get { self[AskClaudeKey.self] }
         set { self[AskClaudeKey.self] = newValue }
@@ -1133,10 +1041,9 @@ extension FocusedValues {
         set { self[NewTabKey.self] = newValue }
     }
 
-    /// ⌘W. Never `nil` while a pane exists — on the last tab it closes the WINDOW, as Finder does,
-    /// so the item stays enabled rather than becoming a dead ⌘W. While the chords are suspended it
-    /// is `.suspended` rather than `nil`, which is what keeps "an overlay owns the keyboard" from
-    /// reading as "this window has no tabs, close it" (see ``CloseTabAction``).
+    /// ⌘W. Never `nil` while a pane exists: on the last tab it closes the window, as Finder does,
+    /// so the item stays enabled. While the chords are suspended it is `.suspended`, not `nil`, so
+    /// "an overlay owns the keyboard" can't read as "close this window" (see ``CloseTabAction``).
     var closeTab: CloseTabAction? {
         get { self[CloseTabKey.self] }
         set { self[CloseTabKey.self] = newValue }
@@ -1155,7 +1062,7 @@ extension FocusedValues {
         set { self[ReopenClosedTabKey.self] = newValue }
     }
 
-    /// File ▸ Open Recent's rows (TE58): opens a path in Edit through the hand-off.
+    /// File ▸ Open Recent's rows: opens a path in Edit through the hand-off.
     var openRecent: ((String) -> Void)? {
         get { self[OpenRecentKey.self] }
         set { self[OpenRecentKey.self] = newValue }
@@ -1242,34 +1149,27 @@ extension FocusedValues {
         set { self[TabBarVisibleKey.self] = newValue }
     }
 
-    /// What **View ▸ Status Bar** reads. `nil` on every workspace that does not draw the bar —
-    /// which is every workspace but Browse; see `shortcutStatusBar`.
+    /// What View ▸ Status Bar reads. `nil` on every workspace but Browse, the only one that draws
+    /// the bar; see `shortcutStatusBar`.
     ///
-    /// A plain `Binding<Bool>` rather than `TabBarSwitch`: nothing ever forces the status bar on,
-    /// so the switch has the two states a binding can carry. (The tab bar's third state exists
-    /// because a strip holding a second tab must not be hideable.)
+    /// A plain `Binding<Bool>`, not `TabBarSwitch`: nothing forces the status bar on. (The tab
+    /// bar's third state exists because a strip holding a second tab must not be hideable.)
     var statusBarVisible: Binding<Bool>? {
         get { self[StatusBarVisibleKey.self] }
         set { self[StatusBarVisibleKey.self] = newValue }
     }
 
-    /// What **View ▸ Sidebar** reads. `nil` wherever the column cannot be drawn at all — see
-    /// `shortcutFolderSidebar`, which is the one place that decides it — and a plain
-    /// `Binding<Bool>` rather than `TabBarSwitch` because nothing ever forces it on.
-    ///
-    /// Carried nothing from 2026-08-20 until v4.4, while the column was held: the channel stayed
-    /// live and empty rather than being deleted, which is why re-attaching the item was one `Toggle`
-    /// and a menu line rather than a rebuild. Kept intact for the same reason it survived the hold —
-    /// the publisher's suspension rule for it is asserted by `ShortcutCommandsTests`, and deleting
-    /// the channel would delete the only tests saying a destination pick silences this switch with
+    /// What View ▸ Sidebar reads. `nil` wherever the column can't be drawn at all, as
+    /// `shortcutFolderSidebar` alone decides, and a plain `Binding<Bool>` because nothing forces
+    /// it on. `ShortcutCommandsTests` asserts that a destination pick silences this switch with
     /// the rest.
     var folderSidebarVisible: Binding<Bool>? {
         get { self[FolderSidebarVisibleKey.self] }
         set { self[FolderSidebarVisibleKey.self] = newValue }
     }
 
-    /// **View ▸ Text Files** (TE81) — Edit's list, folded into the strip or back. `nil` outside
-    /// Edit and while Edit's pane is open; see `ContentView.shortcutEditorTextFiles`.
+    /// View ▸ File List: Edit's list, folded into the strip or back. `nil` outside Edit and while
+    /// Edit's pane is open; see `ContentView.shortcutEditorTextFiles`.
     var editorTextFilesVisible: Binding<Bool>? {
         get { self[EditorTextFilesVisibleKey.self] }
         set { self[EditorTextFilesVisibleKey.self] = newValue }
@@ -1279,21 +1179,18 @@ extension FocusedValues {
 // MARK: - ContentView's half
 
 /// Every focused-value publication `ContentView` makes, bundled into one modifier with each field
-/// explicitly typed. Not organizational: chained inline in `ContentView.body` — an expression the
-/// compiler already strains under — the ternaries and property references pushed type-checking
-/// past its time limit and failed the build. Stored properties give inference nothing to solve.
+/// explicitly typed. Not organizational: chained inline in `ContentView.body`, the ternaries and
+/// property references push type-checking past its time limit and fail the build. Stored
+/// properties give inference nothing to solve.
 ///
-/// **Everything belongs in here**, which is the other half of the reason it exists: a value
-/// published outside it is a value nobody thinks to suspend, and both chords that have been found
-/// tunnelling under the destination picker (⌘K, then ⌘F) were published on their own. No count is
-/// stated — the list below is the content, and a number beside it only goes stale.
+/// Everything belongs in here: a value published outside it is one nobody thinks to suspend, and
+/// it would tunnel under the destination picker. No count is stated; the list is the content.
 struct ShortcutValuePublisher: ViewModifier {
     let workspace: Binding<Workspace>
     let goBack: (() -> Void)?
     let goForward: (() -> Void)?
-    /// ⌘↓ / ⌘↑ — the column stack (roadmap RD5). Suspended with the rest: a destination picker is
-    /// up because a file operation is waiting on an answer, and walking the columns under it moves
-    /// the pane the pick is describing — the same argument `newFolder` and the tab chords carry.
+    /// ⌘↓ / ⌘↑, the column stack. Suspended with the rest: walking the columns under a destination
+    /// pick moves the pane the pick is describing, as with `newFolder` and the tab chords.
     let openSelectedFolder: (() -> Void)?
     let enclosingFolder: (() -> Void)?
     let rescan: (() -> Void)?
@@ -1314,56 +1211,43 @@ struct ShortcutValuePublisher: ViewModifier {
     let differencesList: Binding<Bool>?
     let delete: (() -> Void)?
     let switchPaneFocus: PaneFocusSwitch?
-    /// ⌘K. **Published through here rather than on its own**, which is the whole reason this type
-    /// exists: it was hung directly off `ContentView.body` and so was the one chord the suspension
-    /// below did not reach. With the destination picker up — an in-flight file operation waiting on
-    /// an answer — ⌘K still opened the palette over it, and a route from there switched workspace
-    /// mid-pick. Exactly the tunnelling every other chord is suspended to prevent.
+    /// ⌘K, published through here so the suspension below reaches it: with the destination picker
+    /// up, a palette route could otherwise switch workspace mid-pick.
     ///
-    /// It is suspended while the palette itself is up too, and that is correct rather than a side
-    /// effect: the panel owns the chord then, through the event monitor in `CommandPalettePanel`,
-    /// so a live menu item would be a second path to one act.
+    /// Suspended while the palette itself is up too, on purpose: closing the palette is not the
+    /// menu item's job (see `shortcutValuePublisher`), so a live item would be a second path to one
+    /// act.
     let commandPalette: (() -> Void)?
-    /// ⌘F, here for the same reason ⌘K is. It was published straight off `ContentView.body` —
-    /// never nil, never suspended — which is precisely the shape `commandPalette`'s note above
-    /// condemns. With the destination picker up, ⌘F expanded the focused pane's search field
-    /// underneath the scrim and `ExpandingSearchField` took focus on appear, so the typing, the ↩
-    /// and the esc that were meant for the pick went to a field the mouse is blocked from
-    /// reaching.
+    /// ⌘F, here for ⌘K's reason: with the destination picker up, an unsuspended ⌘F would expand the
+    /// focused pane's search field under the scrim, and `ExpandingSearchField` takes focus on
+    /// appear, so the typing, ↩ and esc meant for the pick would go to a field the mouse can't
+    /// reach.
     ///
-    /// The convention that ⌘F stays live under Settings, Help and the first-run tour is untouched:
-    /// those are ambient panels and do not set `suspended`. This is about the overlay that owns
-    /// the keyboard.
-    ///
-    /// It is now also suspended **while the palette itself is up**, which the move brought with it:
-    /// `suspended` carries both reasons. That is right rather than incidental — the panel owns the
-    /// keyboard then, and the palette offers its own Find action that calls `beginPaneSearch()`
-    /// after it dismisses — but it is a second behaviour change and worth naming.
+    /// ⌘F stays live under Settings, Help and the first-run tour: those are ambient panels and
+    /// don't set `suspended`. It is also suspended while the palette is up, which owns the keyboard
+    /// then and offers its own Find action, calling `beginPaneSearch()` after it dismisses.
     let beginPaneSearch: (() -> Void)?
 
-    // The tab chords. All five suspend with the rest: a destination picker is up because an
-    // in-flight file operation is waiting on an answer, and a tab switch under it would move the
+    // The tab chords suspend with the rest: a tab switch under a destination pick would move the
     // pane the pick is describing.
     let selectAll: (() -> Void)?
     let clipboard: ClipboardActions
     let newTab: (() -> Void)?
-    /// Never `nil` while a pane exists — on the last tab it closes the WINDOW, which is what
-    /// Finder's ⌘W does and what keeps this from being a chord that dies at one tab.
+    /// Never `nil` while a pane exists: on the last tab it closes the window, as Finder's ⌘W does.
     ///
-    /// Suspension does not flatten it into `nil` on the way out: it is published as
-    /// ``CloseTabAction``, whose `.suspended` case is what stops ⌘W falling through to
-    /// `performClose` mid-pick. `effectiveCloseTab` below still nils, like every other value here.
+    /// Suspension doesn't flatten it into `nil` on the way out: it is published as
+    /// ``CloseTabAction``, whose `.suspended` case stops ⌘W falling through to `performClose`
+    /// mid-pick. `effectiveCloseTab` below still nils, like every other value here.
     let closeTab: (() -> Void)?
     let cycleTab: ((Bool) -> Void)?
     let reopenClosedTab: (() -> Void)?
-    /// File ▸ Open Recent (TE58). Suspended with the rest: opening a file in Edit under a
-    /// destination pick moves the window under a question about it.
+    /// File ▸ Open Recent. Suspended with the rest: opening a file in Edit under a destination
+    /// pick moves the window under a question about it.
     let openRecent: ((String) -> Void)?
     let tabBar: TabBarSwitch?
-    /// `nil` wherever the column cannot be drawn — see `shortcutFolderSidebar`, which is the one
-    /// place that decides it.
+    /// `nil` wherever the column cannot be drawn; `shortcutFolderSidebar` alone decides it.
     let folderSidebar: Binding<Bool>?
-    /// View ▸ Text Files. `nil` wherever the list cannot be drawn — see `shortcutEditorTextFiles`.
+    /// View ▸ File List. `nil` wherever the list cannot be drawn; see `shortcutEditorTextFiles`.
     /// Suspended with the rest: unfolding the list under a destination pick moves the window
     /// under a question about it.
     let editorTextFiles: Binding<Bool>?
@@ -1398,24 +1282,23 @@ struct ShortcutValuePublisher: ViewModifier {
     /// the folder the pick is describing.
     let editorExpand: EditorExpandSwitch?
 
-    /// **True while a long run is going** (decision BZ) — the menu-bar half of the window's run
-    /// lock. The window stays live for reading, so this silences only the chords whose button is
-    /// greyed beside them: New Folder, New Text File, Move to Trash, Rename, Copy to… /
-    /// Move to…, Fix Name, Set Up Like Its Siblings, Undo This Reorganization, and a pane's PDF
-    /// Tools and Save as PDF. A chord live while its button is greyed is a mouse/keyboard split the
-    /// suspension below exists to prevent. Edit's own saves and Edit's PDF tools stay live; Edit ▸
-    /// Undo waits too, for the file operations' stack only, through `RunUndoGate` (CF).
+    /// True while a long run is going: the menu-bar half of the window's run lock. The window stays
+    /// readable, so this silences only the chords whose button is greyed beside them: New Folder,
+    /// New Text File, Move to Trash, Rename, Copy to… / Move to…, Fix Name, Set Up Like Its
+    /// Siblings, Undo This Reorganization, and a pane's PDF Tools and Save as PDF. A chord live
+    /// beside a greyed button would split mouse from keyboard. Edit's saves and PDF tools stay
+    /// live; Edit ▸ Undo waits too, for the file operations' stack only, through `RunUndoGate`.
     var writesLocked: Bool = false
 
-    /// True while the destination picker is up. The picker is a full-window overlay that
-    /// deliberately blocks the mouse from every control these chords mirror — an in-flight
-    /// file operation is waiting on an answer — but focused values are published by the still-
-    /// mounted content underneath, so without this the keyboard tunnels straight past it:
-    /// ⌘R republishes both trees mid-pick, ⇧⌘. flips the filters the pick is browsing, ⌘⌫
-    /// pops a second modal over the decision. Suspended, every item disables at once.
+    /// True while a surface that owns the keyboard is up: the destination picker or the ⌘K palette
+    /// (`paneChordsSuspended`). The picker is a full-window overlay that blocks the mouse from
+    /// every control these chords mirror (a file operation is waiting on its answer), but focused
+    /// values come from the content still mounted underneath, so without this the keyboard tunnels
+    /// past it: ⌘R republishes both trees mid-pick, ⇧⌘. flips the filters the pick is browsing, ⌘⌫
+    /// pops a second modal over the decision. Suspended, every item disables.
     ///
-    /// Settings/Help/first-run are NOT suspended, on the app's existing convention: they are
-    /// ambient panels, and ⌘F, ⌘Z and ⌘, have always stayed live underneath them.
+    /// Settings, Help and first-run are not suspended: they are ambient panels, and ⌘F, ⌘Z and ⌘,
+    /// stay live under them.
     let suspended: Bool
 
     /// The suspension applied — what actually gets published. Split from the stored values so
@@ -1440,12 +1323,12 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveCommandPalette: (() -> Void)? { suspended ? nil : commandPalette }
     var effectiveBeginPaneSearch: (() -> Void)? { suspended ? nil : beginPaneSearch }
     var effectiveSelectAll: (() -> Void)? { suspended ? nil : selectAll }
-    /// Suspended as a whole, so a destination pick cannot be answered by pasting into the pane
-    /// underneath it — and so the three verbs go silent together rather than one at a time.
+    /// Suspended as a whole, so a destination pick can't be answered by pasting into the pane
+    /// under it, and the three verbs go silent together.
     ///
     /// Not touched by `writesLocked`: Paste is never greyed (see `PasteCommand`), so a file paste
-    /// during a run goes through to `FileActionHandler`, which refuses it and says why — where a
-    /// silenced closure would have made ⌘V a key that does nothing.
+    /// during a run reaches `FileActionHandler`, which refuses it and says why, rather than ⌘V
+    /// doing nothing.
     var effectiveClipboard: ClipboardActions? {
         suspended ? nil : clipboard
     }
@@ -1474,9 +1357,9 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectivePDFFill: PDFFillSignVerbs? { suspended ? nil : pdfFill }
     var effectiveEditorExpand: EditorExpandSwitch? { suspended ? nil : editorExpand }
 
-    /// ⌘W's published value, which is the one that does NOT go silent — see ``CloseTabAction``.
-    /// `effectiveCloseTab` still nils with the rest (a suspended ⌘W closes no tab); what this adds
-    /// is that the item hears *why* it got nothing, so it stops short of closing the window.
+    /// ⌘W's published value, the one that doesn't go silent (see ``CloseTabAction``).
+    /// `effectiveCloseTab` still nils with the rest; this adds why, so the item stops short of
+    /// closing the window.
     var closeTabAction: CloseTabAction? {
         CloseTabAction.resolve(suspended: suspended, effectiveCloseTab)
     }
@@ -1574,27 +1457,14 @@ extension ContentView {
             pdfPage: shortcutPDFPage,
             pdfFill: shortcutPDFFill,
             editorExpand: shortcutEditorExpand,
-            // Suspended by the palette too, on the destination picker's own argument: it is a
-            // full-window overlay whose scrim blocks the mouse from every control these chords
-            // mirror, so without this ⌘R rescans underneath it and ⇧⌘. flips the filters behind
-            // the field you are typing into. Unlike Settings and Help — ambient panels the app
-            // deliberately keeps its chords live under — this one OWNS the keyboard while it is up.
+            // Suspended by the palette too: like the destination picker it is a full-window
+            // overlay that owns the keyboard, so ⌘R would rescan under it and ⇧⌘. flip the filters
+            // behind the field. ⌘K is suspended with it: Escape closes the palette, from the Go-to
+            // field's `cancelOperation:` (`GoToFieldBar`), not the menu item.
             //
-            // **⌘K is suspended with the rest, not exempt from it.** An earlier version of this note
-            // said ⌘K "stays live (its own focused value) so the toggle can close it"; `a1c96082`
-            // moved ⌘K into this publisher and that stopped being true. Closing the palette is not
-            // the menu item's job — the item is disabled for exactly as long as the palette is up.
-            //
-            // **Escape is what closes it, from the field editor**, not from a monitor: the Go-to
-            // field's `cancelOperation:` calls `palettePanel.dismiss()` (`GoToFieldBar`). The panel
-            // DID carry a keyDown monitor, and this note went on naming it after `7e8fff03` removed
-            // it — §7 moved the field into the toolbar, so the host keeps key and the field editor
-            // sees the key first. The panel's remaining monitor watches the mouse only.
-            //
-            // Suspending the *publication* is not the same as suspending the *act*:
-            // `toggleCommandPalette` carries its own `pendingDestination` guard, because the toolbar
-            // pill and the armed-on-launch path call it without going through a focused value —
-            // and so do the two pane key handlers, through `paneChordsSuspended` below.
+            // Suspending the publication is not suspending the act: `toggleCommandPalette` has
+            // its own `pendingDestination` guard, for the toolbar pill, the armed-on-launch path
+            // and the pane key handlers (`paneChordsSuspended`), which bypass focused values.
             writesLocked: runWriteLockReason != nil,
             suspended: paneChordsSuspended
         )
@@ -1602,18 +1472,11 @@ extension ContentView {
 
     /// Whether a surface that owns the keyboard is up: the destination picker, or the ⌘K palette.
     ///
-    /// **Named because two things read it, and one of them is not a menu item.** `suspended:` above
-    /// silences every mirrored chord while a pick is pending — but ↩ (Rename) and Space (Quick Look)
-    /// are `.onKeyPress` handlers on the file list, not menu equivalents, so they never went through
-    /// that publication and were live underneath the picker.
-    ///
-    /// **Focus scoping does not cover this, which is the assumption worth naming.** ↩'s own
-    /// reasoning is that `.onKeyPress` fires "only while the file list holds focus", and the picker
-    /// is a full-window SwiftUI overlay drawn over `NSViewRepresentable` file panes — the exact
-    /// arrangement `CommandPalettePanel.swift` records as NOT taking key from the tables underneath
-    /// it, off this app's own log. So the table keeps first responder, focus stays inside the tree
-    /// view, and ↩ reached `paneRename` and renamed a row while the user was confirming where to
-    /// copy files — swallowing the keystroke from the picker's default button on the way.
+    /// Named because the pane key handlers read it too: ↩ (Rename) and Space (Quick Look) are
+    /// `.onKeyPress` handlers, outside the publication `suspended:` silences, and focus scoping
+    /// doesn't save them. The picker is a SwiftUI overlay that doesn't take key from the
+    /// `NSViewRepresentable` tables underneath (`CommandPalettePanel.swift`), so ↩ would rename a
+    /// row while the user confirms where to copy files.
     var paneChordsSuspended: Bool { pendingDestination != nil || showCommandPalette }
 
     var shortcutRescan: (() -> Void)? {
@@ -1650,18 +1513,14 @@ extension ContentView {
 
     /// View ▸ Sidebar's binding, and `nil` wherever the column cannot be drawn.
     ///
-    /// The gate is the workspace and not `layoutMode`, and it is asked through
-    /// `FolderSidebarModel.appliesTo` so the menu item, the toolbar button and the column itself
-    /// cannot come to disagree about where a sidebar is possible. Every shipping workspace supports
-    /// one as of v4.4 — the lens workspaces were excluded on the reasoning that their 220pt-clamped
-    /// rail left no room, which `PaneLogic.lensSidebarWidth` answered with a clamp instead — so in
-    /// practice the live `nil` is the collapsed-panes one — outside Edit, whose sidebar outlives a
-    /// collapsed pane (`Workspace.folderSidebarOutlivesPaneCollapse`).
+    /// The gate is the workspace, not `layoutMode`, asked through `FolderSidebarModel.appliesTo` so
+    /// the menu item, the toolbar button and the column agree on where a sidebar is possible.
+    /// Every workspace supports one (the lens rail's width is clamped by
+    /// `PaneLogic.lensSidebarWidth`), so in practice the live `nil` is collapsed panes, outside
+    /// Edit, whose sidebar outlives a collapsed pane (`Workspace.folderSidebarOutlivesPaneCollapse`).
     var shortcutFolderSidebar: Binding<Bool>? {
-        // **`appliesTo`, not `isShowing`**: the item is live with the column switched off, because
-        // the item is how it gets switched on. Asking `isShowing` here would make the
-        // tick the only way to reach the tick. This call carried the v4.2/v4.3 hold too, through
-        // `appliesTo`'s `isEnabled` — one condition, never a second one written at this site.
+        // `appliesTo`, not `isShowing`: the item is live with the column switched off, because
+        // the item is how it gets switched on.
         guard folderSidebarIsAvailable else { return nil }
         // Ticked on what is DRAWN, not the shared preference: in Edit, Expand can hold the column
         // off with the preference on, and a ticked item beside no sidebar would untick on the
@@ -1669,35 +1528,28 @@ extension ContentView {
         return Binding(get: { folderSidebarIsShowing }, set: { setFolderSidebarVisible($0) })
     }
 
-    /// View ▸ Tab Bar — **ticked and disabled while a strip on screen holds a second tab**, so the
-    /// switch can never hide a strip whose tabs would then be unreachable.
+    /// View ▸ Status Bar: live on Browse and nowhere else, the bar's own scope (see
+    /// `PaneStatusBar` for why).
     ///
-    /// **It has to ask both panes, because the strip's visibility rule does.** This used to ask only
-    /// `shortcutTabTargetIsLeft` — the focused pane — while `PaneTabStripVisibility.shows` decides
-    /// from `own` *and* `sibling`. In Compare with two tabs in the unfocused pane only, the rule put
-    /// a strip on screen and the menu item read unticked and live, so the switch offered to hide a
-    /// strip it did not describe and the tabs in it became unreachable — which is the exact case the
-    /// disabling exists to prevent, arrived at from the other side.
+    /// `nil` on the other workspaces, by the folder sidebar's rule: a ticked switch on Compare
+    /// would describe a strip it doesn't draw, and unticking it would change something the user
+    /// can't see. The preference stays app-wide; this gates the item, not the key.
     ///
-    /// The condition is `PaneTabStripVisibility.forcesTabBarSwitch`, which is defined as the
-    /// visibility rule with the switch's own term removed — so the two cannot drift again. Inlining
-    /// the disjunction here is what let them drift the first time.
-    /// View ▸ Status Bar — **live on Browse and nowhere else**, which is the bar's own scope
-    /// stated once (see `PaneStatusBar` for why it is Browse-only).
-    ///
-    /// `nil` rather than a live binding on the other workspaces, following the folder sidebar's
-    /// rule for the same reason: a ticked switch on Compare would describe a strip that surface
-    /// does not draw, and un-ticking it there would change something the user cannot see. The
-    /// preference itself stays app-wide — this gates the *item*, not the key.
-    ///
-    /// Unlike the sidebar's, this asks nothing about the panes being collapsed: Browse cannot
-    /// collapse its pane (there is no spine to collapse into — see `paneColumn`'s `onCollapse`),
-    /// so the bar is on screen for exactly as long as Browse is.
+    /// Unlike the sidebar's, it asks nothing about collapsed panes: Browse can't collapse its pane
+    /// (no spine to collapse into; see `paneColumn`'s `onCollapse`), so the bar shows as long as
+    /// Browse does.
     var shortcutStatusBar: Binding<Bool>? {
         guard selectedWorkspace == .browse else { return nil }
         return Binding(get: { statusBarVisible }, set: { statusBarVisible = $0 })
     }
 
+    /// View ▸ Tab Bar: ticked and disabled while a strip on screen holds a second tab, so the
+    /// switch can't hide a strip whose tabs would then be unreachable.
+    ///
+    /// It asks both panes, because the strip's visibility rule does: `PaneTabStripVisibility.shows`
+    /// decides from `own` and `sibling`, so in Compare a second tab in the unfocused pane alone puts
+    /// a strip on screen. The condition is `PaneTabStripVisibility.forcesTabBarSwitch`, the
+    /// visibility rule minus the switch's own term, so the two can't drift apart.
     var shortcutTabBar: TabBarSwitch {
         let isLeft = shortcutTabTargetIsLeft
         let forced = PaneTabStripVisibility.forcesTabBarSwitch(
@@ -1708,31 +1560,14 @@ extension ContentView {
                                     preference: tabBarVisible) { tabBarVisible = $0 }
     }
 
-    /// Resolved once and used for both the gate and the act, so the menu item can never be enabled
-    /// by a column stack the pane on screen does not draw — the same pairing the header's arrows
-    /// make. See `paneDrawsColumns(isLeft:)`.
-    /// ⌘A — the rows of the focused pane's **current folder**.
+    /// ⇧⌘C: the focused pane's two selected files, opened as a pair.
     ///
-    /// **Not every visible row, and the reason is a real limit rather than a preference.** In Tree
-    /// mode a pane can have folders expanded, and which rows those are lives in
-    /// `FileTreeView.expanded` — `@State private`, inside the view. A menu item is published from
-    /// the App scope and cannot see it, so an item claiming to select "everything visible" would be
-    /// guessing. Selecting the current folder's contents is a promise this layer can actually keep.
+    /// The same rule the action bar's Compare button reads, `PaneLogic.compareOffer(for:)`, so the
+    /// item and the button are two doors onto one predicate. A folder selection answers
+    /// `.folderScan`, which belongs to the button: the item stays disabled rather than running the
+    /// two-folder scan under a name that says "two files".
     ///
-    /// Columns resolves through the deepest open column, the same target `beginNewFolder` uses, so
-    /// ⌘A and ⇧⌘N cannot disagree about which folder the pane is "in".
-    /// ⇧⌘C — the focused pane's two selected files, opened as a pair.
-    ///
-    /// **The same rule the action bar's Compare button reads.** `PaneLogic.compareOffer(for:)`
-    /// answers what this selection can be compared as, so the menu item and the button are two
-    /// doors onto one predicate rather than two predicates that agree today. A folder selection
-    /// answers `.folderScan`, which belongs to the button and not to this chord — the menu item
-    /// stays disabled for it rather than quietly running the two-folder scan under a name that
-    /// says "two files".
-    ///
-    /// `nil` rather than a no-op closure, because a published closure is an ENABLED menu item:
-    /// returning one that does nothing is the shape [[a-tested-rule-with-no-caller]] warns about,
-    /// seen from the menu.
+    /// `nil` rather than a no-op closure, because a published closure is an enabled menu item.
     var shortcutCompareTwoFiles: (() -> Void)? {
         let isLeft = shortcutTargetIsLeft
         switch PaneLogic.compareOffer(for: paneSelectionNodes(isLeft: isLeft)) {
@@ -1740,18 +1575,23 @@ extension ContentView {
             return { compareFilePairAction(first, second,
                                            secondIsInOtherPane: false, clickedPaneIsLeft: isLeft) }
         case .armPick(let file):
-            // **⇧⌘C arms too, for the action bar's reason.** A chord offered only for two files
-            // selected together is a chord for a selection the Columns view does not make, and it
-            // could never reach a counterpart in the other pane at all.
+            // ⇧⌘C arms too, for the action bar's reason: a chord only for two files selected
+            // together needs a selection Columns doesn't make, and could never reach a counterpart
+            // in the other pane.
             return { armComparePick(file, isLeft: isLeft) }
         case .folderScan, nil:
-            // A folder is the bar's two-folder scan and belongs to the button, under a name that
-            // says so — running it from an item reading "Compare Two Files" would be the menu
-            // lying about what it does.
+            // A folder is the bar's two-folder scan and belongs to the button; running it from an
+            // item reading "Compare Two Files" would be the menu lying about what it does.
             return nil
         }
     }
 
+    /// ⌘A: the rows of the focused pane's current folder.
+    ///
+    /// Not every visible row: in Tree mode which folders are expanded lives in
+    /// `FileTreeView.expanded`, private view state the menu item can't see, so "everything
+    /// visible" would be a guess. Columns resolves through the deepest open column, the target
+    /// `beginNewFolder` uses, so ⌘A and ⇧⌘N agree on which folder the pane is in.
     var shortcutSelectAll: (() -> Void)? {
         if EditorFoldedPaneKeys.refuses(workspace: selectedWorkspace, paneFolded: editorPaneIsFolded) {
             return EditorFoldedPaneKeys.refusal
@@ -1767,11 +1607,10 @@ extension ContentView {
                                : syncManager.rightChildrenIndex(treeRoot: pane.currentPath)
             ids = (index.children(atPath: directory) ?? []).map(\.id)
         } else {
-            // **Top-level rows only, and this is not an oversight.** A Tree pane draws a hierarchy,
-            // so "everything visible" would include the children of every expanded folder — and
-            // selecting a folder *and* its contents is a transfer that copies both, once as the
-            // folder and again as its parts. Selecting the roots already covers everything beneath
-            // them, because every verb here treats a folder as its contents.
+            // Top-level rows only, on purpose. Selecting a folder and its contents would make a
+            // transfer copy both, once as the folder and again as its parts; the roots already
+            // cover everything beneath them, since every verb here treats a folder as its
+            // contents.
             ids = pane.tree.nodes.map(\.id)
         }
         // Empty folder: withheld, so ⌘A disables rather than clearing the selection you had.
@@ -1782,20 +1621,18 @@ extension ContentView {
         }
     }
 
-    /// ⌘X / ⌘C / ⌘V, resolved together — see ``ClipboardActions``. Edit ▸ Cut / Copy / Paste, over
-    /// the file clipboard — the app's own list, or the system pasteboard, whichever was written
-    /// last (`ClipboardSource.resolve`).
+    /// ⌘X / ⌘C / ⌘V, resolved together (see ``ClipboardActions``), over the file clipboard: the
+    /// app's own list or the system pasteboard, whichever was written last
+    /// (`ClipboardSource.resolve`).
     ///
-    /// **The source and the destination are resolved by different rules, and that is what makes
-    /// cut-and-paste a cross-pane move.** Cut and Copy take `activeSelectionNodes` — wherever the
-    /// selection *is*. Paste targets `shortcutTargetIsLeft` — wherever focus *is*. They agree until
-    /// ⌃⇥ moves focus without moving the selection, and then they are exactly what is wanted:
-    /// select on the left, ⌃⇥, paste on the right. Making them one rule would break that.
+    /// Source and destination use different rules, which is what makes cut-and-paste a cross-pane
+    /// move: Cut and Copy take `activeSelectionNodes`, wherever the selection is; Paste targets
+    /// `shortcutTargetIsLeft`, wherever focus is. Select on the left, ⌃⇥, paste on the right.
     ///
-    /// Cut and Copy read the selection at FIRE time, matching `DeleteSelectionCommand`'s rule that
-    /// a menu held open is not re-armed by a republish. The paste destination is captured at
-    /// publish time instead, which is safe for the one reason worth stating: a pane's directory
-    /// only changes by navigating, and the menu being open is what stops that happening.
+    /// Cut and Copy read the selection at fire time, by `DeleteSelectionCommand`'s rule that a
+    /// menu held open is not re-armed by a republish. The paste destination is captured at publish
+    /// time, which is safe because a pane's directory changes only by navigating, and an open menu
+    /// prevents that.
     var shortcutClipboard: ClipboardActions {
         if EditorFoldedPaneKeys.refuses(workspace: selectedWorkspace, paneFolded: editorPaneIsFolded) {
             return EditorFoldedPaneKeys.clipboard
@@ -1810,11 +1647,9 @@ extension ContentView {
         return ClipboardActions(
             cut: hasSelection ? { actionHandler?.handleCopyToClipboard(activeSelectionNodes, isCut: true) } : nil,
             copy: hasSelection ? { actionHandler?.handleCopyToClipboard(activeSelectionNodes, isCut: false) } : nil,
-            // Withheld when neither clipboard has files: pasting nothing is a no-op, and an
-            // enabled item that does nothing is the thing `clipboardHasItems` was added to the row
-            // menu to prevent. **Through `ClipboardSource.current`, which is the same call the
-            // paste itself makes** — asking `clipboardNodes.isEmpty` here was right while the app's
-            // clipboard was the only one, and would now grey out a paste of files copied in Finder.
+            // Withheld when neither clipboard has files: an enabled item that pastes nothing is
+            // what `clipboardHasItems` prevents in the row menu. Through `ClipboardSource.current`,
+            // the call the paste itself makes, so files copied in Finder count too.
             paste: ClipboardSource.current(pasteboard: actionHandler?.pasteboard ?? .general,
                                            hasInAppItems: !syncManager.clipboardNodes.isEmpty,
                                            ownChangeCount: syncManager.clipboardPasteboardChangeCount) == .none
@@ -1850,8 +1685,7 @@ extension ContentView {
             isDirectory: node?.isDirectory ?? false,
             canOpenInNewTab: delegate.canOpenInNewTab,
             isComparing: layoutMode == .compare,
-            // A path read, no I/O — exactly as `isCloudOnly` above reads a cache rather than
-            // stat-ing. This resolver runs on every `ContentView` body pass.
+            // A path read, no I/O: this resolver runs on every `ContentView` body pass.
             opensInEdit: node.map { EditableText.opensInEdit(path: $0.id) } ?? false)
         // Resolved here, not in the item: the row menu reads the same `isNodeIgnored` to decide
         // which of the two verbs it is offering, and the two must not answer differently.
@@ -1863,22 +1697,18 @@ extension ContentView {
             openInNewTab: can.openInNewTab ? { node.map { delegate.handleOpenInNewTab($0) } } : nil,
             quickLook: can.singleNodeVerbs
                 ? { node.map { toggleQuickLook(URL(fileURLWithPath: $0.id), followsPane: true) } } : nil,
-            // The row menu's act, verbatim — `handleOpenInEditor` is the one hand-off, so the menu
-            // item and the right-click are literally the same call.
+            // The row menu's act verbatim: `handleOpenInEditor` is the one hand-off.
             openInEditor: can.openInEditor
                 ? { node.map { delegate.handleOpenInEditor($0.id) } } : nil,
-            // **Download joined the menu with the v5.3 batch (roadmap RD2)**, and the objection that
-            // kept it out is answered: the selection belongs to the active pane, and the act posts
-            // the same `CloudDownloadRequest` the row menu posts, carrying that pane's token, on the
-            // app's channel — the one the pane listens on — so the badge watch starts as it does
-            // from the row. The offer is the row menu's own (`CloudDownloadOffer`), and its act the
-            // row's verb through the one shared implementation.
+            // The row menu's own offer (`CloudDownloadOffer`) and act: it posts the same
+            // `CloudDownloadRequest` the row does, with the active pane's token, on the channel
+            // the pane listens on, so the badge watch starts as it does from the row.
             //
             // A file is answered from `CloudOnlyBadgeCache`, never a fresh `lstat`: this runs on
-            // every `ContentView` body pass, and a selected row has been drawn, so its badge has
-            // already recorded the answer. A row whose badge has not resolved yet reads `nil` and
-            // is left out for that pass — the next pass has it. A folder is a path check, and for
-            // one under `~/Desktop` or `~/Documents` an attribute read, made off the main thread.
+            // every body pass, and a selected row has been drawn, so its badge has the answer. A
+            // row whose badge hasn't resolved reads `nil` for that pass. A folder is a path check,
+            // plus an attribute read made off the main thread for one under `~/Desktop` or
+            // `~/Documents`.
             download: CloudDownloadOffer.forActiveSelection(selection)
                 .map { offer in
                     PaneRowVerbs.SelectionDownload(title: offer.title, run: {
@@ -1912,17 +1742,15 @@ extension ContentView {
 
     /// File ▸ Organize's verbs, over the active pane's selection.
     ///
-    /// **Single selection throughout, and that is the verbs' own rule rather than a simplification.**
-    /// Every one of them takes a `FileNode`: organizing two folders is two questions, and "find
-    /// duplicates of this" has no meaning for two things at once. With several rows selected each
-    /// item disables rather than silently acting on the first.
+    /// Single selection throughout, the verbs' own rule: each takes a `FileNode`, and "find
+    /// duplicates of this" means nothing for two things. With several rows selected each item
+    /// disables rather than acting on the first.
     var shortcutOrganizeVerbs: OrganizeVerbs {
-        // **The row menu's own delegate, for the pane the selection is in.** Not `actionHandler`
-        // directly: these four verbs live on `PaneActionDelegate`, which is what decides a risky
-        // name and what the row menu routes through. Building the same value here is what keeps a
-        // menu item and a right-click doing one thing rather than two similar things.
-        // Read ONCE. `activeSelectionNodes` resolves every selected path through the manager's
-        // index on each access, and the first cut evaluated it three times to answer one question.
+        // The row menu's own delegate for the selection's pane, not `actionHandler`: these verbs
+        // live on `PaneActionDelegate`, which decides a risky name, so a menu item and a
+        // right-click do one thing.
+        // Read once: `activeSelectionNodes` resolves every selected path through the index on
+        // each access.
         let selection = activeSelectionNodes
         // Selection-free, so it is resolved before the selection guard: the ledger undo is
         // available whether or not a row is selected.
@@ -1945,27 +1773,25 @@ extension ContentView {
             fixName: can.fixName ? { delegate.handleFixName(node) } : nil,
             keepName: can.keepName ? { delegate.handleKeepName(node) } : nil,
             undoReorganisation: undoReorganisation,
-            // §11's two deferred verbs. Availability is the RESOLVER's answer, so a greyed item
-            // and an offered one differ by whether the folder actually resolves to a finding
-            // that carries the surface — never by a second opinion about which kinds do.
+            // Availability is the resolver's answer, so an item is greyed or offered by whether
+            // the folder resolves to a finding that carries the surface, never by a second opinion.
             planShape: restructureVerb(.plan, for: node),
             setUpLikeSiblings: restructureVerb(.setUp, for: node))
     }
 
-    /// One of §11's two folder verbs as a runnable, or nil when the selected folder resolves to
-    /// no finding that offers it — which greys the item (proposal O10).
+    /// One of the two Restructure folder verbs as a runnable, or `nil` (greying the item) when the
+    /// selected folder resolves to no finding that offers it.
     ///
-    /// **It writes a request rather than presenting anything.** The workspace owns the plan sheet
-    /// and the scaffold, and re-resolves the folder when it runs: a menu item is enabled when the
-    /// menu is drawn and clicked afterwards, and a landing in between can retire the finding it
-    /// named.
+    /// It writes a request rather than presenting anything. The workspace owns the plan sheet and
+    /// the scaffold, and re-resolves the folder when it runs: an item is enabled when the menu is
+    /// drawn and clicked later, and a landing in between can retire the finding it named.
     func restructureVerb(_ verb: RestructureVerbResolver.Verb,
                          for node: FileNode) -> (() -> Void)? {
         guard node.isDirectory,
               let root = syncManager.filingFolderProfile?.root,
-              // **Availability is the workspace's own answer**, not a second copy of it: the
-              // store gate, the routing and the already-scaffolded check all live in `resolve`,
-              // and an item enabled over a handler that then refuses is the shape this closes.
+              // Availability is the workspace's own answer: the store gate, the routing and the
+              // already-scaffolded check all live in `resolve`, so the handler never refuses an
+              // item that was enabled.
               case .run = RestructureVerbResolver.resolve(
                   verb, folder: node.id, root: root,
                   in: syncManager.visibleStructureFindings,
@@ -1975,11 +1801,10 @@ extension ContentView {
         let folder = node.id
         let providerRoot = lensProviderRootExpanded
         return {
-            // **Navigate first.** The request's only consumer is `LensWorkspaceView`, which is
-            // not mounted in Browse or Compare (`Workspace.lens` is nil there), during a person
-            // gather, or in the Storage lens — so from those the press was silently eaten, and
-            // the stale request then sat unconsumed until a second press replaced it. Showing
-            // Restructure is also the deliberate arrival §5.10 established for these verbs.
+            // Navigate first. The request's only consumer is `LensWorkspaceView`, which isn't
+            // mounted in Browse or Compare (`Workspace.lens` is nil there), during a person
+            // gather, or in the Storage lens, so from there the press would be eaten and the
+            // request left unconsumed. Showing Restructure is also where these verbs should land.
             checkFolderShapeAction(node, providerRoot: providerRoot)
             restructureVerbRequest = RestructureVerbRequest(verb: verb, folder: folder)
         }
@@ -1989,10 +1814,9 @@ extension ContentView {
     /// The newest un-undone landing in the Restructure ledger, as a runnable — nil when there is
     /// nothing to undo, which greys the menu item.
     var shortcutUndoReorganisation: (() -> Void)? {
-        // THE predicate, not a copy of it: `undoableReorganisation` is the one spelling of
-        // which landing may be undone, shared with the lens's cards and mirrored by the
-        // engine's own guards — a menu enabled by its own private rule is a menu that can
-        // drift into offering an undo whose card shows no button.
+        // The predicate itself, not a copy: `undoableReorganisation` is the one rule for which
+        // landing may be undone, shared with the lens's cards and mirrored by the engine's
+        // guards, so the menu can't offer an undo whose card shows no button.
         guard let record = syncManager.restructureStore?.undoableReorganisation(
             currentProfileId: syncManager.filingProfileDirectoryId) else { return nil }
         let manifestId = record.manifest.manifestId
@@ -2005,6 +1829,9 @@ extension ContentView {
         }
     }
 
+    /// ⌘[ and ⌘]: `paneDrawsColumns(isLeft:)` is resolved once and used for both the gate and the
+    /// act, so the item can't be enabled by a column stack the pane on screen doesn't draw, the
+    /// same pairing the header's arrows make.
     var shortcutGoBack: (() -> Void)? {
         let isLeft = shortcutTargetIsLeft
         let columns = paneDrawsColumns(isLeft: isLeft)
@@ -2021,25 +1848,18 @@ extension ContentView {
 
     // MARK: - The column stack: ⌘↓ and ⌘↑ (roadmap RD5)
     //
-    // **These move the pane's COLUMN STACK, never its comparison scope.** `PaneBrowsePath`'s own
-    // doc comment is where that distinction is written down, and it is the decision RD5 was
-    // deferred on since 2026-08-20: the scope reloads the tree and re-runs the scan, the stack
-    // costs nothing and leaves every difference badge valid. Decided 2026-09-06 in favour of the
-    // stack, which is also why both items are dead in Tree view — a tree draws no columns, and a
-    // chord that quietly means something else there is the confusion this codebase has a history
-    // of.
-    //
-    // Both go through `applyColumnNavigation`, the same door a column click uses, so the seam
-    // link's mirroring is applied identically. Writing the binding directly would give the chord
-    // a behaviour the click it replaces does not have.
+    // These move the pane's column stack, never its comparison scope (see `PaneBrowsePath`): the
+    // scope reloads the tree and re-runs the scan, the stack costs nothing and keeps every
+    // difference badge valid. So both are dead in Tree view, which draws no columns. Both go
+    // through `applyColumnNavigation`, the door a column click uses, so the seam link mirrors
+    // them as it does a click.
 
-    /// ⌘↓ — open the selected folder into a new column.
+    /// ⌘↓: open the selected folder into a new column.
     ///
-    /// `nil`, and so disabled, unless Columns is on screen and the selection is exactly one folder
-    /// **in the deepest open column**. The depth restriction is what makes the resulting stack the
-    /// same one a click on that row produces: `drill(into:atDepth:)` discards every column past
-    /// `depth`, so drilling a selection held in an earlier column would silently close the columns
-    /// to its right — which a click there does too, but which nobody pressing ⌘↓ is asking for.
+    /// `nil` (disabled) unless Columns is on screen and the selection is exactly one folder in the
+    /// deepest open column. `drill(into:atDepth:)` discards every column past `depth`, so drilling
+    /// a selection in an earlier column would close the columns to its right, which nobody
+    /// pressing ⌘↓ asks for.
     var shortcutOpenSelectedFolder: (() -> Void)? {
         guard contentLayout.drawsAPaneList else { return nil }
         let isLeft = shortcutTargetIsLeft
@@ -2057,17 +1877,13 @@ extension ContentView {
         return { applyColumnNavigation(next, isLeft: isLeft) }
     }
 
-    /// ⌘↑ — close the rightmost column.
+    /// ⌘↑: close the rightmost column.
     ///
-    /// **Not a second spelling of ⌘[, and the difference is the whole reason it exists.** `⌘[`
-    /// (`shortcutGoBack`) pops this same stack and then FALLS THROUGH to the pane's focus history
-    /// once the stack is empty, stepping the comparison scope back. This one stops at the root
-    /// column and returns `nil`, which disables the item. Finder draws the same distinction between
-    /// Back and Enclosing Folder; a reader who "simplifies" this into `shortcutGoBack` reintroduces
-    /// a rescan on a chord that promises not to move the scope.
-    ///
-    /// `popLast()` pushes onto the forward stack, exactly as `‹` does — the two are the same move
-    /// on the same axis, so `›` must be able to walk back into a column either of them closed.
+    /// Not a second spelling of ⌘[: `shortcutGoBack` pops the same stack and then falls through
+    /// to the focus history, stepping the comparison scope back. This stops at the root column
+    /// and returns `nil`, as Finder's Enclosing Folder differs from Back; merging the two would
+    /// bring a rescan to a chord that promises not to move the scope. `popLast()` feeds the
+    /// forward stack, as `‹` does, so `›` can walk back into a closed column.
     var shortcutEnclosingFolder: (() -> Void)? {
         guard contentLayout.drawsAPaneList else { return nil }
         let isLeft = shortcutTargetIsLeft
@@ -2089,10 +1905,9 @@ extension ContentView {
         actionHandler?.beginCreateFolder(in: target)
     }
 
-    /// ⌘K → *Check This Folder's Shape* — §5.10's palette route: the shape question about the
-    /// folder you are standing in, wearing the row context menu's exact words. The target
-    /// resolves the way ⇧⌘N's does: the aimed pane's current folder, which in Columns is the
-    /// deepest open column.
+    /// ⌘K → Check This Folder's Shape: the shape question about the folder you are standing in,
+    /// in the row context menu's exact words. The target resolves as ⇧⌘N's does: the aimed pane's
+    /// current folder, which in Columns is the deepest open column.
     func restructureCurrentFolder() {
         let isLeft = shortcutTargetIsLeft
         let pane = paneContext(isLeft: isLeft)
@@ -2110,14 +1925,12 @@ extension ContentView {
 
     var shortcutNewFolder: (() -> Void)? {
         guard actionHandler != nil else { return nil }
-        // **Only where a pane list is DRAWN — which is a question about the layout, not about the
-        // workspace.** ⇧⌘N opens a naming row inside the pane's file list. The Editor draws a real
-        // pane when its source column is expanded, and nothing but a 34pt spine when it is
-        // collapsed — which is how it starts — so gating on the workspace would be wrong in one
-        // direction and gating on `layoutMode` (which cannot tell a rail from a spine) was wrong in
-        // the other: it left ⇧⌘N live over a pane the user cannot see, in a naming state they
-        // cannot dismiss. Asked of the layout, like the collapse rung, so the next workspace with a
-        // collapsible pane inherits the answer rather than the bug.
+        // Only where a pane list is drawn, a question about the layout, not the workspace: ⇧⌘N
+        // opens a naming row inside the pane's file list. Edit draws a real pane when its source
+        // column is expanded and only a 34pt spine when collapsed (how it starts), and
+        // `layoutMode` can't tell a rail from a spine, so either gate would leave ⇧⌘N live over a
+        // pane the user can't see, in a naming state they can't dismiss. Asked of the layout, like
+        // the collapse rung, so the next collapsible pane inherits the answer.
         guard contentLayout.drawsAPaneList else { return nil }
         let isLeft = shortcutTargetIsLeft
         return { beginNewFolder(isLeft: isLeft) }
@@ -2143,28 +1956,26 @@ extension ContentView {
     }
 
     var shortcutDeleteSelection: (() -> Void)? {
-        // The review card's plain ⌫ means "skip this item" — one modifier away from ⌘⌫ meaning
-        // "delete files", on the same keyboard the card owns. The card's surface takes the
-        // keys during a session; the pane bar's Delete button stays clickable, as before.
+        // The review card's plain ⌫ means "skip this item", one modifier from ⌘⌫ meaning "delete
+        // files" on the keyboard the card owns, so the card's surface takes the keys during a
+        // session; the pane bar's Delete button stays clickable.
         guard layoutMode == .compare, actionHandler != nil, !reviewStore.isReviewing else { return nil }
         guard !activeSelectionNodes.isEmpty else { return nil }
-        // Fire-time resolution, deliberately not a captured array: a menu held open in
-        // menu-tracking mode is not re-armed by a republish, so a snapshot could name rows a
-        // background bulk sync has since replaced. Reading at fire keeps the destructive path
-        // on live state; an emptied selection resolves to `[]`, which `confirmDelete` refuses.
+        // Fire-time resolution, not a captured array: a menu held open is not re-armed by a
+        // republish, so a snapshot could name rows a background bulk sync has since replaced.
+        // An emptied selection resolves to `[]`, which `confirmDelete` refuses.
         return { actionHandler?.confirmDelete(activeSelectionNodes) }
     }
 }
 
 // MARK: - The menu items
 
-/// View ▸ the workspaces, one ⌘-digit each in bar order. `Toggle`s, so the menu carries the checkmark
-/// a `Picker` would have given for free — a `Picker` can't put a distinct chord on each option.
+/// View ▸ the workspaces, one ⌘-digit each in bar order. `Toggle`s, so the menu carries the
+/// checkmark a `Picker` would give, since a `Picker` can't put a distinct chord on each option.
 ///
-/// The chords come from POSITION in `Workspace.allCases`, so adding Browse at the head shifted
-/// every other workspace's number by one. That is the cost of numbering by position, and it is
-/// the right cost: the badge on each segment is generated the same way, so the menu and the bar
-/// cannot disagree about which key opens what.
+/// The chords come from position in `Workspace.allCases`, so inserting a workspace renumbers the
+/// ones after it. The segment badges are generated the same way, so the menu and the bar can't
+/// disagree about which key opens what.
 struct WorkspaceCommands: View {
     @FocusedValue(\.workspaceSelection) private var selection
 
@@ -2207,16 +2018,16 @@ struct GoForwardCommand: View {
     }
 }
 
-/// Go ▸ Back, Forward, Enclosing Folder, Open Selected Folder — **one child, not four.**
+/// Go ▸ Back, Forward, Enclosing Folder, Open Selected Folder, as one child, not four.
 ///
-/// `CommandMenu`'s builder takes ten children and the Go menu had nine; adding the RD5 pair loose
-/// would have put it at eleven, which fails as `extra argument in call` reported at the CLOSING
-/// brace rather than at either new line. Bundling the four that move one pane also says what they
-/// have in common, the way `TransferCommands` does for the four directional transfers.
+/// `CommandMenu`'s builder takes ten children; four loose items would push the Go menu past
+/// that, which fails as `extra argument in call` reported at the closing brace rather than at any
+/// new line. Bundling the four that move one pane also says what they share, as
+/// `TransferCommands` does.
 ///
-/// **Back/Forward and the RD5 pair are not the same axis, and the grouping does not claim they
-/// are.** ⌘[ walks the column stack and then the pane's focus history; ⌘↑ walks the column stack
-/// and stops. See ``ContentView/shortcutEnclosingFolder``.
+/// Back/Forward and the column pair are not the same axis: ⌘[ walks the column stack and then the
+/// pane's focus history; ⌘↑ walks the column stack and stops. See
+/// ``ContentView/shortcutEnclosingFolder``.
 struct PaneNavigationCommands: View {
     var body: some View {
         Group {
@@ -2228,34 +2039,30 @@ struct PaneNavigationCommands: View {
     }
 }
 
-/// ⌘↑ — close the rightmost column. Disabled outside Columns and at the root column.
+/// ⌘↑: close the rightmost column. Disabled outside Columns and at the root column.
 ///
-/// **Visible-and-greyed in Tree view rather than absent**, which is this menu's convention
-/// throughout (⌘[, ⌘], ⌃⇥ all stay drawn and disable): a menu whose items appear and disappear with
-/// the view mode makes the keyboard undiscoverable, and the item is how someone finds out the chord
-/// exists at all.
+/// Drawn and greyed in Tree view rather than absent, as ⌘[, ⌘] and ⌃⇥ are: items that come and
+/// go with the view mode make the keyboard undiscoverable, and the item is how someone learns the
+/// chord exists.
 struct EnclosingFolderCommand: View {
     @FocusedValue(\.paneEnclosingFolder) private var up
 
     var body: some View {
         Button("Enclosing Folder") {
-            // **⌘↑ is NSText's move-to-beginning-of-document**, and a menu key equivalent outranks
-            // the field editor — so without this, ⌘↑ with the caret in the pane search, a rename
+            // ⌘↑ is NSText's move-to-beginning-of-document, and a menu key equivalent outranks
+            // the field editor, so without this ⌘↑ with the caret in the pane search, a rename
             // row, the ⌘K field or an open document would close a column instead of moving the
-            // caret. `TextEditingChord`'s own doc comment named this pair as the case it was built
-            // ahead of; this is it arriving. Handing the key back is not optional: swallowing it
-            // would read as the app being broken rather than as a chord being busy.
+            // caret. Handing the key back is required: swallowing it reads as the app broken.
             TextEditingChord.route(editorAction: { $0.moveToBeginningOfDocument(nil) },
                                    fileAction: { up?() })
         }
             .keyboardShortcut(AppChord.enclosingFolder.key,
                               modifiers: AppChord.enclosingFolder.modifiers)
-            // **Disabled AND routed, which is `TransferCommands`' arrangement and not a belt-and-
-            // braces one.** The two cover different halves. Disabled is what greys the item out in
-            // Tree view and at the root column — and a disabled item does not consume its key
-            // equivalent, so ⌘↑ falls through to the field editor there of its own accord. The
-            // routing covers the other half: while the item IS enabled, the menu outranks the
-            // field editor, and without it ⌘↑ would close a column out from under a caret.
+            // Disabled and routed, as in `TransferCommands`; the two cover different halves.
+            // Disabled greys the item in Tree view and at the root column, and a disabled item
+            // doesn't consume its key, so ⌘↑ falls through to the field editor. While enabled,
+            // the menu outranks the field editor, and the routing keeps ⌘↑ from closing a column
+            // out from under a caret.
             .disabled(up == nil)
     }
 }
@@ -2299,11 +2106,10 @@ struct NewFolderCommand: View {
     }
 }
 
-/// File ▸ New Text File… — the editor's ⌘N, shaped exactly like New Folder above.
+/// File ▸ New Text File…: the editor's ⌘N, shaped like New Folder above.
 ///
-/// **The ellipsis is load-bearing**, and it is the same promise: this opens the naming row in the
-/// editor's rail and creates nothing. Return commits, Esc cancels, and until then the folder on
-/// disk is untouched.
+/// The ellipsis is the same promise: this opens the naming row in the editor's rail and creates
+/// nothing. Return commits, Esc cancels, and until then the folder on disk is untouched.
 struct NewTextFileCommand: View {
     @FocusedValue(\.newTextFile) private var newTextFile
 
@@ -2314,12 +2120,12 @@ struct NewTextFileCommand: View {
     }
 }
 
-/// **File ▸ Open Recent ▸ the files Edit opened last** (TE58) — the empty page's list, as a menu.
+/// File ▸ Open Recent ▸ the files Edit opened last: the empty page's list, as a menu.
 ///
-/// Built here rather than taken from `NSDocumentController`, which this app does not use for its
-/// documents: its menu would list only what passed through it, and nothing does. **No chord, and
-/// Clear Menu asks nothing**, as Finder's does — the files are untouched, and opening one puts it
-/// back. Two rows with the same name carry their folders, since the menu has no column for them.
+/// Built here, not taken from `NSDocumentController`, which this app doesn't use for its
+/// documents, so its menu would list nothing. No chord, and Clear Menu asks nothing, as Finder's
+/// doesn't: the files are untouched, and opening one puts it back. Two rows with the same name
+/// carry their folders, since the menu has no column for them.
 struct OpenRecentCommand: View {
     @FocusedValue(\.openRecent) private var open
     @ObservedObject private var recents = EditorRecentFiles.shared
@@ -2342,11 +2148,11 @@ struct OpenRecentCommand: View {
     }
 }
 
-/// File ▸ Save — the editor's ⌘S.
+/// File ▸ Save: the editor's ⌘S.
 ///
-/// **No ellipsis and no "Save As".** This writes the file that is open, at the path it was opened
-/// from; there is no picker to summon and nothing to decide. The item stays live while a document
-/// is open, and writes nothing when the buffer already matches the file (TE145).
+/// No ellipsis and no Save As: this writes the open file at the path it was opened from, with
+/// nothing to decide. The item stays live while a document is open, and writes nothing when the
+/// buffer already matches the file.
 struct SaveDocumentCommand: View {
     @FocusedValue(\.saveDocument) private var save
 
@@ -2357,14 +2163,13 @@ struct SaveDocumentCommand: View {
     }
 }
 
-/// File ▸ Close Document — puts the editor's open document away (TE46), the header's × as a
-/// menu item.
+/// File ▸ Close Document: puts the editor's open document away, the header's × as a menu item.
 ///
-/// **No key, and that is two decisions.** ⌘W is Close Tab, which took AppKit's Close with it (see
-/// the `.saveItem` note in `SyncCloudApp`); and an ⌥ chord — ⌥⌘W, the obvious neighbour — is the
-/// one kind that fires through the ⌥-hold reveal, which nothing in this app may register. **No
-/// ellipsis either**: like AppKit's own Close, it may ask about unsaved changes, but it opens no
-/// dialog of its own. Greyed outside Edit and with nothing open, the way Download greys.
+/// No key, for two reasons: ⌘W is Close Tab, which took AppKit's Close with it (see the
+/// `.saveItem` note in `SyncCloudApp`), and an ⌥ chord such as ⌥⌘W fires through the ⌥-hold
+/// reveal, which nothing in this app may register. No ellipsis: like AppKit's Close it may ask
+/// about unsaved changes, but opens no dialog of its own. Greyed outside Edit and with nothing
+/// open.
 struct CloseDocumentCommand: View {
     @FocusedValue(\.closeDocument) private var close
 
@@ -2374,12 +2179,11 @@ struct CloseDocumentCommand: View {
     }
 }
 
-/// File ▸ Export as PDF… — the rendered document, written where the reader says.
+/// File ▸ Export as PDF…: the rendered document, written where the reader says.
 ///
-/// **Above Print…, and with the ellipsis Print's own convention explains.** Both open a dialog, so
-/// both carry one; Export is first because it is the one whose destination is a file, which is the
-/// question the rest of this group answers (New…, Save). No key equivalent — see
-/// ``AppChord/printDocument``.
+/// Above Print…, both with the ellipsis because both open a dialog; Export comes first because
+/// its destination is a file, the question the rest of this group answers (New…, Save). No key
+/// equivalent; see ``AppChord/printDocument``.
 struct ExportPDFCommand: View {
     @FocusedValue(\.documentPrint) private var actions
 
@@ -2389,10 +2193,10 @@ struct ExportPDFCommand: View {
             .disabled(actions?.export == nil)
     }
 
-    /// **Named for the document it exports** (TE130): "Export “Plan.md” as PDF…", so it cannot be
-    /// read as Save as PDF further down, which writes the selected pane rows. Greyed, with nothing
-    /// to export, it is plain "Export as PDF…". A long name is shortened in the middle, keeping its
-    /// extension, so the File menu does not grow to the width of a file name.
+    /// Named for the document it exports, "Export “Plan.md” as PDF…", so it can't be read as Save
+    /// as PDF further down, which writes the selected pane rows. Greyed, it is plain "Export as
+    /// PDF…". A long name is shortened in the middle, keeping its extension, so the File menu
+    /// doesn't grow to the width of a file name.
     static func title(name: String?) -> String {
         guard let name, !name.isEmpty else { return "Export as PDF…" }
         return "Export “\(shortened(name))” as PDF…"
@@ -2408,11 +2212,10 @@ struct ExportPDFCommand: View {
     }
 }
 
-/// File ▸ Print… — the open document, rendered, on paper.
+/// File ▸ Print…: the open document, rendered, on paper.
 ///
-/// **It prints what Preview shows**, whichever of the three modes is on screen: printing a Markdown
-/// document means the rendered document, and a reader in Source mode asking to print has asked for
-/// the document, not for its markup. A plain-text file has no rendered form, and prints as text.
+/// It prints what Preview shows, whichever mode is on screen: asking to print a Markdown document
+/// from Source mode is asking for the document, not its markup. A plain-text file prints as text.
 struct PrintDocumentCommand: View {
     @FocusedValue(\.documentPrint) private var actions
 
@@ -2423,16 +2226,16 @@ struct PrintDocumentCommand: View {
     }
 }
 
-/// File ▸ PDF Tools ▸ — the PDF header's Tools menu, in the menu bar, or a pane row's PDF Tools for
+/// File ▸ PDF Tools ▸: the PDF header's Tools menu in the menu bar, or a pane row's PDF Tools for
 /// the selection wherever Edit is not showing a PDF (see ``PDFToolsMenu``).
 ///
-/// **Below Print…, after a divider**: the group is what a document becomes on its way out, and every
-/// tool here writes a new copy, as Export as PDF… does. **No chords** — each opens a sheet or writes
-/// a file, and the keys Preview gives its rotations (⌘L, ⌘R) are the activity log and Rescan here.
+/// Below Print…, after a divider: the group is what a document becomes on its way out, and every
+/// tool writes a new copy, as Export as PDF… does. No chords: each opens a sheet or writes a file,
+/// and Preview's rotation keys (⌘L, ⌘R) are the activity log and Rescan here.
 ///
-/// **Greyed item by item, not only as a submenu**: a disabled `Menu` in the menu bar still leaves its
-/// items live (measured — `TextMarkupMenuTests`). With nothing to act on it lists ``idle`` — tools
-/// attached to no file, whose every line is greyed by the entries' own rules.
+/// Greyed item by item, not only as a submenu: a disabled `Menu` in the menu bar still leaves its
+/// items live (`TextMarkupMenuTests`). With nothing to act on it lists ``idle``, tools attached
+/// to no file, every line greyed by the entries' own rules.
 struct PDFToolsCommand: View {
     @FocusedValue(\.pdfTools) private var tools
     @FocusedValue(\.paneRowVerbs) private var rowVerbs
@@ -2445,13 +2248,12 @@ struct PDFToolsCommand: View {
     @MainActor static let idle = EditorPDFTools()
 }
 
-/// **File ▸ Save as PDF** — the row menu's Save as PDF for the focused pane's selection: one file
-/// or a batch, under the row's own title ("Save as PDF · 3 files", as PDF Tools counts its files),
-/// and greyed where the row hides it.
+/// File ▸ Save as PDF: the row menu's Save as PDF for the focused pane's selection, one file or
+/// a batch, under the row's own title ("Save as PDF · 3 files") and greyed where the row hides it.
 ///
-/// **After PDF Tools**, in the group of things a document becomes on its way out. Unlike Export as
-/// PDF…, which renders the document open in Edit to a place the reader picks, this writes each
-/// selected file's PDF beside it — so no ellipsis: it opens nothing. **No chord**, as for the tools.
+/// After PDF Tools, with what a document becomes on its way out. Unlike Export as PDF…, which
+/// renders Edit's document to a place the reader picks, this writes each selected file's PDF
+/// beside it, so no ellipsis: it opens nothing. No chord, as for the tools.
 struct SaveAsPDFCommand: View {
     @FocusedValue(\.paneRowVerbs) private var rowVerbs
 
@@ -2474,7 +2276,7 @@ struct SaveAsPDFMenuContent: View {
     }
 }
 
-/// **File ▸ PDF Tools' submenu, for what the window published** — apart from the item so a test can
+/// File ▸ PDF Tools' submenu for what the window published, apart from the item so a test can
 /// draw it with a selection, which the test host's menu bar is never handed.
 struct PDFToolsMenuContent: View {
     let tools: EditorPDFTools?
@@ -2498,8 +2300,8 @@ struct PDFToolsMenuContent: View {
     }
 }
 
-/// File ▸ Fill & Sign and Save Filled Copy, under PDF Tools — see ``PDFFillSignVerbs``. **No
-/// chords**, as for the tools: one puts a toolbar up, the other writes a file. With no PDF open it
+/// File ▸ Fill & Sign and Save Filled Copy, under PDF Tools (see ``PDFFillSignVerbs``). No
+/// chords, as for the tools: one puts a toolbar up, the other writes a file. With no PDF open it
 /// draws ``idle``, attached to no file, which greys both lines by their own rules.
 struct PDFFillSignCommand: View {
     @FocusedValue(\.pdfFill) private var verbs
@@ -2529,11 +2331,10 @@ struct DeleteSelectionCommand: View {
 
 /// Go ▸ Focus <the other pane>, ⌃⇥.
 ///
-/// The title names the destination — resolved from the same rule the chord acts on, exactly as
-/// `FoldAllDifferencesCommand` takes its verb from the header's resolved `FoldAllAction` — so the
-/// menu bar is where "which pane is focused?" can be answered at rest. Without that the state is
-/// invisible: the panes carry no focus indicator, so a title reading "Switch Pane" would say
-/// nothing about where you are or where you would end up.
+/// The title names the destination, resolved from the rule the chord acts on (as
+/// `FoldAllDifferencesCommand` takes its verb from `FoldAllAction`), so the menu bar answers
+/// "which pane is focused?" at rest. The panes carry no focus indicator, so "Switch Pane" would
+/// say nothing about where you are or where you'd end up.
 struct SwitchPaneFocusCommand: View {
     @FocusedValue(\.switchPaneFocus) private var focus
 
@@ -2564,38 +2365,20 @@ struct SelectAllCommand: View {
                                    fileAction: { SelectAllScope.selectAll(pages: pages?.run, pane: selectAll) })
         }
         .keyboardShortcut(AppChord.selectAll.key, modifiers: AppChord.selectAll.modifiers)
-        // Never disabled: with the caret in a field the item is still live, because it selects the
-        // TEXT. Withholding it on an empty pane would take ⌘A away from every field in the window.
+        // Never disabled: with the caret in a field the item still selects the text, so
+        // withholding it on an empty pane would take ⌘A from every field in the window.
     }
 }
 
-/// Edit ▸ Cut / Copy / Paste — the file clipboard, **and since v4.2 the system pasteboard too**.
+/// Edit ▸ Cut / Copy / Paste over the file clipboard: a copy writes the app's own list
+/// (`FileSyncManager.clipboardNodes`) and file URLs to the general pasteboard, so ⌘V in Finder
+/// works; a paste takes whichever was written last (`ClipboardSource.resolve`). Only the
+/// internal list carries `isCut`, so ⌘X then ⌘V is move-here.
 ///
-/// It was the app's internal list alone (`FileSyncManager.clipboardNodes`), which is why the
-/// comment here used to end "not `NSPasteboard`". A copy now also writes file URLs to the general
-/// pasteboard, so ⌘C here and ⌘V in Finder works, and a paste takes whichever clipboard was written
-/// last — `ClipboardSource.resolve` decides, and the internal list stays the only one that carries
-/// `isCut`.
-///
-/// **These verbs already worked; they had no menu and no chord.** Cut, Copy and *Paste here* have
-/// been on the row menu and the empty-area menu since before v4.0, spending through the same
-/// `copyItems`/`moveItems` as every transfer — grouped undo and success banner included. So ⌘C over
-/// a selected file did nothing visible while the working verb hid in a right-click.
-///
-/// **⌘X then ⌘V is move-here.** The clipboard carries `isCut`, so Finder's ⌥⌘V has nothing left to
-/// do — which is fortunate, because it could not be registered anyway: no chord in this app may
-/// contain ⌥ (`AppChordTests.noChordContainsOption`).
-/// **None of the three is ever `.disabled`, and that is deliberate rather than an oversight.**
-///
-/// A menu item cannot know where the caret is when it renders. Disabling Copy whenever no *files*
-/// are selected would grey it out while someone is typing in the ⌘K field or a rename box — the
-/// item would read as unavailable at the exact moment it is doing its most ordinary job. So the
-/// items stay live and `TextEditingChord.route` decides at fire time which of the two meanings
-/// applies.
-///
-/// The cost is accepted, not overlooked: with no caret and no selection, Paste is an enabled item
-/// that does nothing. `theEditItemsAreNeverDisabled` pins the property so this is not "fixed" into
-/// a regression that kills ⌘C in every text field the moment a pane has no selection.
+/// **None of the three is ever `.disabled`.** An item can't know where the caret is when it
+/// renders, so greying Copy with no files selected would grey it while someone types in the ⌘K
+/// field; `TextEditingChord.route` picks the meaning at fire time. The cost is a Paste that does
+/// nothing with no caret and no selection. `theEditItemsAreNeverDisabled` pins this.
 struct CutCommand: View {
     @FocusedValue(\.clipboardActions) private var clipboard
 
@@ -2641,67 +2424,36 @@ struct NewTabCommand: View {
     @FocusedValue(\.newTab) private var newTab
 
     var body: some View {
-        // **"New Tab", not "New Tab Here".** The roadmap's Fig. 9 names the menu item plainly and
-        // puts the "here" on the ＋'s tooltip, which is the control that needs it: a File-menu item
-        // reading "New Tab Here" asks the reader to wonder where "here" is before they have a strip
-        // to look at.
+        // "New Tab", not "New Tab Here": the "here" belongs on the ＋'s tooltip, where there is a
+        // strip to point at; in the File menu it makes the reader wonder where "here" is.
         Button("New Tab") { newTab?() }
             .keyboardShortcut(AppChord.newTab.key, modifiers: AppChord.newTab.modifiers)
             .disabled(newTab == nil)
     }
 }
 
-/// ⌘W — and **it replaces File ▸ Close, so it has to still close things this app's tabs know
-/// nothing about.**
+/// ⌘W. It replaces File ▸ Close, so with nothing published (an auxiliary `Window` scene such as
+/// Keyboard Shortcuts or Activity is key) it closes the key window.
 ///
-/// The app has two auxiliary `Window` scenes (Keyboard Shortcuts, and Activity — which holds Sync
-/// History and the log as tabs).
-/// None of them publishes a focused value, so with one of them key this item's value is `nil` — and
-/// as a plain `.disabled(close == nil)` item it left ⌘W dead in each, having taken the standard
-/// Close group's place. That is a regression the tab feature has no business causing, so a `nil`
-/// value falls back to what the item replaced: close the key window.
-///
-/// **The fallback does NOT cover the suspended case, and that is the point of ``CloseTabAction``.**
-/// While a destination pick or the ⌘K palette is up every mirrored chord is silenced, and ⌘W used
-/// to arrive here as the same `nil` an auxiliary window publishes — so the one chord that was not
-/// silenced closed the main window out from under the pick the user was in the middle of making.
-/// Suspended, ⌘W now does nothing.
-///
-/// **And it SAYS so, twice, because a refusal that neither greys out nor logs is this app's own
-/// named bug.** Doing nothing was the whole fix and it was also the whole of it: the item stayed
-/// black in a File menu whose other eleven items had greyed, and the keystroke left no trace. Both
-/// halves are covered here, on the pattern `ContentView` already states for the ambient panels
-/// ("with the latch refusing, an enabled button would be a control that silently does nothing …
-/// Disabled says so") — the latch refuses *and* the toolbar button disables, and neither one is
-/// redundant:
-///
-/// - **The item disables** while `close` is `.suspended`. That is the surface a person actually
-///   reads: the menu is the only place ⌘W's state is legible at rest, and every sibling chord is
-///   already grey there for the same reason. Disabling only on `.suspended` and not on `nil` is
-///   what keeps `theCloseItemIsNeverDisabled`'s real subject intact — an auxiliary window's ⌘W
-///   stays live, because this item is also its Close.
-/// - **``run`` logs** the refusal, at `.info`, for the same reason `toggleCommandPalette` logs
-///   ⌘K's ("⌘K did nothing and the log is silent"). With the item disabled AppKit never performs
-///   the action, so this is the residual path rather than the common one — and that is precisely
-///   its worth: the disable is one deleted modifier away from being gone, menu validation follows
-///   SwiftUI's update cycle rather than the flag it is derived from, and `run` is the rule every
-///   other reader of this behaviour goes through. If ⌘W is ever silently dead again, the log is
-///   where that is answered.
+/// Suspended (a destination pick or the ⌘K palette is up) it does nothing, since closing the
+/// main window would drop the pick, and it says so twice:
+/// - The item disables on `.suspended`, never on `nil`, so an auxiliary window's ⌘W stays live
+///   (`theCloseItemIsDisabledWhileSuspendedAndOnlyThen`).
+/// - ``run`` logs the refusal at `.info`. Menu validation follows SwiftUI's update cycle, not
+///   the flag, so the item can still fire in between; if ⌘W is ever silently dead, the log says.
 struct CloseTabCommand: View {
     @FocusedValue(\.closeTab) private var close
 
     /// What ⌘W does, in all three of its states.
     ///
-    /// Static and injectable so the rule can be tested: the live path reads the key window, which a
-    /// unit test has none of. A `switch` rather than `if let`, so a fourth state cannot be added
-    /// without the compiler asking what ⌘W should do in it.
+    /// Static and injectable so the rule can be tested without a key window. A `switch`, not
+    /// `if let`, so a fourth state can't be added without the compiler asking what ⌘W does in it.
     static func run(_ close: CloseTabAction?, closeWindow: () -> Void) {
         switch close {
         case .closeTab(let closeTab): closeTab()
-        // An overlay owns the keyboard. Doing nothing is the whole fix: the alternative — falling
-        // through to `closeWindow` — takes the window an in-flight file operation is asking about.
-        // Said out loud, though, on ⌘K's rule: `.info` rather than `.debug`, because `.debug` is
-        // dropped at Settings ▸ Advanced ▸ Info and this is a refusal a user can trigger by hand.
+        // An overlay owns the keyboard. Falling through to `closeWindow` would take the window an
+        // in-flight file operation is asking about. Logged at `.info`, not `.debug`, because
+        // `.debug` is dropped at Settings ▸ Advanced ▸ Info and a user can trigger this by hand.
         case .suspended:
             Logger.shared.info("⌘W ignored: an overlay owns the keyboard")
         // Nothing published: an auxiliary window, where this item stands in for File ▸ Close.
@@ -2716,9 +2468,8 @@ struct CloseTabCommand: View {
             Self.run(close) { NSApp.keyWindow?.performClose(nil) }
         }
         .keyboardShortcut(AppChord.closeTab.key, modifiers: AppChord.closeTab.modifiers)
-        // **`isSuspended`, never `close == nil`** — see the note above. A `nil` value is an
-        // auxiliary window and this item is its Close; disabling there is the regression the
-        // three-state value was introduced to undo.
+        // `isSuspended`, never `close == nil`: a `nil` value is an auxiliary window and this
+        // item is its Close, so disabling there would leave ⌘W dead.
         .disabled(close?.isSuspended == true)
     }
 }
@@ -2749,11 +2500,11 @@ struct PreviousTabCommand: View {
     }
 }
 
-/// Go ▸ Previous Tab on ⌃⇧⇥ (SH3): the same step as Previous Tab ⇧⌘[, on the reverse of ⌃⇥.
+/// Go ▸ Previous Tab on ⌃⇧⇥: the same step as Previous Tab ⇧⌘[, on the reverse of ⌃⇥.
 ///
-/// **Hidden, with its key live** — `GoMenuDuplicates` hides it behind Previous Tab ⇧⌘[, since
-/// AppKit folds an alternate only into an item with the same key. It is a menu item at all because
-/// a menu item is what makes a chord answer from anywhere in the window.
+/// Hidden, with its key live: `GoMenuDuplicates` hides it behind Previous Tab ⇧⌘[, since AppKit
+/// folds an alternate only into an item with the same key. It is a menu item because that is
+/// what makes a chord answer from anywhere in the window.
 struct PreviousTabControlCommand: View {
     @FocusedValue(\.cycleTab) private var cycle
 
@@ -2764,8 +2515,8 @@ struct PreviousTabControlCommand: View {
     }
 }
 
-/// **No chord, deliberately.** ⇧⌘T is View ▸ Tab Bar (Finder's mapping), and the only free
-/// alternative would carry ⌥ — the one kind of chord that fires through the ⌥-hold reveal.
+/// No chord: ⇧⌘T is View ▸ Tab Bar (Finder's mapping), and the only free alternative would carry
+/// ⌥, the one kind of chord that fires through the ⌥-hold reveal.
 struct ReopenClosedTabCommand: View {
     @FocusedValue(\.reopenClosedTab) private var reopen
 
@@ -2791,10 +2542,9 @@ struct ToggleTabBarCommand: View {
     }
 }
 
-/// A noun with a tick, like the Tab Bar above it. **No chord**: ⌘/ is Finder's Show Status Bar,
-/// but this app already spends its unmodified-⌘ punctuation elsewhere, and the two conventional
-/// alternatives both carry ⌥ — the one kind of chord that fires through the ⌥-hold reveal, which
-/// `AppChordTests` holds the whole app to. The item is one row under a menu people open anyway.
+/// A noun with a tick, like the Tab Bar above it. No chord: ⌘/ is Finder's Show Status Bar, but
+/// this app spends its unmodified-⌘ punctuation elsewhere, and the conventional alternatives
+/// carry ⌥, which `AppChordTests` forbids. The item is one row in a menu people open anyway.
 struct ToggleStatusBarCommand: View {
     @FocusedValue(\.statusBarVisible) private var statusBar
 
@@ -2807,11 +2557,11 @@ struct ToggleStatusBarCommand: View {
     }
 }
 
-/// View ▸ Format Bar — Edit's format bar, shown or hidden: the bar's twin of Status Bar above it,
-/// and greyed outside Edit as Status Bar is outside Browse. **In View, not Text**, where it first
-/// shipped: showing and hiding a bar is what View is for on a Mac, and Text keeps the switches about
-/// how the text behaves. Live on a `.txt` too — a preference, which comes back with the next
-/// Markdown file — so it greys only where no document is open. No chord, for Status Bar's reason.
+/// View ▸ Format Bar: Edit's format bar, shown or hidden, the twin of Status Bar above it and
+/// greyed outside Edit as Status Bar is outside Browse. In View, not Text: showing and hiding a
+/// bar is what View is for on a Mac, and Text keeps the switches about how the text behaves. Live
+/// on a `.txt` too, as a preference that comes back with the next Markdown file, so it greys only
+/// where no document is open. No chord, for Status Bar's reason.
 struct ToggleFormatBarCommand: View {
     @FocusedValue(\.editorVerbs) private var verbs
     @AppStorage(EditorTextSettings.showsFormatBarKey) private var showsFormatBar = EditorTextSettings.showsFormatBarDefault
@@ -2822,10 +2572,9 @@ struct ToggleFormatBarCommand: View {
     }
 }
 
-/// The switches that add or remove a strip of chrome — **one child, because the View menu's
-/// builder was at its ten.** The same accommodation `PaneNavigationCommands` and
-/// `TextSizeMenuCommand` make, and grouped on the same argument they are: these are adjacent in the
-/// menu and answer the same question — whether a bar is drawn.
+/// The switches that add or remove a strip of chrome, as one child because the View menu's
+/// builder is at its ten. The same accommodation as `PaneNavigationCommands` and
+/// `TextSizeMenuCommand`: these sit together and answer one question, whether a bar is drawn.
 struct PaneChromeCommands: View {
     var body: some View {
         ToggleTabBarCommand()       // ⇧⌘T
@@ -2836,10 +2585,9 @@ struct PaneChromeCommands: View {
 
 /// The Organize menu's five sections, ticked.
 ///
-/// **Flat, because this IS the menu.** An earlier cut nested these in a `Menu("Organize")` inside
-/// View, which put a second item reading "Organize" four rows under the ⌘3 workspace item — one
-/// menu, one word, two meanings. The word now appears once per menu, exactly as View ▸ Compare ⌘2
-/// and the Compare menu have coexisted since v4.0.
+/// Flat, because this is the menu. Nested in a `Menu("Organize")` inside View, a second item
+/// reading "Organize" would sit under the ⌘3 workspace item: one menu, one word, two meanings.
+/// The word appears once per menu, as View ▸ Compare ⌘2 and the Compare menu do.
 struct OrganizeLensCommands: View {
     @FocusedValue(\.organizeLens) private var lens
 
@@ -2865,10 +2613,9 @@ struct PaneRowVerbCommands: View {
     @FocusedValue(\.paneRowVerbs) private var verbs
 
     var body: some View {
-        // **First, and the only item here with a key.** The group's note below records that Rename
-        // and Download deliberately carry none; this one is the exception because ⌘O is the key a
-        // reader tries unprompted, it was unclaimed, and a window-level item can hold a key that a
-        // per-row menu cannot.
+        // First, and the only item here with a key: ⌘O is the key a reader tries unprompted, it
+        // was free, and a window-level item can hold a key a per-row menu can't. Rename and
+        // Download carry none.
         Button("Open in Edit") { verbs?.openInEditor?() }
             .keyboardShortcut(AppChord.openInEditor.key, modifiers: AppChord.openInEditor.modifiers)
             .disabled(verbs?.openInEditor == nil)
@@ -2884,8 +2631,8 @@ struct PaneRowVerbCommands: View {
         Button("Reveal in Finder") { verbs?.revealInFinder?() }
             .disabled(verbs?.revealInFinder == nil)
         Divider()
-        // No chord: ↩ is the one people try, and it cannot be a menu key equivalent — it outranks
-        // every default button in the app. Order step 6 teaches the pane to handle it directly.
+        // No chord: ↩ is the one people try, and it can't be a menu key equivalent, which would
+        // outrank every default button in the app. The pane handles ↩ itself.
         Button("Rename") { verbs?.rename?() }
             .disabled(verbs?.rename == nil)
         // Ellipses: both open the destination picker rather than moving anything.
@@ -2898,11 +2645,10 @@ struct PaneRowVerbCommands: View {
     }
 }
 
-/// Organize ▸ the four verbs, aimed at the pane selection.
+/// Organize ▸ the row verbs, aimed at the pane selection.
 ///
-/// They were under File until `c75927be` gave Organize a menu of its own — where the sections above
-/// them already were, and where a verb about Organize belongs. `fileNoLongerCarriesTheVerbs` is what
-/// stops File keeping a stale copy.
+/// In Organize's own menu, beside its sections, where a verb about Organize belongs.
+/// `fileNoLongerCarriesTheVerbs` keeps File from carrying a stale copy.
 struct OrganizeVerbCommands: View {
     @FocusedValue(\.organizeVerbs) private var verbs
 
@@ -2916,23 +2662,23 @@ struct OrganizeVerbCommands: View {
         // about a folder, these repair or bless a name — and unlike them they are available only
         // for a name the app would rewrite, so they are usually the greyed half of this menu.
         Divider()
-        // No ellipsis: it renames at once, undoably, and asks nothing more — an ellipsis promises
-        // a question that never comes (LN13). The row menu's "Fix name" is the same act.
+        // No ellipsis: it renames at once, undoably, and asks nothing more; an ellipsis promises
+        // a question that never comes. The row menu's "Fix name" is the same act.
         Button("Fix Name") { verbs?.fixName?() }
             .disabled(verbs?.fixName == nil)
         Button("Always Allow This Name") { verbs?.keepName?() }
             .disabled(verbs?.keepName == nil)
         Divider()
-        // §11's two deferred verbs, above the Undo divider because they are things to DO with a
+        // The two Restructure verbs, above the Undo divider because they are things to do with a
         // folder, and Undo is about a landing that already happened. No chords: this menu's own
-        // rule, and the palette law means a verb reaches ⌘K only after it has a menu item.
+        // rule, and a verb reaches ⌘K only after it has a menu item.
         Button("Plan This Folder’s Shape…") { verbs?.planShape?() }
             .disabled(verbs?.planShape == nil)
         Button("Set Up Like Its Siblings") { verbs?.setUpLikeSiblings?() }
             .disabled(verbs?.setUpLikeSiblings == nil)
         Divider()
         // Worded as its own sentence and kept out of Edit, so it can never sit beside ⌘Z's Undo
-        // and be mistaken for it (ROADMAP v5 §11). Selection-free: the newest ledger landing.
+        // and be mistaken for it. Selection-free: the newest ledger landing.
         Button("Undo This Reorganization…") { verbs?.undoReorganisation?() }
             .disabled(verbs?.undoReorganisation == nil)
     }
@@ -2946,9 +2692,9 @@ struct ToggleHiddenFilesCommand: View {
         Toggle("Hidden Files", isOn: showHiddenFiles ?? .constant(false))
             .keyboardShortcut(AppChord.hiddenFiles.key, modifiers: AppChord.hiddenFiles.modifiers)
             .disabled(showHiddenFiles == nil)
-        // **Here, beside Hidden Files, as part of this one child**: the View builder is at
-        // SwiftUI's ten. Both decide which files a pane shows. No chord (TE280): ⌘F finds,
-        // ⇧⌘F folds Compare's folders, ⌃⌘F is the system's full screen, and no ⌥ chord is allowed.
+        // Here, beside Hidden Files, in this one child, because the View builder is at
+        // SwiftUI's ten; both decide which files a pane shows. No chord: ⌘F finds, ⇧⌘F folds
+        // Compare's folders, ⌃⌘F is the system's full screen, and no ⌥ chord is allowed.
         Menu(Self.filterTitle) {
             if let typeFilter { PaneTypeFilterMenuItems(control: typeFilter) }
         }
@@ -2958,14 +2704,13 @@ struct ToggleHiddenFilesCommand: View {
     static let filterTitle = "Filter by Type"
 }
 
-/// View ▸ Info Inspector, ⌘I — **and, when the key fired it, Markup ▸ Italic's chord.**
+/// View ▸ Info Inspector, ⌘I, and, when the key fired it, Markup ▸ Italic's chord.
 ///
-/// Decision B: ⌘I is Italic while the caret is in the editor's document and the Info inspector
-/// everywhere else. The two items share one registration (`AppChord.italic` is
-/// `AppChord.infoInspector`), and whichever of them AppKit fires for the key resolves through the
-/// same `InspectorOrItalic` rule — see there. Clicked, this item toggles the inspector and nothing
-/// else. The inspector's binding is only written when the inspector is the answer: a `Toggle`
-/// whose `set` italicised would still flip its own tick otherwise.
+/// ⌘I is Italic while the caret is in the editor's document and the Info inspector elsewhere.
+/// The two items share one registration, and whichever AppKit fires resolves through
+/// `InspectorOrItalic`. Clicked, this item toggles the inspector and nothing else. The binding is
+/// written only when the inspector is the answer: a `Toggle` whose `set` italicised would still
+/// flip its own tick otherwise.
 struct ToggleInspectorCommand: View {
     @FocusedValue(\.infoInspector) private var infoInspector
 
@@ -2996,8 +2741,8 @@ struct InspectorAndAskClaudeCommands: View {
     }
 }
 
-/// View ▸ Ask Claude, ⌘J (RD69, v7.0) — the toolbar button's menu half, so the chord fires with
-/// focus in a file table, where it always is.
+/// View ▸ Ask Claude, ⌘J: the toolbar button's menu half, so the chord fires with focus in a
+/// file table, where it always is.
 struct ToggleAskClaudeCommand: View {
     @FocusedValue(\.askClaude) private var askClaude
     /// Observed, so the tick follows the panel: the binding alone is rebuilt only when the window
@@ -3046,12 +2791,11 @@ struct EditorModeCommands: View {
     }
 }
 
-/// Text ▸ Fit Page ⌃⌘1 / Fit Width ⌃⌘2 / Actual Size ⌃⌘3, then Zoom In and Zoom Out — the PDF
-/// capsule's view menu and its − and +, as items. Ticked like that menu's fits: none while the reader
-/// has zoomed by hand. **Observes the view state itself**, which the window does not; this small
-/// view is the one that redraws for it. The zoom items have no chords: ⌘+ and ⌘− are View ▸ Text
-/// Size's, which zoom the PDF only while its pages have the keyboard (`PDFZoomVerbs`); these work
-/// wherever the keyboard is.
+/// Text ▸ Fit Page ⌃⌘1 / Fit Width ⌃⌘2 / Actual Size ⌃⌘3, then Zoom In and Zoom Out: the PDF
+/// capsule's view menu and its − and +, as items, ticked like that menu's fits (none while the
+/// reader has zoomed by hand). Observes the view state itself, which the window does not. The
+/// zoom items have no chords: ⌘+ and ⌘− are View ▸ Text Size's, which zoom the PDF only while its
+/// pages have the keyboard (`PDFZoomVerbs`); these work wherever the keyboard is.
 struct PDFFitCommands: View {
     @ObservedObject var state: EditorPDFViewState
 
@@ -3073,9 +2817,9 @@ struct PDFFitCommands: View {
     }
 }
 
-/// Text ▸ Expand ⌃⌘E (TE48), after the three modes: the fourth answer to "how much of the window
-/// does the document get". A toggle, ticked while the document has the window to itself — the same
-/// bit, and the same act, as the header's Expand button (`ContentView.toggleJustTheText`).
+/// Text ▸ Expand ⌃⌘E, after the three modes: the fourth answer to "how much of the window does
+/// the document get". Ticked while the document has the window to itself; the same bit and act as
+/// the header's Expand button (`ContentView.toggleJustTheText`).
 struct EditorExpandCommand: View {
     @FocusedValue(\.editorExpand) private var expand
 
@@ -3089,16 +2833,12 @@ struct EditorExpandCommand: View {
     }
 }
 
-/// Text ▸ Find Next ⌘G, Find Previous ⇧⌘G and Use Selection for Find ⌘E — the find bar's own verbs.
-///
-/// **Registered because nothing else answers them.** AppKit's text views act on these through menu
-/// items whose action is `performTextFinderAction:`; this app replaces the standard Edit menu, so
-/// until now ⌘G in the editor did nothing. Routed on `EditorDocumentSurface.performFind`, which
-/// takes the walk-up test — Find Next from inside the Find field is the ordinary way to step — and
-/// refuses outside the editor, so ⌘G in a pane searches nothing.
-///
-/// **A PDF open in Edit takes them first** (`FindMenuRoute`): its reader has a find bar of its own,
-/// and no text view for `performFind` to reach.
+/// Text ▸ Find Next ⌘G, Find Previous ⇧⌘G and Use Selection for Find ⌘E: the find bar's own
+/// verbs, registered because this app replaces the standard Edit menu, whose
+/// `performTextFinderAction:` items would otherwise answer them. Routed on
+/// `EditorDocumentSurface.performFind`, which takes the walk-up test (Find Next from the Find
+/// field steps) and refuses outside the editor. A PDF open in Edit takes them first
+/// (`FindMenuRoute`).
 struct FindNextCommand: View {
     @FocusedValue(\.editorVerbs) private var verbs
     @FocusedValue(\.pdfFind) private var pdfFind
@@ -3130,11 +2870,11 @@ struct FindPreviousCommand: View {
     }
 }
 
-/// Text ▸ Go to Line… ⌃⌘L (TE61) — the status line's "Line, Col", as a menu item.
+/// Text ▸ Go to Line… ⌃⌘L: the status line's "Line, Col", as a menu item.
 ///
-/// **Not routed on `TextEditingChord`**: ⌃⌘L is none of the field editor's bindings (see
-/// `AppChord.goToLine`), and the field it opens is Edit's, wherever the caret is. With the field
-/// already up, a second press leaves it up.
+/// Not routed on `TextEditingChord`: ⌃⌘L is no field-editor binding (see `AppChord.goToLine`),
+/// and the field it opens is Edit's, wherever the caret is. With the field up, a second press
+/// leaves it up.
 struct GoToLineCommand: View {
     @FocusedValue(\.editorVerbs) private var verbs
     /// With a PDF open the item is Go to Page… — the capsule's page field (`PDFPageVerbs`).
@@ -3164,18 +2904,15 @@ struct UseSelectionForFindCommand: View {
     }
 }
 
-/// Text ▸ Wrap Lines, Readable Line Length (TE51) and Check Spelling While Typing — the switches
-/// the text view's context menu already carries, on the same `UserDefaults` keys — Paper Background, the
-/// switch beside Autosave in the header, and Format Bar
-/// (TE52), the third preference about how the document is drawn, on its own key. Continue Lists (TE54) is the one
-/// about what Return WRITES, on its own key too, and only here: the context menu's switches are
-/// about drawing. Typewriter Scrolling (TE62) is about how Source moves, and only here too.
+/// Text ▸ the switches about how the document is drawn and written: Wrap Lines, Readable Line
+/// Length and Check Spelling While Typing (the text view's context menu's switches, on the same
+/// `UserDefaults` keys), Paper Background (the header's switch beside Autosave), Typewriter
+/// Scrolling (how Source moves) and Continue Lists (what Return writes), the last two only here.
 ///
-/// **Read and written through `@AppStorage` here, not through a published closure**, because that is
-/// what the context menu does too (`PlainTextEditor.Coordinator.toggleWrapping`): every mounted
-/// editor observes the key and re-renders, which is what keeps both halves of a split in step. The
-/// focused value is read only to grey the items outside Edit — a preference about drawing text has
-/// nothing to say where no text is drawn.
+/// Read and written through `@AppStorage`, not a published closure, as the context menu does
+/// (`PlainTextEditor.Coordinator.toggleWrapping`): every mounted editor observes the key and
+/// re-renders, which keeps both halves of a split in step. The focused value only greys the
+/// items outside Edit, where no text is drawn.
 struct EditorTextSettingCommands: View {
     @FocusedValue(\.editorVerbs) private var verbs
 
@@ -3198,33 +2935,32 @@ struct EditorTextSettingItems: View {
     var body: some View {
         Toggle("Wrap Lines", isOn: $wrapsLines)
             .disabled(verbs == nil)
-        // TE51. Greyed while lines do not wrap too, where it changes nothing — the context menu's
-        // `validateMenuItem` says the same.
+        // Greyed while lines don't wrap too, where it changes nothing; the context menu's
+        // `validateMenuItem` agrees.
         Toggle("Readable Line Length", isOn: $readableLineLength)
             .disabled(verbs == nil || !wrapsLines)
         // Greyed in Preview, where no Source is drawn for it to go under — the header's switch
         // greys by the same rule.
         Toggle("Paper Background", isOn: $drawsPage)
             .disabled(!(verbs.map { EditorWorkspaceView.pageSwitchApplies($0.mode) } ?? false))
-        // TE62. Here only, not on the right-click menu: it is about how the view moves, and the
-        // card that approved it named the Text menu.
+        // Here only, not on the right-click menu: it is about how the view moves, not how text
+        // is drawn.
         Toggle("Typewriter Scrolling", isOn: $typewriterScrolling)
             .disabled(verbs == nil)
         Toggle("Check Spelling While Typing", isOn: $checksSpelling)
             .disabled(verbs == nil)
         // Live wherever the others are: a preference, reachable from a `.txt` too, where it
-        // changes nothing until the next Markdown file. (Format Bar was here; it is a bar, so it
-        // moved to View, beside Status Bar — `ToggleFormatBarCommand`.)
+        // changes nothing until the next Markdown file.
         Toggle("Continue Lists", isOn: $continuesLists)
             .disabled(verbs == nil)
     }
 }
 
-/// Text ▸ Edit in Preview (Experimental) — the Preview pill's switch, as a menu item (TE67 §1.2).
+/// Text ▸ Edit in Preview (Experimental): the Preview pill's switch, as a menu item.
 ///
-/// **No chord**: ⌥ is barred app-wide and the ⌃⌘ family is spent on 1, 2, 3 and E. A preference
-/// rather than a verb, on its own key, so it is live wherever the other switches are and does
-/// nothing visible until Preview shows a writable Markdown file.
+/// No chord: ⌥ is barred app-wide and the ⌃⌘ family is spent on 1, 2, 3 and E. A preference,
+/// not a verb, on its own key, so it is live wherever the other switches are and does nothing
+/// visible until Preview shows a writable Markdown file.
 struct EditInPreviewCommand: View {
     @FocusedValue(\.editorVerbs) private var verbs
     @AppStorage(EditorTextSettings.editsInPreviewKey) private var editsInPreview = EditorTextSettings.editsInPreviewDefault
@@ -3251,12 +2987,11 @@ struct AutosaveThisFileCommand: View {
 
 /// Markup ▸ the context menu's verbs, in the context menu's order, each still a toggle.
 ///
-/// **Built from `MarkupVerb.menuOrder`**, which is the list the context menu is built from, so the
-/// two menus cannot disagree about the verbs or their order; the chords come from `MarkupVerb.chord`,
-/// which is what the context menu draws. Every item is enabled while Edit shows a writable
-/// document, and resolves WHERE the caret is at fire time — a menu item cannot know that when it
-/// renders. Outside the document's text the verb refuses and says so in the log, because a chord
-/// that does nothing and says nothing is this app's own named defect.
+/// Built from `MarkupVerb.menuOrder`, the list the context menu is built from, with chords from
+/// `MarkupVerb.chord`, so the two menus agree on verbs, order and keys. Every item is enabled
+/// while `EditorVerbs.canMarkUp` holds and resolves where the caret is at fire time, which a
+/// menu item can't know when it renders. Outside the document's text the verb refuses and logs
+/// it, so the chord never does nothing silently.
 struct MarkupVerbCommands: View {
     @FocusedValue(\.editorVerbs) private var verbs
     /// For Italic's other half — see `InspectorOrItalic`. Read here so that if AppKit hands the
@@ -3283,8 +3018,8 @@ struct MarkupVerbCommands: View {
         }
     }
 
-    /// Markup ▸ Table (TE65, TE66): the table verbs, divided where the context menu divides them.
-    /// Enabled with the rest — an item that has nothing to do where the caret is says so in the log
+    /// Markup ▸ Table: the table verbs, divided where the context menu divides them. Enabled with
+    /// the rest; an item with nothing to do where the caret is says so in the log
     /// (`EditorDocumentSurface.applyMarkup`).
     private var tableMenu: some View {
         Menu(MarkupVerb.tableMenuTitle) {
@@ -3293,7 +3028,7 @@ struct MarkupVerbCommands: View {
                 ForEach(section, id: \.self) { verb in
                     Button(verb.title) { Self.apply(verb) }
                         // On each item as well as the submenu: a disabled `Menu` in the menu bar
-                        // still leaves its items live (measured — TextMarkupMenuTests).
+                        // still leaves its items live (`TextMarkupMenuTests`).
                         .disabled(verbs?.canMarkUp != true)
                 }
             }
@@ -3326,22 +3061,14 @@ struct MarkupVerbCommands: View {
 
 // MARK: View ▸ Text Size
 
-/// View ▸ Text Size ▸ Bigger ⌘+ / Smaller ⌘− / Default Size ⌘0 (roadmap RD2).
+/// View ▸ Text Size ▸ Bigger ⌘+ / Smaller ⌘− / Default Size ⌘0, on the slider's own stops:
+/// `FontSize.bigger` and `.smaller` step `selectablePercents`, so the keyboard can't reach a size
+/// Settings can't. The item greys at either end, and Default Size at the default.
 ///
-/// **The whole app's type, from the keyboard, on the slider's own stops.** `FontSize.bigger` and
-/// `.smaller` step `selectablePercents`, so the keyboard cannot reach a size Settings ▸ Text size
-/// cannot — which is what keeps it inside the range the Settings rail's version line was measured
-/// against. At either end the item greys, and Default Size greys at the default.
-///
-/// **The size is `@AppStorage`, not a focused value**: it is a preference every window reads through
-/// `appFontSizeFromSettings`, not a fact about the main window, so the items work from the
-/// Activity Log and the ⌘/ reference too — and, like ⌘, (Settings), stay live under the destination
-/// picker, which is an ambient panel's convention rather than an oversight.
-///
-/// **While a PDF's pages have the keyboard they zoom it instead** (Phase 5a): the submenu reads
-/// Zoom, its items Zoom In / Zoom Out / Actual Size, on the same three chords — see
-/// ``PDFZoomVerbs`` and ``TextSizeMenuRoute``. The focused value is the main window's, so every
-/// other window still gets the text size.
+/// The size is `@AppStorage`, read by every window through `appFontSizeFromSettings`, so the
+/// items work from the Activity Log and the ⌘/ reference and stay live under the destination
+/// picker. While a PDF's pages have the keyboard they zoom it instead (``PDFZoomVerbs``,
+/// ``TextSizeMenuRoute``).
 struct TextSizeMenuCommand: View {
     @FocusedValue(\.pdfZoom) private var pdfZoom
 
@@ -3377,18 +3104,9 @@ struct TextSizeCommands: View {
     }
 }
 
-/// **View ▸ Sidebar** — the Favorites / Sources / Recents column, ⌃⌘S.
-///
-/// `nil` — and therefore disabled — wherever the column cannot be drawn, which
-/// `FolderSidebarModel.appliesTo(workspaceSupportsSidebar:panesCollapsed:)` decides once for the
-/// item, the column and the refresh together. Every shipping workspace supports the column as of
-/// v4.4, so in practice the live `nil` is the collapsed-panes one — see `shortcutFolderSidebar`
-/// for the reasoning. **Disabled rather than absent**, matching the toolbar button beside it: a
-/// toolbar that reflowed as the gate flipped is unsettling, and a greyed row still answers "where
-/// did the sidebar go" where a missing one leaves the reader looking for it.
-/// **View ▸ Sidebar and View ▸ Text Files, as one child — the View menu's builder is at its ten.**
-/// Adjacent and answering one question, whether a column beside the content is drawn: the same
-/// accommodation `PaneChromeCommands` makes for the bars.
+/// View ▸ Sidebar and View ▸ File List as one child, because the View menu's builder is at its
+/// ten. They sit together and answer one question, whether a column beside the content is drawn:
+/// the accommodation `PaneChromeCommands` makes for the bars.
 struct ColumnCommands: View {
     var body: some View {
         ToggleFolderSidebarCommand()    // ⌃⌘S
@@ -3396,11 +3114,10 @@ struct ColumnCommands: View {
     }
 }
 
-/// **View ▸ Text Files ⌃⌘T** (TE81) — Edit's Text Files / Outline list, folded into the file
-/// pane's strip or back, ticked while it is on screen. The same act as the strip's buttons and the
-/// list's fold button (`ContentView.showEditorRail` / `foldEditorRail`). Disabled outside Edit and
-/// while Edit's pane is open, where the pane is the file list — disabled rather than absent, the
-/// rule the Sidebar item above it follows.
+/// View ▸ File List ⌃⌘T: Edit's Text Files / Outline list, folded into the file pane's strip or
+/// back, ticked while on screen. The same act as the strip's buttons and the list's fold button
+/// (`ContentView.showEditorRail` / `foldEditorRail`). Disabled, not absent, outside Edit and while
+/// Edit's pane is open, where the pane is the file list.
 struct ToggleEditorTextFilesCommand: View {
     @FocusedValue(\.editorTextFilesVisible) private var textFiles
 
@@ -3411,6 +3128,12 @@ struct ToggleEditorTextFilesCommand: View {
     }
 }
 
+/// View ▸ Sidebar ⌃⌘S: the Favorites / Sources / Recents column.
+///
+/// `nil`, and so disabled, wherever the column can't be drawn, which
+/// `FolderSidebarModel.appliesTo(workspaceSupportsSidebar:panesCollapsed:)` decides once for the
+/// item, the column and the refresh (see `shortcutFolderSidebar`). Disabled rather than absent,
+/// like the toolbar button beside it: a greyed row still answers "where did the sidebar go".
 struct ToggleFolderSidebarCommand: View {
     @FocusedValue(\.folderSidebarVisible) private var folderSidebar
 
@@ -3445,12 +3168,11 @@ struct FoldAllDifferencesCommand: View {
     }
 }
 
-/// Compare ▸ Compare Two Files — ⇧⌘C.
+/// Compare ▸ Compare Two Files, ⇧⌘C.
 ///
-/// **The feature's first door that is not a context menu.** Every other way into the pair viewer
-/// is a right-click, and `AppChord`'s transfer family already carries the post-mortem for that
-/// shape: four working verbs nobody could find. One `Button` here also buys the ⌘/ reference row
-/// and the palette entry, because both render from the registry.
+/// A way into the pair viewer that isn't a right-click: verbs reachable only from a context menu
+/// go unfound, as `AppChord`'s transfer family records. One `Button` here also buys the ⌘/
+/// reference row and the palette entry, because both render from the registry.
 struct CompareTwoFilesCommand: View {
     @FocusedValue(\.compareTwoFiles) private var compare
 
@@ -3471,16 +3193,15 @@ struct ReviewDifferencesCommand: View {
     }
 }
 
-/// Compare ▸ the four directional transfers — ⌘← / ⌘→ copy, ⇧ makes it a move.
+/// Compare ▸ the four directional transfers: ⌘← / ⌘→ copy, ⇧ makes it a move.
 ///
-/// **One `View` for four items**, because the four differ only in two booleans and a title, and
-/// four hand-written copies is four chances for one of them to register a chord its title
-/// contradicts. The chord and the badge on the header button both come from
-/// `AppChord.transfer(toRight:isMove:)`.
+/// One `View` for four items, since they differ only in two booleans and a title, and four
+/// copies would be four chances to register a chord the title contradicts. The chord and the
+/// header button's badge both come from `AppChord.transfer(toRight:isMove:)`.
 ///
-/// **The titles name the providers, not the sides.** "Copy to Dropbox" is what the header buttons,
-/// the row menu and the floating action bar all say; a Compare menu reading "Copy to Right" would
-/// be the only surface in the app asking the reader to work out which side that is.
+/// The titles name the providers, not the sides: "Copy to Dropbox" is what the header buttons,
+/// the row menu and the action bar say, and "Copy to Right" would make the reader work out the
+/// side.
 struct TransferCommands: View {
     @FocusedValue(\.transferSelection) private var transfer
 
@@ -3489,12 +3210,10 @@ struct TransferCommands: View {
             let chord = AppChord.transfer(toRight: item.toRight, isMove: item.isMove)
             Button(Self.title(item, transfer)) {
                 // ⌘← and ⌘→ are NSText's move-to-beginning/end-of-line, and a menu key equivalent
-                // outranks the field editor — so with rows selected and the caret in the
-                // differences search, ⌘→ would transfer files instead of moving the cursor. This
-                // is the objection the old `.onKeyPress` scoping existed to avoid, answered rather
-                // than dodged. Through `TextEditingChord.route` like the other five colliding
-                // chords: it reads the first responder ONCE, where the hand-rolled branch this
-                // replaces read it twice and could in principle answer two different questions.
+                // outranks the field editor, so with rows selected and the caret in the
+                // differences search ⌘→ would transfer files instead of moving the cursor. Through
+                // `TextEditingChord.route`, like the other colliding chords, which reads the first
+                // responder once.
                 TextEditingChord.route(
                     editorAction: { editor in
                         switch (item.toRight, item.isMove) {
@@ -3522,9 +3241,9 @@ struct TransferCommands: View {
         Item(toRight: false, isMove: true), Item(toRight: true, isMove: true),
     ]
 
-    /// The item's title. Static so the naming rule can be tested without a scene — and so the
-    /// disabled form is written down rather than improvised: with nothing published there are no
-    /// provider names to use, and "Copy to Right" is the honest fallback for a dead item.
+    /// The item's title. Static so the naming rule can be tested without a scene, and so the
+    /// disabled form is decided: with nothing published there are no provider names, and "Copy
+    /// to Right" is the honest fallback for a dead item.
     static func title(_ item: Item, _ transfer: TransferShortcut?) -> String {
         let verb = item.isMove ? "Move" : "Copy"
         guard let transfer else { return "\(verb) to \(item.toRight ? "Right" : "Left")" }
@@ -3544,32 +3263,26 @@ struct VerifyDifferencesCommand: View {
 
 // MARK: - The Text and Markup menus, as a unit
 
-/// Text ▸ and Markup ▸ — Edit's menus, two of them (decision A, roadmap RD1).
+/// Text ▸ and Markup ▸: Edit's two menus. Text is about the document as a whole (how it is
+/// shown, searched and drawn, and whether it saves itself); Markup is the context menu's verb
+/// list, in its order. Every item is greyed unless Edit is the workspace with a document open
+/// (`EditorVerbs`).
 ///
-/// Text is about the document as a whole: how it is shown, how it is searched, how it is drawn, and
-/// whether it saves itself. Markup is the context menu's verb list, in the context menu's order,
-/// each still a toggle. Every item in both is greyed unless Edit is the workspace and a document is
-/// open — `EditorVerbs` — the way Compare's follow a comparison.
-///
-/// **Find… stays in Edit, and Save stays in File.** One action, one menu item: ⌘F is the pane
-/// search everywhere but the document, so it belongs in the menu the platform puts Find in; ⌘S is
-/// File ▸ Save on every Mac. Neither is duplicated here, so no chord is registered twice — the Text
-/// menu's find group is the two verbs the find bar has and nothing else answered.
-///
-/// **A `Commands` value rather than two `CommandMenu`s in the App's `.commands` block**, because
-/// `CommandsBuilder` takes ten children and that block already had ten. Same result in the bar:
-/// `TextMarkupMenuTests.textAndMarkupFollowOrganizeInTheBar` reads the order off the built menu.
+/// Find… stays in Edit and Save in File, where the platform puts them, so no chord is registered
+/// twice. A `Commands` value rather than two `CommandMenu`s because the App's `.commands` block
+/// is at `CommandsBuilder`'s ten; `TextMarkupMenuTests.textAndMarkupFollowOrganizeInTheBar`
+/// checks the order.
 struct EditorMenus: Commands {
     var body: some Commands {
         CommandMenu("Text") {
             EditorModeCommands()         // ⌃⌘1 ⌃⌘2 ⌃⌘3 — Source / Preview / Split, ticked; a PDF's fit and zoom
             EditorExpandCommand()        // ⌃⌘E — Expand, ticked while the document has the window
-            EditInPreviewCommand()       // TE67 — no chord, ticked
+            EditInPreviewCommand()       // no chord, ticked
             Divider()
             FindNextCommand()            // ⌘G
             FindPreviousCommand()        // ⇧⌘G
             UseSelectionForFindCommand() // ⌘E
-            GoToLineCommand()            // ⌃⌘L — the other way to a place in the text (TE61); Go to Page… in a PDF
+            GoToLineCommand()            // ⌃⌘L — the other way to a place in the text; Go to Page… in a PDF
             Divider()
             EditorTextSettingCommands()  // Wrap Lines · Readable Line Length · Paper Background · Typewriter Scrolling · Check Spelling While Typing · Continue Lists, ticked
             Divider()

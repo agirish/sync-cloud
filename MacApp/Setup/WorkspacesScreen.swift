@@ -5,9 +5,8 @@ import Sync
 
 /// The bridge from "here is what I found" to "here is what to do".
 ///
-/// **Nothing to decide, which is why it has no Skip and no number.** Every workspace on it is one
-/// keystroke away later; the screen exists because a sheet that ends on a summary tells the user
-/// what it did and not what they can now do.
+/// Nothing to decide, so it has no Skip and no number. It exists because a sheet that ends on a
+/// summary tells the user what it did, not what they can now do.
 struct WorkspacesScreen: View {
     @ObservedObject var model: SetupModel
     let hue: LiquidGlassHue
@@ -18,10 +17,8 @@ struct WorkspacesScreen: View {
                          blurb: "Four workspaces, ⌘1 to ⌘4, on the locations you turned on. "
                              + "Organize also uses what was just learned.")
 
-            // **A `Grid`, because an `HStack` gave three cards three heights.** Each card is as
-            // tall as its own blurb wraps — Compare's is three lines, Edit's two — so the row's
-            // bottom edge stepped twice across cards that are otherwise identical. A `Grid` row
-            // hands every cell the row's height, and the card fills it.
+            // A `Grid`, not an `HStack`, so the three cards share one height: a `Grid` row gives
+            // every cell the row's height, while an `HStack` sizes each card to its own blurb.
             Grid(horizontalSpacing: 10, verticalSpacing: 0) {
                 GridRow {
                     ForEach(Self.plainWorkspaces, id: \.workspace) { entry in
@@ -72,9 +69,8 @@ struct WorkspacesScreen: View {
         }
     }
 
-    /// The workspace's own chord, taken from its position in the bar — the same rule
-    /// `WorkspaceCommands` numbers the segments by, so the card cannot claim a key the bar does
-    /// not give it.
+    /// The workspace's chord, from its position in the bar, the rule `WorkspaceCommands` numbers
+    /// by, so the card can't claim a key the bar doesn't give it.
     static func chord(for workspace: Workspace) -> String {
         guard let index = Workspace.allCases.firstIndex(of: workspace),
               let chord = AppChord.workspace(index + 1) else { return "" }

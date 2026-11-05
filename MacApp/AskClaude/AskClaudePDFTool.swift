@@ -2,12 +2,9 @@ import FileExplorer
 import Foundation
 import Sync
 
-/// **The `pdf` tool's half that builds a card** (TE294 step 3): Claude's call checked field by
-/// field, its files resolved and held to the hidden list and the tool's kinds, and a card offered
-/// that reads its files and waits for their click. Nothing runs here.
-///
-/// Built ahead of the tool list: no tool name reaches this until the `pdf` tool is turned on
-/// (step 4), so the cached prefix and every saved chat are untouched until then.
+/// The `pdf` tool: Claude's call checked field by field, its files resolved and held to the hidden
+/// list and the tool's kinds, and a card offered that reads its files and waits for their click.
+/// Nothing runs here.
 extension AskClaudeBrowseTools {
 
     /// How opening a form for Fill & Sign went.
@@ -21,8 +18,8 @@ extension AskClaudeBrowseTools {
         case notNow
     }
 
-    /// **The `pdf` tool** (TE294): `info` reads one file, `fill` opens a form in Edit, and every
-    /// other action offers a card.
+    /// The `pdf` tool: `info` reads one file, `fill` opens a form in Edit, and every other action
+    /// offers a card.
     func pdf(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: AskClaudeHandles) async -> AskClaudeToolOutcome {
         let action = call.string("action")?.lowercased() ?? ""
         guard action == "info" || action == "fill" else { return pdfCard(call, ctx, handles) }

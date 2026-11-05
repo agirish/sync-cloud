@@ -1,40 +1,30 @@
 import Foundation
 import FileExplorer
 
-/// Putting the open document away (TE46) — the header's × and File ▸ Close Document.
+/// Putting the open document away: the header's × and File ▸ Close Document. (⌘W is Close Tab;
+/// see the `.saveItem` note in `SyncCloudApp`.) The act both share, kept out of `ContentView` so a
+/// test can run it with a real document, undo store and pane selection.
 ///
-/// **There was no way to do this at all.** A document stayed open until another one replaced it;
-/// File ▸ Close is gone because ⌘W is Close Tab (see the `.saveItem` note in `SyncCloudApp`), and
-/// nothing took its place. This is the act both doors share, as one function a test can run with a
-/// real document, a real undo store and a real pane selection — `ContentView` cannot be built in a
-/// test, so a close written inline there would be a close nothing executes.
-///
-/// **What it deliberately does NOT move**: the pane's folder, the workspace, the "Just the text"
-/// bit, the naming row. A close is about the document; everything around it stays where it was.
+/// It leaves the pane's folder, the workspace, the "Just the text" bit and the naming row alone: a
+/// close is about the document.
 enum EditorDocumentClose {
 
     /// Whether the two doors are offered: Edit on screen, with a document in it.
     ///
-    /// **Not `EditorVerbs.isOffered`**, which also refuses a refused document. A file that could not
-    /// be opened — cloud-only, too large, not text — still has a caption on screen and a name in the
-    /// header, and putting that away is exactly what somebody looking at a refusal wants to do. Edit
-    /// must be the WORKSPACE, for the verbs' reason: the document outlives a workspace switch, and a
-    /// Close Document live from Browse would put away something nobody is looking at.
+    /// Not `EditorVerbs.isOffered`, which also excludes a refused document: a file that couldn't be
+    /// opened still shows a caption and a name, and closing it is what its reader wants. Edit must
+    /// be on screen because the document outlives a workspace switch, and closing it from Browse
+    /// would put away something nobody is looking at.
     static func isOffered(workspace: Workspace, hasDocument: Bool) -> Bool {
         workspace == .editor && hasDocument
     }
 
     /// What the left pane's selection becomes once `path` is closed, or `nil` to leave it alone.
     ///
-    /// **Cleared when it names exactly the closed file, and that is what lets a click reopen it.**
-    /// With the pane open, Edit opens a file when the pane's selection CHANGES to it (TE41's
-    /// `.onChange(of: selectedLeftPaths)`). Left alone, the selection would go on naming the file
-    /// just closed, and clicking that same row would set the same selection — no change, no open.
-    /// Any other selection is the user's and is not touched: clicking the closed file's row from
-    /// there changes it anyway.
-    ///
-    /// Compared as standardized paths, so a trailing slash or a doubled separator cannot leave the
-    /// selection standing.
+    /// Cleared when it names exactly the closed file, so a click can reopen it: Edit opens a file
+    /// when the selection changes to it (`.onChange(of: selectedLeftPaths)`), and re-clicking a
+    /// still-selected row changes nothing. Any other selection is the user's and is left alone.
+    /// Compared as standardized paths, so a trailing or doubled slash can't leave it standing.
     static func paneSelection(afterClosing path: String, selection: Set<String>) -> Set<String>? {
         guard selection.count == 1, let only = selection.first,
               (only as NSString).standardizingPath == (path as NSString).standardizingPath else { return nil }
@@ -43,17 +33,14 @@ enum EditorDocumentClose {
 
     /// Settle, then unload. Returns whether the document was closed.
     ///
-    /// **Settled first, and a `false` from it means nothing happens** — the same contract every
-    /// route out of a document honours (`openInEditor`, `handOffToEditor`, `createTextFile`). With
-    /// autosave on, the settle is a flush that says nothing; with it off or stopped on a dirty
-    /// buffer, it is the Save / Don't Save / Cancel question, and Cancel keeps the document open.
+    /// Settled first, and a `false` means nothing happens, the contract every route out of a
+    /// document keeps (`openInEditor`, `handOffToEditor`, `createTextFile`). With autosave on the
+    /// settle is a silent flush; off or stopped on a dirty buffer, it is the Save / Don't Save /
+    /// Cancel question, and Cancel keeps the document open.
     ///
-    /// **The undo stack is put away the way a file switch puts it away** — remembered against the
-    /// text it is parted from, then a fresh stack for the empty editor — so reopening the file
-    /// hands its history back exactly as switching to it would. The text storage goes with it, the
-    /// way `EditorDocumentLoad` moves it (step 4 there).
-    ///
-    /// One log line whichever way it ends, as `handOffToEditor` does.
+    /// The undo stack is put away as a file switch does (remembered against the outgoing text, then
+    /// a fresh stack), so reopening the file hands its history back; the text storage moves with it,
+    /// as in `EditorDocumentLoad` step 4. One log line whichever way it ends.
     @MainActor
     @discardableResult
     static func run(document: EditorDocument, undoStore: EditorUndoStore,
@@ -77,17 +64,13 @@ enum EditorDocumentClose {
         return true
     }
 
-    /// **Settling before the WINDOW closes — which leaves the document open** (UND-6): ⌘W on the
-    /// last browse tab. Returns whether the window may close.
+    /// Settling before the window closes, which leaves the document open: ⌘W on the last browse
+    /// tab. Returns whether the window may close.
     ///
-    /// The document belongs to the app and outlives the window, so a "Don't Save" here used to
-    /// drop only the undo history (`settleEditorDocument` forgets it on a discard): reopening the
-    /// window brought back the typing the alert had just said was lost, with no ⌘Z to take it back.
-    /// A discard now reloads the file from disk, as Reload from Disk does — so the answer is kept.
-    ///
-    /// A settle that lets the window go leaves the document clean — written by the flush or by
-    /// Save — unless the typing was discarded, so "still dirty" is the discard, read off the
-    /// document rather than threaded through the question.
+    /// The document outlives the window, so a "Don't Save" must reload the file from disk, as
+    /// Reload from Disk does; dropping only the undo history would bring the discarded typing back
+    /// when the window reopens. A settle that lets the window go leaves the document clean unless
+    /// the typing was discarded, so "still dirty" is read as the discard.
     @MainActor
     static func settleForWindowClose(document: EditorDocument, settle: () -> Bool,
                                      reload: (String) -> Void) -> Bool {

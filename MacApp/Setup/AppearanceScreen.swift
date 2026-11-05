@@ -2,11 +2,10 @@ import Design
 import Settings
 import SwiftUI
 
-/// The optional screen, and it comes last for that reason: nothing on it changes what SyncCloud
-/// does.
+/// The optional screen, last because nothing on it changes what SyncCloud does.
 ///
-/// **Text size is the exception, and it is why the stepper is in the chrome of every screen** —
-/// somebody who needs bigger text needs it on screen 1, not on screen 9.
+/// Text size is the exception, which is why its stepper is in the chrome of every screen: someone
+/// who needs bigger text needs it on screen 1, not screen 9.
 struct AppearanceScreen: View {
     @ObservedObject var model: SetupModel
     @ObservedObject var settings: SettingsManager
@@ -34,9 +33,9 @@ struct AppearanceScreen: View {
 
             VStack(alignment: .leading, spacing: SetupRhythm.groupSpacing) {
                 Text("Size & spacing").scaledFont(.callout.weight(.semibold))
-                // The app's own control, in its specimen form: miniature rows whose bars thicken
-                // with the text size and thin out with the spacing. Never given a fixed width —
-                // `TextSizeSetupIntegrationTests` is what holds that.
+                // The app's own control in its specimen form: miniature rows whose bars thicken
+                // with the text size and thin out with the spacing. Never given a fixed width
+                // (`TextSizeSetupIntegrationTests` holds that).
                 SizePresetRow(fontSize: $fontSize, density: density, style: .specimen)
             }
 
@@ -51,10 +50,9 @@ struct AppearanceScreen: View {
                 .labelsHidden()
                 .accentedSegments(hue)
                 .help("Choose light or dark, or follow macOS")
-                // **`alignment: .leading`, and its absence was visible.** A bare
-                // `.frame(maxWidth:)` centres its content in the width it takes, so the segmented
-                // control — narrower than 260 at every text size — sat 32pt right of the label
-                // above it and of every other control on the card.
+                // `alignment: .leading`: a bare `.frame(maxWidth:)` centres its content, and the
+                // segmented control, narrower than 260 at every text size, would sit right of the
+                // label above it and of every other control on the card.
                 .frame(maxWidth: 260, alignment: .leading)
             }
 
@@ -66,7 +64,7 @@ struct AppearanceScreen: View {
                     }
                 }
                 // Frosted and Clear: the chosen swatch's ring as a glass halo that travels to the
-                // swatch you pick (RD46).
+                // swatch you pick.
                 .selectionLensHost(Self.swatchLensChannel, selected: LiquidGlassHue(rawValue: selectedHueRaw),
                                    style: Self.swatchLensStyle)
             }
@@ -79,16 +77,16 @@ struct AppearanceScreen: View {
         }
     }
 
-    /// The swatch row's selection lens — see `SelectionLens`.
+    /// The swatch row's selection lens; see `SelectionLens`.
     static let swatchLensChannel = SelectionLensChannel("setup.accent")
     /// A halo, like Settings' accent row: glass behind the swatch, showing only in the 3pt band
     /// outside it, with today's 2pt ring on the band's rim. `markerOpacity` 0 keeps the glass
-    /// untinted at every Tint — it rings a colour, so it must not wear one of its own.
+    /// untinted at every Tint: it rings a colour, so it must not wear one.
     ///
-    /// **The ring is Settings' neutral ink, not an accent.** It was `.tint`, which nothing in the
-    /// app sets, so it drew the SYSTEM accent: a blue ring round the Green swatch just picked.
-    /// Settings rings the same row in `HueOptionView.ringColor` for the same reason the glass
-    /// stays clear — a ring in one hue around a swatch of another contradicts what it marks.
+    /// The ring is Settings' neutral ink, not `.tint`: nothing in the app sets a tint, so `.tint`
+    /// would draw the system accent, a blue ring round the Green swatch just picked. Settings rings
+    /// the same row with `HueOptionView.ringColor` for the same reason: a ring in one hue around a
+    /// swatch of another contradicts what it marks.
     static let ringColor = Color.primary.opacity(0.4)
     static let swatchLensStyle = SelectionLensStyle(
         shape: .circle, color: ringColor, markerOpacity: 0,
@@ -99,16 +97,16 @@ struct AppearanceScreen: View {
         return Button {
             selectedHueRaw = offered.rawValue
         } label: {
-            // **The ring is drawn outside the swatch, with a gap.** `strokeBorder` draws it
-            // *inside*, so on a 20pt circle the mark for "this is the one you picked" ate a fifth
-            // of the only thing the control shows — the colour — and at 2pt against a saturated
-            // fill it read as a darker edge rather than as a selection.
+            // The ring is drawn outside the swatch, with a gap. `strokeBorder` draws inside, so on
+            // a 20pt circle the selection mark would eat a fifth of the colour, the only thing the
+            // control shows, and at 2pt against a saturated fill read as a darker edge rather than
+            // a selection.
             Circle()
                 .fill(offered.accentColor)
                 .frame(width: 20, height: 20)
                 .padding(3)
                 .overlay {
-                    // Today's marker — in Frosted and Clear the row's lens draws the ring.
+                    // Today's marker; in Frosted and Clear the row's lens draws the ring.
                     if isSelected {
                         SelectionLensTodayMarker {
                             Circle().strokeBorder(Self.ringColor, lineWidth: 2)

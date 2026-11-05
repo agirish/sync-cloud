@@ -22,8 +22,8 @@ extension AskClaudeFileStamp {
     }
 }
 
-/// **Ask Claude's PDF cards, in the window** (TE294 step 3): reading a card's files for it, its
-/// run through the window's own PDF runs, the line Claude hears with the next question, and Undo.
+/// Ask Claude's PDF cards, in the window: reading a card's files for it, its run through the
+/// window's own PDF runs, the line Claude hears with the next question, and Undo.
 extension ContentView {
 
     var askClaudePDFBridge: AskClaudePDFBridge {
@@ -71,9 +71,9 @@ extension ContentView {
             stop: { cards.askClaudePDFStop($0) })
     }
 
-    /// **The cards' read, run and Undo, with what they need from this window** — built fresh at
-    /// each use, as the window's own methods read it fresh. Its own type so a test can run a card
-    /// end to end without a window.
+    /// The cards' read, run and Undo, with what they need from this window. Built fresh at each
+    /// use, as the window's own methods read it fresh. Its own type so a test can run a card end to
+    /// end without a window.
     var askClaudePDFCards: AskClaudePDFCards {
         AskClaudePDFCards(
             askClaudeChat: askClaudeChat, panePDFTools: panePDFTools, paneSaveAsPDF: paneSaveAsPDF, editorPDF: editorPDF,
@@ -100,9 +100,8 @@ extension ContentView {
         }
     }
 
-    /// What protection keeps `action` from running on a file, in the menu's words; nil when it can.
-    /// **The rows whose folder has to take a new file and can't, refused**: each file's own folder,
-    /// but Combine's first file's only — the one folder its one new file goes into.
+    /// The rows whose folder has to take a new file and can't, refused: each file's own folder,
+    /// but for Combine only the first file's, the one folder its one new file goes into.
     static func askClaudePDFUnwritable(_ action: AskClaudePDFCard.Action, _ rows: [AskClaudePDFCard.Row],
                                        _ unwritable: Set<String>) -> [AskClaudePDFCard.Row] {
         var rows = rows
@@ -112,6 +111,7 @@ extension ContentView {
         return rows
     }
 
+    /// What protection keeps `action` from running on a file, in the menu's words; nil when it can.
     static func askClaudePDFRefusal(_ action: AskClaudePDFCard.Action, _ facts: PDFCardFacts) -> String? {
         switch (facts.protection, action) {
         case (.locked, .removePassword): return nil
@@ -127,7 +127,7 @@ extension ContentView {
     static let askClaudePDFUnsavedNote = "It runs on the file as saved: what you haven’t saved in Edit isn’t in it."
     static let askClaudePDFGone = "It’s no longer there; it may have moved or been renamed."
 
-    /// Why the pages typed can't be — one sentence, said on the file's row.
+    /// Why the pages typed can't be, in one sentence for the file's row.
     static func askClaudePDFPagesProblem(_ card: AskClaudePDFCard, pageCount: Int?) -> String? {
         guard let count = pageCount, count > 0 else { return nil }
         switch card.action {
@@ -206,9 +206,9 @@ extension ContentView {
 
     // MARK: How it ended
 
-    /// **The line Claude hears with the next question** — what the click made, each new file by
-    /// name with a mark that becomes its handle when the line is sent; never a password, never a
-    /// file's text. A file saved into a folder hidden from Claude is said to be there, unnamed.
+    /// The line Claude hears with the next question: what the click made, each new file by name
+    /// with a mark that becomes its handle when the line is sent. Never a password or a file's
+    /// text. A file saved into a folder hidden from Claude is said to be there, unnamed.
     static func askClaudePDFReport(_ card: AskClaudePDFCard, _ result: PDFRunResult, isHidden: (String) -> Bool) -> String {
         // Compress says what each file was, so Claude can say what it saved.
         let sources = card.rows.map { row in
@@ -268,7 +268,7 @@ extension ContentView {
 
     // MARK: Undo
 
-    /// What Claude hears after Undo — names already made safe for it by the caller.
+    /// What Claude hears after Undo. The caller has already made the names safe for it.
     static func askClaudePDFUndoReport(_ title: String, trashed: [String], left: [String]) -> String {
         var line = "They undid your card “\(title)”: "
         line += trashed.isEmpty ? "nothing moved." : "\(trashed.joined(separator: ", ")) \(trashed.count == 1 ? "is" : "are") in the Trash."
@@ -278,9 +278,9 @@ extension ContentView {
 
     // MARK: Fill
 
-    /// **Opens a form in Edit with Fill & Sign on** (TE294 step 4), once it has loaded — waited
-    /// for, at most 10 s — and has its filled copies told to Claude while this chat lasts, unless a
-    /// copy is saved into a folder hidden from it.
+    /// Opens a form in Edit with Fill & Sign on, once it has loaded (waiting at most 10 s). Its
+    /// filled copies are told to Claude while this chat lasts, unless a copy is saved into a folder
+    /// hidden from it.
     func askClaudeOpenForFill(_ path: String) async -> AskClaudeBrowseTools.FillOutcome {
         switch handOffToEditor(path) {
         case .cancelled: return .notNow
@@ -314,7 +314,7 @@ extension ContentView {
 
     func askClaudePDFDownload(_ id: UUID, _ path: String) {
         downloadFromEdit(path)
-        // Read again once the file is here — checked every two seconds, for at most two minutes.
+        // Read again once the file is here: checked every two seconds, for at most two minutes.
         Task { @MainActor in
             for _ in 0..<60 {
                 try? await Task.sleep(for: .seconds(2))
@@ -337,9 +337,9 @@ extension ContentView {
 
 }
 
-/// **What a PDF card does, apart from the window** (TE294): reads its files, runs on the click,
-/// tells Claude how it ended, and takes it back. The window hands in what it owns — the chat, the
-/// PDF runs, Edit's document, the undo stack — and its own doors as closures.
+/// What a PDF card does, apart from the window: reads its files, runs on the click, tells Claude
+/// how it ended, and takes it back. The window hands in what it owns (the chat, the PDF runs,
+/// Edit's document, the undo stack) and its own doors as closures.
 @MainActor
 struct AskClaudePDFCards {
     let askClaudeChat: AskClaudeChat
@@ -373,9 +373,9 @@ struct AskClaudePDFCards {
     func downloadFromEdit(_ path: String) { download(path) }
 
     // MARK: Reading a card's files
-    /// **Reads the card's files and readies its button** — pages, size, protection, what the copy
-    /// loses, the pages typed against the page count — then the thumbnails. The lane is busy?
-    /// The card keeps saying it's checking and tries again in a few seconds.
+    /// Reads the card's files and readies its button (pages, size, protection, what the copy
+    /// loses, the pages typed against the page count), then draws the thumbnails. While the PDF
+    /// lane is busy, the card keeps saying it's checking and tries again in a few seconds.
     func askClaudePDFRead(_ id: UUID, attempt: Int = 0) {
         guard let card = askClaudeChat.pdfCard(id), card.isOpen else { return }
         // The first read wakes the "checking" line; a read again after Download or a choice of
@@ -459,7 +459,7 @@ struct AskClaudePDFCards {
         }
     }
 
-    /// The pages typed, checked again against what the card read — no file is read for it.
+    /// The pages typed, checked again against what the card read; no file is read for it.
     func askClaudePDFRecheckPages(_ id: UUID) {
         askClaudeChat.updatePDFCard(id) { now in
             now.pagesProblem = ContentView.askClaudePDFPagesProblem(now, pageCount: now.rows.first?.pageCount)
@@ -469,8 +469,8 @@ struct AskClaudePDFCards {
 
     /// The pages a page tool acts on, drawn small for its card.
     func askClaudePDFDrawPages(_ id: UUID) async {
-        // Whatever was drawn for pages typed before is gone the moment they can't be drawn now.
-        // Exactly the pages the card's row draws — Delete's struck through, Reorder's in order.
+        // Whatever was drawn for pages typed before goes once they can't be drawn now. Exactly
+        // the pages the card's row draws: Delete's struck through, Reorder's in order.
         guard let card = askClaudeChat.pdfCard(id), let row = card.rows.first else {
             askClaudeChat.pdfThumbnails[id] = nil
             return
@@ -489,8 +489,8 @@ struct AskClaudePDFCards {
         return busy ? "Waits for the other PDF run to finish." : nil
     }
 
-    /// **The run, on their click** — every file checked again first: still there, still not
-    /// hidden, still as the card read it. One that changed is read again and the card asks again.
+    /// The run, on their click. Every file is checked again first: still there, still not hidden,
+    /// still as the card read it. One that changed is read again and the card asks again.
     func askClaudePDFRun(_ id: UUID, password: EditorPDFSecret?) {
         guard let card = askClaudeChat.pdfCard(id), card.state == .offered, !askClaudeChat.isRunning,
               card.pagesProblem == nil, askClaudePDFWaitReason(id) == nil else { return }
@@ -564,9 +564,9 @@ struct AskClaudePDFCards {
     // MARK: How it ended
     func askClaudePDFFinished(_ id: UUID, _ result: PDFRunResult) {
         guard let card = askClaudeChat.pdfCard(id) else { return }
-        // Nothing written and nothing ended for good — a wrong password, a name that can't be, a
-        // file that changed, another run first, a loss that changed: the card waits again, saying
-        // why, with its files read again.
+        // Nothing written and nothing ended for good (a wrong password, an impossible name, a
+        // file that changed, another run first, a loss that changed): the card waits again,
+        // saying why, with its files read again.
         let again = result.written.isEmpty && [.failed, .busy, .declined].contains(result.outcome)
         let reasons = Dictionary(result.skipped.map { ($0.path, $0.reason) }, uniquingKeysWith: { first, _ in first })
         askClaudeChat.updatePDFCard(id) { now in
@@ -622,8 +622,8 @@ struct AskClaudePDFCards {
         return card.written.contains { EditorFileStore.stamp(ofPath: $0.path) == $0.stamp.editorStamp }
     }
 
-    /// **Moves what the card wrote to the Trash** — each file only while it is exactly as the card
-    /// wrote it, and not open in Edit. Never a delete: a file with no Trash to go to stays.
+    /// Moves what the card wrote to the Trash: each file only while it is exactly as the card
+    /// wrote it and not open in Edit. **Never a delete:** a file with no Trash to go to stays.
     func askClaudePDFUndo(_ id: UUID, fromMenu: Bool) {
         guard let card = askClaudeChat.pdfCard(id), card.state == .done || card.state == .partlyDone else { return }
         if let step = askClaudeChat.pdfUndoSteps.removeValue(forKey: id), !fromMenu {

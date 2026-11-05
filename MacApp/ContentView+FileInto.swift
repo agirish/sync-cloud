@@ -4,13 +4,13 @@ import FileExplorer
 import Settings
 import Sync
 
-/// To File's **File Into**: where a scan files the loose files it reads (TE287).
+/// To File's File Into: where a scan files the loose files it reads.
 ///
 /// The scope says where the loose files are; this says where they go. For a cloud source it is
-/// that source's anchor, as it always was. For a folder source — the Home folder, Macintosh HD —
-/// it is the folder survey's root, because the Home folder's own "tree" is 400,000 entries the
-/// scan stopped to ask about and its homes are nowhere the survey learned. A choice in the menu
-/// overrides either, per source. ``FilingDestinationRoot`` holds the rule; this is the wiring.
+/// that source's anchor. For a folder source (the Home folder, Macintosh HD) it is the folder
+/// survey's root, because the Home folder's own tree is ~400,000 entries the scan stops to ask
+/// about, and none of them are homes the survey learned. A choice in the menu overrides either,
+/// per source. ``FilingDestinationRoot`` holds the rule; this is the wiring.
 extension ContentView {
 
     /// The focused lens pane's source id.
@@ -36,10 +36,10 @@ extension ContentView {
             isDirectory: Self.isDirectory)
     }
 
-    /// The same, for a caller that holds a source's anchor rather than its id — the row menu's
+    /// The same, for a caller that holds a source's anchor rather than its id: the row menu's
     /// Organize This Folder, and Ask Claude's Refine, which pass the anchor through
     /// ``organizeFolderAction(_:providerRoot:providerAnchor:)``. An anchor no enabled source has
-    /// is filed into as itself, which is what that call did before.
+    /// is filed into as itself.
     func filingDestinationRoot(forAnchor anchor: String) -> String {
         guard let id = settings.enabledProviders.first(where: { providerAnchorExpanded(forProviderId: $0.id) == anchor })?.id
         else { return anchor }
@@ -78,8 +78,8 @@ extension ContentView {
         guard !current.isEmpty else { return nil }
         let sources = fileIntoSources
         let survey = surveyRootExpanded.flatMap { Self.isDirectory($0) ? $0 : nil }
-        // Each cloud source's anchor; a folder source's own anchor is the tree TE287 moved away
-        // from, and stays reachable through Choose Folder….
+        // Each cloud source's anchor. A folder source's own anchor is left out (it files into the
+        // survey root) and stays reachable through Choose Folder….
         var seen = Set([survey].compactMap { $0 })
         var others: [FileIntoChoice.Option] = []
         for provider in settings.enabledProviders where !provider.isLocalFolder {

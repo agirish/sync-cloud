@@ -7,47 +7,37 @@ import Sync
 
 /// How big the setup card is, and how much of it the current step gets.
 ///
-/// **A separate table from `SettingsSheetMetrics` rather than a reuse of it**, for the reason that
-/// one is not visible from here at all: it lives in the `Settings` module and is internal. The
-/// *rule* is copied deliberately, though, and it is the important half — clamp to the host window
-/// so the card can never hang off the edge of a small display. That is the exact trap the settings
-/// sheet fell into: every fit test there measured the UNCLAMPED opening, so a card raised to 758pt
-/// passed them all and still scrolled on a 1280×800 screen, where the window has ~740pt to give.
+/// A separate table from `SettingsSheetMetrics`, which is internal to the `Settings` module. Its
+/// rule is copied on purpose: clamp to the host window, so the card never hangs off the edge of a
+/// small display. Fit tests must measure the clamped size, or a card too tall for a 1280×800
+/// screen (about 740pt of window) passes them all and still scrolls.
 enum SetupSheetMetrics {
-    /// The card's width. Fixed, because a form whose measure changed between steps would reflow
-    /// every line of prose in it as you moved.
+    /// The card's width. Fixed, because a measure that changed between steps would reflow every
+    /// line of prose as you moved.
     static let cardWidth: CGFloat = 720
 
-    /// **One inset for the whole card**, so the crumb strip, the heading, the Back button and the
-    /// closing line all begin on the same vertical line, and the text-size control, the ✕ and the
-    /// primary button all end on it.
+    /// One inset for the whole card, chrome and content alike, so the crumb strip, heading, Back
+    /// button and closing line all start on one vertical line, and the text-size control, ✕ and
+    /// primary button all end on it. Different insets would read as three rows sharing a card
+    /// rather than one screen.
     ///
-    /// This is the inset at the default text size; `inset(scale:)` is what the views apply.
-    ///
-    /// It was two: 22 for the content and 14 for the chrome above and below it. Nothing failed —
-    /// the chrome simply hugged the card's edges more tightly than the content did, which reads as
-    /// three separate rows that happen to share a card rather than one screen.
+    /// This is the inset at the default text size; the views apply `inset(scale:)`.
     static let horizontalInset: CGFloat = 22
 
     /// The factor the card's own geometry moves by, as against the factor its type moves by.
     ///
-    /// **`max(1, scale)`, and the asymmetry is the whole of it.** Bigger type needs a bigger card
-    /// to put it in. *Smaller* type does not need a smaller one — the small preset exists "to fit
-    /// more on screen", in the words of its own caption in Settings, and a card that gives up the
-    /// same 10% as its type fits exactly as much as it did before, only harder to read. It also
-    /// squeezed, because not everything in the card was giving up 10%: at 90% the crumb strip lost
-    /// 72pt of card to a row of padding that lost nothing, and truncated four of its eight steps to
-    /// "1 Locat…", "5 Count…", "Workspac…", "Appeara…".
+    /// `max(1, scale)`: bigger type needs a bigger card, but smaller type doesn't need a smaller
+    /// one. The small preset exists to fit more on screen, and a card shrinking with its type fits
+    /// no more. It also squeezes, since fixed padding doesn't shrink: the crumb strip would
+    /// truncate its step names.
     static func chromeScale(_ scale: CGFloat) -> CGFloat { max(1, scale) }
 
     /// The factor the card's height *actually* grew by, once the window has had its say.
     ///
-    /// `chromeScale` is what the card asks for; `resolvedHeight` is what the display can give. On a
-    /// 1200×740 window the card stops growing at 692pt — a factor of 1.13 — while the text goes on
-    /// to 1.35, so anything inside sized off the ask claims room the card never got. Structure is
-    /// where that shows, because its tree box is the only element on the sheet sized in points
-    /// rather than by its content: at 135% an unclamped box took 45pt the card did not have, and
-    /// pushed the Read documents switch below the fold.
+    /// `chromeScale` is what the card asks for; `resolvedHeight` is what the display can give. On
+    /// a small window the card stops growing before the text does, so anything sized off the ask
+    /// claims room the card never got. Structure's tree box, the one element sized in points, uses
+    /// this so it can't push the Read documents switch below the fold.
     static func cardScale(availableSize: CGSize, scale: CGFloat) -> CGFloat {
         min(chromeScale(scale),
             resolvedHeight(availableSize: availableSize, scale: scale) / cardHeight)
@@ -55,42 +45,31 @@ enum SetupSheetMetrics {
 
     /// The card's inset at a given text size.
     ///
-    /// **Scaled, because the width arithmetic below always assumed it was** — `contentWidth`
-    /// subtracts `horizontalInset * 2 * scale` while the views applied a flat 22, so at 135% every
-    /// fit measurement was taken 15pt narrower than the card actually lays out, and at 90% 4pt
-    /// wider. Small enough never to fail a test, and wrong in the direction that hides overflows.
+    /// Scaled, and `contentWidth` subtracts the same scaled inset, so fit measurements use the
+    /// width the card really lays out. A mismatch is too small to fail a test and can hide an
+    /// overflow.
     static func inset(scale: CGFloat) -> CGFloat { horizontalInset * chromeScale(scale) }
 
     /// The Why panel's width at a given text size, taken out of the content column on the screens
     /// that carry one.
     ///
-    /// **This replaced a 176pt step rail.** The rail was a list of places to go, which is what a
-    /// form with independent steps needs; a sheet that asks one thing at a time and then shows what
-    /// it found is a sequence, and the column is better spent explaining the question than
-    /// enumerating the others.
+    /// The column explains the question being asked; a sheet that asks one thing at a time needs
+    /// no list of the other steps.
     ///
-    /// **It takes the scale because everything else in the card does, and for a while this did
-    /// not.** `resolvedWidth` grows the card by the full text scale and `scaledFont` grows the
-    /// panel's prose by it too, but the column the prose sits in was the constant 250 at every
-    /// size — so raising the text size put 35% more type in the same box and the panel got worse
-    /// the more help the reader asked for. At 135% it drew four provider names as "iCloud",
-    /// "OneDri/ve", "Google/Drive", "Dropb/ox": two of them broken across a line *inside the word*.
-    /// The strip's own fix is in `LocationsWhy.MarkStrip`; this is the reason it was needed.
+    /// It takes the scale because the card and the panel's prose both grow with it; a fixed column
+    /// at large text would break provider names mid-word. `LocationsWhy.MarkStrip` handles the
+    /// rest.
     static func whyWidth(scale: CGFloat) -> CGFloat { SetupWhyMetrics.width(scale: scale) }
 
     /// The bottom chrome the screen's own content does not get.
     ///
-    /// Checked against the real footer by `theFooterFitsTheHeightTheOpeningIsComputedFrom`: an
-    /// unverified constant here would make every height this file computes wrong by the difference.
+    /// Checked against the real footer by `theFooterFitsTheHeightTheOpeningIsComputedFrom`: if it
+    /// were wrong, every height this file computes would be off by the difference.
     static let footerHeight: CGFloat = 56
 
-    /// The top chrome — the crumb strip, the text-size control and the ✕.
-    ///
-    /// **This was missing from the budget, and the card showed it.** The form this replaces had no
-    /// top bar; the sheet does, and `contentHeight` went on subtracting only the footer. Rendered
-    /// at the card's own size, the Structure screen overflowed by about the height of that bar and
-    /// SwiftUI centred the overflow, clipping the crumb strip off the top — while every fit test
-    /// passed, because they all measured against a budget 38pt larger than the card gives.
+    /// The top chrome: the crumb strip, the text-size control and the ✕. `contentHeight` must
+    /// subtract it as well as the footer, or fit tests measure against more room than the card
+    /// gives, and an overflowing screen is centred by SwiftUI with the crumb strip clipped off.
     static let topBarHeight: CGFloat = 36
 
     /// The air between the chrome and the screen's own content, top and bottom together.
@@ -102,38 +81,20 @@ enum SetupSheetMetrics {
     /// Breathing room kept between the card and the window edge.
     static let hostMargin: CGFloat = 48
 
-    /// **One height for every screen.**
+    /// One height for every screen. A card that resized per step would draw the eye to the
+    /// container; it should be a steady frame you fill in.
     ///
-    /// It was briefly sized to each step, which removed the dead space and introduced something
-    /// worse: the card grew and shrank as you moved — 563pt on Sources, 360pt on People — and a
-    /// container that resizes under a form draws the eye to the container. A setup card should be a
-    /// steady frame you fill in, not a thing that moves while you read it.
+    /// Measured from the screens' content, with a little room for copy edits, and held up by
+    /// `SetupSheetFitTests`. The ceiling is the window, not this constant: re-measure the screens
+    /// before raising it. Locations is left out, because it draws a row per source and a user may
+    /// add any number; it scrolls past the count `sourcesOutgrowsTheOpeningEventually` names.
     ///
-    /// **Measured against the steps that can be measured.** You lays out at 530pt, Done at 484pt
-    /// and People at 412pt on a 1200×740 window; 610 gives the tallest of those 24pt for a copy
-    /// edit. (You was 484 too until it gained the text-size preset row, which costs 46pt — the
-    /// number moved because the content did, which is the whole method here.)
-    ///
-    /// **The ceiling is the window, not this constant.** A 1200×740 host leaves 692pt after
-    /// `hostMargin`, so there is real room above 610; what stops it growing further is the step
-    /// below, not the display. Re-measure before raising it again — and re-measure the steps, not
-    /// this number.
-    /// Sources is deliberately not in that set — it draws a row per source and a user may add any
-    /// number of folders, so no height promises to hold it (at seven sources it wants 635pt, more
-    /// than a 1280×800 display can give *any* card). It scrolls past a count
-    /// `sourcesOutgrowsTheOpeningEventually` names, which is the same bargain the settings sheet
-    /// strikes with its Providers tab — the difference being that this one has the measurement
-    /// under it rather than a label.
-    ///
-    /// Where the slack sits changed with the sheet: the form pinned each step's closing line to
-    /// the bottom of the pane, and the guided screens are top-aligned with the air below them,
-    /// because a question and its controls read as a block and a line pushed to the far edge of a
-    /// 610pt card reads as unrelated to it. The Why panel keeps its own closing line at the foot of
-    /// its column, where it is the answer to the question above it.
+    /// Screens are top-aligned with the air below, because a question and its controls read as a
+    /// block. The Why panel keeps its closing line at the foot of its column.
     static let cardHeight: CGFloat = 610
 
-    /// Below this a rail plus a usable content column stops being possible; the card stops shrinking
-    /// and its step scrolls instead. Overflowing a tiny window beats a card too small to use.
+    /// Below this a Why panel plus a usable content column stops being possible, so the card stops
+    /// shrinking and its screen scrolls. Overflowing a tiny window beats a card too small to use.
     static let minCardHeight: CGFloat = 360
 
     /// The width the card actually gets, clamped to the window it is centred in.
@@ -145,9 +106,8 @@ enum SetupSheetMetrics {
 
     /// The height the card actually gets, clamped to the window it is centred in.
     ///
-    /// Clamped for the reason the settings sheet learned the hard way: a card sized in points on a
-    /// 1280×800-class display has ~740pt of window to live in, and a number chosen without that in
-    /// mind hangs off the edge while every test still passes.
+    /// Clamped because a 1280×800-class display has about 740pt of window, and a card sized
+    /// without that in mind hangs off the edge while every test still passes.
     static func resolvedHeight(availableSize: CGSize, scale: CGFloat) -> CGFloat {
         let room = max(availableSize.height - hostMargin, minCardHeight)
         return min(cardHeight * chromeScale(scale), room)
@@ -162,9 +122,8 @@ enum SetupSheetMetrics {
 
     /// The width a screen's own content is laid out at.
     ///
-    /// The Why panel's column comes off it only on the screens that carry one — measuring Welcome,
-    /// Structure or Summary in the narrow column would hold them to a width the card never gives
-    /// them.
+    /// The Why panel's column comes off only on screens that carry one; measuring Welcome,
+    /// Structure or Summary in the narrow column would use a width the card never gives them.
     static func contentWidth(availableSize: CGSize, scale: CGFloat,
                              screen: SetupFlow.Screen) -> CGFloat {
         resolvedWidth(availableSize: availableSize, scale: scale)
@@ -174,23 +133,19 @@ enum SetupSheetMetrics {
 
     /// The width a screen's own content is laid out at, on a screen that carries a Why panel.
     ///
-    /// **The inset is subtracted, and that is a correction.** It was `card − panel`, which is the
-    /// column the content sits *in* rather than the width it is given — so every fit measurement
-    /// laid the content out 44pt wider than the card ever does, and was optimistic about its height
-    /// by whatever that extra width saved in wrapping.
+    /// The inset is subtracted: `card − panel` is the column the content sits in, not the width it
+    /// is given, and measuring at it would be optimistic about wrapping and height.
     static func contentWidth(availableSize: CGSize, scale: CGFloat) -> CGFloat {
         resolvedWidth(availableSize: availableSize, scale: scale) - whyWidth(scale: scale)
             - inset(scale: scale) * 2
     }
 }
 
-/// The guided setup sheet: ten screens in one card, replacing the five-step form.
+/// The guided setup sheet: ten screens in one card.
 ///
-/// **Hosted the same way Settings and Help are** — an in-window overlay rather than a window of its
-/// own. It is the same surface on a first launch and on a re-run from Help, which is the property
-/// that made a card the right choice: a separate window would have needed its own restore state,
-/// its own ⌘W meaning, and a story for what happens when the main window is closed, all to deliver
-/// a sheet that is only ever used in front of the app.
+/// Hosted like Settings and Help, as an in-window overlay, the same surface on a first launch and
+/// on a re-run from Help. A separate window would need its own restore state, its own ⌘W meaning
+/// and a story for a closed main window, for a sheet only ever used in front of the app.
 ///
 /// This file is the host and nothing else. Every rule is on ``SetupModel``, which a test can build;
 /// every screen is its own file under `MacApp/Setup/`.
@@ -232,19 +187,18 @@ struct SetupSheet: View {
          defaults: UserDefaults = .standard,
          /// A tree to start from instead of walking for one — see `SetupModel.init`.
          walk: SetupWalk? = nil,
-         /// Whether the user asked for setup by name — Help ▸ Set Up SyncCloud…, or
-         /// Settings ▸ General ▸ Run Setup Again… — rather than the app offering it on launch.
-         /// **An explicit ask opens on the welcome card**, because that is what "run setup" means;
-         /// the automatic offer follows `SetupFlow.initialScreen`, which skips it on a Mac that is
-         /// already set up.
+         /// Whether the user asked for setup by name (Help ▸ Set Up SyncCloud…, or
+         /// Settings ▸ General ▸ Run Setup Again…) rather than the app offering it on launch. An
+         /// explicit ask opens on the welcome card; the automatic offer follows
+         /// `SetupFlow.initialScreen`, which skips it on a Mac already set up.
          wasAskedFor: Bool = false,
          /// A screen to open on, overriding both of the above — see `SetupModel.init`.
          startScreen: SetupFlow.Screen? = nil,
          /// Where the draft lives. Handed in only by a test that mounts the sheet: taking the sheet
          /// down commits the open screen, and a test must never write the real draft.
          draftURL: URL? = SetupDraftStore.defaultURL(),
-         /// A model to host instead of building one — for a test that types into it and then
-         /// takes the sheet away.
+         /// A model to host instead of building one, for a test that types into it and then takes
+         /// the sheet away.
          model: SetupModel? = nil,
          onProfileWritten: @escaping () -> Void = {},
          onStartSurvey: @escaping (URL) -> Void = { _ in },
@@ -268,10 +222,9 @@ struct SetupSheet: View {
             onProfileWritten: onProfileWritten, onStartSurvey: onStartSurvey))
     }
 
-    /// The hues offered on the Appearance screen — a spread across the palette, not the whole of it.
-    ///
-    /// `.none` is deliberately absent: it means "follow the system accent" and paints the same blue
-    /// as `.blue`, so side by side the row began with two swatches that could not be told apart.
+    /// The hues offered on the Appearance screen: a spread across the palette, not all of it.
+    /// `.none` is left out: it follows the system accent and paints the same blue as `.blue`, so
+    /// the two swatches side by side couldn't be told apart.
     static let offeredHues: [LiquidGlassHue] = [.blue, .teal, .green, .amber, .coral, .purple, .graphite]
 
     /// The box a welcome panel's illustration draws in, before it is scaled into the strip.
@@ -296,13 +249,12 @@ struct SetupSheet: View {
             model.onOpen()
             focusFirstFieldIfNeeded()
         }
-        // **Every teardown keeps the open screen's answers, not only the ways out the card draws**
-        // (ST4). ContentView's overlays are one if/else, and Settings (⌘,), Help (⌘?) and a
-        // destination pick rank above setup, so opening one destroys this view and its model with
-        // no `close()` — as closing the window does — and setup reopened on a fresh model with the
-        // name typed on You gone. Quitting tears nothing down, so it is heard on its own.
-        // Committing again after `close()` or `finish()` changes nothing: a screen's commit writes
-        // what its fields hold, and applying the draft is idempotent.
+        // Every teardown keeps the open screen's answers, not only the card's own ways out.
+        // ContentView's overlays are one if/else, and Settings (⌘,), Help (⌘?) and a destination
+        // pick rank above setup, so opening one (or closing the window) destroys this view and its
+        // model with no `close()`. Quitting tears nothing down, so it is heard separately.
+        // Committing again after `close()` or `finish()` is harmless: a commit writes what the
+        // fields hold, and applying the draft is idempotent.
         .onDisappear { model.commitBeforeClosing() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             model.commitBeforeClosing()
@@ -316,8 +268,8 @@ struct SetupSheet: View {
 
     /// Puts the caret in the first field of the screen that has one.
     ///
-    /// The rule is ``SetupFlow/wantsFirstFieldFocus(_:)`` rather than a `case` inlined here: this
-    /// view cannot be built in a test, so a rule spelled inside it is a rule nothing can flip.
+    /// The rule is ``SetupFlow/wantsFirstFieldFocus(_:)``, not a `case` inlined here, because this
+    /// view can't be built in a test.
     private func focusFirstFieldIfNeeded() {
         firstFieldFocused = SetupFlow.wantsFirstFieldFocus(model.screen)
     }
@@ -334,7 +286,7 @@ struct SetupSheet: View {
     private var card: some View {
         screenCard
             .frame(width: cardWidth, height: cardHeight)
-            // Setup's switches and checkboxes take the window's hue, not the Mac's accent (DS4).
+            // Setup's switches and checkboxes take the window's hue, not the Mac's accent.
             .nativeControlAccent(glassHue)
             .contentSurface(hue: glassHue, tint: surfaceTint)
             .groundedGlassCard(level: glassLevel)
@@ -345,8 +297,8 @@ struct SetupSheet: View {
 
     /// The whole card for the current screen, chrome included.
     ///
-    /// Internal so a render harness can photograph it; there is no other way to see the chrome and
-    /// the content in the same picture, which is where the alignment defects live.
+    /// Internal so a render harness can photograph it: the only way to see chrome and content in
+    /// one picture, which is where alignment problems show.
     @ViewBuilder
     var screenCard: some View {
         switch model.screen {
@@ -362,13 +314,13 @@ struct SetupSheet: View {
             }
 
         case .learn:
-            // **Once the reading is done the primary keeps it.** Continue moves on with the tree
-            // and the ticks as they stand; reading the folder again is the secondary button.
+            // Once the reading is done, the primary keeps it: Continue moves on with the tree and
+            // ticks as they stand, and reading again is the secondary button.
             frame(primary: model.learnPrimaryTitle,
                   primaryAction: { model.pressLearnPrimary() },
                   // Nothing to read means nothing to press: a Learn that silently did nothing
-                  // left the sheet unable to reach Structure with no line saying why. Continue
-                  // over a finished reading reads nothing, so it is never held back by this.
+                  // would leave Structure unreachable with no reason given. Continue over a
+                  // finished reading reads nothing, so this never holds it back.
                   primaryDisabled: !model.hasReadingOfChosenFolder && !model.canLearn,
                   secondary: model.learnAgainTitle.map { title in
                       (title, { model.pressLearnAgain() }, !model.canLearn)
@@ -397,20 +349,17 @@ struct SetupSheet: View {
             }
 
         case .structure:
-            // **The button says what it will do, and there are three answers.** With a tree in
-            // hand it writes, and names which of the two things it will do. On a re-run where
-            // Learn was skipped there is a profile on screen and nothing to write; and after a
-            // folder is changed but not read there is neither — a Save in either case is a button
-            // whose whole effect is to move to the next screen, so it says Continue instead. So
-            // does a reading Save already wrote: writing it again made a second profile. While the
-            // reading still runs it says Skip Saving, and moves on without waiting. The words are
-            // `structurePrimaryTitle`, so a test can read them.
+            // The button says what it will do. With a tree in hand it writes, and names which of
+            // its two writes. With nothing to write (a re-run that skipped Learn, a folder changed
+            // but not read, or a reading Save already wrote) it says Continue; writing again would
+            // make a second profile. While the reading runs it says Skip Saving and moves on
+            // without waiting. The words are `structurePrimaryTitle`, so a test can read them.
             let primary = model.structurePrimaryTitle
             frame(primary: primary,
                   // Moves on only once the profile is written: a failed write stays here and
-                  // says what failed (`saveAndContinue`, through `pressStructurePrimary`). **What
-                  // the button said is captured as it is drawn**, so a reading that lands before
-                  // the Task runs cannot turn a Skip Saving press into a Save.
+                  // says what failed (`saveAndContinue`, through `pressStructurePrimary`). The
+                  // button's label is captured as drawn, so a reading that lands before the Task
+                  // runs can't turn a Skip Saving press into a Save.
                   primaryAction: { [shownSkipSaving = primary == SetupModel.skipSavingTitle] in
                       Task { await model.pressStructurePrimary(shownSkipSaving: shownSkipSaving) }
                   },
@@ -447,9 +396,9 @@ struct SetupSheet: View {
 
     /// One screen's own content, without the chrome around it.
     ///
-    /// **Internal so a fit test can measure it.** The card is one fixed height for every screen, so
-    /// what has to fit is the content column — and `SetupSheet` itself cannot be laid out in a test
-    /// without a window, a manager and a walk.
+    /// Internal so a fit test can measure it. The card is one fixed height, so the content column
+    /// is what must fit, and `SetupSheet` itself can't be laid out in a test without a window, a
+    /// manager and a walk.
     @ViewBuilder
     func screenBody(_ screen: SetupFlow.Screen,
                     outlineRows: [SetupFlow.OutlineRow] = SetupFlow.outline) -> some View {
@@ -543,7 +492,7 @@ struct SetupSheet: View {
                 enabled.dropFirst().first?.displayName ?? "Dropbox")
     }
 
-    /// The kinds of location the Why panel draws — see `LocationsWhy.marks(for:)`.
+    /// The kinds of location the Why panel draws; see `LocationsWhy.marks(for:)`.
     private var paneMarks: [LocationsWhy.Mark] {
         let marks = LocationsWhy.marks(for: settings.enabledProviders)
         return marks.isEmpty ? LocationsWhy.fallback : marks

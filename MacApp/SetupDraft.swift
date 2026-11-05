@@ -4,27 +4,23 @@ import Sync
 
 /// The answers setup collects that it cannot write down yet.
 ///
-/// **This exists because of an ordering problem, not as a convenience.** Two of the form's four
-/// questions land in files that live *inside a profile* — `people.json` sits beside
-/// `folder-profile.json` under `profiles/<id>/` — and a fresh machine has no profile until the
-/// folder survey mints one. So on exactly the machine setup is for, the You and People steps have
-/// nowhere to write. The answers are held here instead, and applied to the roster the moment one
-/// exists: either straight away on a machine that already has a profile, or by the survey stage
-/// after it writes the first one.
+/// The You and People answers land in a file inside a profile (`people.json` sits beside
+/// `folder-profile.json` under `profiles/<id>/`), and a fresh Mac has no profile until the folder
+/// survey mints one. So on exactly the Mac setup is for, they have nowhere to write. They are held
+/// here and applied to the roster as soon as one exists: at once where a profile already exists,
+/// or by the survey stage after it writes the first one.
 ///
-/// The other two questions need no draft — preferences are `@AppStorage` and the source list is
-/// `SettingsManager`, both of which are perfectly happy on a machine with no profile. Nothing that
-/// can be written immediately is routed through here; a draft that shadowed live settings would be
-/// a second source of truth for them.
+/// Answers that can be written immediately (`@AppStorage` preferences, the `SettingsManager`
+/// source list) never pass through here: a draft shadowing live settings would be a second source
+/// of truth.
 struct SetupDraft: Codable, Equatable, Sendable {
 
     /// One person as the form collected them, before they have a roster id.
     ///
-    /// **No id field, deliberately.** `PeopleStore` derives ids from display names and keeps them
-    /// unique within the roster (`Person.id` is a `let` precisely so a rename cannot orphan the
-    /// folders and rules resolving through it). A draft that minted its own would be inventing
-    /// identity for records that do not exist yet, and two drafts applied to one roster could
-    /// collide on it — which is the failure `PersonRegistry` had to grow a collapse for.
+    /// No id field: `PeopleStore` derives ids from display names and keeps them unique within the
+    /// roster (`Person.id` is a `let` so a rename can't orphan the folders and rules that resolve
+    /// through it). A draft minting its own would invent identity for records that don't exist yet,
+    /// and two drafts applied to one roster could collide on it.
     struct DraftPerson: Codable, Equatable, Sendable {
         var displayName: String
         var relationship: String?
@@ -40,10 +36,10 @@ struct SetupDraft: Codable, Equatable, Sendable {
         }
     }
 
-    /// What your folders call you — the display name of your own roster record.
+    /// What your folders call you: the display name of your own roster record.
     var yourName: String = ""
     /// Every full form your documents might print. The field that does the work: a full name is
-    /// matched before any single word, so a shared surname stops making two people out of one
+    /// matched before any single word, so a shared surname doesn't make two people out of one
     /// document.
     var yourFullNames: [String] = []
     /// The rest of the household.
@@ -55,12 +51,10 @@ struct SetupDraft: Codable, Equatable, Sendable {
             && yourFullNames.isEmpty && others.isEmpty
     }
 
-    /// Everyone in the draft, you first.
-    ///
-    /// **You lead, and the order is load-bearing rather than cosmetic.** `PeopleStore.add` derives
-    /// an id from the display name and makes it unique *within the roster as it stands*, so the
-    /// first record to claim a name gets the plain id and a later namesake gets the suffixed one.
-    /// Your own record is the one every other surface resolves through, so it goes in first.
+    /// Everyone in the draft, you first. The order matters: `PeopleStore.add` makes ids unique
+    /// within the roster as it stands, so the first record to claim a name gets the plain id and a
+    /// later namesake the suffixed one. Every other surface resolves through your record, so it
+    /// goes first.
     var everyone: [DraftPerson] {
         var all: [DraftPerson] = []
         let name = yourName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -73,16 +67,13 @@ struct SetupDraft: Codable, Equatable, Sendable {
 
     /// The draft as a registry the folder walk can use, or nil when it holds nobody.
     ///
-    /// **The walk needs a household before there is a roster to hold one** — that is the whole
-    /// reason People is asked before Folders — so the answers have to become a `PersonRegistry`
-    /// straight from the draft.
+    /// The walk needs a household before there is a roster to hold one, so the answers become a
+    /// `PersonRegistry` straight from the draft.
     ///
-    /// **Ids are made unique here, because nothing downstream will do it.** `idCandidate` derives
-    /// from the display name, so two people in one draft can land on the same id — `Anne Marie` and
-    /// `Anne-Marie` both fold to `anne-marie` — and `PersonRegistry.init` collapses a repeated id
-    /// to last-one-wins. That is right there (an id must name one person) but it means the walk
-    /// would be handed a household with somebody quietly missing. `PeopleStore.add` disambiguates
-    /// for exactly this reason; a draft has no store to do it for it.
+    /// Ids are made unique here, because nothing downstream does it. Two people can share an
+    /// `idCandidate` (`Anne Marie` and `Anne-Marie` both fold to `anne-marie`), and
+    /// `PersonRegistry.init` keeps only the last of a repeated id, so the walk would silently lose
+    /// someone. `PeopleStore.add` disambiguates the same way; a draft has no store to do it.
     var registry: PersonRegistry? {
         var used: Set<String> = []
         let people: [Person] = everyone.map { drafted in
@@ -103,16 +94,14 @@ struct SetupDraft: Codable, Equatable, Sendable {
 
     /// Writes the draft into a roster, adding what is missing and filling in what is thin.
     ///
-    /// **Idempotent, because it is called more than once.** A machine with a profile applies on
-    /// every step commit, and the survey stage applies again after minting a profile; a second
-    /// application must not produce a second Father. Matching is on the display name, compared
-    /// the way the roster itself compares names, and a match is *updated* rather than replaced —
-    /// setup adding a full name must never delete one the user typed in Settings.
+    /// Idempotent, because it runs more than once: on every step commit where a profile exists,
+    /// and again after the survey stage mints one. A second run must not add a second Father.
+    /// Matching is by display name, compared as the roster compares names, and a match is updated,
+    /// never replaced, so setup never deletes a full name the user typed in Settings.
     ///
-    /// **Your own name, edited, renames your record** (review M5). Matched by name alone, "Abhishek"
-    /// edited to "Abhi" on You added a second "me" — and People hides "me", so neither showed.
-    /// Closing the sheet commits You, so Esc was enough. The old name stays on as an alias: the
-    /// folders that called you by it still do.
+    /// Editing your own name renames your record. Matching by name alone would add a second "me",
+    /// which People hides, so neither would show. The old name stays as an alias, since folders
+    /// that called you by it still do.
     ///
     /// Returns the number of people added and the number updated, for the log line.
     @discardableResult
@@ -159,9 +148,8 @@ struct SetupDraft: Codable, Equatable, Sendable {
 
     /// `existing` order preserved, `incoming` appended where it says something new.
     ///
-    /// Compared case- and diacritic-insensitively, which is the comparison the matcher itself uses:
-    /// adding “Father Elder” to a record that already carries “father elder” would otherwise
-    /// grow the list by a duplicate that matches exactly the same documents.
+    /// Compared case- and diacritic-insensitively, as the matcher compares: otherwise “Father
+    /// Elder” added beside “father elder” would be a duplicate matching the same documents.
     private static func union(_ existing: [String], _ incoming: [String]) -> [String] {
         var out = existing
         for candidate in incoming {
@@ -178,17 +166,16 @@ struct SetupDraft: Codable, Equatable, Sendable {
 
 /// Reads and writes ``SetupDraft`` as a single JSON file.
 ///
-/// `~/Library/Application Support/SyncCloud/setup-draft.json` — beside `profiles/` rather than
-/// inside it, because the whole point of the draft is that it exists before any profile does.
+/// `~/Library/Application Support/SyncCloud/setup-draft.json`, beside `profiles/` rather than
+/// inside it, because the draft exists before any profile does.
 ///
-/// **Every failure is silent and lossless in the same direction: the draft simply is not there.**
-/// A draft that cannot be read is one setup asks for again, which costs the user a minute; a draft
-/// that half-decoded into a roster would cost them a wrong household, and the roster is the file
-/// the engine attributes every document through.
+/// Every failure lands the same way: the draft is not there. An unreadable draft means setup asks
+/// again, which costs a minute; a half-decoded one would give the roster a wrong household, and
+/// the engine attributes every document through the roster.
 enum SetupDraftStore {
 
-    /// Bumped if the shape changes. A foreign version is discarded rather than migrated — the
-    /// contents are one form away, and the file is deleted the moment setup finishes.
+    /// Bumped if the shape changes. A foreign version is discarded, not migrated: the contents are
+    /// one form away, and the file is deleted once setup finishes.
     static let currentSchema = 1
 
     private struct Document: Codable {
@@ -204,31 +191,24 @@ enum SetupDraftStore {
 
     /// The draft on disk, or nil when there is none this build can read.
     ///
-    /// **Three states, and only one of them is silent.** This used to be a pair of `try?`s that
-    /// collapsed all three into the same bare `nil` — the same shape ``FolderJumpStore/storedMap``
-    /// draws a line through one module over, and for the same reason: *absent* and *unreadable* are
-    /// not the same state.
+    /// Three states, and only absent is silent (as in ``FolderJumpStore/storedMap``):
     ///
-    /// - **Absent** — the ordinary case, and by far the commonest: there is no draft until the
-    ///   user has answered something. Silent, because a line per launch saying a file the app has
-    ///   not written yet is not there is how a log stops being read.
-    /// - **Present and unreadable** — permissions, a truncated write, a hand edit. This file is the
-    ///   **only** copy of the You and People answers (which is why ``clear(at:)`` refuses to run
-    ///   before they have reached a roster), so the user is about to be asked the form again and
-    ///   lose what they typed. That is worth a line naming the path, so the file can be looked at
-    ///   by hand.
-    /// - **Schema from another build** — already had its warning, and keeps it.
+    /// - Absent: the common case, since there is no draft until the user answers something. A
+    ///   line per launch about a file not yet written would stop the log being read.
+    /// - Present and unreadable (permissions, a truncated write, a hand edit): this file is the
+    ///   only copy of the You and People answers, which is why ``clear(at:)`` runs only after they
+    ///   reach a roster. The user is about to lose them, so the warning names the path.
+    /// - Schema from another build: warned about too.
     ///
-    /// The bytes are *not* stashed the way `FolderJumpStore` stashes pins, and the asymmetry is
-    /// deliberate: pins are curated over months and unrecoverable, whereas a draft is one form
-    /// away and is deleted the moment setup finishes. Saying where it is beats keeping a copy of it.
+    /// The bytes are not stashed the way `FolderJumpStore` stashes pins: pins are curated over
+    /// months, while a draft is one form away. Saying where it is beats keeping a copy.
     static func read(at url: URL) -> SetupDraft? {
         let data: Data
         do {
             data = try Data(contentsOf: url)
         } catch {
-            // `fileExists` rather than the error code, because the interesting distinction is
-            // "is there something here to lose", not which of several errors a read produced.
+            // `fileExists`, not the error code: the question is whether there is something here to
+            // lose, not which error the read produced.
             if FileManager.default.fileExists(atPath: url.path) {
                 Logger.shared.warning("Setup draft at \(url.path) could not be read "
                                       + "(\(error.localizedDescription)) — setup will ask again, and "
@@ -252,9 +232,8 @@ enum SetupDraftStore {
 
     /// Writes the draft, creating the directory if it is not there.
     ///
-    /// **Atomic**, for the reason every other whole-file write in this app is: the draft is read at
-    /// launch, and a half-written file is one setup would discard — losing answers the user has
-    /// already given rather than the last one they typed.
+    /// Atomic: the draft is read at launch, and setup would discard a half-written file, losing
+    /// every answer given rather than just the last one typed.
     static func write(_ draft: SetupDraft, to url: URL) {
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
@@ -271,9 +250,9 @@ enum SetupDraftStore {
 
     /// Removes the draft once its contents have reached a roster.
     ///
-    /// **Only ever called after a successful apply**, because this file is the only copy: deleting
-    /// it on the way past the People step — before a profile exists to apply it into — would throw
-    /// away answers nothing else holds.
+    /// **Call it only after a successful apply.** This file is the only copy: deleting it past the
+    /// People step, before a profile exists to apply it into, throws away answers nothing else
+    /// holds.
     static func clear(at url: URL) {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         do { try FileManager.default.removeItem(at: url) } catch {

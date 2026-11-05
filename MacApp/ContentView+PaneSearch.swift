@@ -7,69 +7,56 @@ import Sync
 
 /// One pane's search field: the query, whether it is showing, and where ↩ has walked to.
 ///
-/// Deliberately not the results. The query is what the user owns and it survives a republish; the
-/// results are derived, are rebuilt whenever either moves, and are large. Keeping them apart is what
-/// lets the field re-render on a keystroke while the recomputation waits out the debounce.
+/// Not the results. The query is the user's and survives a republish; the results are derived,
+/// large, and rebuilt whenever either tree moves. Keeping them apart lets the field re-render on a
+/// keystroke while the recomputation waits out the debounce.
 struct PaneSearchFieldState: Equatable {
     var query: String = ""
     var isExpanded: Bool = false
-    /// Which hit ↩/⇧↩ have walked to. Not clamped here — the results it indexes are rebuilt
-    /// underneath it on every keystroke, so the clamping belongs where the count is known
-    /// (`PaneSearchWalk.advance`, `PaneSearchResults.hit(at:)`), and both do it.
+    /// Which hit ↩/⇧↩ have walked to. Not clamped here: the results it indexes are rebuilt under it
+    /// on every keystroke, so `PaneSearchWalk.advance` and `PaneSearchResults.hit(at:)` clamp it.
     var hitIndex: Int = 0
-    /// Bumped exactly when the user asks to be TAKEN somewhere — a (debounced) new query, or
-    /// ↩/⇧↩ — and the pane's reveal fires on this and nothing else.
+    /// Bumped exactly when the user asks to be taken somewhere (a debounced new query, or ↩/⇧↩),
+    /// and the pane's reveal fires on this and nothing else.
     ///
-    /// This replaces a token built from the results' generation, and the difference is the whole
-    /// point: the generation moves on every recomputation, and a recomputation runs on every
-    /// republish of EITHER tree (a scan, a copy, a hidden-files toggle — "constantly", per the
-    /// pane's own docs). With a query parked in the field, every one of those re-fired the reveal:
-    /// selection snapped back to the current hit, the viewport re-centred on it, Columns re-opened
-    /// the stack the user had navigated out of, and manually collapsed folders re-opened — undoing
-    /// whatever the user had done since the walk. Two earlier fixes each closed one trigger of
-    /// this clobber (the index reset, the pane's reappearance) and left the republish one open.
-    /// A republish now recomputes results, annotations and the walk's standing index — and moves
-    /// the user nowhere.
+    /// **Never** key the reveal on the results' generation: that moves on every republish of
+    /// either tree (a scan, a copy, a hidden-files toggle), and with a query parked in the field
+    /// each one would snap the selection back, re-centre the viewport, re-open the Columns stack and
+    /// re-expand collapsed folders, undoing whatever the user did since the walk. A republish
+    /// recomputes results, annotations and the walk's index, and moves the user nowhere.
     var revealNonce: Int = 0
 }
 
 /// What a pane's debounced recomputation is keyed on: which pane, what was typed, and which publish
-/// of the tree it will run against.
+/// of each tree it runs against.
 ///
-/// A named type rather than a tuple because `.task(id:)` restarts exactly when this compares unequal,
-/// so this `==` is the definition of "when does the search re-run" — and one of its three fields is
-/// easy to leave out. `treeVersion` is that one: without it a republish leaves the results naming
-/// paths that no longer exist, and the walk then reveals nothing and selects a ghost.
+/// A named type because `.task(id:)` restarts exactly when this compares unequal, so this `==`
+/// defines when the search re-runs. Without `treeVersion` a republish would leave the results naming
+/// paths that no longer exist, and the walk would reveal nothing and select a ghost.
 struct PaneSearchRecomputeKey: Equatable {
     let isLeft: Bool
     let query: String
     let treeVersion: Int
-    /// The OPPOSITE pane's publish counter. The side annotation ("both sides" / "left only") is read
-    /// out of that tree, so a rescan or a copy over there makes every annotation on screen a claim
-    /// about a tree that no longer exists — "left only" on a file that was just copied across is
-    /// precisely the answer the user searched to get, reported wrong.
+    /// The opposite pane's publish counter. The side annotation ("both sides" / "left only") is read
+    /// from that tree, so without this a rescan or copy over there would leave every annotation
+    /// wrong, such as "left only" on a file just copied across.
     let otherTreeVersion: Int
 }
 
-/// Searching inside a pane's tree: the host's half — owning the field's state, recomputing the
-/// results off a debounce, and answering ⌘F.
+/// Searching inside a pane's tree, the host's half: owning the field's state, recomputing results
+/// off a debounce, and answering ⌘F.
 ///
-/// Split out of `ContentView.swift` for size, like the toolbar. The `@State` itself has to be
-/// declared over there (an extension cannot add stored properties); everything that reads or writes
-/// it is here.
+/// The `@State` is declared in `ContentView.swift` (an extension cannot add stored properties);
+/// everything that reads or writes it is here.
 extension ContentView {
 
     /// How long the query rests before the tree is searched.
     ///
-    /// It protects two things. The obvious one is what happens AFTER a result set lands: both panes
-    /// re-render and the walk's reset reveals a hit, so searching per keystroke would open a folder
-    /// for every prefix of the word being typed — the tree detonating slowly instead of all at once.
-    ///
-    /// The other is the search itself, which is **not** the "few milliseconds" this comment used to
-    /// claim. Measured in Release on a 40,000-node tree, the size `PaneTree` documents for a real
-    /// pane: 262 ms with the original matcher, 77–142 ms after `PaneTreeSearch.match` was rewritten.
-    /// That is why `recomputeSearch` runs off the main actor — a debounce shortens how often you pay
-    /// a cost, and never makes paying it on the main thread acceptable.
+    /// It protects two things. After a result set lands both panes re-render and the walk reveals a
+    /// hit, so searching per keystroke would open a folder for every prefix of the word being typed.
+    /// And the search itself is not cheap: about 77–142 ms in Release on a 40,000-node tree, which
+    /// is why `recomputeSearch` runs off the main actor. A debounce makes the cost rarer; it never
+    /// makes paying it on the main thread acceptable.
     static let searchDebounce: Duration = .milliseconds(150)
 
     /// This pane's field state, as a binding the header can write.
@@ -84,13 +71,12 @@ extension ContentView {
 
     /// Recomputes one pane's results against the tree it is showing now.
     ///
-    /// Called from the debounce below and on every republish, because a result set names paths in a
-    /// tree that has since been rebuilt — a scan, a delete or a filter change leaves hits pointing at
-    /// rows that are no longer there, and the walk would then reveal nothing and select a ghost.
+    /// Called from the debounce and on every republish, because a scan, a delete or a filter change
+    /// leaves hits pointing at rows that are gone, and the walk would select a ghost.
     ///
-    /// The side annotation is the opposite pane's already-walked tree and nothing else: one pass over
-    /// nodes in RAM, no disk access, no new scan. On the single-source rail there is no opposite pane
-    /// — `nil`, so no annotation is produced rather than a wrong one.
+    /// The side annotation reads the opposite pane's already-walked tree: one pass over nodes in RAM,
+    /// no disk access. On the single-source rail there is no opposite pane, so no annotation at all
+    /// rather than a wrong one.
     func recomputeSearch(isLeft: Bool) async {
         let query = (isLeft ? leftPaneSearch : rightPaneSearch).query
         // Nothing asked and nothing showing: a republish would only stamp a new generation.
@@ -100,12 +86,11 @@ extension ContentView {
         let plan = PaneLogic.searchPlan(isLeft: isLeft, isSingleSource: layoutMode == .singleSource,
                                         query: query)
         let generation = (isLeft ? leftSearchGeneration : rightSearchGeneration) + 1
-        // Everything below the hop reads only `Sendable` values captured here — the two trees are
-        // `PaneTree`, which is a stamped snapshot, so the background pass cannot observe a
-        // republish half-applied.
+        // Everything below the hop reads only `Sendable` values captured here. The trees are
+        // stamped `PaneTree` snapshots, so the background pass cannot see a half-applied republish.
         let tree = pane.tree
-        // The other pane's tree BEFORE its type filter: a file that filter hides is still on that
-        // side, and reading the shown tree marked it "only on left".
+        // The other pane's tree before its type filter: a file that filter hides is still on that
+        // side, and the shown tree would mark it "only on left".
         let otherNodes = syncManager.searchSideAnnotationNodes(forPaneIsLeft: isLeft)
         let otherSide = pane.otherTree.side
         let annotatesSides = plan.annotatesSides
@@ -119,22 +104,18 @@ extension ContentView {
         }.value
 
         // **`Task.detached` does not inherit cancellation, and awaiting its `.value` does not
-        // throw.** So when `.task(id:)` cancels this — which every keystroke does — the detached
-        // pass runs to completion anyway and resumes here carrying a result for a query nobody is
-        // asking about any more. Assigning it would publish a stale answer over a newer one, which
-        // is exactly the race `FileRowView.resolveBadge` documents one layer down.
+        // throw.** When `.task(id:)` cancels this (every keystroke does), the detached pass still
+        // finishes and resumes here with a result for a stale query. Publishing it would overwrite a
+        // newer answer, the race `FileRowView.resolveBadge` documents one layer down.
         //
-        // Both guards, because they catch different things: cancellation covers a superseded key
-        // (a keystroke, a republish), and the live query re-read covers the field having been
-        // cleared or closed while this was out.
+        // Both guards: cancellation covers a superseded key (a keystroke, a republish), and the
+        // query re-read covers the field being cleared or closed meanwhile.
         guard !Task.isCancelled,
               (isLeft ? leftPaneSearch : rightPaneSearch).query == query else { return }
 
-        // The walk moves with the results, and only with them. Setting it at the CALL SITE — which
-        // is what this used to do — moved the user's position even when the results that prompted
-        // it were dropped just above for being stale. `walkIndex(after:standingAt:)` also keeps them
-        // on the file they were reading across a republish, rather than restarting the walk every
-        // time a background scan lands.
+        // The walk moves with the results and only with them, so stale results dropped above never
+        // move the user. `walkIndex(after:standingAt:)` keeps them on the file they were reading
+        // across a republish, rather than restarting the walk whenever a background scan lands.
         let state = paneSearchState(isLeft: isLeft)
         let previous = isLeft ? leftSearchResults : rightSearchResults
         let landed = results.walkIndex(after: previous, standingAt: state.wrappedValue.hitIndex)
@@ -146,9 +127,9 @@ extension ContentView {
             rightSearchResults = results
         }
         state.wrappedValue.hitIndex = landed
-        // The reveal fires only for a NEW QUESTION — the query moved — never for a republish of
-        // the same one. The rule lives in `PaneLogic` where a test can hold it; see
-        // `PaneSearchFieldState.revealNonce` for what firing on every recomputation used to do.
+        // The reveal fires only for a new question (the query moved), never for a republish of the
+        // same one. The rule is in `PaneLogic` where a test can hold it; see
+        // `PaneSearchFieldState.revealNonce` for why.
         if PaneLogic.searchAsksNewQuestion(previous: previous, results: results) {
             state.wrappedValue.revealNonce &+= 1
         }
@@ -160,45 +141,28 @@ extension ContentView {
         let state = paneSearchState(isLeft: isLeft)
         state.wrappedValue.hitIndex = PaneSearchWalk.advance(
             state.wrappedValue.hitIndex, count: results.hits.count, reverse: reverse)
-        // A walk is the other thing that reveals (a bump with no hits is a guarded no-op in the
-        // pane) — and with the same index re-landed by a wrap over one hit, the nonce is the only
-        // part of the signal that moves, so it bumps unconditionally.
+        // A walk is the other thing that reveals (with no hits the pane ignores the bump). A wrap
+        // over one hit re-lands the same index, so the nonce bumps unconditionally.
         state.wrappedValue.revealNonce &+= 1
     }
 
-    /// Space → Quick Look for one pane, hung off that pane's FILE LIST rather than its column.
+    /// Space → Quick Look for one pane, hung off that pane's file list rather than its column.
     ///
-    /// **The subtree is the whole fix.** This handler used to sit on the pane column — on
-    /// `panesSplit` in Compare, on `paneColumn(isLeft: true)` in the rail and in Browse — back when
-    /// a pane column was a header of buttons over a list, and a column-wide scope was the same thing
-    /// as a list-wide one. Its own comment said as much: onKeyPress "only fires while key focus is
-    /// inside this subtree (the pane Lists) … so text fields elsewhere get Space normally."
+    /// **Keep it on the list.** The pane header holds the search field, and `.onKeyPress` on the
+    /// whole column would catch every Space typed into it: the space would never reach the query,
+    /// and Quick Look would open on whatever the pane has selected and take key focus, so typing
+    /// stops. Scoped to the list, the header is outside the handler and Space in the list previews
+    /// as before.
     ///
-    /// Pane search put a text field INSIDE that subtree, and "elsewhere" stopped covering it. Every
-    /// Space typed into a pane's search field was therefore intercepted here: the space never
-    /// reached the query, and the Quick Look panel opened over the app on whatever the pane happened
-    /// to have selected — the hit the walk had just revealed, which is why it read as "a random
-    /// match", or a row from before the search, which is why it sometimes was not a match at all.
-    /// The panel then takes key focus, so the next keystroke went nowhere: typing simply stopped.
-    /// (`.quickLookPreview` clears its binding only on manual dismissal, so the panel also sat there
-    /// naming a stale file through every later query.)
+    /// `singleSource` follows the layout: on a one-pane workspace the hidden Compare pane's leftover
+    /// right-hand selection must not hijack the preview.
     ///
-    /// Scoping to the list restores the original intent rather than adding a special case: the pane
-    /// header — search field, breadcrumb, every button on it — is now genuinely "elsewhere", and
-    /// Space in the list previews exactly as it always did.
+    /// `followsPane: true` marks the preview as the panes': it re-targets as the selection moves and
+    /// closes when it is cleared (`CurrentSelection.previewFollow`). A Differences row or a lens card
+    /// opens the same panel without that claim, since a pane click says nothing about their preview.
     ///
-    /// `singleSource` follows the layout for the same reason it always did: on a one-pane workspace
-    /// the hidden Compare pane's leftover right-hand selection must not hijack the preview.
-    ///
-    /// `followsPane: true` marks the preview as the PANES': it re-targets as the selection moves
-    /// and closes when the selection is cleared, which is `CurrentSelection.previewFollow`'s job.
-    /// A Differences row or a lens card opens the same panel WITHOUT that claim — both surfaces
-    /// hold selections at once, so a pane click is not a statement about the other one's preview.
-    ///
-    /// Takes no side, deliberately, though both of Compare's lists install it: the target is
-    /// `CurrentSelection`'s answer across both panes, which is what the single column-wide handler
-    /// resolved before. Whichever list holds focus fires, and both get the same answer — so moving
-    /// one handler to two changes where Space is heard and nothing about what it previews.
+    /// Takes no side, though both of Compare's lists install it: the target is `CurrentSelection`'s
+    /// answer across both panes, so whichever list holds focus, Space previews the same thing.
     func paneQuickLook() -> KeyPress.Result {
         // See `paneChordsSuspended`: a pending pick owns the keyboard, and the overlay that draws
         // it does not take key from the AppKit table underneath.
@@ -212,48 +176,42 @@ extension ContentView {
         return .handled
     }
 
-    /// ↩ renames the selected row — Finder's chord, and the one people try first in any file list.
+    /// ↩ renames the selected row: Finder's chord, and the one people try first in any file list.
     ///
-    /// **A pane key handler, not a menu key equivalent, and that is the whole design.** A menu
-    /// equivalent outranks the field editor and every default button, so a registered bare ↩ would
-    /// take the key that commits the destination picker, the ⌘K field, a rename field itself and
-    /// every sheet in the app. Finder does not register it either: its File ▸ Rename carries no
-    /// key, and the list view handles ↩ itself. `.onKeyPress` is focus-scoped, so this fires only
-    /// while the file list holds focus — which is exactly when ↩ means "rename this".
+    /// **A pane key handler, never a menu key equivalent.** A menu equivalent outranks the field
+    /// editor and every default button, so a bare ↩ there would take the key from the destination
+    /// picker, the ⌘K field, a rename field and every sheet. Finder registers no key for Rename
+    /// either. `.onKeyPress` is focus-scoped, so this fires only while the file list holds focus.
     ///
-    /// **The action is the menu item's own closure**, so File ▸ Rename and ↩ cannot come to mean
-    /// different things: `shortcutPaneRowVerbs.rename` is `nil` unless exactly one row is selected,
-    /// and returning `.ignored` there lets ↩ fall through to whatever else would have had it.
+    /// The action is the menu item's own closure, so File ▸ Rename and ↩ cannot drift apart:
+    /// `shortcutPaneRowVerbs.rename` is `nil` unless exactly one row is selected, and `.ignored`
+    /// then lets ↩ fall through to whatever else would have had it.
     func paneRename() -> KeyPress.Result {
-        // **Suspended with every other mirrored chord, and it has to be asked here.** The menu item
-        // reading the same closure is silenced by the `suspended:` flag on the publication; this
-        // handler reads `shortcutPaneRowVerbs` directly and never saw it. `paneChordsSuspended`
-        // carries why focus scoping is not enough — ↩ over a pending destination pick renamed a row
-        // and ate the keystroke the picker's default button was waiting for.
+        // **Ask the suspension rule here too.** The menu item is silenced by the publication's
+        // `suspended:` flag, but this reads `shortcutPaneRowVerbs` directly. Focus scoping is not
+        // enough (see `paneChordsSuspended`): over a pending destination pick, ↩ would rename a row
+        // and eat the keystroke the picker's default button is waiting for.
         guard !paneChordsSuspended else { return .ignored }
         guard let rename = shortcutPaneRowVerbs.rename else { return .ignored }
         rename()
         return .handled
     }
 
-    /// What ⌘F opens — and, through `shortcutTargetIsLeft`, what ⌘[, ⌘] and ⇧⌘N act on. The
-    /// rule itself is `PaneLogic.focusedPaneIsLeft`, where it can be tested; this only supplies
-    /// the three live facts.
+    /// What ⌘F opens and, through `shortcutTargetIsLeft`, what ⌘[, ⌘] and ⇧⌘N act on. The rule is
+    /// `PaneLogic.focusedPaneIsLeft`, where it can be tested; this supplies the three live facts.
     var paneSearchTargetIsLeft: Bool {
         PaneLogic.focusedPaneIsLeft(isSingleSource: layoutMode == .singleSource,
                                      focusedSide: syncManager.focusedPaneSide,
                                      activePane: activePane)
     }
 
-    /// ⌃⇥ — move the pane-scoped chords to the other comparison pane.
+    /// ⌃⇥: move the pane-scoped chords to the other comparison pane.
     ///
-    /// `nil` on the single-source workspaces, which show one pane: an enabled item that moved focus
-    /// to something not on screen would be worse than a disabled one, and the menu item names the
-    /// destination pane, which there is no second of.
+    /// `nil` on the single-source workspaces: an enabled item that moved focus to something not on
+    /// screen would be worse than a disabled one, and the item names a second pane that isn't there.
     var switchPaneFocusAction: PaneFocusSwitch? {
-        // **⌃⇥ cycles tabs in Browse.** There is one pane there, so the chord has always been dead
-        // — and a strip is exactly the second thing to move between that it was missing. Compare
-        // keeps it as a pane switch, where two panes exist; the menu item's title says which.
+        // ⌃⇥ cycles tabs in Browse, which has one pane but may have a strip of tabs. Compare keeps
+        // it as a pane switch; the menu item's title says which.
         if layoutMode != .compare, selectedWorkspace == .browse {
             guard syncManager.paneTabs(isLeft: true).count > 1 else { return nil }
             return .nextTab { cycleTab(forward: true, isLeft: true) }
@@ -263,34 +221,28 @@ extension ContentView {
                                                  focusedSide: syncManager.focusedPaneSide,
                                                  activePane: activePane)
         let name = target == .left ? paneNames.left : paneNames.right
-        // Deliberately a bare state write, with no side effect on either pane. Closing the vacated
-        // pane's search field was tried as a way to make the chord produce something visible, and
-        // it is not worth it: the field holds a query the user typed, `isExpanded` is the only
-        // thing hiding it, and discarding a search to animate a focus move trades real state for
-        // decoration. The resting indicator this used to say it lacked now exists: the focused
-        // pane wears an accent border on its cards (`ActivePaneMark`), so ⌃⇥ moves something
-        // visible even when both panes hold the same folder and neither has a selection.
+        // A bare state write, with no side effect on either pane. Closing the vacated pane's search
+        // field to make the move visible would discard a query the user typed, for decoration. The
+        // focused pane's accent border (`ActivePaneMark`) already shows the move.
         return PaneFocusSwitch(targetName: name) {
             syncManager.noteFocusedPane(target, because: "⌃⇥ (View ▸ Focus Other Pane)")
         }
     }
 
-    /// Opens the focused pane's search field, or — if it is already open — puts the caret back in it
-    /// by closing and reopening.
+    /// Opens the focused pane's search field or, if it is already open, closes and reopens it to put
+    /// the caret back.
     ///
-    /// The reopen is what makes a second ⌘F useful rather than inert. The field claims focus on
-    /// appear (see `ExpandingSearchField`), so a field that is already showing but has lost the caret
-    /// to the file table — which is exactly where focus goes the moment you walk to a hit — has no
-    /// other way to get it back from the keyboard.
+    /// The reopen makes a second ⌘F useful. The field claims focus on appear (`ExpandingSearchField`),
+    /// so once the caret has gone to the file table, as it does when you walk to a hit, the keyboard
+    /// has no other way to get it back.
     func beginPaneSearch() {
         let isLeft = paneSearchTargetIsLeft
         let state = paneSearchState(isLeft: isLeft)
         if state.wrappedValue.isExpanded {
             state.wrappedValue.isExpanded = false
         }
-        // Next turn, so the field is genuinely re-inserted rather than being told to appear inside
-        // the same transaction that removed it — a `FocusState` write landing in the transaction
-        // that inserts the field is silently dropped, which is the whole reason the field's own
+        // Next turn, so the field is really re-inserted: a `FocusState` write landing in the
+        // transaction that inserts the field is silently dropped, which is also why the field's own
         // focus claim is a Task hop.
         let reduceMotion = self.reduceMotion
         DispatchQueue.main.async {
@@ -301,36 +253,27 @@ extension ContentView {
     }
 }
 
-/// The Edit ▸ Find item. A `View` rather than a `Button` inline in the `.commands` builder, because
-/// `@FocusedValue` is a dynamic property and only a view can hold one — the same reason
-/// `HelpBook`'s Activity Log item is its own view.
+/// The Edit ▸ Find item. A `View` rather than an inline `Button`, because `@FocusedValue` is a
+/// dynamic property only a view can hold, as with `HelpBook`'s Activity Log item.
 ///
-/// **⌘F has to be a menu item.** It cannot be `.onKeyPress`: that is strictly focus-scoped, and a
-/// pane search is invoked precisely when focus is sitting in a file table, which is where the key
-/// would never arrive. A menu item is also the only form that documents itself — the shortcut shows
-/// up in the menu bar, which is where someone looks for it.
-/// **It routes, and the title had to stop naming one destination.**
+/// **⌘F has to be a menu item.** `.onKeyPress` is focus-scoped, and a pane search starts while
+/// focus sits in a file table, where the key would never arrive. A menu item also shows its chord
+/// in the menu bar, where people look for it.
 ///
-/// ⌘F means "find what I am looking at". With the caret in the editor's open document that is the
-/// document — the Edit workspace shipped with no way to search it at all, because this item claimed
-/// the chord and expanded the search field of a source pane that is *collapsed by default* there.
-/// Everywhere else it is still the pane, unchanged.
+/// It routes ⌘F to what the user is looking at: the open document when the caret is in Edit's
+/// document, the focused pane everywhere else. The route is resolved at key press from
+/// `NSApp.keyWindow`'s first responder, so no focus tracking in SwiftUI state is needed; the cost is
+/// a title that can't name the destination, so it says "Find…", true of both.
 ///
-/// The routing is resolved when the key is pressed rather than when the menu is built, which is
-/// what lets one item serve both without tracking focus in SwiftUI state: `NSApp.keyWindow`'s first
-/// responder is the authority, and it is right at the instant it is asked. The cost is that the
-/// title cannot name the destination the way `Go ▸ Focus <pane>` does — so it names neither, and
-/// "Find…" is true of both.
+/// **Route on `EditorDocumentSurface`, not `TextEditingChord`.** The latter asks whether the
+/// responder `is NSTextView`, which every field editor is, so a pane's own search box would open
+/// the document's find bar.
 ///
-/// **Routed on `EditorDocumentSurface`, NOT on `TextEditingChord`.** The latter asks whether the
-/// responder `is NSTextView`, which is true of every field editor in the window — so it would open
-/// the document's find bar from inside a pane's own search box.
-///
-/// **A PDF open in Edit comes first** (`FindMenuRoute.find`): its reader has a find card of its own
-/// floating over the pages, and nothing in it is a text view this walk could find.
+/// A PDF open in Edit comes first (`FindMenuRoute.find`): its reader has its own find card, and
+/// nothing in it is a text view this walk could find.
 struct FindInPaneCommand: View {
-    /// Set by whichever scene is focused; `nil` when no window is up, which is when the item should
-    /// be disabled rather than silently doing nothing.
+    /// Set by whichever scene is focused; `nil` when no window is up, so the item is disabled rather
+    /// than silently doing nothing.
     @FocusedValue(\.beginPaneSearch) private var begin
     @FocusedValue(\.pdfFind) private var pdfFind
 

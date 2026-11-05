@@ -5,10 +5,9 @@ import Sync
 
 /// The last screen: every answer, what is running, and the way out.
 ///
-/// **Each row is changeable from here**, because a summary you cannot act on is a receipt. Change
-/// finishes setup first and then opens the Settings tab that owns the answer — in that order, so
-/// the sheet is not sitting over the tab it just opened. The folder row is the exception: no tab
-/// learns a folder, so its Learn takes the sheet back to the Learn screen instead.
+/// Each row can be changed from here. Change finishes setup first, then opens the Settings tab
+/// that owns the answer, so the sheet isn't left over the tab it opened. The folder row is the
+/// exception: no tab learns a folder, so its Learn goes back to the Learn screen.
 struct SummaryScreen: View {
     @ObservedObject var model: SetupModel
     @ObservedObject var settings: SettingsManager
@@ -18,10 +17,8 @@ struct SummaryScreen: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: SetupRhythm.blockSpacing) {
-            // **The badge sits on the title's line, not beside the whole block.** Beside it, the
-            // badge pushed the title *and* the sentence under it 31pt in from the card's inset,
-            // so the one screen that ends the sheet was also the one screen whose heading did not
-            // begin where every row below it begins.
+            // The badge sits on the title's line, not beside the whole block, so the heading
+            // starts at the card's inset like every row below it.
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 7) {
                     Image(systemName: "checkmark.circle.fill")
@@ -39,9 +36,8 @@ struct SummaryScreen: View {
             VStack(spacing: 0) {
                 row("cloud", "Locations: \(locationsSummary)", tab: .providers, verb: "Change")
                 Divider()
-                // **Back to Learn, not out to Settings.** This closed setup on Settings ▸
-                // Organize, which has no control that learns a folder — and the Countries row
-                // below relies on this button to change them.
+                // Back to Learn, not out to Settings: no Settings tab learns a folder, and the
+                // Countries row below relies on this button to change them.
                 row("folder", Self.folderLine(for: model),
                     verb: model.walkState.isDone || model.writtenReport != nil ? "Learn Again" : "Learn",
                     help: "Go back to the Learn screen and read a folder",
@@ -52,10 +48,9 @@ struct SummaryScreen: View {
                 row("person.2", "People: \(peopleSummary)", tab: .people, verb: "Change")
                 if let countries = Self.countriesLine(for: model) {
                     Divider()
-                    // **No Change link, and its absence is the honest answer.** The confirmed
-                    // countries live in the profile's own entries; nothing in Settings edits them,
-                    // so a link to a tab would be an offer the tab cannot keep. Learning the folder
-                    // again is the way to change them, and the row above says so.
+                    // No Change link: the confirmed countries live in the profile, and nothing in
+                    // Settings edits them. Learning the folder again changes them, via the row
+                    // above.
                     row("globe", countries, tab: nil, verb: nil)
                 }
             }
@@ -65,8 +60,8 @@ struct SummaryScreen: View {
             if model.walkNotInUse {
                 SetupNote(text: SetupFlow.walkNotInUse, systemImage: "exclamationmark.triangle")
             }
-            // A folder whose earlier Restructure history could not be brought back (review C1):
-            // said here, where the folder was just saved, not only in the log.
+            // A folder whose earlier Restructure history could not be brought back: said here,
+            // where the folder was just saved, not only in the log.
             if let notice = model.writtenReport?.historyNotice {
                 SetupNote(text: notice, systemImage: "exclamationmark.triangle")
             }
@@ -145,23 +140,17 @@ struct SummaryScreen: View {
     }
 
     private var locationsSummary: String {
-        // **The full name, account and all.** The Locations screen splits the account onto a second
-        // line because it has one; a summary row is one line, and three accounts of one provider
-        // listed by provider read as "Google Drive, Google Drive, Google Drive".
+        // The full name, account and all: a summary row is one line, and accounts of one provider
+        // listed by provider alone would read "Google Drive, Google Drive".
         let names = settings.enabledProviders.map(\.displayName)
         return names.isEmpty ? "none turned on" : names.joined(separator: ", ")
     }
 
-    /// The folder row: what Save wrote, not what is in memory.
+    /// The folder row: what Save wrote, not what is in memory. A reading not on disk (unsaved,
+    /// still running, or finished after Structure) says so; a written profile says what it holds,
+    /// even after Learn was skipped on the way back.
     ///
-    /// **It described the reading in hand**, so a reading continued past without saving — or one
-    /// still running, or landing after Structure — read "Learned", and a profile written earlier
-    /// in the run read "not learned" once Learn was skipped on the way back. A reading that is not
-    /// on disk says so; a profile that is says what it holds.
-    ///
-    /// **The shipped sentence, kept.** `summaryDoesNotDescribeTheWalkAsUnshipped` pins the
-    /// not-learned literal: it once described the walk as work that had not been built yet, on a
-    /// screen whose heading says everything below it is already in effect.
+    /// `summaryDoesNotDescribeTheWalkAsUnshipped` pins the not-learned literal.
     static func folderLine(for model: SetupModel) -> String {
         func folders(_ count: Int) -> String {
             count == 1 ? "1 folder" : "\(count.formatted()) folders"
@@ -220,8 +209,8 @@ struct SummaryScreen: View {
 
     /// The two ways in that are worth offering, and only when they would work.
     ///
-    /// Compare is hidden with one location enabled rather than opening two copies of iCloud, which
-    /// is a screen that explains nothing about what Compare is for.
+    /// Compare is hidden with only one location on, rather than opening iCloud against itself,
+    /// which explains nothing about what Compare is for.
     private var startButtons: [(start: SetupStart, title: String, detail: String)] {
         var out: [(SetupStart, String, String)] = []
         let loose = model.looseRoutes.count
@@ -240,11 +229,10 @@ struct SummaryScreen: View {
 
 /// The one live row on the Summary screen: how far the document read has got.
 ///
-/// **Its own view because it has to observe the engine, and the screen does not.** `SetupModel`
-/// holds the manager as a plain reference, so a row reading `documentSurveyProgress` through it
-/// re-rendered only when something *else* changed the model — the counter would sit at whatever it
-/// happened to be when the screen was drawn, on the one screen that exists to report it. The row
-/// takes the manager as an `@ObservedObject` instead, and is instantiated only where there is one.
+/// Its own view because it must observe the engine, and the screen doesn't: `SetupModel` holds
+/// the manager as a plain reference, so a row reading `documentSurveyProgress` through it would
+/// redraw only when something else changed the model, and the counter would freeze. The row takes
+/// the manager as an `@ObservedObject`, and exists only where there is one.
 struct SetupSurveyRow: View {
     @ObservedObject var manager: FileSyncManager
     /// Stopping is not offered here: this row exists to say the reading is under way and can be

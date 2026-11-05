@@ -2,10 +2,10 @@ import Foundation
 import Sync
 import Events
 
-/// The opt-in **cloud** Filing backend (hybrid phase 2). Sends the folder taxonomy + a batch of
-/// files to Claude (Anthropic Messages API) in one request and returns a verdict per file. Used as
-/// the primary classifier when the user has enabled it and stored an API key; on any hard failure
-/// the caller falls back to the on-device model.
+/// The opt-in cloud Filing backend. Sends the folder taxonomy and a batch of files to Claude
+/// (Anthropic Messages API) in one request and returns a verdict per file. The primary classifier
+/// once the user enables it and stores an API key; on any hard failure the caller falls back to the
+/// on-device model.
 ///
 /// Raw HTTPS (Swift has no official Anthropic SDK). Request/response shaping lives in
 /// `CloudFilingProtocol` (pure, in Sync) so it's unit-tested; this type only does the network call.
@@ -15,11 +15,9 @@ enum CloudFilingClassifier {
     /// number of loose files. Files beyond the cap keep their on-device / heuristic suggestion.
     private static let maxFiles = 150
 
-    /// The injectable edges of `classify` — the Keychain key read, the UserDefaults domain (model
-    /// choice, budget caps, spend store), the clock, and the HTTPS transport — each defaulting to
-    /// the real implementation, so production behavior is unchanged. Tests swap these to exercise
-    /// the full decision path (key gate, budget caps, file cap, request assembly, response mapping,
-    /// spend recording) without a network call or the login Keychain.
+    /// The injectable edges of `classify`: the Keychain read, the defaults domain (model, caps,
+    /// spend store), the clock and the HTTPS transport, each defaulting to the real one. Tests swap
+    /// them to run the whole decision path without a network call or the login Keychain.
     /// `@unchecked Sendable`: UserDefaults is documented thread-safe; the closures are `@Sendable`.
     struct Environment: @unchecked Sendable {
         var readAPIKey: @Sendable () -> String? = { AnthropicKeychain.read() }
@@ -37,22 +35,19 @@ enum CloudFilingClassifier {
         await classify(taxonomyFolders: taxonomyFolders, files: files, environment: Environment())
     }
 
-    /// The seam-parameterized worker behind `classify` (same contract). Production always passes the
-    /// default `Environment()`; tests inject fakes.
+    /// The worker behind `classify`, same contract. Production passes `Environment()`; tests
+    /// inject fakes.
     static func classify(taxonomyFolders: [String], files allFiles: [FilingCandidateFile],
                          environment env: Environment) async -> [String: FilingVerdict]? {
         guard let key = env.readAPIKey() else { return nil }
         guard !allFiles.isEmpty else { return [:] }
 
-        // Hard budget cap (X6, belt-and-suspenders): even if the pre-flight UI gate was somehow
-        // bypassed, never make a cloud call once EITHER the monthly or the total (lifetime) cap has
-        // been reached. Returning nil reuses the existing graceful on-device fallback. A monthly cap
-        // of 0 = unlimited; the total cap defaults to $5 (see `totalBudgetCap(in:)`).
-        // **If the spend record cannot be read, no paid call may be made.** The caps are enforced
-        // against what this store says; a payload it could not decode says nothing, and spending
-        // on "nothing" is how the $5 lifetime cap gets re-armed from scratch. Refusing falls back
-        // to the on-device path, which is the same graceful degradation every other pause uses —
-        // and `FilingSpendStore` has kept the bytes, so this is recoverable rather than terminal.
+        // Hard budget cap, even if the pre-flight UI gate was bypassed: no cloud call once either
+        // the monthly or the lifetime cap is reached; nil falls back on-device. A monthly cap of 0
+        // is unlimited; the total cap defaults to $5 (`totalBudgetCap(in:)`).
+        // **No paid call if the spend record can't be read:** a cap enforced against nothing would
+        // re-arm the $5 lifetime cap from scratch. `FilingSpendStore` keeps the bytes, so this is
+        // recoverable.
         if FilingSpendStore.isUnreadable(defaults: env.defaults) {
             Logger.shared.warning("Cloud Filing paused — the recorded spend could not be read, so "
                                   + "neither budget cap can be enforced. The unreadable values are "
@@ -90,8 +85,7 @@ enum CloudFilingClassifier {
         request.setValue(CloudFilingProtocol.apiVersion, forHTTPHeaderField: "anthropic-version")
         request.httpBody = httpBody
 
-        // Every file whose page goes out, named or not: the request sends them all, and counting
-        // only the nameless ones logged "0 with content excerpt" over a request that carried pages.
+        // Every file whose page goes out, named or not: the request sends them all.
         let excerptCount = files.filter { $0.contentSnippet?.isEmpty == false }.count
         let cappedNote = allFiles.count > files.count ? " (capped from \(allFiles.count))" : ""
         Logger.shared.info("Cloud Filing → \(model): \(files.count) file(s)\(cappedNote), \(excerptCount) with content excerpt")
@@ -130,13 +124,9 @@ enum CloudFilingClassifier {
 
             // Record spend for the Filing UI (history + total).
             if let u = usage {
-                // **An unknown model id means an unknown cost, not a free scan.** The pre-flight
-                // path already answers this nil honestly — its comment says the caller shows
-                // "estimate unavailable" rather than a wrong number — while this one coerced it to
-                // `0`, and that is the figure both budget caps are enforced against. Reachable by
-                // hand-setting the model id, which the code explicitly promises to honour. The call
-                // is still recorded (its tokens are real); the flag is what stops the 0 reading as
-                // "this cost nothing".
+                // An unknown model id (reachable by hand-setting it) means an unknown cost, not a
+                // free scan. The call is still recorded, since its tokens are real, and
+                // `costUnpriced` stops its $0 reading as "this cost nothing" to the budget caps.
                 let priced = CloudFilingProtocol.estimatedCostUSD(model: model, usage: u)
                 if priced == nil {
                     Logger.shared.error("Cloud Filing: no price table for model “\(model)”, so this "

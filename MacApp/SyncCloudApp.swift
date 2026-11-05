@@ -11,25 +11,16 @@ import AppIntents
 // Keep an explicit AppIntents symbol reference so metadata extraction sees the framework dependency.
 private let _syncCloudAppIntentsDependency: Any.Type = (any AppIntent).self
 
-/// AppKit's display-cycle assert, named once.
-///
-/// **The key was spelled as a bare literal twice, ~630 lines apart** — once where it is registered
-/// off, once where the launch breadcrumb reads it back to say whether the crash is armed. They
-/// matched, and a typo in either would have made the diagnostic lie in the worst possible
-/// direction: registering one key and reading another reports ARMED for a session that is in fact
-/// suppressed, which is the exact question `docs/columns-layout-loop.md` exists to answer. The
-/// registration sits inside `if !isRunningTests` so no test reaches it; the read runs from the app
-/// delegate and is not gated, but it reads `.standard`, which under a test host carries whatever
-/// the process already holds — so neither site can be driven to a chosen state in place. That is
-/// what ``isArmed(in:)`` taking its defaults is for.
+/// AppKit's display-cycle assert, named once so the site that registers it off and the launch
+/// breadcrumb that reads it back cannot disagree; a mismatch would report the crash armed for a
+/// session that suppresses it (`docs/columns-layout-loop.md`). ``isArmed(in:)`` takes its defaults
+/// because neither site can be driven to a chosen state under the test host.
 enum DisplayCycleAssert {
     static let key = "NSWindowAssertWhenDisplayCycleLimitReached"
 
-    /// Whether AppKit will raise — **mirroring AppKit's own order** (`objectForKey:`, then
-    /// `boolForKey:`), which is what makes the breadcrumb agree with what actually happens.
-    ///
-    /// Absent means armed: under tests nothing is registered at all, deliberately, so CI keeps
-    /// failing loudly if a fixture ever reproduces the runaway. See
+    /// Whether AppKit will raise, read in AppKit's own order (`objectForKey:`, then `boolForKey:`)
+    /// so the breadcrumb matches what happens. Absent means armed: under tests nothing is
+    /// registered, so CI still fails loudly if a fixture reproduces the runaway. See
     /// `docs/columns-layout-loop.md` ▸ "Is the mitigation actually plumbed in".
     static func isArmed(in defaults: UserDefaults) -> Bool {
         defaults.object(forKey: key) == nil || defaults.bool(forKey: key)
@@ -38,24 +29,15 @@ enum DisplayCycleAssert {
 
 /// AppKit's AutoFill heuristics, switched off app-wide.
 ///
-/// **They hung the app for minutes on ⌘K** (2026-10-02, sampled at 100% CPU for 7 minutes before
-/// it was killed). When an editable `NSTextField` takes the caret, or its window becomes key again,
-/// `NSAutoFillHeuristicController` asks whether it is a username field with a password field after
-/// it — and to answer, it walks the window's whole key-view loop with `nextValidKeyView`. In a
-/// SwiftUI window every step of that walk is `NSHostingView._recursiveGatherAllKeyViewCandidates`
-/// over the entire responder tree, so the walk is quadratic in the window's focusable views, and
-/// the main window with two Columns panes has a great many. The Go to field is a plain
-/// `NSTextField`, which is exactly what the heuristic picks (`NSSearchField` and
-/// `NSSecureTextField` are excluded; the per-field opt-out is private API).
+/// When an editable `NSTextField` (the Go to field among them) takes the caret,
+/// `NSAutoFillHeuristicController` walks the window's whole key-view loop looking for a password
+/// field. In a SwiftUI window each step gathers key views over the entire responder tree, so the
+/// walk is quadratic and can hang the app for minutes on ⌘K. SyncCloud has no password, contact or
+/// card fields, so there is nothing for AutoFill to offer.
 ///
-/// SyncCloud has no password, contact or card fields, so there is nothing for AutoFill to offer.
-/// The walk is gated inside AppKit's scheduled block by `NSAutoFillHeuristicsEnabled`, read through
-/// `_NSGetBoolAppConfig` — `NSUserDefaults` `objectForKey:`, so the registration domain reaches it,
-/// as for ``DisplayCycleAssert``. Measured 2026-10-02 in a probe window by reading AppKit's cached
-/// answer and counting `nextValidKeyView`: unset → YES, 7 calls; registered `false` → NO, 1 call,
-/// with the check itself still running. (`NSAutoFillPanelEnabled`, the gate in front of it, already
-/// defaults to NO, which is why this is not that key.) AppKit caches the answer on first read, so
-/// it must be registered before any field takes focus.
+/// AppKit reads `NSAutoFillHeuristicsEnabled` through `NSUserDefaults` `objectForKey:`, so the
+/// registration domain reaches it, as for ``DisplayCycleAssert``. It caches the answer on first
+/// read, so this must be registered before any field takes focus.
 enum AutoFillHeuristics {
     static let key = "NSAutoFillHeuristicsEnabled"
 
@@ -71,16 +53,12 @@ enum AutoFillHeuristics {
 
 /// How long the pointer rests on a control before its tooltip shows, app-wide.
 ///
-/// AppKit's own wait is 1.5 s — long enough that a tooltip reads as something you stumble on rather
-/// than an answer to hovering. 300 ms shows it once the pointer has plainly stopped, without
-/// flashing tips at a pointer that is only passing over.
+/// AppKit's own wait is 1.5 s, long enough that a tooltip reads as something you stumble on. 300 ms
+/// shows it once the pointer has plainly stopped, without flashing tips at one passing over.
 ///
-/// **Milliseconds, read once.** Measured 2026-10-22 in a probe process by reading
-/// `NSToolTipManager`'s `_toolTipDelay`: 1.5 unregistered, 0.3 with `300` registered — but still
-/// 1.5 when the registration came after the shared manager existed, because the manager reads the
-/// key when it is created. So it is registered first thing in `App.init`, before any view exists.
-/// Registration domain, so `defaults write com.abhishekgirish.SyncCloud NSInitialToolTipDelay -int …`
-/// still overrides it.
+/// Milliseconds, and read once: `NSToolTipManager` reads the key when it is created, so this is
+/// registered first thing in `App.init`. Registration domain, so
+/// `defaults write com.abhishekgirish.SyncCloud NSInitialToolTipDelay -int …` still overrides it.
 enum ToolTipDelay {
     static let key = "NSInitialToolTipDelay"
     static let milliseconds = 300
@@ -95,28 +73,23 @@ enum ToolTipDelay {
 /// Manages the lifecycle of `FileSyncManager` and configures the root `ContentView`.
 /// Integrated with `SyncCloudAppDelegate` for app-level guards and termination handling.
 struct SyncCloudApp: App {
-    /// The main scene's id. SwiftUI stamps it onto the NSWindow's `identifier`, which is how
-    /// the delegate's Dock-reopen hook tells the main window apart from auxiliary scenes
-    /// (Activity Log).
+    /// The main scene's id. SwiftUI stamps it onto the NSWindow's `identifier`, which is how the
+    /// delegate's Dock-reopen hook tells the main window from auxiliary scenes.
     static let mainWindowId = "main"
-    /// How many times `body` has run. Test instrumentation, like
-    /// `PDFKitSerialAccess.peakConcurrentParses` — `AppSceneObservationTests` holds a manager
-    /// publish to zero of these; nothing in the app reads it.
+    /// How many times `body` has run. Test instrumentation: `AppSceneObservationTests` holds a
+    /// manager publish to zero of these. Nothing in the app reads it.
     @MainActor static var sceneBodyRuns = 0
 
     @NSApplicationDelegateAdaptor(SyncCloudAppDelegate.self) var appDelegate
 
-    /// Held for its lifetime, not its value: it registers two `NSWorkspace` observers in `init` and
-    /// removes them in `deinit`, so a monitor nobody retains stops reporting the moment it is
-    /// collected — and the survey would then never notice a sleeping display, silently.
+    /// Held for its lifetime: it registers `NSWorkspace` observers in `init` and removes them in
+    /// `deinit`, so an unretained monitor would stop reporting and the survey would silently never
+    /// notice a sleeping display.
     @State private var machineConditionsMonitor: MachineConditionsMonitor
-    /// **`@State`, not `@StateObject`.** A state object subscribes the whole scene to every publish,
-    /// and the manager publishes constantly: measured 2026-10-29, ten publishes re-ran this body and
-    /// rebuilt its `.commands` tree ten times (speed audit item 9). Nothing here renders from the
-    /// manager — every reader below observes it itself (`ContentView`, `ActivityWindowHost`,
-    /// `RunWriteLockFromManager`), and the menus' states arrive as focused values — so holding it
-    /// only for its lifetime loses nothing. Built eagerly in `init`, so nothing needed the
-    /// object's lazy construction either.
+    /// `@State`, not `@StateObject`: a state object would subscribe the whole scene to the
+    /// manager's constant publishes, re-running this body and its `.commands` tree each time.
+    /// Nothing here renders from the manager; every reader observes it itself (`ContentView`,
+    /// `ActivityWindowHost`, `RunWriteLockFromManager`), and menu state arrives as focused values.
     @State private var syncManager: FileSyncManager
     @StateObject private var settings: SettingsManager
     /// Drives the in-window settings overlay. Hoisted to App scope so the ⌘, menu command can
@@ -125,20 +98,15 @@ struct SyncCloudApp: App {
     /// Drives the in-window Help overlay. Hoisted to App scope so the Help ▸ SyncCloud Help (⌘?)
     /// menu command can open it; ContentView renders the overlay and owns dismissal.
     @State private var showHelp = false
-    /// Whether ContentView's once-per-session bootstrap has run. App-owned so it outlives the
-    /// view, as the session does — the shared FileSyncManager, its trees, and mid-session toggles.
-    /// Measured 2026-10-03 on macOS 27, a close + Dock reopen brings back the same ContentView
-    /// with its `@State` intact, so a view-owned flag would survive that; it lives here anyway,
-    /// because nothing in SwiftUI promises the view survives and `applicationShouldHandleReopen`'s
-    /// fall-through (no stored main window) would build a new one. Deliberately @State, not
-    /// @AppStorage: it must reset on every app launch.
+    /// Whether ContentView's once-per-session bootstrap has run. App-owned so it outlives the view,
+    /// as the session does: nothing in SwiftUI promises the view survives a close + Dock reopen,
+    /// and `applicationShouldHandleReopen`'s fall-through would build a new one. @State, not
+    /// @AppStorage: it must reset on every launch.
     @State private var hasBootstrappedSession = false
-    /// The active duplicate-copy review (the Duplicates lens's "Compare copies" hand-off). App-owned for the
-    /// same reason as `hasBootstrappedSession`: its provider pins live in @AppStorage and the
-    /// FileSyncManager's pane focus survives a window close + Dock reopen, so the review context
-    /// — the banner, the trash-right action, and above all the restore snapshot that un-pins the
-    /// panes — must survive it too, or the panes stay pinned with no way back. @State (never
-    /// persisted): a review never outlives the app session.
+    /// The active duplicate-copy review (the Duplicates lens's "Compare copies" hand-off).
+    /// App-owned like `hasBootstrappedSession`: the provider pins and pane focus survive a window
+    /// close + Dock reopen, so the review, above all the snapshot that un-pins the panes, must too,
+    /// or the panes stay pinned with no way back. Never persisted.
     @State private var duplicateReview: DuplicateCompareContext? = nil
     /// Guided-review session state. App-owned so a window close + Dock reopen mid-review (or
     /// mid-decision: an in-flight copy's outcome lands in this store) doesn't drop the session
@@ -147,43 +115,33 @@ struct SyncCloudApp: App {
 
     /// The one open document.
     ///
-    /// **Owned by the APP, for the reason `syncManager` is.** It began as a `@StateObject` on
-    /// `ContentView`, which survives a workspace switch, and while it lived there the red traffic
-    /// light dropped an unsaved buffer with no prompt, two pixels from a ⌘W that asks — put down
-    /// at the time to the close rebuilding `ContentView`. On macOS 27 a close + Dock reopen keeps
-    /// the same view (see `hasBootstrappedSession`), but nothing promises that. Owning it here is
-    /// what makes the document outlive the window rather than adding a third modal question about
-    /// it: close the window, reopen from the Dock, and the typing is still there.
+    /// Owned by the app so the document outlives the window: close it, reopen from the Dock, and
+    /// the typing is still there. Nothing promises `ContentView` survives a close (see
+    /// `hasBootstrappedSession`), and a view-owned document could lose an unsaved buffer.
     @StateObject private var editorDocument = EditorDocument()
-    /// The PDF open in Edit, read-only — beside the text document, never at once with it
+    /// The PDF open in Edit, read-only; never open at once with the text document
     /// (`EditorOpenRoute`). Here for the document's reason: it outlives the window.
     @StateObject private var editorPDF = EditorPDFDocument()
 
-    /// One undo stack per document, so ⌘Z survives switching files — beside the document they
-    /// belong to and outliving the window for the same reason. See ``PlainTextEditor/undoManager``
-    /// for why the editor's history is separate from the file engine's, and `EditorUndoStore` for
-    /// the crash the single shared stack was wiped to prevent and how a per-path store closes it
-    /// without the wipe.
+    /// One undo stack per document, so ⌘Z survives switching files; here so it outlives the window
+    /// too. See ``PlainTextEditor/undoManager`` for why the editor's history is separate from the
+    /// file engine's, and `EditorUndoStore` for why it is per path.
     @StateObject private var editorUndoStore = EditorUndoStore()
     /// Which files autosave may write, for this run of the app.
     ///
-    /// **Here rather than in `ContentView`, for the reason the document and the undo stack are
-    /// here**: it has to outlive the view, and a set that died with a rebuilt `ContentView` would
-    /// switch autosave back on for a document still open in it. It is deliberately not
-    /// persisted — see `EditorAutosavePolicy`.
+    /// Here so it outlives the view: a set that died with a rebuilt `ContentView` would switch
+    /// autosave back on for a document still open. Not persisted; see `EditorAutosavePolicy`.
     @StateObject private var editorAutosavePolicy = EditorAutosavePolicy()
-    /// Watches the open document's file for changes made elsewhere (TE59). **Here for the
-    /// document's reason**: it must outlive the window, and it watches whatever the document has
-    /// open — attached to it from `ContentView.onAppear`.
+    /// Watches the open document's file for changes made elsewhere. Here for the document's
+    /// reason, it outlives the window; attached to the document from `ContentView.onAppear`.
     @StateObject private var editorDiskWatch = EditorDiskWatch()
 
     /// Watches for ⌥ held alone, and publishes it to every `.shortcutKeycap(_:)` in the window.
     /// One per app: it installs local `NSEvent` monitors, and a second would double them.
     @StateObject private var shortcutReveal = ShortcutRevealTracker()
     /// Whether setup has been dismissed this session. App-owned (like `hasBootstrappedSession`) so a
-    /// window close + Dock reopen doesn't resurrect a form the user answered *Not Now* to. @State,
-    /// never persisted: a dismissal lasts the session, and the form offers itself again next launch
-    /// unless it was actually completed.
+    /// close + Dock reopen doesn't resurrect a form answered *Not Now*. Never persisted: the form
+    /// offers itself again next launch unless it was completed.
     @State private var setupDismissedThisSession = false
     /// Whether Help ▸ Set Up SyncCloud… asked for the form. Held here because the menu command lives
     /// in this scene and ContentView's overlay chain is what reads it.
@@ -192,10 +150,9 @@ struct SyncCloudApp: App {
     
     init() {
         LaunchTiming.initBegan()
-        // Apply the persisted log-level gate before anything logs; Settings → Advanced
-        // updates both the default and the live gate from then on. (The launch breadcrumb lives in
-        // the delegate's applicationDidFinishLaunching, which fires exactly once — App.init can be
-        // re-run by SwiftUI, which would otherwise emit a duplicate "launched" line each time.)
+        // Apply the persisted log-level gate before anything logs; Settings → Advanced updates it
+        // from then on. The launch breadcrumb lives in `applicationDidFinishLaunching`, which fires
+        // once, because SwiftUI can re-run App.init.
         Logger.shared.minimumLevel = Logger.persistedMinimumLevel()
 
         // Before any field can take the caret: AppKit caches the answer on first read. Not gated on
@@ -205,76 +162,43 @@ struct SyncCloudApp: App {
         // Before any view exists: AppKit's tooltip manager reads the delay once, when it is made.
         ToolTipDelay.register(in: .standard)
 
-        // Not under tests: the migration writes into the real defaults domain and the theme pin
-        // sets the shared NSApp's appearance from the developer's stored preference — both are
-        // launch behavior, and the test host rendering appearance-sensitive UI must not depend
-        // on the machine it runs on.
+        // Not under tests: the migrations write into the real defaults domain, and the theme pin
+        // would make the test host's appearance depend on the machine it runs on.
         if !isRunningTests {
-            // Stop AppKit turning a layout that will not settle into a hard crash.
+            // Stop AppKit turning a layout that will not settle into a hard crash. AppKit raises
+            // `NSGenericException` once a window has had more update-constraints passes than it has
+            // views, and a pane in Columns reaches that on a provider switch, as a column row keeps
+            // reporting a new ideal height from inside the pass.
             //
-            // `-[NSWindow(NSDisplayCycle) _postWindowNeedsUpdateConstraints]` raises
-            // `NSGenericException` once a window "has already had more update constraints passes
-            // than there are views in the window". A pane in COLUMNS reaches that on a provider
-            // switch: `retargetPane()` drops that pane's tree, and while the replacement paints a
-            // column row keeps reporting a new ideal height from inside the pass
-            // (`OutlineListCoordinator.listTableCellView(_:didUpdateIdealHeight:)` →
-            // `enqueueLayoutInvalidation()` → another pass).
+            // A mitigation, not the fix: the window still churns passes, it just stops dying of it.
+            // `docs/columns-layout-loop.md` has the mechanism and the repro, and its section "Is
+            // the mitigation actually plumbed in" shows AppKit reads this key through
+            // `NSUserDefaults`, so the registration domain reaches it.
             //
-            // **A mitigation, not the fix** — the window still churns passes, it just stops dying
-            // of it. `docs/columns-layout-loop.md` carries the mechanism, the repro, everything
-            // three investigations have ruled out, and why a survival/death outcome is too
-            // low-powered to evaluate the real fix with.
-            //
-            // Registration domain, so it is overridable and writes nothing into the user's
-            // preferences; a diagnostic session gets the crash and its backtrace back with
+            // Registration domain, so it writes nothing into the user's preferences; a diagnostic
+            // session gets the crash back with
             // `defaults write com.abhishekgirish.SyncCloud NSWindowAssertWhenDisplayCycleLimitReached -bool YES`.
-            // Deliberately NOT registered under tests: CI should still fail loudly if a fixture
-            // ever reproduces the runaway, which is the outcome still being hunted.
-            //
-            // **The registration domain really is visible to the read AppKit does** — measured
-            // 2026-08-03, because "it stopped crashing" could not tell a working mitigation from
-            // an inert one. AppKit reads this key through `_NSGetBoolAppConfig`, whose body calls
-            // `-[NSUserDefaults standardUserDefaults]` `objectForKey:`/`boolForKey:` and
-            // `volatileDomainForName:`; there is no `CFPreferences` call on that path, so the
-            // registration domain cannot be invisible to it. Driving AppKit's own
-            // `_NSGetBoolAppConfig` with AppKit's own default-value function for this key answered
-            // YES (raise) unregistered, NO (tolerate) after registering `false`, and YES again
-            // after registering `true` — it tracks the registration domain in both directions.
-            // `docs/columns-layout-loop.md` ▸ "Is the mitigation actually plumbed in" has the
-            // method, so this does not get re-litigated from the crash rate again.
+            // Not registered under tests, so CI still fails loudly if a fixture reproduces it.
             UserDefaults.standard.register(
                 defaults: [DisplayCycleAssert.key: false])
 
-            // Rewrite the text size from the four case names it shipped as to the percentage it
-            // is now, before anything reads the key.
+            // Rewrite the text size from its old case names to a percentage, before anything reads
+            // the key. Here, not at the first read: an `Int` `@AppStorage` cannot see a `String` on
+            // disk, so a chosen size would silently read as 100% and the next write would make
+            // that permanent. No tolerant reader exists beside this, because the only store it
+            // could reach is `UserDefaults.standard`, which tests would inherit.
             //
-            // **This has to be here rather than at the first read**, and the failure it prevents
-            // is silent: `@AppStorage(FontSize.defaultsKey) var percent: Int` cannot see a
-            // `String` on disk, so every user who had chosen Small, Large or Larger would open a
-            // build reporting 100% — and the first write from the new control would make that
-            // permanent. There is deliberately no tolerant reader beside this: one was written,
-            // and the only store it could reach was `UserDefaults.standard`, which would have made
-            // every test inherit the developer's own chosen size. This is the single path.
-            //
-            // It is a no-op on every subsequent launch (an `Int` already present returns early),
-            // so it stays rather than becoming a dated migration to remember to delete.
-            //
-            // Logged when it actually rewrites, and only then. A migration that silently changes
-            // what is on disk is the kind of thing a support question ("my text size reset") has
-            // no other way to answer — and the no-op case is every launch after the first, so
-            // logging that would be noise rather than evidence.
+            // A no-op once an `Int` is present. Logged only when it rewrites, so "my text size
+            // reset" has an answer in the log.
             if let migrated = FontSize.migrateLegacyValue() {
                 Logger.shared.info(
                     "Text size migrated: \"\(migrated.raw)\" → \(migrated.size.percent)%")
             }
 
-            // The log line that reports which state this session is in is deliberately NOT here —
-            // it is in the delegate's `applicationDidFinishLaunching`, for exactly the reason the
-            // "launched" breadcrumb is: App.init can be re-run by SwiftUI, and a diagnostic that
-            // says the crash guard is off is worth less every time it repeats itself.
+            // The line reporting the crash guard's state is in `applicationDidFinishLaunching`,
+            // like the "launched" breadcrumb, because SwiftUI can re-run App.init.
 
-            // Say so when the diagnostic walk stall is armed. It makes every walk take seconds,
-            // which is indistinguishable in the log from the cold-provider slowness it imitates —
+            // Say so when the diagnostic walk stall is armed: it imitates cold-provider slowness,
             // so one left on by accident would be read as the bug it exists to reproduce.
             if WalkStall.isArmed {
                 Logger.shared.info(
@@ -291,7 +215,7 @@ struct SyncCloudApp: App {
             if let moved = LiquidGlass.migrateRetiredHue() {
                 Logger.shared.info("Accent migrated: \"\(moved.from)\" is no longer offered → \(moved.to.displayName)")
             }
-            // The preview moved into the Info inspector (TE318): Info opens once for anyone who had the
+            // The preview lives in the Info inspector: Info opens once for anyone who had the
             // in-pane preview on, and folds the preview away for anyone who had it off. Before any
             // @AppStorage reads either key. Logged when it runs.
             switch InfoPreviewMigration.run(in: .standard) {
@@ -303,107 +227,75 @@ struct SyncCloudApp: App {
                 break
             }
 
-            // Put a newly shipped pane-bar control onto a bar someone arranged on an earlier
-            // build, before any @AppStorage property wrapper reads the arrangement. Without it a
-            // customized bar keeps the shape it had and the new control lives only in ⋯ — which,
-            // for Search, meant the pane trees' new find affordance was invisible on a bar with
-            // empty space in it. Idempotent and stamped: it runs once per added control, so a
-            // deliberate removal afterwards is never undone, and the repeat App.init calls noted
-            // above are harmless.
-            // Logged when it actually moves a bar. Whether this call still HAPPENS is the one thing
-            // no test can reach — it is inside `if !isRunningTests`, so the test host skips it by
-            // design, and SwiftUI's own controls are not `NSControl`s a suite could drive. A line in
-            // `~/sync-cloud.log` is what makes its absence noticeable instead of silent: the symptom
-            // otherwise is the magnifier quietly back in the ⋯ menu, which is exactly how this was
-            // reported the first time.
+            // Put a newly shipped pane-bar control onto a bar arranged on an earlier build, before
+            // any @AppStorage reads the arrangement; otherwise a customized bar keeps the new
+            // control hidden in ⋯. Stamped, once per added control, so a deliberate removal
+            // afterwards is never undone.
             //
-            // **The line names what changed, and is not written here.** It used to be the
-            // literal "added Search to a stored pane-bar arrangement", which was true only while
-            // Search was the only step there could be: the second step to ship would have left the
-            // log claiming Search for a launch that added something else. `apply` returns an
-            // `Outcome` saying whether it rewrote the stored bar and what it can name about the
-            // change, and `migrationMessage` turns that into the sentence, so the line follows a
-            // new step by construction rather than by somebody remembering this call site.
-            //
-            // The `Outcome` rather than a list of added controls, because a list cannot distinguish
-            // "nothing happened" from "something happened that I cannot name" — a removing,
-            // reordering or repeatable step rewrites the bar and adds no distinct control, and this
-            // call site used to fall silent on exactly those.
+            // Logged when it moves a bar, because no test can reach this call (the test host skips
+            // it), and the log line is what makes its absence noticeable. The sentence comes from
+            // `migrationMessage` over `apply`'s `Outcome`, never a literal here, so it names what
+            // each step changed. An `Outcome`, not a list of added controls, because a removing or
+            // reordering step rewrites the bar without adding one.
             if let line = PaneBarMigration.migrationMessage(
                 for: PaneBarMigration.apply(defaults: .standard)) {
                 Logger.shared.info(line)
             }
 
-            // Carry the two-level `Compare | Tidy` + lens selection onto the flat workspace bar,
-            // before any @AppStorage reads it. Without this the retired raw values ("Tidy", and
-            // the lens the session ended in) simply fail to resolve and @AppStorage falls back to
-            // its default — silently, which would drop anyone mid-task in a lens onto Compare.
-            // Idempotent: it only writes when the new key is absent, so the repeat App.init calls
-            // noted above are harmless.
+            // Carry the old `Compare | Tidy` + lens selection onto the workspace bar before any
+            // @AppStorage reads it; retired raw values would otherwise silently fall back to the
+            // default. Idempotent, so repeat App.init calls are harmless.
             Workspace.migrateSelection(in: .standard)
-            // And the rail selection, whose `Names` case is retired. Unconditional and separate:
-            // the call above returns before it reads the rail key whenever the stored workspace
-            // still resolves, which is exactly the state everyone this helps is in.
+            // And the rail selection, whose `Names` case is retired. Separate, because the call
+            // above returns before the rail key whenever the stored workspace still resolves.
             Workspace.migrateOrganizeLens(in: .standard)
-            // One `Tidy` entry covered all five lenses; fan it out so a deliberate "keep the rail
-            // up" survives them becoming peers.
+            // Fan the old `Tidy` pane override out across the lens workspaces.
             if let migrated = TopPaneVisibility.migratingOverridesRaw(
                 UserDefaults.standard.string(forKey: TopPaneVisibility.overridesKey) ?? ""
             ) {
                 UserDefaults.standard.set(migrated, forKey: TopPaneVisibility.overridesKey)
             }
-            // Organize's scope is persisted, so it is stamped like every other stored user
-            // arrangement. At stamp 0 — where every existing install sits — nothing has ever
-            // written the key, so anything found there came from somewhere this code does not know
-            // about and is cleared rather than trusted. Idempotent, like its neighbours above.
+            // Organize's scope is stamped like every other stored arrangement. At stamp 0 nothing of
+            // ours has written the key, so anything found there is cleared rather than trusted.
+            // Idempotent.
             OrganizeScopeDefaults.migrate(defaults: .standard)
 
-            // The startup disk went back to Locations' device band (2026-09-07), where it sits
-            // above any card and the Trash. A change to `SidebarFavoritePlaces.standard` reaches a
-            // first run for free and reaches nobody else at all — the stored list is the whole
-            // answer once the key has a value, and every install that has ever drawn the sidebar
-            // has one — so without this the move would be invisible on exactly the machines it was
-            // asked for. Stamped, so a disk put back afterwards stays put; idempotent, like its
-            // neighbours above.
+            // Puts the startup disk in Locations' device band on an existing stored list. A change
+            // to `SidebarFavoritePlaces.standard` reaches only a first run, because the stored
+            // list is the whole answer once the key has a value. Stamped, so a disk put back
+            // afterwards stays put.
             if let line = SidebarFavoritePlaces.migrate(defaults: .standard).logLine {
                 Logger.shared.info(line)
             }
 
-            // Sources now begin at their account folder rather than at the `Documents` inside it,
-            // so every position stored RELATIVE to a source root — the last-open folder of each
-            // pane, both tab strips, pinned and recent folders, the Favorites order, the filing
-            // destinations — is measured from one level too high until this moves it down.
+            // Sources begin at their account folder rather than the `Documents` inside it, so every
+            // position stored relative to a source root (pane folders, tab strips, pinned and
+            // recent folders, Favorites order, filing destinations) moves down a level here.
             //
-            // **Here, and synchronously, because of the readers.** The launch focus restore and
-            // both tab strips are read from the bootstrap task a moment later, and a strip whose
-            // folders no longer resolve is re-rooted and then saved that way — the loss would be
-            // permanent and silent. Running before any of them means the ordering does not depend
-            // on which task wins. Idempotent by its stamp, so the repeat App.init calls noted
-            // above are harmless.
+            // Here, and synchronously: the bootstrap task reads those a moment later, and a strip
+            // whose folders do not resolve is re-rooted and saved that way, a permanent and silent
+            // loss. Idempotent by its stamp.
             if let line = RootsMigration.applyAtLaunch(defaults: .standard).logLine {
                 Logger.shared.info(line)
             }
-            // The second move, v5.3: iCloud's root rose from `~/Documents` to the iCloud Drive
-            // container, and its positions move down into `Documents` — after the first, whose
-            // frozen mapping leaves iCloud where it found it. Same readers, same reason it is here
-            // and synchronous; its own stamp.
+            // The second move: iCloud's root is the iCloud Drive container, not `~/Documents`, so
+            // its positions move down into `Documents`. After the first move, whose mapping leaves
+            // iCloud alone. Here and synchronous for the same readers; its own stamp.
             if let line = RootsMigration.moveICloudRoot(defaults: .standard).logLine {
                 Logger.shared.info(line)
             }
 
-            // Main-thread hitch reporting, when the diagnostic flag is set. Installed here rather
-            // than from a view so it covers the whole session — including launch, which is where a
-            // wedged `getxattr` once cost the app every one of its windows. Idempotent, so the
-            // repeat App.init calls noted above are harmless, and it installs nothing at all on a
-            // normal launch.
+            // Main-thread hitch reporting, when the diagnostic flag is set. Installed here, not from
+            // a view, so it covers the whole session including launch. Idempotent, and installs
+            // nothing on a normal launch.
             MainThreadHitchMonitor.startIfEnabled()
             // Unlike the hitch monitor, always on: it is the one thing that takes a stack while the
             // main thread is stalled, and the stalls it is for happen in the installed app.
             MainThreadStallWatch.shared.start()
             MainThreadStallWatch.stallOnceIfAsked()
 
-            // Undo the one thing the preview's old sizing rule made people do to their columns.
-            // Idempotent by its own flag, so the repeat App.init calls noted above are harmless.
+            // Lift stored column widths off the floor an old preview sizing rule pushed them to.
+            // Idempotent by its own flag.
             PaneViewMode.liftColumnWidthOffTheFloor()
 
             // Pin the app's light/dark theme before any window exists, so a pinned appearance is
@@ -429,14 +321,12 @@ struct SyncCloudApp: App {
         manager.permanentDeleteConfirmer = { itemPaths in
             SyncOperationAlerts.confirmPermanentDelete(itemPaths: itemPaths)
         }
-        // The out-of-process Trash, for the case `FileManager.trashItem` is refused permission —
-        // see `FileSyncManager.trashViaWorkspace`. Wired HERE because `NSWorkspace` is AppKit and
-        // the engine may not import it (`LayeringPinTests`), which is the same reason the two
-        // confirmers above are wired here rather than defaulted in Sync.
+        // The out-of-process Trash, for when `FileManager.trashItem` is refused permission (see
+        // `FileSyncManager.trashViaWorkspace`). Wired here because the engine may not import
+        // AppKit (`LayeringPinTests`).
         //
-        // `@MainActor` inside: `NSWorkspace` is AppKit and the delete loop that reaches this runs
-        // off the main actor. The completion returns on an arbitrary thread; the continuation
-        // absorbs that.
+        // `@MainActor` inside: the delete loop that reaches this runs off the main actor. The
+        // completion returns on an arbitrary thread; the continuation absorbs that.
         manager.trashViaWorkspace = { urls in
             await withCheckedContinuation { continuation in
                 Task { @MainActor in
@@ -446,65 +336,52 @@ struct SyncCloudApp: App {
                 }
             }
         }
-        // Cloud (Claude) Filing spend guardrail: before a cloud classify commits, show the pre-flight
-        // cost estimate and this month's budget, and let the user (or the monthly cap) decline. A
-        // decline falls back to the free on-device suggestions. Only consulted when cloud Filing is
-        // actually on, so it's a no-op for the common on-device path.
+        // Cloud (Claude) Filing spend guardrail: before a cloud classify, show the cost estimate and
+        // budget, and let the user or the cap decline, falling back on-device. Only consulted when
+        // cloud Filing is on.
         manager.filingCloudSpendConfirmer = { preflight in
             SyncOperationAlerts.promptForFilingSpend(preflight)
         }
-        // Whole-tree passes (Storage, Find Duplicates) probe the folder's size first and stop to
-        // ask when it is big enough that the real pass would take minutes. Only fires past the
-        // probe budget, so it never appears for an ordinary source. The Sync default is to REFUSE,
-        // so this wiring is what makes a large folder analysable at all — see `largeWalkConfirmer`.
+        // Whole-tree passes (Storage, Find Duplicates) probe the folder's size first and ask when
+        // the real pass would take minutes. The Sync default is to refuse, so this wiring is what
+        // makes a large folder analysable at all; see `largeWalkConfirmer`.
         manager.largeWalkConfirmer = { preflight in
             SyncOperationAlerts.confirmLargeWalk(preflight)
         }
-        // Destination names the target provider forbids (trailing space/dot on Dropbox,
-        // reserved names on OneDrive, …) prompt before any I/O, offering the sanitized name.
-        // No standing-policy shortcut here: each violation names a specific item and the
-        // wrong answer silently creates an unsyncable local-only duplicate.
+        // Destination names the provider forbids (a trailing space or dot on Dropbox, reserved
+        // names on OneDrive) prompt before any I/O. No standing policy: the wrong answer silently
+        // creates an unsyncable local-only duplicate.
         manager.invalidNameResolver = { prompt in
             SyncOperationAlerts.promptForInvalidName(prompt)
         }
-        // Filing (F2): on-device content signals for files whose name says nothing. Gated by the
+        // Filing: on-device content signals for files whose name says nothing. Gated by the
         // read-contents Settings toggle; runs only on the no-confident-home tail.
         manager.filingContentExtractor = { path in
             await ContentSignalExtractor.tokens(forFileAt: path)
         }
-        // Storage Lens reports survive launches, so opening the workspace shows the last reading
-        // rather than an empty panel. Storage is the only lens whose RESULTS are restored — see
-        // `StorageLensSnapshot` for why its read-only nature is what makes that safe.
+        // Storage reports survive launches, so the lens opens on the last reading. The only lens
+        // whose results are restored; `StorageLensSnapshot` says why read-only makes that safe.
         manager.storageLensStoreURL = StorageLensStore.defaultURL()
-        // The other two lenses never restore results (their rows carry destructive applies);
-        // instead, opening one re-runs its scan automatically when the target matches the last
-        // completed scan and the run cannot cost money — rows recomputed from the live
-        // filesystem, so nothing stale is ever offered. This store remembers those targets, and
-        // carries the Compare scan's last summary alongside them — Compare cannot restore its rows
-        // for the same reason the two lenses cannot, so it restores the SUMMARY and offers only a
-        // Scan button. The summary is loaded straight after the store is injected, because
-        // ContentView's empty state renders from it on the first frame.
+        // Lenses whose rows carry destructive applies never restore results; opening one re-runs
+        // its scan when the target matches the last and the run cannot cost money, so nothing
+        // stale is offered. This store remembers those targets and Compare's last summary, which
+        // is loaded at once because ContentView's empty state renders from it on the first frame.
         //
-        // **Not under tests**, which is the whole reason the library's own default is nil: the
-        // app-target suite is hosted in this app, so injecting `.standard` here hands every test
-        // that completes a scan a writable handle on the user's real defaults domain. The CLI and
-        // bare test managers were already covered by leaving it unset; the test HOST was the hole,
-        // and it widened when the Compare summary started writing through the same store.
+        // Not under tests: the app-target suite is hosted in this app, so `.standard` here would
+        // give every test that completes a scan a writable handle on the user's real defaults.
         if !isRunningTests {
             manager.persistedUIStateDefaults = .standard
             manager.loadLastScanSummary()
-            // The folder watcher (ROADMAP item 5), not under tests for the same reason, and one
-            // more: the test host's panes sit on the user's real folders, and a live stream there
-            // would mark them changed under any app suite that reads the freshness readouts.
+            // The folder watcher, not under tests for the same reason, and because the test host's
+            // panes sit on real folders: a live stream would mark them changed under any suite that
+            // reads the freshness readouts.
             manager.enableFolderWatching(history: .userDefaults(.standard))
         }
-        // The content-hash index survives launches, so Verify and Duplicates stop re-reading
-        // gigabytes they already hashed. Enabled here for the same reason as the verdict cache
-        // below: `ContentHashCache.shared` is the DEFAULT argument of `findDuplicates` and Verify,
-        // so a location baked into the library would have every test that touches either one
-        // reading and writing the real index. Loading is detached because decoding a full index is
-        // hundreds of milliseconds of work that nothing on screen is waiting for — a scan started
-        // before it lands simply misses and re-hashes, exactly as it does today.
+        // The content-hash index survives launches, so Verify and Duplicates do not re-read what
+        // they already hashed. Enabled here, not in the library, because `ContentHashCache.shared`
+        // is the default argument of `findDuplicates` and Verify, and tests would otherwise touch
+        // the real index. Loaded detached: decoding takes hundreds of milliseconds, and a scan
+        // started first just misses and re-hashes.
         if let indexURL = ContentHashIndexStore.defaultURL() {
             Task.detached(priority: .utility) {
                 let adopted = await ContentHashCache.shared.enablePersistence(at: indexURL)
@@ -513,8 +390,8 @@ struct SyncCloudApp: App {
                 }
             }
         }
-        // The same arrangement for the same-text pass's document fingerprints, which are the more
-        // expensive half to recompute: a full PDF parse per document against a re-read of bytes.
+        // The same for the same-text pass's document fingerprints, the costlier half to recompute:
+        // a full PDF parse per document.
         if let fingerprintURL = ContentHashIndexStore.defaultFingerprintURL() {
             Task.detached(priority: .utility) {
                 let adopted = await ContentHashCache.sharedFingerprints.enablePersistence(at: fingerprintURL)
@@ -533,28 +410,21 @@ struct SyncCloudApp: App {
                 }
             }
         }
-        // Verdicts are cached per (file identity × backend × prompt version), so a folder whose
-        // files have not changed is not re-classified — and, on the paid cloud backend, not
-        // re-paid for. The location is injected rather than defaulted inside `Sync`, so nothing
-        // but the real app ever reads or writes the real file (see `filingVerdictCacheURL`).
+        // Verdicts are cached per file identity, backend and prompt version, so unchanged files are
+        // not re-classified or, on the cloud backend, re-paid for. Injected rather than defaulted
+        // in `Sync`, so only the real app touches the real file (see `filingVerdictCacheURL`).
         manager.filingVerdictCacheURL = FilingVerdictStore.defaultURL()
-        // Which backend a cached verdict came from — asked one scan ahead of the classifier below,
-        // and resolved through the SAME router, so a cloud-enabled-but-no-key downgrade is cached
-        // as on-device rather than under a Claude model's name. Getting that wrong would make the
-        // downgrade durable: later scans would serve the on-device answer while the user believed
-        // Claude had filed the document.
+        // Which backend a cached verdict came from, resolved through the same router as the
+        // classifier below, so a cloud-on-but-no-key downgrade is cached as on-device. Otherwise
+        // later scans would serve the on-device answer as Claude's.
         //
-        // `logDowngrade` is silenced here on purpose — the classifier reports it when the scan
-        // actually runs, and warning twice for one scan would read as two downgrades. This does
-        // mean the Keychain is queried twice per cloud-enabled scan; that is a live key being read
-        // twice, not a prompt, and the gating that matters (never asking when cloud is off) is
-        // preserved because the toggle is still checked first.
+        // `logDowngrade` is silenced: the classifier reports it when the scan runs. The Keychain
+        // is read twice per cloud-enabled scan, but never when cloud is off, since the toggle is
+        // checked first.
         manager.filingBackendIdentity = { tier in
-            // `.free` short-circuits BEFORE the router, and that is the whole guarantee stated
-            // once: the free pass routes on-device below, so its verdicts are on-device verdicts
-            // and must key as such. Running the router here would name a cloud model for a pass
-            // that never calls cloud, and the next refine would serve the free answer back as
-            // Claude's.
+            // `.free` short-circuits before the router: the free pass routes on-device below, so
+            // its verdicts must key as on-device, or the next refine would serve the free answer
+            // back as Claude's.
             guard tier == .refine else { return FileSyncManager.onDeviceBackendIdentity }
             switch FilingBackendRouter.route(
                 cloudEnabled: UserDefaults.standard.bool(forKey: FileSyncManager.usesCloudDefaultsKey),
@@ -568,35 +438,27 @@ struct SyncCloudApp: App {
                 return FileSyncManager.onDeviceBackendIdentity
             }
         }
-        // The DISPLAY half of the same question, and the reason it is a second seam:
-        // `isConfigured` is an attributes-only Keychain match — it never decrypts and so never
-        // raises the password prompt, which `hasKey` above can. The Organize toolbar reads this on
-        // every render (every keystroke in its search field), and pointing that at the router
-        // meant a Keychain decrypt per keystroke. `AnthropicKeychain` documents the split and
-        // sends display-only callers here; the residual gap — an item that exists but cannot be
-        // read — costs nothing and is named in the refine banner.
+        // The display half of the same question, a second seam because `isConfigured` is an
+        // attributes-only Keychain match that never decrypts or prompts, unlike `hasKey`. The
+        // Organize toolbar reads it on every render, every keystroke in its search field. An item
+        // that exists but cannot be read is named in the refine banner.
         manager.filingCloudRefineConfigured = { AnthropicKeychain.isConfigured }
-        // Filing (AI): reason about the folder taxonomy + document text to pick a home, overriding
-        // keyword guesses. Hybrid backend — opt-in cloud (Claude) as primary when enabled with a
-        // key, else the on-device Apple Foundation Models model. Always injected so the cloud toggle
-        // and key can change at runtime; the routing closure resolves the backend per call.
+        // Filing (AI): reason over the folder taxonomy and document text to pick a home. Opt-in
+        // cloud (Claude) when enabled with a key, else on-device Foundation Models. Always injected
+        // so the toggle and key can change at runtime; the backend is resolved per call.
         //
-        // **This closure is where `FilingClassifierTier` is honoured, and it is the entire
-        // implementation of "a scan cannot cost money".** `.free` goes straight to the on-device
-        // model without consulting the cloud toggle or the Keychain; only `.refine` — an explicit
-        // click on the results, or a per-card "Try another" — may reach Claude. Nothing in `Sync`
-        // enforces this by construction, so `Sync` asks for the routing answer instead and skips
-        // classifying if it comes back cloud (`freePassWouldReachAPaidBackend`).
+        // This closure is the whole of "a scan cannot cost money": `.free` goes straight on-device
+        // without the toggle or the Keychain; only `.refine` (an explicit click, or a card's "Try
+        // another") may reach Claude. `Sync` also skips classifying if the free route comes back
+        // cloud (`freePassWouldReachAPaidBackend`).
         manager.filingClassifier = { context, files, tier in
-            // **Destinations, not the raw taxonomy.** The context knows which folders are inboxes;
-            // handing a backend the unfiltered list is what teaches it to file into `TODO`.
+            // Destinations, not the raw taxonomy: the context knows which folders are inboxes, and
+            // the unfiltered list would teach a backend to file into `TODO`.
             let taxonomy = context.destinations
-            // The router also LOGS the one silent case — cloud Filing on, no usable key — which
-            // otherwise left the user believing Claude filed documents the on-device model filed.
-            // `hasCloudKey` is an @autoclosure, so the Keychain below is only queried once the
-            // toggle says yes — as the plain `if` this replaced did. Evaluating it on every call
-            // regardless would warn (and can prompt) on a locked item for a disabled feature.
-            // Gating the whole route on the tier means a scan never queries the Keychain at all.
+            // The router logs the silent case, cloud on with no usable key. `hasCloudKey` is an
+            // @autoclosure, so the Keychain is queried only once the toggle says yes; otherwise it
+            // could warn or prompt for a disabled feature. Gated on the tier, so a scan never
+            // queries the Keychain.
             let route = tier == .refine
                 ? FilingBackendRouter.route(
                     cloudEnabled: UserDefaults.standard.bool(forKey: FileSyncManager.usesCloudDefaultsKey),
@@ -613,10 +475,9 @@ struct SyncCloudApp: App {
             }
             return [:]
         }
-        // §5.6: the mapping refine — a paid call over folder NAMES, so it routes through the
-        // same key, model choice, budget caps and spend store as the filing refine. The sheet
-        // gates the offer on a stored key (`filingCloudRefineAvailable`); this closure is only
-        // the transport.
+        // The mapping refine: a paid call over folder names, through the same key, model, caps and
+        // spend store as the filing refine. The sheet gates the offer on a stored key
+        // (`filingCloudRefineAvailable`); this closure is only the transport.
         manager.mappingRefiner = { request in
             await CloudMappingRefiner.refine(request)
         }
@@ -627,31 +488,26 @@ struct SyncCloudApp: App {
         manager.filingOCRExtractor = { path in
             await ContentSignalExtractor.ocrPDFFirstPage(atPath: path)
         }
-        // RD11: what the document survey stands aside for. Installed here rather than read inside
-        // `Sync` for the reason the extractors above are — the display's sleep state and the
-        // thermal band come from AppKit and `ProcessInfo`, and a library that reached for either
-        // would answer differently under `swift test` than in the app. A host that installs none
-        // gets `MachineConditions.unknown`, which is a survey that never pauses for the machine.
+        // What the document survey stands aside for: display sleep and the thermal band, which come
+        // from AppKit and `ProcessInfo`, so a library reading them would answer differently under
+        // `swift test`. A host that installs none gets `MachineConditions.unknown`, which never
+        // pauses.
         let machineConditions = MachineConditionsMonitor()
         _machineConditionsMonitor = State(wrappedValue: machineConditions)
         manager.machineConditions = { machineConditions.current() }
-        // The second half of `filingContentExtractor`, on its own. `tokens(forFileAt:)` reads the
-        // file and then derives tokens from what it read; handing the manager the derivation lets
-        // the scan read a page once and share it with the router and the classifier.
+        // The second half of `filingContentExtractor` on its own, so the scan can read a page once
+        // and share it with the router and the classifier.
         manager.filingTokensFromText = { ContentSignalExtractor.tokens(fromText: $0) }
-        // `recordingTrend:` only where a person actually launched the app — this same line runs
-        // under the test host, whose writes land in the developer's real profile directory.
+        // Records the trend only where a person launched the app: this line also runs under the
+        // test host, whose writes would land in the real profile directory.
         FilingArtifacts.attach(to: manager, recordingTrend: !isRunningTests)
 
         // Installed whether or not the model is available: `prewarm()` asks that itself, off the
-        // main thread. Asking here held the first window (speed audit item 4: likely 5.4 s on
-        // the first launch after a macOS update) and fixed the answer for the whole session.
+        // main thread. Asking here would hold the first window, by seconds after a macOS update.
         manager.filingClassifierPrewarm = { OnDeviceFilingClassifier.prewarm() }
         _syncManager = State(wrappedValue: manager)
-        // ContentView.onAppear awaits discoverProviders() as part of its bootstrap sequence, so
-        // skip the init-triggered scan here to avoid discovering providers twice on launch.
-        // overridesDomainName scopes path/name override reads to the app's own defaults
-        // domain, so global-domain keys can never masquerade as provider overrides.
+        // ContentView's bootstrap discovers providers, so skip the init-time discovery. The
+        // overrides domain keeps global-domain keys from masquerading as provider overrides.
         _settings = StateObject(wrappedValue: SettingsManager(
             autoDiscover: false,
             overridesDomainName: Bundle.main.bundleIdentifier ?? SettingsManager.appSuiteName
@@ -661,14 +517,11 @@ struct SyncCloudApp: App {
         LaunchTiming.initEnded()
     }
 
-    /// The Settings conflict policy's answer for a collision, or nil when the policy says ask
-    /// (folder collisions always ask — see ConflictPolicy). Shared by both resolver wirings
-    /// so the policy check and its log line can't drift between the single and bulk prompts;
-    /// reads the persisted policy once per collision so a Settings change applies to the
-    /// very next conflict.
+    /// The Settings conflict policy's answer for a collision, or nil when it says ask (folder
+    /// collisions always do; see ConflictPolicy). Shared by both resolver wirings so they can't
+    /// drift, and re-read per collision so a Settings change applies to the very next one.
     ///
-    /// `defaults` is a seam: production reads `.standard` (the user's live policy), tests inject
-    /// their own suite so pinning the policy never writes into the user's real settings domain.
+    /// `defaults` is a seam: tests inject their own suite so they never write the user's settings.
     @MainActor
     static func policyAutoResolution(for collision: FileCollision,
                                      defaults: UserDefaults = .standard) -> CollisionResolution? {
@@ -678,18 +531,13 @@ struct SyncCloudApp: App {
         return auto
     }
 
-    /// Wires the two collision seams — the single-item resolver and the bulk-sync one — to the
-    /// standing conflict policy, falling through to the NSAlert prompt whenever the policy says
-    /// ask (which includes every FOLDER collision; see `ConflictPolicy`). Split out of `init` so
-    /// the wiring itself is testable: the policy function is covered by Sync's `ConflictPolicyTests`,
-    /// but nothing pinned that BOTH seams route through it, that a folder collision still reaches
-    /// the prompt, or that the policy is re-read per collision — and an inverted gate or a dropped
-    /// wiring silently replaces the user's files with no prompt and no undo trail.
+    /// Wires the single-item and bulk collision seams to the standing conflict policy, falling
+    /// through to the NSAlert prompt whenever it says ask (every folder collision included; see
+    /// `ConflictPolicy`). Out of `init` so tests can pin that both seams route through the policy:
+    /// an inverted gate or a dropped wiring would silently replace the user's files with no prompt.
     ///
-    /// The two prompts are parameters (defaulting to the real alerts) purely so a test can assert
-    /// the routing without driving a modal; production behavior is exactly the pre-extraction code.
-    /// A policy answer never offers "apply to all" — the policy already applies to every
-    /// collision, so `false` is the only consistent answer.
+    /// The prompts are parameters so a test can assert the routing without a modal. A policy answer
+    /// never offers "apply to all", since the policy already applies to every collision.
     @MainActor
     static func wireCollisionResolvers(
         into manager: FileSyncManager,
@@ -714,10 +562,9 @@ struct SyncCloudApp: App {
     var body: some Scene {
         let _ = Self.sceneBodyRuns += 1
         // A single-window `Window` scene, not a WindowGroup: two ContentViews would share one
-        // FileSyncManager and the App-level showSettings, so a second window re-ran the full
-        // bootstrap (redundant discovery + rescan, provider re-selection over live panes) and
-        // the settings overlay opened in every window at once. `Window` also removes
-        // File ▸ New Window / ⌘N; nothing in `.commands` re-adds it.
+        // FileSyncManager and `showSettings`, so a second window would re-run the bootstrap and
+        // open the settings overlay in both. `Window` also removes File ▸ New Window / ⌘N; nothing
+        // in `.commands` re-adds it.
         Window("SyncCloud", id: SyncCloudApp.mainWindowId) {
             if isRunningTests {
                 Color.clear
@@ -744,54 +591,44 @@ struct SyncCloudApp: App {
                     .environmentObject(Logger.shared)
                     .environmentObject(settings)
                     .appFontSizeFromSettings()
-                    // The window's switches, sliders, checkboxes and progress bars — Settings, Help
-                    // and Setup among them, which are panels in it — take the app's hue (DS4).
+                    // The window's switches, sliders, checkboxes and progress bars, Settings, Help
+                    // and Setup's panels among them, take the app's hue.
                     .nativeControlAccent()
                     .selectionLensAppearanceFromDefaults()
-                    // Outermost, so every badged control in the window sees the same reveal state
-                    // in the same render pass — the badges have to arrive together or the effect
-                    // reads as a glitch rather than an answer.
+                    // Outermost, so every badged control sees the reveal in the same render pass;
+                    // badges arriving one by one would read as a glitch.
                     .shortcutRevealSource(shortcutReveal)
             }
         }
         .windowStyle(.hiddenTitleBar)
-        // Open at ~85% of the screen (the two-pane + Differences layout needs room); without a
-        // defaultSize, `.contentSize` resizability collapsed the first launch to the content's
-        // own minimum (760×560 — see `ContentView.chromedContent`). `.contentMinSize` keeps that
-        // minimum as a floor but lets the window take (and remember) any larger size.
+        // Open at ~85% of the screen, since the two-pane layout needs room; without a default size
+        // the first launch would open at the content's minimum (760×560, see
+        // `ContentView.chromedContent`). `.contentMinSize` keeps that as a floor and lets the
+        // window take and remember any larger size.
         .defaultSize(
             width: (NSScreen.main?.visibleFrame.width ?? 1600) * 0.85,
             height: (NSScreen.main?.visibleFrame.height ?? 1000) * 0.85
         )
         .windowResizability(.contentMinSize)
-        // **The test host opens no window.** It is this app, so it came up with the main window at
-        // the user's saved frame — 1575×967 over the user's screen for the length of every
-        // app-target run: theirs, another session's and CI's on this Mac. Under tests the content
-        // is `Color.clear` and no test reads the window. Restoration is off too: the host shares
-        // the app's saved state, so it could bring back whichever window the user last left open.
+        // The test host opens no window: it is this app, so it would cover the user's screen at
+        // the saved frame for every app-target run. No test reads the window. Restoration is off
+        // too, since the host shares the app's saved state and could reopen the user's windows.
         .defaultLaunchBehavior(isRunningTests ? .suppressed : .automatic)
         .restorationBehavior(isRunningTests ? .disabled : .automatic)
         .commands {
-            // Settings is no longer a separate window (it's an in-window overlay so it floats
-            // over the content even in full screen), so re-supply the standard ⌘, menu item
-            // that the native Settings scene used to provide.
+            // Settings is an in-window overlay, so it floats over the content even in full
+            // screen, and there is no Settings scene to supply ⌘, — so supply it here.
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") { showSettings = true }
                     .keyboardShortcut(AppChord.settings.key, modifiers: AppChord.settings.modifiers)
             }
-            // Edit ▸ Find, where a Mac user looks for it — and the only form ⌘F can take: a
-            // focus-scoped `.onKeyPress` never sees the key, because a pane search is invoked
-            // exactly when focus is sitting in a file table. See `FindInPaneCommand`.
-            // Edit ▸ the file clipboard, then Find. **Replacing `.pasteboard` rather than adding
-            // after it**: AppKit's group supplies Cut/Copy/Paste/Select All bound to the responder
-            // chain, which for a file pane means they do nothing — so leaving it in place would put
-            // two items on each of ⌘X, ⌘C, ⌘V and ⌘A and let AppKit pick one, the same collision
-            // the emptied `.saveItem` group avoids for ⌘W.
+            // Edit ▸ the file clipboard, then Find. Find is here because a focus-scoped
+            // `.onKeyPress` never sees ⌘F while focus is in a file table (see `FindInPaneCommand`).
             //
-            // The text-editing behaviour those items provided is not lost: every one of these
-            // routes back to the field editor through `TextEditingChord` when the caret owns the
-            // keystroke, which is strictly more correct than the responder chain was — it also
-            // covers the case where files are selected AND a field has focus.
+            // Replacing `.pasteboard`, not adding after it: AppKit's own Cut/Copy/Paste/Select All
+            // do nothing for a file pane, and keeping them would put two items on each chord and
+            // let AppKit pick one. Text editing is not lost: each routes back to the field editor
+            // through `TextEditingChord` when the caret owns the keystroke.
             CommandGroup(replacing: .pasteboard) {
                 CutCommand()                // ⌘X
                 CopyCommand()               // ⌘C
@@ -801,65 +638,48 @@ struct SyncCloudApp: App {
                 Divider()
                 FindInPaneCommand()         // ⌘F
             }
-            // File ▸ the pane chrome's actions. Replacing `.newItem` is free real estate: this
-            // is a one-window app, so there is no "New Window" to displace. ⌘N had nothing to do
-            // either until the Editor workspace arrived with a document to make — it is New Text
-            // File now, and it leads the menu with New Folder beside it, the two "new" items
-            // together. They route to the focused pane (or its selection) via the focused
-            // values ContentView publishes — see `ShortcutCommands.swift`.
-            // **In the roadmap's own order** (§1, Fig. 9): the items the menu opened with, then
-            // the two tab items together, then the rest. Close Tab sits beside New Tab rather
-            // than in AppKit's `.saveItem` group, which renders after this one and would have put
-            // it below Move Selection to Trash — a long way from the item it is the opposite of.
+            // File ▸ the pane chrome's actions. Replacing `.newItem` costs nothing in a one-window
+            // app with no New Window. ⌘N is New Text File, beside New Folder. They route to the
+            // focused pane or its selection through ContentView's focused values (see
+            // `ShortcutCommands.swift`). Close Tab sits beside New Tab, not in AppKit's `.saveItem`
+            // group, which renders after this one, far from the item it undoes.
             CommandGroup(replacing: .newItem) {
                 NewTextFileCommand()        // ⌘N
-                // The files Edit opened last (TE58), under the item that makes a new one — where
-                // a document app keeps it, below New and Open.
+                // The files Edit opened last, below New, where a document app keeps it.
                 OpenRecentCommand()         // no chord — see the type
                 NewFolderCommand()          // ⇧⌘N
                 NewTabCommand()             // ⌘T
                 CloseTabCommand()           // ⌘W
                 ReopenClosedTabCommand()    // no chord — see the type
                 Divider()
-                // The row menu's verbs, over the pane selection — the routes that until now needed
-                // a right-click on exactly the right row.
+                // The row menu's verbs, over the pane selection, without a right-click on the row.
                 PaneRowVerbCommands()
                 Divider()
                 RescanCommand()             // ⌘R
                 Divider()
                 DeleteSelectionCommand()    // ⌘⌫
             }
-            // `.saveItem` is where AppKit puts File ▸ Close, and Close Tab has taken its key and
-            // its job (on the last tab it closes the window). Emptied rather than left alone, or
-            // two items would register ⌘W and AppKit would silently pick one — measured: leaving
-            // this out puts "Close" and "Close All" back, with two items claiming ⌘W. Save is the
-            // one item that belongs here on AppKit's own terms, and it arrived with the Editor —
-            // the group is a replacement rather than an emptying now, but for the same reason.
-            // Close Document (TE46) joined it above Save, where AppKit's Close sat: it is Close's
+            // `.saveItem` is where AppKit puts File ▸ Close, whose key and job Close Tab has taken
+            // (on the last tab it closes the window). Replaced, or AppKit's Close and Close All
+            // come back and two items claim ⌘W. It holds Save, and Close Document above it: Close's
             // job for the editor's document, without Close's key.
             //
-            // **Close All (⌥⌘W) goes with it, and that is the price.** This app is one window plus
-            // three utility windows, so the loss is small; putting it back by hand is not an option
-            // that costs nothing, because an ⌥ chord is the one kind that fires through the ⌥-hold
-            // reveal (see `AppChord.foldAllDifferences`), which is an invariant the whole app is
-            // held to. `theFileMenuIsInTheRoadmapsOrder` pins the absence so it stays a decision.
-            // **Grouped, because `CommandsBuilder` takes ten children** and this block was at ten
-            // before RD9's print pair arrived — the same wall the Organize/Text/Markup group below
-            // hit, and it fails the same way: `extra argument in call`, reported against the
-            // closing brace rather than against anything new. `Group` changes nothing in the bar.
+            // Close All (⌥⌘W) goes too: the app is one window plus a few utility windows, and an ⌥
+            // chord would fire through the ⌥-hold reveal (see `AppChord.foldAllDifferences`).
+            // `theFileMenuIsInTheRoadmapsOrder` pins its absence.
+            //
+            // Grouped because `CommandsBuilder` takes ten children; an eleventh fails as `extra
+            // argument in call` at the closing brace. `Group` changes nothing in the bar.
             Group {
                 CommandGroup(replacing: .saveItem) {
-                    // Where AppKit's Close lived, above Save as it was — with no key: ⌘W is Close
-                    // Tab's, and ⌥⌘W is an ⌥ chord (TE46).
+                    // Where AppKit's Close lived, above Save, with no key: ⌘W is Close Tab's, and
+                    // ⌥⌘W is an ⌥ chord.
                     CloseDocumentCommand()      // no chord — see the type
                     SaveDocumentCommand()       // ⌘S
                 }
-                // File ▸ the document on paper (roadmap RD9). **`.printItem` rather than more rows
-                // in the group above**: it is where AppKit puts printing, which places both items
-                // below Save with a separator of the platform's own making — the arrangement RD9's
-                // mockup draws — and it leaves the Save group meaning one thing. Replacing rather
-                // than adding after, because the group is empty until something fills it: SwiftUI
-                // supplies no Print item of its own for an app that never asked for one.
+                // File ▸ the document on paper. In `.printItem`, where AppKit puts printing, so the
+                // items sit below Save with the platform's own separator and the Save group means
+                // one thing. Replacing, since SwiftUI supplies no Print item here to keep.
                 CommandGroup(replacing: .printItem) {
                     ExportPDFCommand()          // no chord — see AppChord.printDocument
                     PrintDocumentCommand()      // ⌘P
@@ -873,99 +693,80 @@ struct SyncCloudApp: App {
                 }
             }
             // View ▸ the workspaces (one ⌘-digit each, checkmarked) and the show/hide switches. The
-            // workspace items sit in the View menu because that is what they change — which
-            // surface the window shows — not what the app does to any file.
-            // Nine children since View ▸ File Preview went (TE318). The ten-child limit is why three
-            // of them are pairs.
+            // workspaces are here because they change which surface the window shows. The
+            // builder's ten-child limit is why three children are pairs.
             CommandGroup(after: .sidebar) {
                 WorkspaceCommands()
                 Divider()
-                // **Sidebar first**, because it is the only switch here that changes the window's
-                // *structure* rather than what a pane shows. Absent from 2026-08-20 until v4.4
-                // while the column was held; back with it, and disabled rather than deleted while
-                // the panes are collapsed — the same rule as the toolbar button, so the two halves
-                // of one control cannot disagree.
-                // With Edit's Text Files after it, as one child — this builder was at its ten.
+                // Sidebar first: the only switch here that changes the window's structure rather
+                // than what a pane shows. Disabled, not removed, while the panes are collapsed,
+                // the same rule as the toolbar button. With Edit's Text Files, as one child.
                 ColumnCommands()                // ⌃⌘S, and ⌃⌘T in Edit
-                // Tab Bar and Status Bar, as one child — this builder was at its ten. See the type.
+                // Tab Bar and Status Bar, as one child. See the type.
                 PaneChromeCommands()            // ⇧⌘T, and Status Bar with no chord
                 ToggleHiddenFilesCommand()      // ⇧⌘.
-                // With Ask Claude after it, as one child — this builder was at its ten. See the type.
+                // With Ask Claude after it, as one child. See the type.
                 InspectorAndAskClaudeCommands() // ⌘I (and Italic in Edit's document), ⌘J
                 ToggleDifferencesListCommand()  // ⌘D
                 FoldAllDifferencesCommand()     // ⇧⌘F
-                // The whole app's type, on the slider's own stops (roadmap RD2): a divider and a
-                // Text Size submenu, as one view because this builder was at its ten children then.
+                // The whole app's type, on the slider's own stops: a divider and a Text Size
+                // submenu, as one child.
                 TextSizeMenuCommand()           // ⌘+ ⌘− ⌘0
             }
-            // Go ▸ per-pane history, Finder's own menu for Finder's own chords — plus the chord
-            // that decides which pane "per-pane" means. `SwitchPaneFocusCommand` sits with them
-            // because it is what the other two (and ⌘F, ⇧⌘N) are aimed by, and its title
-            // naming the destination pane is the only at-rest answer to "which pane is focused".
+            // Go ▸ per-pane history, Finder's menu for Finder's chords, plus the chord that decides
+            // which pane "per-pane" means. `SwitchPaneFocusCommand` sits here because it aims the
+            // others (and ⌘F, ⇧⌘N), and its title is the at-rest answer to "which pane is focused".
             CommandMenu("Go") {
-                // First, and on its own: it is the only item here that can reach a destination
-                // NOT currently on screen — which is the whole argument for ROADMAP 14. The four
-                // below move around where you already are.
+                // First, on its own: the only item that reaches a destination not on screen. The
+                // items below move around where you already are.
                 CommandPaletteCommand()     // ⌘K
                 Divider()
-                // Back, Forward and the RD5 column-stack pair — one child, because this builder
-                // was at nine of its ten. See `PaneNavigationCommands`.
+                // Back, Forward and the column-stack pair, as one child. See
+                // `PaneNavigationCommands`.
                 PaneNavigationCommands()    // ⌘[ ⌘] ⌘↑ ⌘↓
                 Divider()
                 NextTabCommand()            // ⇧⌘]
                 PreviousTabCommand()        // ⇧⌘[
-                // Hidden behind the item above, its key live (SH3, `GoMenuDuplicates`).
+                // Hidden behind the item above, its key live (`GoMenuDuplicates`).
                 PreviousTabControlCommand() // ⌃⇧⇥
                 Divider()
-                // ⌃⇥ — the other pane in Compare, the next tab in Browse. One key, one item, and
-                // a title that names which of the two it is about to do (`PaneFocusSwitch`). As
-                // Next Tab it is hidden behind Next Tab ⇧⌘], its key live (SH3, `GoMenuDuplicates`).
+                // ⌃⇥: the other pane in Compare, the next tab in Browse, with a title naming which
+                // (`PaneFocusSwitch`). As Next Tab it is hidden behind Next Tab ⇧⌘], its key live
+                // (`GoMenuDuplicates`).
                 SwitchPaneFocusCommand()    // ⌃⇥
             }
             // Compare ▸ the differences header's two bulk actions. Their availability is the
             // header's own facts, published by `DifferencesView` from the render that drew (or
             // withheld) the matching buttons.
             CommandMenu("Compare") {
-                // The four directional transfers first: they act on the selection, which is what
-                // the reader came to this menu holding. Review and Verify act on the whole
-                // comparison, so they sit below the divider as the bulk pair they are.
+                // The directional transfers first, since they act on the selection. Review and
+                // Verify act on the whole comparison, so they sit below the divider.
                 TransferCommands()          // ⌘← ⌘→ ⇧⌘← ⇧⌘→
                 CompareTwoFilesCommand()    // ⇧⌘C — also acts on the selection, so it joins them
                 Divider()
                 ReviewDifferencesCommand()  // ⇧⌘R
                 VerifyDifferencesCommand()  // ⇧⌘V
             }
-            // Organize ▸ its sections, then its verbs — **a menu of its own, and the first cut
-            // got this wrong twice.**
+            // Organize ▸ its sections, then its verbs, in a menu of its own, the shape the Compare
+            // menu has. A submenu under View would put a second "Organize" a few rows below the
+            // ⌘3 workspace item; here the word appears once per menu, as Compare's does.
             //
-            // It was argued out of existence on the grounds that "Compare's items are bulk actions
-            // on the whole comparison, Organize's are per-selection verbs, so the precedent does
-            // not transfer". That stopped being true when the directional transfers landed in
-            // Compare: that menu now opens with four verbs that act on the selection, so the two
-            // menus have the same shape and the precedent transfers exactly.
-            //
-            // The replacement — sections as a submenu under View — put a second item reading
-            // "Organize" four rows below the ⌘3 workspace item, in the same menu. A test was even
-            // written asserting the two were "distinct", which is what rationalising a collision
-            // looks like. Here the word appears once per menu, which is the arrangement View ▸
-            // Compare ⌘2 and the Compare menu have had all along without reading as a duplicate.
-            // **Grouped with the two menus after it because `CommandsBuilder` takes ten children**
-            // and this block had ten before Edit's menus arrived. `Group` changes nothing in the
-            // bar — `textAndMarkupFollowOrganizeInTheBar` reads the order off the built menu.
+            // Grouped with the two menus after it because `CommandsBuilder` takes ten children.
+            // `Group` changes nothing in the bar; `textAndMarkupFollowOrganizeInTheBar` reads the
+            // order off the built menu.
             Group {
                 CommandMenu("Organize") {
                     OrganizeLensCommands()      // the five sections, ticked
                     Divider()
                     OrganizeVerbCommands()      // the four row verbs, over the pane selection
                 }
-                // Text ▸ and Markup ▸ — Edit's two menus (decision A, roadmap RD1). Their contents
-                // and the reasoning are on `EditorMenus`.
+                // Text ▸ and Markup ▸, Edit's two menus. Their contents and reasoning are on
+                // `EditorMenus`.
                 EditorMenus()
             }
-            // Replace the whole Help menu. AppKit's default `.help` group is just the
-            // `showHelp:` item (and its search field), which — with no registered Help Book —
-            // answers "Help isn't available for SyncCloud." Swapping the group lets our own
-            // SyncCloud Help overlay take that slot, and hosts the rest of the Help entries.
+            // Replace the whole Help menu. AppKit's `.help` group is the `showHelp:` item, which
+            // with no registered Help Book answers "Help isn't available for SyncCloud." Our own
+            // Help overlay takes that slot, with the rest of the Help entries.
             CommandGroup(replacing: .help) {
                 // The real front door: open the in-window Help overlay. Close Settings first so
                 // the two overlays never stack (ContentView also enforces this).
@@ -975,14 +776,10 @@ struct SyncCloudApp: App {
                 }
                 .keyboardShortcut("?", modifiers: .command)
 
-                // Open the setup form on demand. It auto-shows once, on a machine that has never
-                // been set up; this is the way back to it, and it is deliberately unconditional —
-                // the form's own re-run state is what handles a machine that is already configured.
-                //
-                // **Nothing persisted is cleared here.** The old Welcome command had to reset
-                // `hasSeenFirstRunWelcome` to re-show the tour, which meant a user who opened it
-                // from the menu and then quit got greeted again on the next launch. An explicit
-                // latch cannot do that.
+                // Open the setup form on demand. It auto-shows once, on a machine never set up;
+                // this is the way back, unconditional, since the form's own re-run state handles a
+                // configured machine. Nothing persisted is cleared, so opening it from the menu
+                // never makes it greet again at the next launch.
                 Button("Set Up SyncCloud…") {
                     showSettings = false
                     showHelp = false
@@ -991,35 +788,21 @@ struct SyncCloudApp: App {
                 }
                 Divider()
 
-                // The jump to the on-disk log stays: it is a Finder reveal, not a window, so the
-                // Window menu is the wrong home for it and Help is where someone filing a report
-                // looks.
+                // The jump to the on-disk log: a Finder reveal, not a window, so it belongs in
+                // Help, where someone filing a report looks.
                 Button("Reveal Log File in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([Logger.shared.logFileURL])
                 }
             }
-            // The three auxiliary windows, in the Window menu — **which is where they already
-            // were.**
+            // The auxiliary windows, in the Window menu. SwiftUI already creates a Window-menu
+            // opener for every `Window` scene, so a second copy in Help would list each twice.
             //
-            // Help carried a second copy of each ("Keyboard Shortcuts", "Open Activity Log",
-            // "Open Sync History") under a comment claiming the Activity Log "otherwise has no
-            // menu entry". Read off the running app, that is false: SwiftUI creates a Window-menu
-            // opener for every `Window` scene automatically, so each of the three was listed
-            // twice, in two menus, under two different names. A source scan cannot see this —
-            // one of the two entries is never written down — which is why it survived to v4.2.
-            //
-            // **Keyboard Shortcuts is supplied by hand, for its chord**: an automatic Window-menu
-            // entry has no key equivalent, so its scene's is suppressed (`.commandsRemoved()`) and a
-            // real item with ⌘/ put here. Activity keeps its automatic entry, with ⌘L put on it at
-            // launch (`ActivityMenuKey`). Sync History is Activity's History tab now; its item stays,
-            // under the name people know, and opens the window on that tab.
-            //
-            // **⌘/ is here because taking it out of Help took it out of the app.** `cd87b08e`
-            // removed the auxiliary windows from Help — correctly, they were listed twice — and
-            // `ShortcutsWindowCommand` was the only thing registering ⌘/. Nothing re-registered it,
-            // so from that commit the chord opened nothing while the ⌘/ reference went on
-            // documenting it. `everyDeclaredChordIsOnAMenuItem` is what would have said so, and
-            // does now.
+            // Keyboard Shortcuts is supplied by hand, for its chord: an automatic entry has no key
+            // equivalent, so its scene's is suppressed (`.commandsRemoved()`) and an item with ⌘/
+            // put here; `ShortcutsWindowCommand` is the only thing registering ⌘/, and
+            // `everyDeclaredChordIsOnAMenuItem` checks it. Activity keeps its automatic entry, with
+            // ⌘L put on it at launch (`ActivityMenuKey`). Sync History, under the name people know,
+            // opens Activity on its History tab.
             CommandGroup(before: .windowArrangement) {
                 SyncHistoryWindowCommand()      // Activity, on its History tab
                 ShortcutsWindowCommand()        // ⌘/
@@ -1034,20 +817,18 @@ struct SyncCloudApp: App {
         }
         .windowResizability(.contentSize)
         .restorationBehavior(isRunningTests ? .disabled : .automatic)   // as the main window's
-        // Suppressed because this scene's item is supplied by hand in `.commands` above, to keep
-        // ⌘/ — see the note there. Without this the window appears in the Window menu twice.
+        // Suppressed because this scene's item is supplied by hand in `.commands` above, for ⌘/.
+        // Without this the window appears in the Window menu twice.
         .commandsRemoved()
 
-        // **One Activity window: Now · History · Log** (Run Room TE232, decision CR). It replaced
-        // the Activity Log and Sync History windows, which are its Log and History tabs.
+        // One Activity window: Now · History · Log.
         //
         // Its Window-menu entry is SwiftUI's automatic one, with ⌘L put on it by `ActivityMenuKey`.
-        // Neither obvious route works, both measured 2026-10-27: a scene's own `.keyboardShortcut`
-        // does not reach the automatic entry, and suppressing it for a hand-written item — with
-        // Keyboard Shortcuts' suppressed too — took the main window's own "SyncCloud" opener with
-        // them (`theMainWindowKeepsItsOpener`). Which tab it opens on is the window's own call (the
-        // last used, or Now while a problem waits — CT), made as it becomes key, since the automatic
-        // entry runs no code of ours first.
+        // A scene's own `.keyboardShortcut` does not reach the automatic entry, and suppressing it
+        // for a hand-written item, with Keyboard Shortcuts' suppressed too, takes the main
+        // window's "SyncCloud" opener with them (`theMainWindowKeepsItsOpener`). The window picks
+        // its tab as it becomes key (the last used, or Now while a problem waits), since the
+        // automatic entry runs no code of ours first.
         Window("Activity", id: ActivityCenter.windowID) {
             if isRunningTests {
                 Color.clear
@@ -1069,11 +850,9 @@ struct SyncCloudApp: App {
     }
 }
 
-/// A custom app delegate for SyncCloud to handle macOS system events.
-/// Implements `applicationShouldTerminate` to prevent accidental quitting during active file operations.
-/// @MainActor because the delegate reads MainActor state (`FileSyncManager.activeFileOperationsCount`)
-/// — AppKit only ever calls it on the main thread, but without the annotation Swift 6 strict
-/// checking would reject those reads.
+/// The app delegate: the quit guard (`applicationShouldTerminate`), Dock reopen, and launch.
+/// @MainActor because it reads main-actor state such as the manager's operation counts; AppKit
+/// only calls it on the main thread, but Swift 6 strict checking needs the annotation.
 @MainActor
 class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     /// Reference to the shared sync manager for checking active operations.
@@ -1085,38 +864,33 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     /// Static reference so the delegate always has the current manager even if the App struct is recreated.
     static weak var sharedSyncManager: FileSyncManager?
 
-    /// The live delegate, so a view can hand it something to guard. `NSApp.delegate` rather than a
-    /// second static: AppKit already holds exactly one, and a parallel reference is a second thing
-    /// that can point at an orphan.
+    /// The live delegate, so a view can hand it something to guard. Read from `NSApp.delegate`
+    /// rather than a second static, which could point at an orphan.
     @MainActor static var shared: SyncCloudAppDelegate? { NSApp.delegate as? SyncCloudAppDelegate }
 
     /// The window's open editor document, so the quit guard can ask whether it has unsaved work.
     ///
-    /// **Weak and static, exactly like the manager above**, and for the same reason: SwiftUI may
-    /// re-run `App.init`, and the guard has to keep pointing at the live document rather than at an
-    /// orphan that answers "nothing unsaved" forever. Adopted by `ContentView` once it appears,
-    /// because that is where the `@StateObject` lives.
+    /// Weak and static like the manager above: SwiftUI may re-run `App.init`, and the guard must
+    /// point at the live document, not an orphan that answers "nothing unsaved". Adopted by
+    /// `ContentView` once it appears.
     static weak var sharedEditorDocument: EditorDocument?
 
     /// Wires the quit guard to the app's editor document.
     ///
-    /// **Unconditional, unlike ``adoptSyncManager(_:)``.** That one keeps the first manager because
-    /// a re-run `App.init` would otherwise point the guard at an orphan `@StateObject` never kept
-    /// alive. This is the mirror hazard: a `guard … == nil` here meant that if the previous
-    /// document happened to still be alive when a rebuilt view adopted a new one — a teardown in
-    /// progress, an autorelease pool not yet drained — the stale object was kept and nothing ever
-    /// re-adopted, so the quit guard answered "nothing unsaved" about a document nobody could see,
-    /// forever. Taking the newest is right precisely because the reference is `weak`: there is only
-    /// ever one document, and the last one to say so is the live one.
+    /// Unconditional, unlike ``adoptSyncManager(_:)``, which keeps the first manager against an
+    /// orphan from a re-run `App.init`. Here the mirror hazard applies: keeping the first would
+    /// hold a stale document still alive mid-teardown, and the quit guard would answer "nothing
+    /// unsaved" about a document nobody can see. The reference is weak, so the newest is the live
+    /// one.
     func adoptEditorDocument(_ document: EditorDocument) {
         Self.sharedEditorDocument = document
     }
 
     /// Which files autosave may write, for the quit flush to consult.
     ///
-    /// **Weak and static, adopted beside the document, for the same reasons.** It has to be here
-    /// because `applicationShouldTerminate` is outside the view layer and the flush it performs is
-    /// a write to somebody's file — the one write in the app that happens with nobody looking.
+    /// Weak and static, adopted beside the document, for the same reasons. Here because
+    /// `applicationShouldTerminate` is outside the view layer, and its flush is the one write in
+    /// the app that happens with nobody looking.
     static weak var sharedAutosavePolicy: EditorAutosavePolicy?
 
     func adoptAutosavePolicy(_ policy: EditorAutosavePolicy) {
@@ -1124,15 +898,15 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// The editor's disk watch, so the quit guard can ask whether a deleted file's text may be the
-    /// only copy (TE146). Weak and static, adopted beside the document, for the same reasons.
+    /// only copy. Weak and static, adopted beside the document, for the same reasons.
     static weak var sharedDiskWatch: EditorDiskWatch?
 
     func adoptDiskWatch(_ watch: EditorDiskWatch) {
         Self.sharedDiskWatch = watch
     }
 
-    /// Why autosave stopped on the open document, mirrored from the window — the quit alert's cause
-    /// line reads it (TE148). A value, so nothing is held.
+    /// Why autosave stopped on the open document, mirrored from the window for the quit alert's
+    /// cause line. A value, so nothing is held.
     static var editorAutosaveStop: EditorAutosaveStop?
 
     /// The open PDF's tools, for the quit guard to ask about a pending page order — the one thing a
@@ -1153,38 +927,34 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
 
     /// Whether the quit flush may write the open document.
     ///
-    /// **A function, split from the plumbing, because it is the decision and not the alert** — the
-    /// same reason `quitDecision` is one. It answers `true` when there is no policy to ask, which
-    /// is the state before `ContentView` has adopted one: the flush is right in the ordinary case
-    /// and an app that refused to save on quit because a wire was not yet connected would be the
-    /// worse failure of the two.
+    /// A function apart from the plumbing because it is the decision, like `quitDecision`. With no
+    /// policy adopted yet it answers `true`: refusing to save on quit over an unconnected wire
+    /// would be the worse failure.
     static func mayFlushOnQuit(path: String?, policy: EditorAutosavePolicy?) -> Bool {
         guard let policy else { return true }
         return policy.isOn(path)
     }
 
-    /// Wires the termination guard to `manager`, keeping the first manager when one is already
-    /// wired (both instance and static ref, so the guard works on every quit attempt). SwiftUI
-    /// may re-run `App.init`, but `@State` keeps only the first manager alive — re-wiring
-    /// on a later init would point the quit guard at an orphan whose operation count is always 0.
+    /// Wires the termination guard to `manager`, keeping the first one wired (instance and static
+    /// ref). SwiftUI may re-run `App.init`, but `@State` keeps only the first manager alive, so
+    /// re-wiring would point the guard at an orphan whose operation count is always 0.
     func adoptSyncManager(_ manager: FileSyncManager) {
         guard syncManager == nil, Self.sharedSyncManager == nil else { return }
         syncManager = manager
         Self.sharedSyncManager = manager
     }
 
-    /// One-way sync's saved rows in Activity ▸ Now (RD67, DC), read at launch, with the reminders
-    /// that came due while SyncCloud was closed; then hourly and on wake. **Only in the installed
-    /// app** (`OneWaySyncLaunchGate`), the one copy that may sync: a test host, or a build run
-    /// from DerivedData or a worktree beside it, would read and write the user's saved rows and
-    /// post the same reminders twice.
+    /// One-way sync's saved rows in Activity ▸ Now, read at launch with the reminders that came due
+    /// while SyncCloud was closed, then hourly and on wake. Only in the installed app
+    /// (`OneWaySyncLaunchGate`): a test host or another build beside it would read and write the
+    /// user's saved rows and post the same reminders twice.
     private func startOneWaySyncNotices() {
         guard OneWaySyncLaunchGate.refusalForThisProcess() == nil,
               let directory = OneWaySyncStore.defaultDirectory() else { return }
         let center = ActivityCenter.shared
         center.postOneWaySyncNotice = { OneWaySyncNotifier.post($0) }
         center.attachOneWaySync(OneWaySyncNoticeStore(url: OneWaySyncStore(directory: directory).noticesURL))
-        // Sync Now's state, read once; nothing syncs until asked (RD67 step 3).
+        // Sync Now's state, read once; nothing syncs until asked.
         OneWaySyncController.shared.start()
         oneWaySyncReminders = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { _ in
             MainActor.assumeIsolated { ActivityCenter.shared.remindOneWaySync() }
@@ -1212,53 +982,37 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         Logger.shared.info("SyncCloud \(version) (build \(build)) launched")
         if let line = LaunchTiming.report() { Logger.shared.info(line) }
 
-        // The Go menu's ⌃⇥ / ⌃⇧⇥ twins: hidden behind their ⇧⌘ items, keys live (SH3).
+        // The Go menu's ⌃⇥ / ⌃⇧⇥ twins: hidden behind their ⇧⌘ items, keys live .
         GoMenuDuplicates.install()
-        // Where a right-click menu stood, so a Close Tab chosen from it keeps the strip (TE214).
+        // Where a right-click menu stood, so a Close Tab chosen from it keeps the strip.
         PaneMenuOrigin.shared.install()
-        // Edit ▸ Undo and ⌘Z wait while a long run is going, on the file operations' stack (CF).
+        // Edit ▸ Undo and ⌘Z wait while a long run is going, on the file operations' stack.
         RunUndoGate.shared.install()
-        // Window ▸ Activity carries ⌘L (Run Room TE232).
+        // Window ▸ Activity carries ⌘L.
         ActivityMenuKey.install()
-        // A background-completion notification's click opens its message in Activity (TE227).
+        // A background-completion notification's click opens its message in Activity.
         UNUserNotificationCenter.current().delegate = OperationNotificationClicks.shared
         startOneWaySyncNotices()
 
-        // How this build is signed, on the very next line — ad-hoc means its first launch waits
-        // behind the Documents-access dialog, which is the whole of speed audit P16 and was
-        // invisible here. It costs a few milliseconds — the two lines landed 5 ms apart in the
-        // installed app, 2026-09-26 — so it runs inline and keeps them adjacent. See
-        // `LaunchSignature`.
+        // How this build is signed, on the very next line: ad-hoc means its first launch waits
+        // behind the Documents-access dialog. A few milliseconds, so it runs inline and keeps the
+        // lines adjacent. See `LaunchSignature`.
         Logger.shared.info(LaunchSignature.current().logLine)
 
-        // Which appearance the session draws selection and bar buttons in (RD46): glass or today's
-        // markers, gliding or instant — at launch, and again whenever that changes (`GlassLogLine`).
+        // Which appearance the session draws selection and bar buttons in (glass or plain markers,
+        // gliding or instant), at launch and whenever it changes (`GlassLogLine`).
         glassLogLine.start()
 
-        // Which state the AppKit display-cycle guard is in, recorded once per launch.
+        // Which state the AppKit display-cycle guard is in, once per launch. The suppression is
+        // app-wide for the session, every window included, so the log should say which state a
+        // support session is looking at.
         //
-        // The suppression `SyncCloudApp.init` registers is app-GLOBAL and lasts the whole session:
-        // every window the process opens — Settings, Activity Log, anything added later — runs
-        // without AppKit's runaway-layout guard, not just the Columns pane that needs it. That is
-        // worth a breadcrumb, because `~/sync-cloud.log` is the only channel that can tell a
-        // support session which build state it is looking at.
+        // Read back, so it reports the effective value: a `defaults write` or launch argument
+        // beats the registration domain. `isArmed` checks `object(forKey:)` first, as AppKit does,
+        // because `bool(forKey:)` alone reads "absent" as false while AppKit treats it as armed
+        // (see `docs/columns-layout-loop.md` ▸ "Is the mitigation actually plumbed in").
         //
-        // Read back rather than restating what init asked for, so this reports the EFFECTIVE value:
-        // an explicit `defaults write` (persistent domain) or a launch argument beats the
-        // registration domain, and then the guard is armed and the crash is live again.
-        //
-        // **`object(forKey:)` first, and that is not a stylistic choice.** `bool(forKey:)` alone
-        // cannot tell "registered false" from "absent" — it answers `false` to both — whereas
-        // AppKit, absent the key, falls back to its own default-value function, which returns YES
-        // for a modern-linked binary. So a `bool`-only check would report "suppressed" in exactly
-        // the case where AppKit would raise. That case is real: under tests nothing is registered
-        // at all, deliberately, so CI keeps failing loudly if a fixture ever reproduces the
-        // runaway — and this line has to say ARMED there, not the opposite.
-        //
-        // Mirroring AppKit's own order (`objectForKey:` then `boolForKey:`) is what makes the two
-        // agree. See `docs/columns-layout-loop.md` ▸ "Is the mitigation actually plumbed in".
-        //
-        // Here rather than in `App.init` because this fires exactly once; init can be re-run.
+        // Here rather than in `App.init` because this fires exactly once.
         if DisplayCycleAssert.isArmed(in: .standard) {
             Logger.shared.info(
                 "[layout-guard] AppKit display-cycle assert is ARMED — a Columns provider switch "
@@ -1274,44 +1028,28 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             ? "[autofill] AppKit AutoFill heuristics off — no key-view walk when a field takes the caret"
             : "[autofill] AppKit AutoFill heuristics are ON — focusing a field can walk the whole key-view loop")
 
-        // …and how MANY passes it churns, when someone asks. The line above can only say whether
-        // the crash is armed; it cannot say what the suppressed loop costs, which
-        // `docs/columns-layout-loop.md` records as the open question the mitigation shipped with.
-        //
-        // Off unless armed by hand, so an ordinary session installs no hook at all — see
-        // `DisplayCycleTrace`. Here rather than in `App.init` for the same reason the breadcrumb is:
-        // this fires exactly once, and the trace's own "ARMED" line is worth less each time it
-        // repeats.
+        // And how many passes the suppressed loop churns, when someone asks
+        // (`docs/columns-layout-loop.md`). Off unless armed by hand, so an ordinary session installs
+        // no hook; see `DisplayCycleTrace`. Here, not in `App.init`, so its "ARMED" line is
+        // written once.
         DisplayCycleTrace.arm()
 
-        // And the click side of the same question. `DisplayCycleTrace` says what the window spent;
-        // this says whether the user's click reached a row at all — the one thing no existing stamp
-        // can report, because every other one fires from inside a handler that a dead click never
-        // reaches. Same arming switch, same reason to be off by default: see `MouseDownProbe`.
+        // And the click side: whether a click reached a row at all, which no handler's stamp can
+        // report for a dead click. Same arming switch, off by default; see `MouseDownProbe`.
         MouseDownProbe.arm()
 
-        // What the stored pane bar cannot show, recorded once per launch.
+        // What the stored pane bar cannot show, once per launch. A control taken off the bar is
+        // gone rather than demoted into ⋯, so this line is the only trace of a missing one, and it
+        // is written on every launch, not only those that migrate.
         //
-        // Since `9db37173` a control taken off the bar is gone rather than demoted into ⋯, so a bar
-        // missing something has no symptom beyond a button that is not there. This is the only
-        // trace of that state, and it is deliberately written on EVERY launch rather than only on
-        // the launches that migrate something: the already-stamped path — every launch after the
-        // first — is exactly where a control that never reached a customized bar stays silent.
-        //
-        // **Here rather than in `App.init`, for the reason stated at the top of this file.** It
-        // used to be a `defer` inside `PaneBarMigration.apply`, whose one caller is that `init`,
-        // and SwiftUI may re-run it — so a user who took a control off two releases ago collected
-        // the same paragraph again on every rebuild of the scene. Its neighbours in `init` are
-        // annotated "the repeat App.init calls noted above are harmless" because a repeat writes
-        // nothing; this one wrote. Reading defaults only, and after `init` has already run, so it
-        // reports the bar the session will actually draw.
+        // Here, not in `App.init`, which SwiftUI may re-run and would repeat the line. After
+        // `init`, so it reports the bar the session will draw.
         PaneBarMigration.reportStoredArrangementReach(defaults: .standard)
     }
 
-    /// The pure branch outcome of the quit guard, split out from the NSAlert plumbing so the
-    /// decision logic is unit-testable (the alert itself is not). `applicationShouldTerminate`
-    /// maps each case to a `TerminateReply`, logging the choice and flushing the log to disk
-    /// before any branch that actually quits with operations in flight.
+    /// The quit guard's pure outcome, apart from the NSAlert plumbing so it is unit-testable.
+    /// `applicationShouldTerminate` maps each case to a `TerminateReply`, logging the choice and
+    /// flushing the log before any branch that quits with operations in flight.
     enum QuitDecision: Equatable {
         /// Nothing is in flight — quit freely, no breadcrumb needed.
         case allowNoActiveOperations
@@ -1319,39 +1057,27 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         case allowWithoutWarning(activeOperations: Int)
         /// Operations are in flight and the warning is enabled — must show the alert.
         ///
-        /// **`hasUnsavedDocument` travels with it, and dropping it was a way to lose work.** The
-        /// file-operation warning outranks the document's, which is right — but "outranks" was
-        /// implemented as "replaces", so with a copy running and a buffer dirty the alert named
-        /// only the copy and its "Quit Anyway" button terminated with no second question. The
-        /// ranking that justified it says the *"Don’t Quit" answer keeps the app up, which is also the
-        /// answer that saves the buffer* — true of one of the two buttons. The other one dropped
-        /// the typing, and the alert never mentioned it existed.
+        /// `hasUnsavedDocument` travels with it: the file-operation warning leads but does not
+        /// replace the document's, or "Quit Anyway" would drop unsaved typing the alert never
+        /// mentioned.
         case warn(activeOperations: Int, hasUnsavedDocument: Bool)
         /// The editor holds a document that is not on disk, and nothing outranks saying so.
         ///
-        /// **Carries the operation count even though the wording does not use it**, so the
-        /// breadcrumb this branch logs still records how many operations were in flight at
-        /// termination — the single event most correlated with crash-time corruption, and one this
-        /// case silently stopped recording when it started outranking `.allowWithoutWarning`.
+        /// Carries the operation count, unused by the wording, so the breadcrumb still records how
+        /// many operations were in flight at termination.
         ///
-        /// **Not covered by `warnBeforeQuit`.** That setting is about interrupting file
-        /// operations, which the engine can finish or roll back; this is about typing that exists
-        /// nowhere but in memory. Switching the operations warning off is not a statement that
-        /// unsaved documents may be discarded.
+        /// Not covered by `warnBeforeQuit`: that setting is about file operations, which the engine
+        /// can finish or roll back, not typing that exists only in memory.
         case warnUnsavedDocument(activeOperations: Int)
     }
 
-    /// Pure decision: given the in-flight operation count and the warn-before-quit setting,
-    /// which quit path applies. Kept side-effect-free so `SyncCloudTests` can pin the branches
-    /// without driving a modal alert. `nonisolated`: pure over its arguments, so the tests
-    /// don't have to hop to the main actor just because the class is isolated.
-    /// The quit alert for a deleted file with nothing typed (TE146): Quit Anyway first, with Return
-    /// taken off it, and Cancel second — on screen, Cancel · Quit Anyway.
+    /// The quit alert for a deleted file with nothing typed: Quit Anyway first, with Return taken
+    /// off it, and Cancel second; on screen, Cancel · Quit Anyway.
     nonisolated static let quitGoneInformativeText = "Quitting now loses this text — it may be the only copy."
     nonisolated static let quitGoneButtonTitles = ["Quit Anyway", "Cancel"]
 
     /// What the File Operations in Progress alert adds about the open document: unsaved typing and
-    /// why autosave didn't write it (TE148), or a deleted file whose text may be the only copy (TE146).
+    /// why autosave didn't write it, or a deleted file whose text may be the only copy.
     nonisolated static func fileOperationsDocumentSentence(name: String, isDirty: Bool, isOnlyCopy: Bool,
                                                          cause: EditorAlerts.LeaveCause?) -> String {
         if isDirty {
@@ -1360,8 +1086,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         return isOnlyCopy ? " “\(name)” is no longer on disk, and its text may be the only copy." : ""
     }
 
-    /// **What ⌘Q says of a version kept beside the file by the final save** (F2): the flush counts
-    /// it as saved, so nothing else would — the window's banner is never drawn.
+    /// What ⌘Q says of a version kept beside the file by the final save. The flush counts it as
+    /// saved and the window's banner is never drawn, so nothing else would say it.
     nonisolated static func keptAsideSentence(name: String, clause: String) -> String {
         "Saved “\(name)”, but \(clause)"
     }
@@ -1379,36 +1105,31 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Pure decision: which quit path applies, given the in-flight operation count and the
+    /// warn-before-quit setting, so `SyncCloudTests` can pin the branches without a modal.
+    /// `nonisolated` so the tests need not hop to the main actor.
     nonisolated static func quitDecision(activeOperations: Int, warnBeforeQuit: Bool,
                                          hasUnsavedDocument: Bool = false) -> QuitDecision {
         guard activeOperations > 0 else {
             return hasUnsavedDocument ? .warnUnsavedDocument(activeOperations: 0)
                                       : .allowNoActiveOperations
         }
-        // Operations in flight: their warning leads, because a half-finished copy is the worse
-        // thing to interrupt. It no longer *replaces* the document's question — the buffer travels
-        // with the decision so one alert can name both.
+        // Operations in flight: their warning leads, a half-finished copy being the worse thing to
+        // interrupt, and the buffer travels with it so one alert names both.
         if warnBeforeQuit {
             return .warn(activeOperations: activeOperations, hasUnsavedDocument: hasUnsavedDocument)
         }
-        // **The warning is off, and the buffer still asks.** This arm returned `.allowWithoutWarning`
-        // and quit outright — so with one copy in flight and the setting switched off, ⌘Q discarded
-        // unsaved typing with no prompt at all, which is exactly what the paragraph on
-        // `warnUnsavedDocument` says must not happen. The setting is about interrupting file
-        // operations, which the engine can finish or roll back; it says nothing about a document
-        // that exists nowhere but in memory.
+        // The warning is off, and the buffer still asks: the setting covers file operations, not
+        // typing that exists only in memory (see `warnUnsavedDocument`).
         return hasUnsavedDocument
             ? .warnUnsavedDocument(activeOperations: activeOperations)
             : .allowWithoutWarning(activeOperations: activeOperations)
     }
 
-    /// Dock click (or any app reactivation) with no visible windows must bring the main
-    /// window back — with a single `Window` scene there is no File ▸ New Window fallback.
-    /// SwiftUI keeps a closed scene window alive rather than releasing it, so ordering the
-    /// stored window front restores it with all its state; the identifier match keeps an
-    /// auxiliary scene (Activity Log) from being resurrected as "the app". If the window is
-    /// ever genuinely gone, fall through to the default reopen handling instead of eating
-    /// the event.
+    /// A Dock click or reactivation with no visible windows brings the main window back; a single
+    /// `Window` scene has no New Window fallback. SwiftUI keeps a closed scene window alive, so
+    /// ordering it front restores its state; the identifier match keeps an auxiliary window from
+    /// standing in for the app. If the window is truly gone, fall through to the default handling.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         guard !flag else { return true }
         guard let mainWindow = sender.windows.first(where: {
@@ -1425,23 +1146,19 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     let launchBootstrap = LaunchBootstrap()
 
     /// Set as `applicationDidFinishLaunching` begins. AppKit hands a launch's files to
-    /// `application(_:open:)` BEFORE that (measured 2026-10-03: the receipt line lands ahead of the
-    /// `launched` breadcrumb on every launch from Finder, and after it on every open into a running
-    /// app) — so a batch that arrives while this is false is the one the app was launched to open.
+    /// `application(_:open:)` before that, so a batch arriving while this is false is the one the
+    /// app was launched to open.
     private var hasFinishedLaunching = false
 
     /// Finder's double-click and Open With, a drop on the Dock icon, `open -a SyncCloud <file>`.
     ///
-    /// **Queued, never acted on here**: on a cold launch this arrives before the launch bootstrap
-    /// has put the panes anywhere. Nor does it bring the window forward — SwiftUI already has:
-    /// measured 2026-10-03, a window closed with the red button or hidden with ⌘H is on screen
-    /// again before this runs, re-presented for the open event (which is also why `onAppear` runs
-    /// again — see ``LaunchBootstrap``).
+    /// Queued, never acted on here: on a cold launch this arrives before the bootstrap has put the
+    /// panes anywhere. It does not bring the window forward either; SwiftUI has already re-presented
+    /// a closed or hidden window for the open event (which is also why `onAppear` runs again; see
+    /// ``LaunchBootstrap``).
     func application(_ application: NSApplication, open urls: [URL]) {
-        // **The test host is SyncCloud.app too**, and it claims the same files. Launch Services
-        // hands an open to a running copy of the app when it has one, so a double-click during a
-        // test run — on CI's self-hosted runner, this Mac — can land here, where every window is
-        // `Color.clear` and nothing will ever take the queue. Said, not swallowed.
+        // The test host is SyncCloud.app too: Launch Services can hand it a double-click made
+        // during a test run, and nothing there would ever take the queue. Logged, not swallowed.
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
             Logger.shared.info(ExternalOpen.receiptLine(urls) + " — this is a test host, which opens nothing")
             return
@@ -1451,11 +1168,10 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // **A PDF's pending page order or running tool is asked about first** — every route out of
-        // the document in the window asks the same question (`settleEditorDocument`); ⌘Q is the
-        // one that lives here. It only asks, so a later "Don’t Quit" below keeps the order where it was.
-        // A filled copy saved from the question quits once it has landed (decision AX). The
-        // question says Quit, not Leave (TE158).
+        // A PDF's pending page order or running tool is asked about first, as on every route out
+        // of the document (`settleEditorDocument`). It only asks, so a later "Don’t Quit" keeps the
+        // order. A filled copy saved from the question quits once it lands. The question says
+        // Quit, not Leave.
         if let tools = Self.sharedPDFTools, !tools.mayLeave(quitting: true, thenRetry: { NSApp.terminate(nil) }) {
             Logger.shared.info("Quit cancelled — the open PDF has work that would be lost")
             return .terminateCancel
@@ -1465,43 +1181,34 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             return .terminateCancel
         }
         let manager = syncManager ?? Self.sharedSyncManager
-        // A Restructure landing counts too — its re-derive queues nothing, and a quit there leaves
-        // the survey on a folder with nothing learned in it yet (FR17).
+        // A Restructure landing counts too: its re-derive queues nothing, and a quit there leaves
+        // the survey on a folder with nothing learned in it yet.
         let activeOperations = manager?.operationsAQuitWouldInterrupt ?? 0
         // Respect the General setting; default to warning when the key was never written.
         let warnBeforeQuit = UserDefaults.standard.object(forKey: GeneralSettings.warnBeforeQuitKey) as? Bool ?? true
 
-        // **Flushed before it is asked about, which is what autosave changed here.** The buffer is
-        // normally already on disk; what ⌘Q can still catch is the two-second debounce window, so
-        // the honest thing is to write it rather than ask about it. `EditorAutosave.attempt` is the
-        // same decision the timer makes and needs nothing from the view layer.
+        // Flushed before it is asked about: the buffer is normally on disk already, and what ⌘Q can
+        // still catch is the two-second debounce, which is better written than asked about.
+        // `EditorAutosave.attempt` makes the timer's decision without the view layer.
         //
-        // **The question survives for what the flush could NOT write.** A document autosave is
-        // stopped on — the file changed underneath it, or the volume refused — is still dirty after
-        // this line, and that is the one case where quitting really does lose work. So the guard is
-        // no longer "is there a buffer" but "is there a buffer that could not be saved", which is a
-        // strictly smaller and more truthful question.
-        // **Not for a document whose autosave switch is off, and this was a real defect.** The
-        // flush below is unconditional in the ordinary case and should be: what ⌘Q catches is the
-        // two-second debounce window, and writing it is more honest than asking about it. But a
-        // file the user switched OFF is one they have said not to write, and quitting is exactly
-        // when that instruction matters most — the flush wrote it anyway, and did so BEFORE the
-        // unsaved-changes warning, so the question came after the answer.
+        // The question remains for what the flush could not write: a document autosave stopped on
+        // (the file changed underneath it, or the volume refused) is still dirty, and quitting
+        // would lose it.
         //
-        // Withheld here, the buffer stays dirty, `hasUnsavedDocument` below sees it, and the guard
-        // asks — which is the behaviour the switch exists to restore.
-        // A word being composed is committed first, so the flush and the question see it (UND-5).
+        // Never for a document whose autosave switch is off: the user said not to write it. The
+        // buffer stays dirty, `hasUnsavedDocument` sees it, and the guard asks.
+        // A word being composed is committed first, so the flush and the question see it.
         Self.sharedEditorDocument?.buffer.source.endComposition()
         let mayFlush = Self.mayFlushOnQuit(path: Self.sharedEditorDocument?.path,
                                            policy: Self.sharedAutosavePolicy)
-        // Why the document is asked about, for the alert's cause line (TE148): what the flush just
-        // found, else the stop the window last had.
+        // Why the document is asked about, for the alert's cause line: what the flush just found,
+        // else the stop the window last had.
         var stop = Self.editorAutosaveStop
-        // A version that arrived during the final save, kept beside the file (FR48) — said before
-        // the app goes (F2), since the banner that says it in the window never gets drawn.
+        // A version that arrived during the final save, kept beside the file; said before the app
+        // goes, since the window's banner for it never gets drawn.
         var keptAside: String?
-        // **TE147: a save that couldn't be checked is checked now** — a file holding what it wrote
-        // counts as saved, and is neither flushed again nor asked about.
+        // A save that couldn't be checked is checked now: a file holding what it wrote counts as
+        // saved, and is neither flushed again nor asked about.
         if let document = Self.sharedEditorDocument, document.uncheckedWrite != nil,
            EditorFileStore.settleUncheckedWrite(of: document) {
             Logger.shared.info("Checked the editor's last save before quitting — the file holds what it wrote")
@@ -1522,8 +1229,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
                 stop = .unchecked(clause)
                 Logger.shared.warning("Flushed the editor's document before quitting, but \(clause)")
             case .wroteKeepingAside(let clause):
-                // Saved and checked (FR48); the version it displaced is beside it — said in the log,
-                // and to the reader below, before quitting (F2).
+                // Saved and checked; the version it displaced is beside it, said in the log and to
+                // the reader below before quitting.
                 keptAside = clause
                 Logger.shared.warning("Flushed the editor's document before quitting, but \(clause)")
             case .nothingToDo:
@@ -1534,9 +1241,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
                 "Did not flush “\(document.name)” before quitting — autosave is off for it")
         }
         let isDirty = Self.sharedEditorDocument?.isDirty ?? false
-        // **TE146: a deleted file with nothing typed is asked about too** — its text may be the only
-        // copy. The watch looks first, so a move is followed and a trip to the Trash noted; a file
-        // in the Trash and still there isn't asked about (decision BQ).
+        // A deleted file with nothing typed is asked about too: its text may be the only copy. The
+        // watch looks first, so a move is followed; a file still in the Trash isn't asked about.
         let watch = Self.sharedDiskWatch
         if !isDirty, watch?.isGone == true { watch?.reconcile() }
         let isOnlyCopy = !isDirty && watch?.mayBeTheOnlyCopy == true
@@ -1546,8 +1252,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         let decision = Self.quitDecision(activeOperations: activeOperations, warnBeforeQuit: warnBeforeQuit,
                                          hasUnsavedDocument: hasUnsavedDocument)
         let documentName = Self.sharedEditorDocument?.name ?? "the open document"
-        // **A quit that would ask nothing says where the other version went** (F2) — the file
-        // operations alert carries it as a sentence instead, so ⌘Q never asks twice.
+        // A quit that would ask nothing says where the other version went; the file operations
+        // alert carries it as a sentence instead, so ⌘Q never asks twice.
         if let keptAside, Self.quitsWithoutAsking(decision) {
             let alert = NSAlert()
             alert.messageText = Self.keptAsideMessage(name: documentName)
@@ -1562,24 +1268,20 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
 
         switch decision {
         case .allowNoActiveOperations:
-            // Counterpart to the launch breadcrumb: a clean quit gets a closing line, so a log that
-            // simply stops with no shutdown line reads as a crash or force-kill, not a normal exit.
-            // (The two "Quit Anyway" paths below already emit a distinctive last line of their own.)
+            // A clean quit gets a closing line, so a log that stops without one reads as a crash or
+            // force-kill. The "Quit Anyway" paths below write their own last line.
             Logger.shared.info("SyncCloud is quitting")
-            // Even a clean quit must flush: the writer runs at background qos with no implicit
-            // flush, so the launch breadcrumb and any late lines from this session could be lost
-            // between the last append and process exit if we terminated without draining.
-            // The sync-history writer buffers the same way, so drain it alongside the log —
-            // otherwise the newest run's records silently vanish on quit.
+            // Even a clean quit must flush: the log writer runs at background QoS with no implicit
+            // flush, so late lines could be lost at exit. The sync-history writer buffers the same
+            // way, or the newest run's records would vanish on quit.
             Logger.shared.flushToDisk()
             SyncHistoryStore.shared.flushToDisk()
             return .terminateNow
 
         case .allowWithoutWarning(let count):
-            // The quit decision + flush is the single event most correlated with crash-time
-            // corruption, so record it and force the buffered lines to disk before we quit.
-            // NOT the dialog branch's "chose Quit Anyway" wording: no dialog was shown here, so
-            // "chose" would invent a decision — the setting made it, and the line says which one.
+            // Quitting mid-operation is the event most tied to crash-time corruption, so record it
+            // and flush before quitting. Not "chose Quit Anyway": no dialog was shown, so the line
+            // names the setting that decided.
             Logger.shared.warning("Quitting with \(count) active file operation(s) — warn-before-quit is switched off")
             Logger.shared.flushToDisk()
             SyncHistoryStore.shared.flushToDisk()
@@ -1588,8 +1290,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         case .warn(let count, let unsaved):
             let alert = NSAlert()
             alert.messageText = "File Operations in Progress"
-            // The document's sentence is appended rather than given its own alert: two modal
-            // questions in a row on ⌘Q is how a person learns to dismiss both without reading.
+            // The document's sentence is appended, not given its own alert: two modal questions in
+            // a row teach people to dismiss both unread.
             let name = Self.sharedEditorDocument?.name ?? "the open document"
             alert.informativeText = "Quitting now may cause data corruption or partial synchronization."
                 + Self.fileOperationsDocumentSentence(name: name, isDirty: isDirty, isOnlyCopy: isOnlyCopy,
@@ -1601,8 +1303,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             alert.addButton(withTitle: "Don’t Quit")
             alert.addButton(withTitle: "Quit Anyway")
             alert.alertStyle = .warning
-            // The destructive answer gives up Return, as it does everywhere else in the app — and
-            // it is more destructive now that it can also drop a buffer.
+            // The destructive answer gives up Return, as everywhere else in the app; here it can
+            // also drop a buffer.
             alert.buttons.last?.keyEquivalent = ""
             alert.buttons.last?.hasDestructiveAction = true
 
@@ -1619,9 +1321,9 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             }
 
         case .warnUnsavedDocument(let count) where isOnlyCopy:
-            // **Nothing typed, and the file gone** (TE146): the text on screen may be the only copy.
-            // Quitting can't write it back, so the question is Quit Anyway or Cancel — and Return
-            // does nothing (decision BS).
+            // Nothing typed, and the file gone: the text on screen may be the only copy. Quitting
+            // can't write it back, so the question is Quit Anyway or Cancel, and Return does
+            // nothing.
             let name = Self.sharedEditorDocument?.name ?? "the open document"
             let alert = NSAlert()
             alert.messageText = EditorAlerts.goneMessage(name: name)
@@ -1644,11 +1346,9 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             let name = Self.sharedEditorDocument?.name ?? "the open document"
             let alert = NSAlert()
             alert.messageText = "“\(name)” has unsaved changes"
-            // **Cancel, not Save.** Saving from here would need the divergence check and its own
-            // prompt to run inside a termination handler, on state the app is already tearing
-            // down. Returning the user to the editor with the buffer intact is the honest answer,
-            // and ⌘S is one keystroke away once they are back.
-            // With the cause line first (TE148): why autosave didn't write them.
+            // Cancel, not Save: saving here would run the divergence check and its prompt inside a
+            // termination handler, on state being torn down. Back in the editor, ⌘S is one
+            // keystroke away. The cause line comes first: why autosave didn't write them.
             alert.informativeText = (cause.map { EditorAlerts.causeLine($0) + " " } ?? "")
                 + "Quitting now discards them. Cancel to go back and save with "
                 + "\(AppChord.saveDocument.display)."
@@ -1673,19 +1373,14 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
 }
 
 /// The `[glass]` line in `~/sync-cloud.log`: which path the session draws selection and bar buttons
-/// on (`SelectionLensAppearance.logLine`). Written at launch, then again whenever it would read
-/// differently — a Glass effect, accent or Tint changed in Settings, or Reduce Transparency, Reduce
-/// Motion or Increase Contrast toggled in System Settings — so a report about glass can be read
-/// against the path that was in force when it happened, not only the one the session began on.
+/// on (`SelectionLensAppearance.logLine`). Written at launch and again whenever it would read
+/// differently (a Glass effect, accent or Tint, or an accessibility display option), so a report
+/// can be read against the path in force when it happened.
 ///
-/// **Observed on the posting thread, never `queue: .main`.** A queue-based observer makes the
-/// POSTER wait until the block has run on that queue, and `UserDefaults.didChangeNotification` is
-/// posted by whatever thread wrote the default — including a background writer holding a lock. The
-/// first version observed on `.main` and deadlocked the test host on 2026-10-03: a Cloud Filing
-/// batch wrote `FilingSpendStore`'s defaults inside its lock and waited for the main thread, which
-/// was waiting for that lock. The app could do the same — Settings' spend "Clear" takes the lock on
-/// the main thread. So the observer only schedules a main-actor turn, never waits for one, and a
-/// burst of writes schedules ONE.
+/// **Never** observe on `queue: .main`: a queue-based observer makes the poster wait, and
+/// `UserDefaults.didChangeNotification` is posted by whatever thread wrote the default, possibly a
+/// background writer holding a lock the main thread is waiting on, a deadlock. So the observer
+/// only schedules a main-actor turn, and a burst of writes schedules one.
 @MainActor
 final class GlassLogLine {
     private var last: String?
@@ -1751,9 +1446,8 @@ final class GlassLogLinePending: @unchecked Sendable {
     }
 }
 
-/// **The main window's run lock, in a window of its own** — Sync History's Undo Last Run waits
-/// during a long run as Edit ▸ Undo does (Banner Room, CF). Observes the manager here, so the scene
-/// body does not.
+/// The main window's run lock, for the Activity window: Sync History's Undo Last Run waits during a
+/// long run as Edit ▸ Undo does. Observes the manager here, so the scene body does not.
 private struct RunWriteLockFromManager: ViewModifier {
     @ObservedObject var syncManager: FileSyncManager
 
@@ -1774,11 +1468,11 @@ private struct ActivityWindowHost: View {
                        activeProgressStartedAt: syncManager.activeProgressStartedAt,
                        runWriteLock: syncManager.activeProgress.map { $0.runLockReason ?? Progress.genericRunLockReason },
                        scans: ActivityScanRows.rows(syncManager) { ActivityCenter.shared.doors.showScan($0) }) {
-            // One-way sync's History entries (RD67), with Reverse in iCloud…, above Sync History.
+            // One-way sync's History entries, with Reverse in iCloud…, above Sync History.
             OneWaySyncHistoryHost()
             SyncHistoryView(
                 store: .shared,
-                // Settings changed from Ask Claude's chat (TE290 step 5), with Revert, among the records.
+                // Settings changed from Ask Claude's chat, with Revert, among the records.
                 settings: HistorySettingsChanges(
                     lookup: {
                         SettingsLookup(defaults: .standard, settings: settings, keyIsSaved: { AnthropicKeychain.isConfigured },
@@ -1793,21 +1487,20 @@ private struct ActivityWindowHost: View {
                                    set: { ActivityCenter.shared.historyRun = $0 }),
                 showsTitle: false,
                 onUndoLastSyncRun: {
-                    // Prompts only when the last recorded run is genuinely still on top of the
-                    // undo stack; otherwise the honest reason comes back and the tab shows it
-                    // itself — it used to land in the main window's banner, out of sight.
+                    // Prompts only when the last recorded run is still on top of the undo stack;
+                    // otherwise the reason comes back and the tab shows it itself.
                     syncManager.undoLastSyncRunAskingFirst(confirm: SyncOperationAlerts.confirmUndoLastSyncRun)
                 })
             // Launch at login is macOS's: read before a settings change's Revert compares with it.
             .task { await LoginItemController.shared.refresh().value }
         }
-        // One-way sync's sheets opened from Now's rows and History (RD67), over this window.
+        // One-way sync's sheets opened from Now's rows and History, over this window.
         .oneWaySyncSheets(host: .activity)
     }
 }
 
 /// One-way sync's History entries over Sync History's, in a height of their own, only when it
-/// has any (RD67).
+/// has any.
 private struct OneWaySyncHistoryHost: View {
     @ObservedObject var controller = OneWaySyncController.shared
 
@@ -1821,9 +1514,9 @@ private struct OneWaySyncHistoryHost: View {
     }
 }
 
-/// How long launch held the main thread before the first window (speed audit batch B): App.init's
-/// own time, and from its start to `applicationDidFinishLaunching`. First init only — SwiftUI may
-/// re-run `App.init`, and a later run says nothing about launch.
+/// How long launch held the main thread before the first window: App.init's own time, and from
+/// its start to `applicationDidFinishLaunching`. First init only, since SwiftUI may re-run
+/// `App.init` and a later run says nothing about launch.
 @MainActor
 enum LaunchTiming {
     private static var began: ContinuousClock.Instant?

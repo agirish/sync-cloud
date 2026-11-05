@@ -14,143 +14,119 @@ struct PaneActionDelegate: FileActionDelegate {
     let isLeft: Bool
     let leftProviderId: String
     let rightProviderId: String
-    /// True when this delegate serves the single-source rail: there is no visible sibling
-    /// pane, so linked navigation (the 🔗 toggle) must not drag the hidden right pane along.
+    /// True when this delegate serves the single-source rail: with no visible sibling pane, linked
+    /// navigation (the 🔗 toggle) must not drag the hidden right pane along.
     let isSingleSource: Bool
-    /// Whether this surface's **Open** also re-aims Organize's lenses.
-    ///
-    /// Organize's own rail, and nothing else. Kept apart from `isSingleSource` because that asks a
-    /// LAYOUT question — how many trees are on screen — which Browse and Storage answer the same
-    /// way the rail does, while only one of the three is the surface Organize is about.
+    /// Whether this surface's Open also re-aims Organize's lenses: Organize's own rail, and nothing
+    /// else. Kept apart from `isSingleSource`, a layout question (how many trees are on screen)
+    /// that Browse and Storage answer the same way the rail does.
     let ownsOrganizeScope: Bool
-    /// Whether this surface is Edit's own source pane — the one pane whose rows are dimmed when
-    /// the editor would refuse them, and opened by a single click. Every other workspace answers
-    /// `nil` to `editorRefusal` whatever the row is. Same shape as `ownsOrganizeScope`, and kept
-    /// apart from `isSingleSource` for the same reason: that is a layout question.
+    /// Whether this is Edit's own source pane, whose rows are dimmed when the editor would refuse
+    /// them and open on a single click. Every other surface answers `nil` to `editorRefusal`. Kept
+    /// apart from `isSingleSource` for `ownsOrganizeScope`'s reason.
     let servesEditor: Bool
     let forceRefreshAction: () -> Void
-    /// Shows the in-app Info inspector for a path (replaces Finder's Get Info from the pane menu).
+    /// Shows the in-app Info inspector for a path (in place of Finder's Get Info in the pane menu).
     let onGetInfo: (String) -> Void
     /// Raises the window's destination picker. Only the single-source rail offers the menu item
     /// that reaches this, so the comparison panes pass a no-op.
     let onChooseDestination: ([FileNode], Bool) -> Void
     /// Hands a file to the Editor workspace. Built by `ContentView`, which owns the workspace
-    /// selection and the document — see `ContentView+Editor`.
+    /// selection and the document (see `ContentView+Editor`).
     ///
-    /// **Deliberately does NOT take the side.** It threaded one for a while, so the hand-off could
-    /// re-root "the pane the row was in" — but the editor reads the LEFT pane and only the left
-    /// pane, so passing the right one moved a pane the editor never draws while the rail carried on
-    /// listing the left. See ``ContentView/handOffToEditor(_:)``.
+    /// It takes no side on purpose: the editor reads the left pane only, so re-rooting the right
+    /// one would move a pane the editor never draws. See ``ContentView/handOffToEditor(_:)``.
     let onOpenInEditor: (String) -> Void
 
-    /// A snapshot of the ignore set, carried purely so `isEquivalent` can notice it changing.
+    /// A snapshot of the ignore set, carried only so `isEquivalent` notices it changing.
     ///
-    /// It is never read by `isNodeIgnored`, which still asks the manager for the live answer. It
-    /// exists because the pane's ignored-row treatment — the struck-through name — is rendered
-    /// eagerly. (So is the row's context menu, which SwiftUI builds with the row rather than only
-    /// when it opens: its labels can be a render old, which is why its Favorites item acts on what
-    /// its label said — see `FileContextMenu.favoriteLabelStillHolds`.) Ignoring a row publishes
-    /// `ignoredPaths`, which
-    /// re-renders the host but need not change ANY of the values `FileTreeView.==` compares: the
-    /// row is still in the tree, at the same path, in the same selection. Without a token here the
-    /// pane would skip the re-render and the strikethrough would not appear until something
-    /// unrelated moved.
+    /// `isNodeIgnored` never reads it; it asks the manager for the live answer. It exists because
+    /// the row's struck-through name is rendered eagerly, and so is its context menu, which SwiftUI
+    /// builds with the row (its labels can be a render old, which is why its Favorites item acts on
+    /// what its label said: `FileContextMenu.favoriteLabelStillHolds`). Ignoring a row re-renders
+    /// the host but need not change any value `FileTreeView.==` compares, so without this token the
+    /// pane would skip the re-render and the strikethrough would wait for something unrelated to
+    /// move.
     ///
-    /// A snapshot rather than a counter because the inputs are plural — the session set, the
-    /// durable store, and the remember-ignores switch all feed `effectiveIgnoredPaths` — and a
-    /// hand-maintained generation bumped at three call sites is one forgotten `didSet` away from
-    /// exactly the silent staleness this is here to prevent. Comparing the set costs one pass over
-    /// a handful of entries.
+    /// A snapshot rather than a counter because three inputs feed `effectiveIgnoredPaths` (the
+    /// session set, the durable store and the remember-ignores switch), and a generation bumped at
+    /// three call sites is one forgotten `didSet` from going stale. Comparing the set is one pass
+    /// over a handful of entries.
     let ignoreStateToken: Set<String>
 
-    /// A snapshot of the kept-names set, carried for exactly the reason `ignoreStateToken` is.
+    /// A snapshot of the kept-names set, carried for `ignoreStateToken`'s reason.
     ///
-    /// The row badge is the app's second eagerly-rendered delegate answer (the strikethrough was
-    /// the first). Keeping a name changes what every row showing that name draws, and changes
-    /// nothing else the pane compares: same tree, same paths, same selection. Without this the
-    /// pane would answer "equivalent", skip the re-render, and the badge the user just dismissed
-    /// would stay on screen until something unrelated moved — the precise staleness
-    /// `ignoreStateToken` exists to prevent, arriving through the second door.
-    ///
-    /// The set itself rather than a count: withdrawing one keep while adding another leaves the
-    /// count where it was.
+    /// The row badge is the second eagerly rendered delegate answer. Keeping a name changes what
+    /// every row with that name draws and nothing else the pane compares, so without this the pane
+    /// would skip the re-render and the dismissed badge would stay on screen. The set rather than a
+    /// count: withdrawing one keep while adding another leaves the count unchanged.
     let keptNamesToken: Set<String>
 
     /// Opens Duplicates on this pane's source and reveals the group holding the file. Ignored by
-    /// `isEquivalent` for the reason the other closures are: it reads its state back through the
-    /// view's property wrappers, so one captured three renders ago sees what one built this
-    /// instant would.
+    /// `isEquivalent` like the other closures: it reads its state through the view's property
+    /// wrappers, so an old capture sees what a fresh one would.
     let onFindDuplicatesOf: (FileNode) -> Void
-    /// Points Organize at a folder — see ``handleOrganizeFolder(_:)``.
+    /// Points Organize at a folder; see ``handleOrganizeFolder(_:)``.
     let onOrganizeFolder: (FileNode) -> Void
-    /// §5.10's route to the shape question — aims the Restructure lens at the row's folder.
+    /// The route to the shape question: aims the Restructure lens at the row's folder.
     let onCheckFolderShape: (FileNode) -> Void
-    /// Moves Organize's scope to a folder **without** starting a scan — see ``handleFocus(_:)``.
+    /// Moves Organize's scope to a folder without starting a scan; see ``handleFocus(_:)``.
     ///
-    /// Distinct from `onOrganizeFolder`, which also scans: Open is a navigation, and making it pay
-    /// for a filing pass would put a scan behind every folder you step into. Scope filters rather
-    /// than rescans, so the other four lenses re-answer for free either way; To File keeps whatever
-    /// the last scan found until the user asks for a new one.
+    /// Unlike `onOrganizeFolder`, which also scans: Open is navigation, and a filing pass behind
+    /// every folder you step into would be a scan per click. Scope filters rather than rescans, so
+    /// the other four lenses re-answer for free; To File keeps the last scan's findings until the
+    /// user asks again.
     let onOrganizeScope: (FileNode) -> Void
-    /// Opens a folder in a new tab of THIS pane — see ``handleOpenInNewTab(_:)``. Ignored by
-    /// `isEquivalent` like the other closures beside it: it reads the view's live state back
-    /// through its property wrappers rather than a snapshot.
+    /// Opens a folder in a new tab of this pane; see ``handleOpenInNewTab(_:)``. Ignored by
+    /// `isEquivalent` like the closures beside it.
     let onOpenInNewTab: (FileNode) -> Void
-    /// A new tab on a folder named by PATH — the background menu's version of ⌘T, which has no
-    /// node under the pointer to hand over.
+    /// A new tab on a folder named by path: the background menu's ⌘T, with no node under the
+    /// pointer to hand over.
     let onNewTabHere: (String) -> Void
     /// Closes this pane's active tab.
     let onCloseTab: () -> Void
-    /// Adds a folder to Favorites or takes it out — see ``handleToggleFolderFavorite(_:)``.
-    /// Defaulted so the delegate's own tests need not name a route they are not testing.
+    /// Adds a folder to Favorites or takes it out; see ``handleToggleFolderFavorite(_:)``.
+    /// Defaulted so the delegate's own tests need not name a route they don't test.
     var onToggleFolderFavorite: (FileNode) -> Void = { _ in }
 
-    /// Opens the file-pair viewer on two files — see ``handleCompareFilePair(_:with:secondIsInOtherPane:)``.
-    /// Defaulted for the same reason the line above is: the delegate's own tests do not exercise
-    /// this route and should not have to name it.
+    /// Opens the file-pair viewer on two files; see
+    /// ``handleCompareFilePair(_:with:secondIsInOtherPane:)``. Defaulted for the same reason as the
+    /// line above.
     var onCompareFilePair: (FileNode, FileNode, Bool) -> Void = { _, _, _ in }
     var onArmComparePick: (FileNode) -> Void = { _ in }
-    /// Runs a PDF tool from a row's menu — see ``handlePDFTool(_:paths:)``. Defaulted like the two
-    /// above, and ignored by `isEquivalent` like every closure here: it reaches the window's
-    /// `PanePDFTools` and the workspace through `@State`, whose storage outlives any render.
+    /// Runs a PDF tool from a row's menu; see ``handlePDFTool(_:paths:)``. Defaulted, and ignored
+    /// by `isEquivalent`: it reaches the window's `PanePDFTools` and workspace through `@State`.
     var onPDFTool: (PDFToolRequest, [String]) -> Void = { _, _ in }
-    /// Saves files as PDF from a row's menu — see ``handleSaveAsPDF(paths:)``. Defaulted and ignored
-    /// by `isEquivalent` on the line above's terms: it reaches the window's `PaneSaveAsPDF` through
+    /// Saves files as PDF from a row's menu; see ``handleSaveAsPDF(paths:)``. Defaulted and ignored
+    /// by `isEquivalent` on the same terms: it reaches the window's `PaneSaveAsPDF` through
     /// `@State`.
     var onSaveAsPDF: ([String]) -> Void = { _ in }
     /// Forwarded from the host's `ComparePick`; nil when no pick is live.
     var armedComparePath: String?
 
-    /// Ask Claude About This and Hide from Claude (TE263). Off unless the window turns it on, so
-    /// the delegate's own tests draw the menus they always did.
+    /// Ask Claude About This and Hide from Claude. Off unless the window turns it on, so the
+    /// delegate's own tests draw the menus without them.
     var canAskClaude = false
     var onAskClaude: ([String]) -> Void = { _ in }
     var askClaudeRefusalFor: ([String]) -> String? = { _ in nil }
     var hiddenFromClaude: (String) -> Bool = { _ in false }
     var hiddenFromClaudeCover: (String) -> String? = { _ in nil }
     var onSetHiddenFromClaude: (FileNode, Bool) -> Void = { _, _ in }
-    /// The Never show Claude list, carried for the reason `ignoreStateToken` is: the row menu's
-    /// Hide or Show label is built with the row, and a change to the list moves nothing else the
-    /// pane compares.
+    /// The Never show Claude list, carried for `ignoreStateToken`'s reason: the row menu's Hide or
+    /// Show label is built with the row, and a change to the list moves nothing else the pane
+    /// compares.
     var hiddenFromClaudeToken: [String] = []
 
     /// Opts this delegate into `FileTreeView`'s equality (see `FileActionDelegate.isEquivalent`),
-    /// which is what lets a pane skip re-rendering — and with it every visible row — when the only
-    /// thing that moved was some unrelated corner of the manager.
+    /// so a pane can skip re-rendering every visible row when only an unrelated corner of the
+    /// manager moved.
     ///
-    /// Every stored property is accounted for. The eight values are compared outright; the three
-    /// references are compared by identity; and the closures are ignored, which is the one claim
-    /// here that needs justifying.
-    ///
-    /// They are safe to ignore because none of them captures a decision. `forceRefreshAction`,
-    /// `onGetInfo` and `onChooseDestination` are all built by `ContentView` and read their state
-    /// back through property wrappers (`@State`, `@AppStorage`, `@ObservedObject`,
-    /// `@EnvironmentObject`) whose storage outlives any single render — so a closure captured three
-    /// renders ago sees exactly what one built this instant would. `onFindDuplicatesOf`,
-    /// `onOrganizeFolder` and `onOrganizeScope` are the same shape — the last one writes
-    /// `organizeScopePath`, an `@AppStorage` whose storage outlives any render. What a closure here
-    /// must never do is read a plain `let` snapshot off the captured view; if one ever does, it
-    /// belongs in the comparison below rather than outside it.
+    /// Every stored property is accounted for: values compared outright, the three references by
+    /// identity, and the closures ignored. Ignoring them is safe because none captures a decision:
+    /// each is built by `ContentView` and reads its state through property wrappers (`@State`,
+    /// `@AppStorage`, `@ObservedObject`, `@EnvironmentObject`) whose storage outlives any render,
+    /// so an old capture sees what a fresh one would. A closure here must never read a plain `let`
+    /// snapshot off the captured view; one that does belongs in the comparison below.
     func isEquivalent(to other: FileActionDelegate) -> Bool {
         guard let other = other as? PaneActionDelegate else { return false }
         return handler === other.handler
@@ -161,9 +137,8 @@ struct PaneActionDelegate: FileActionDelegate {
             && rightProviderId == other.rightProviderId
             && isSingleSource == other.isSingleSource
             && ownsOrganizeScope == other.ownsOrganizeScope
-            // Rendered eagerly per row, so it MUST take part: left out, switching into Edit does
-            // not re-render the pane and its rows stay bright until something unrelated moves —
-            // the failure `ignoreStateToken`'s doc describes.
+            // Rendered eagerly per row, so it must take part: left out, switching into Edit doesn't
+            // re-render the pane and its rows stay bright until something unrelated moves.
             && servesEditor == other.servesEditor
             && ignoreStateToken == other.ignoreStateToken
             && keptNamesToken == other.keptNamesToken
@@ -174,29 +149,20 @@ struct PaneActionDelegate: FileActionDelegate {
     func handleRefresh() {
         forceRefreshAction()
     }
-    /// Re-roots this pane at a folder — the row menu's **Open** on the single-source rail, and
-    /// "Compare only this folder" on the comparison panes.
+    /// Re-roots this pane at a folder: the row menu's Open on the single-source rail, and "Compare
+    /// only this folder" on the comparison panes.
     ///
-    /// **Open also moves Organize's scope; browsing does not.** Those are not in tension. The rule
-    /// Organize's scope rejects is *live-binding to whatever folder the pane drifted to*, because
-    /// the left pane is how destinations get inspected while filing and a scope that followed that
-    /// would destroy the queue. Open is not drift: it is the user naming a folder and re-rooting
-    /// the pane on it, which is the same act as "Organize This Folder…" arriving through a
-    /// different door. Having the two disagree would leave the pane rooted at one subject while
-    /// every lens answered about another.
+    /// Open also moves Organize's scope; browsing does not. The scope must not follow whatever
+    /// folder the pane drifts to, because the left pane is where destinations get inspected while
+    /// filing and a following scope would destroy the queue. Open is the user naming a folder, the
+    /// same act as "Organize This Folder…", so the pane and the lenses must agree on it.
     ///
-    /// Gated on `ownsOrganizeScope`, **not on `isSingleSource`**, and the two are different
-    /// questions that happened to share an answer when this was written. `isSingleSource` asks how
-    /// many trees the layout shows; `TopPaneVisibility.mode(for:)` answers `.compare` for exactly
-    /// one workspace, so Browse and Storage are `.singleSource` too. Gating on it meant right-click
-    /// ▸ Open anywhere in Browse — or in Storage — re-aimed every Organize lens at a folder the
-    /// user had never told Organize about, and it survived relaunch. Paths resolved correctly, so
-    /// nothing looked wrong; the lenses were simply answering about somewhere else.
-    ///
-    /// On the comparison panes the same call is "Compare only this folder" — a claim about the
-    /// comparison, not about what Organize is answering about — so it must not re-aim the lenses
-    /// either. That is also why this is not hooked in `FileActionHandler.focusFolder`: that lives
-    /// in Dashboard, is shared by every surface, and could not tell the verbs apart.
+    /// Gated on `ownsOrganizeScope`, not `isSingleSource`: Browse and Storage are single-source
+    /// too, and Open there must not re-aim Organize at a folder the user never gave it (the scope
+    /// survives relaunch, and nothing would look wrong). On the comparison panes the call is a
+    /// claim about the comparison, so it leaves the lenses alone too. That is also why this isn't
+    /// hooked in `FileActionHandler.focusFolder`, which every surface shares and can't tell the
+    /// verbs apart.
     ///
     /// Routed through `onOrganizeScope` → `ContentView.setOrganizeScope`, so opening the provider
     /// root clears the scope rather than encoding the global view a second way.
@@ -221,46 +187,42 @@ struct PaneActionDelegate: FileActionDelegate {
     func handlePasteToPath(_ path: String) { handler?.pasteClipboard(toPath: path) }
     func handleRename(_ node: FileNode) { handler?.beginRename(node) }
 
-    /// This pane's name ruleset — the source's own, except where `SettingsManager.nameRuleType(for:)`
-    /// substitutes: OneDrive (the strictest) when the id can't be resolved, so an unresolved source
-    /// over-reports rather than letting a name that will break a sync pass unflagged, and the
-    /// user's `folderNameRule` for a folder source, which has no rules of its own.
+    /// This pane's name ruleset: the source's own, except where
+    /// `SettingsManager.nameRuleType(for:)` substitutes OneDrive (the strictest) for an id it can't
+    /// resolve, so an unresolved source over-reports rather than letting a sync-breaking name pass,
+    /// and the user's `folderNameRule` for a folder source, which has no rules of its own.
     private var paneProviderType: CloudProvider.ProviderType {
         settings.nameRuleType(for: isLeft ? leftProviderId : rightProviderId)
     }
 
     func riskyName(for node: FileNode) -> RiskyName? {
-        // Asked by every visible row's menu on every render — SwiftUI builds a row's context menu
-        // with the row — so the memo answers the common case, a name with nothing wrong, and only a
-        // flagged name pays for the full verdict the menu's items need. The memo's verdict, not
-        // `riskyNameReason`'s: that one drops kept names, and "Stop Allowing This Name" is offered
-        // precisely on a kept one.
+        // Asked by every visible row's menu on every render, since SwiftUI builds a row's context
+        // menu with the row. The memo answers the common case, a clean name; only a flagged name
+        // pays for the full verdict. The memo's verdict, not `riskyNameReason`'s: that one drops
+        // kept names, and "Stop Allowing This Name" is offered on a kept one.
         guard RiskyNameBadgeCache.reason(name: node.name, isDirectory: node.isDirectory,
                                          provider: paneProviderType) != nil else { return nil }
-        // The relative path is only used to LABEL the row in the batch list; a single-file fix
-        // renames in place from the absolute path, so the node's own name is the honest value
-        // here rather than a path this delegate would have to reconstruct against a scan root.
+        // The relative path only labels the row in the batch list; a single-file fix renames in
+        // place from the absolute path, so the node's own name is the honest value here.
         return NameNormalizer.risky(name: node.name, relativePath: node.name, absolutePath: node.id,
                                     isDirectory: node.isDirectory, provider: paneProviderType)
     }
 
-    /// The badge's door. Memoized by (provider, name) — see `RiskyNameBadgeCache` for why this one
-    /// answer, alone among the delegate's, cannot afford to be computed fresh each time it is asked.
-    ///
-    /// The kept check comes FIRST and is a set lookup, so a name the user has decided to live with
-    /// costs less than one they haven't, rather than running the rules only to discard the verdict.
+    /// The badge's answer, memoized by provider and name; see `RiskyNameBadgeCache` for why this
+    /// one can't be computed fresh each time. The kept check comes first and is a set lookup, so a
+    /// name the user chose to keep costs less than one they haven't.
     func riskyNameReason(forName name: String, isDirectory: Bool) -> String? {
         guard !syncManager.isKeptName(name) else { return nil }
         return RiskyNameBadgeCache.reason(name: name, isDirectory: isDirectory, provider: paneProviderType)
     }
 
-    /// See `FileActionDelegate.editorRefusal`. The too-large sentence is the rail's, word for
-    /// word, from the one static both surfaces call.
+    /// See `FileActionDelegate.editorRefusal`. The too-large sentence is the rail's, word for word,
+    /// from the one static both surfaces call.
     func editorRefusal(forPath path: String, isDirectory: Bool, size: Int) -> String? {
         guard servesEditor, !isDirectory else { return nil }
         if !EditableText.opensInEdit(path: path) { return "Not a kind Edit opens." }
-        // A PDF is drawn by PDFKit, not read into a text buffer, so the text read's size limit is
-        // not its limit.
+        // A PDF is drawn by PDFKit, not read into a text buffer, so the text size limit doesn't
+        // apply.
         if EditableText.isPDF(path: path) { return nil }
         return EditorRailEntry.tooLargeReason(size: size)
     }
@@ -275,42 +237,37 @@ struct PaneActionDelegate: FileActionDelegate {
         syncManager.keptNamesStore?.stopKeeping(node.name)
     }
 
-    /// A real window is behind this delegate, so the row menu may offer the door.
+    /// A real window is behind this delegate, so the row menu may offer the item.
     var canFindDuplicates: Bool { true }
 
     func handleFindDuplicates(_ node: FileNode) {
-        // Files only. The menu gates on this too; asserting it here as well keeps the guarantee
-        // with the handler rather than only with the one caller that happens to respect it.
+        // Files only. The menu gates on this too; checking here keeps the guarantee with the
+        // handler, not only with its one caller.
         guard !node.isDirectory else { return }
         onFindDuplicatesOf(node)
     }
 
-    /// A real window is behind this delegate, so the row menu may offer the door.
+    /// A real window is behind this delegate, so the row menu may offer the item.
     var canCompareFilePair: Bool { true }
 
     func handleCompareFilePair(_ first: FileNode, with second: FileNode,
                                secondIsInOtherPane: Bool) {
-        // Files only, both sides. The menu gates on this too; asserting it here as well keeps the
-        // guarantee with the handler rather than only with the caller that happens to respect it —
-        // the shape `handleFindDuplicates` and `handleToggleFolderFavorite` both use.
+        // Files only, both sides, checked here as well as in the menu.
         guard !first.isDirectory, !second.isDirectory else { return }
-        // And never a file against itself: the two rows are distinct in the menu's own
-        // preconditions, but a cross-pane pick can name the same path twice when the two panes are
-        // pointed at one folder, and a viewer comparing a file with itself is a surface reporting
-        // "identical" about nothing.
+        // And never a file against itself: a cross-pane pick names the same path twice when both
+        // panes show one folder, and the viewer would report "identical" about nothing.
         guard first.id != second.id else { return }
         onCompareFilePair(first, second, secondIsInOtherPane)
     }
 
     func handleArmComparePick(_ node: FileNode) {
-        // Files only, and asserted here as well as in the menu — the shape every handler in this
-        // file uses. Arming a folder would put the window into a mode whose only completion is a
-        // pair the viewer cannot render.
+        // Files only, checked here as well as in the menu. Arming a folder would enter a mode whose
+        // only completion is a pair the viewer can't render.
         guard !node.isDirectory else { return }
         onArmComparePick(node)
     }
 
-    /// A real window is behind this delegate, so the row menu may offer the door.
+    /// A real window is behind this delegate, so the row menu may offer the item.
     var canOrganizeFolder: Bool { true }
 
     /// A real pane is behind this delegate, so it has a strip to open a tab in.
@@ -319,38 +276,33 @@ struct PaneActionDelegate: FileActionDelegate {
     /// A real sidebar is behind this delegate, so Favorites is a list that exists.
     var canFavoriteFolder: Bool { true }
 
-    /// **Answered against THIS pane's root**, which is the whole reason the delegate is built per
-    /// pane. A SwiftUI context menu does not move focus, so a right-click in the pane that is not
-    /// focused would otherwise be answered against the other pane's root — the same trap
-    /// `providerRootExpanded(forProviderId:)` documents, and one this would fall into silently:
-    /// the wrong root usually still relativizes, so the menu would read "Remove from Favorites"
-    /// about a folder of the same name in the other account.
+    /// Answered against this pane's root, which is why the delegate is built per pane. A SwiftUI
+    /// context menu doesn't move focus, so a right-click in the unfocused pane would otherwise be
+    /// answered against the other pane's root (the trap `providerRootExpanded(forProviderId:)`
+    /// documents). The wrong root usually still relativizes, so the menu would silently read
+    /// "Remove from Favorites" about a same-named folder in the other account.
     func isFolderFavorite(_ node: FileNode) -> Bool {
         guard let place = favoritePlace(for: node) else { return false }
         return FolderJumpStore.shared.pinnedPaths(forRoot: place.root).contains(place.relativePath)
     }
 
     func handleToggleFolderFavorite(_ node: FileNode) {
-        // Folders only — Favorites is a list of places you go, and a file is not somewhere a pane
-        // can be pointed. Asserted here as well as in the menu, so the guarantee travels with the
-        // handler rather than with its one respectful caller.
+        // Folders only: Favorites lists places you go, and a pane can't be pointed at a file.
+        // Checked here as well as in the menu.
         guard node.isDirectory else { return }
         onToggleFolderFavorite(node)
     }
 
-    /// This pane's root plus the node's path within it, or nil when the node is not inside the
-    /// pane's scope at all.
+    /// This pane's root plus the node's path within it, or nil when the node is outside the pane.
     ///
-    /// **A root favorite is refused**, which is the same rule the pane header's jump menu applies:
-    /// a source's own root is always reachable from the sidebar's Locations section, so favoriting
-    /// it would add a second row for a place that already has one.
+    /// A root is refused, as the pane header's jump menu does: a source's root is always in the
+    /// sidebar's Locations section, so favoriting it would add a second row for the same place.
     func favoritePlace(for node: FileNode) -> (root: String, relativePath: String)? {
         Self.favoritePlace(nodePath: node.id, isDirectory: node.isDirectory, paneRoot: paneRootPath)
     }
 
-    /// The rule on its own, so it can be asserted without building a pane. `nonisolated` because
-    /// it touches nothing but its arguments — the actor hop would be the only reason a test of a
-    /// pure path rule needed the main actor.
+    /// The rule on its own, so it can be asserted without building a pane. `nonisolated` because it
+    /// touches only its arguments, so a test needn't hop to the main actor.
     nonisolated static func favoritePlace(nodePath: String, isDirectory: Bool,
                               paneRoot: String) -> (root: String, relativePath: String)? {
         guard isDirectory else { return nil }
@@ -360,12 +312,12 @@ struct PaneActionDelegate: FileActionDelegate {
         return (FolderJumpStore.key(forRoot: root), relative)
     }
 
-    /// The root of the pane this delegate belongs to — never "the focused pane's root".
+    /// The root of the pane this delegate belongs to, never "the focused pane's root".
     var paneRootPath: String { settings.rootPath(for: isLeft ? leftProviderId : rightProviderId) }
 
-    /// Only past a second tab: at one, the sole thing left to close is the window, and an item
-    /// reading "Close Tab" that closes the window is a trap. Read from the manager rather than
-    /// captured, so the menu is right on the render it opens in.
+    /// Only past a second tab: at one, closing the tab would close the window, and "Close Tab" that
+    /// closes the window is a trap. Read from the manager, so the menu is right on the render it
+    /// opens in.
     var canCloseTab: Bool { syncManager.paneTabs(isLeft: isLeft).count > 1 }
 
     func handleNewTab(at path: String) {
@@ -380,14 +332,13 @@ struct PaneActionDelegate: FileActionDelegate {
     var canRunPDFTools: Bool { true }
 
     func handlePDFTool(_ request: PDFToolRequest, paths: [String]) {
-        // PDFs only, and passwords one file at a time — asserted here as well as in the menu, the
-        // shape every handler in this file uses.
+        // PDFs only, and passwords one file at a time; checked here as well as in the menu.
         guard !paths.isEmpty, paths.allSatisfy({ EditableText.isPDF(path: $0) }),
               paths.count == 1 || request.runsOnSeveral else { return }
         onPDFTool(request, paths)
     }
 
-    /// A real window is behind this delegate, with a foot to show the run's banner at.
+    /// A real window is behind this delegate, with a foot to show the run's banner in.
     var canSaveAsPDF: Bool { true }
 
     func askClaudeRefusal(_ nodes: [FileNode]) -> String? { askClaudeRefusalFor(nodes.map(\.id)) }
@@ -407,22 +358,20 @@ struct PaneActionDelegate: FileActionDelegate {
     }
 
     func handleSaveAsPDF(paths: [String]) {
-        // Only what an engine converts — asserted here as well as in the menu, the shape every
-        // handler in this file uses.
+        // Only what an engine converts; checked here as well as in the menu.
         guard !paths.isEmpty, paths.allSatisfy({ SaveAsPDFKind.of(path: $0) != nil }) else { return }
         onSaveAsPDF(paths)
     }
 
     func handleOpenInNewTab(_ node: FileNode) {
-        // Folders only — a tab is a location. Asserted here as well as in the menu, so the
-        // guarantee travels with the handler rather than with its one respectful caller.
+        // Folders only: a tab is a location. Checked here as well as in the menu.
         guard node.isDirectory else { return }
         onOpenInNewTab(node)
     }
 
     func handleOrganizeFolder(_ node: FileNode) {
-        // Folders only. The menu gates on this too; asserting it here as well keeps the guarantee
-        // with the handler rather than only with the one caller that happens to respect it.
+        // Folders only. The menu gates on this too; checking here keeps the guarantee with the
+        // handler, not only with its one caller.
         guard node.isDirectory else { return }
         onOrganizeFolder(node)
     }
@@ -445,9 +394,9 @@ struct PaneActionDelegate: FileActionDelegate {
         syncManager.sortOption = option 
     }
     func handleIgnore(_ nodes: [FileNode]) {
-        // Root + in-pane focus for THIS pane, composed in PaneLogic so the pairing (and the
-        // tilde expansion) is pinned by tests — a wrong base persists wrong relative paths
-        // into the durable ignore store.
+        // Root plus in-pane focus for this pane, composed in PaneLogic so the pairing and the tilde
+        // expansion are pinned by tests: a wrong base persists wrong relative paths into the
+        // durable ignore store.
         let basePath = PaneLogic.ignoreBasePath(
             isLeft: isLeft,
             leftRoot: settings.rootPath(for: leftProviderId),
@@ -455,21 +404,17 @@ struct PaneActionDelegate: FileActionDelegate {
             leftRelativePath: syncManager.leftRelativePath,
             rightRelativePath: syncManager.rightRelativePath)
 
-        // Convert to relative paths from current focal point so they sync across panes seamlessly
+        // Relative to the current focus, so they apply across panes.
         let relativeTargets = PaneLogic.relativeIgnoreTargets(nodeIds: nodes.map(\.id), basePath: basePath)
-        // The manager toggles against the EFFECTIVE ignore set (session + remembered items),
-        // so a node ignored in an earlier session un-ignores instead of re-ignoring.
+        // The manager toggles against the effective ignore set (session plus remembered), so a node
+        // ignored in an earlier session un-ignores instead of re-ignoring.
         syncManager.toggleIgnored(focusRelativePaths: Set(relativeTargets))
     }
     func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool {
         syncManager.isNodeIgnored(node, currentPath: currentPath)
     }
-    /// "Paste here" enablement — **both clipboards since v4.2**, resolved by the one rule the paste
-    /// itself uses so the offer and the act cannot disagree.
-    ///
-    /// It used to read `clipboardNodes` alone, with a comment saying "the pasteboard is not
-    /// involved". It is now: files copied in Finder are pastable here, and this is where the row
-    /// menu decides whether to say so.
+    /// "Paste here" enablement across both clipboards (the app's and Finder's), resolved by the
+    /// rule the paste itself uses so the offer and the act can't disagree.
     var clipboardHasItems: Bool {
         ClipboardSource.current(pasteboard: handler?.pasteboard ?? .general,
                                 hasInAppItems: !syncManager.clipboardNodes.isEmpty,

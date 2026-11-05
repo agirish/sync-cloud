@@ -16,47 +16,26 @@ extension ContentView {
 
     // MARK: - Where the editor is pointed
 
-    /// The folder whose text files the rail lists.
+    /// The folder whose text files the rail lists: the left pane's folder, read through the view
+    /// mode the drawn pane uses (`resolvedViewMode(isLeft: true)`), so the rail and the pane
+    /// describe the same folder. In Columns it is the deepest open column, in Tree the pane's root.
     ///
-    /// **The left pane's folder, read through the same view mode the pane on screen is drawing.**
-    ///
-    /// The folder sidebar re-roots the left pane on every workspace, so "the folder I am in" has
-    /// one meaning in this window and the editor must not invent a second. Which folder that is
-    /// depends on whether the pane is drawing columns: in Columns it is the deepest open column, in
-    /// Tree it is the pane's root.
-    ///
-    /// **`resolvedViewMode(isLeft: true)`, which is the member the drawn pane itself asks.** This
-    /// read Browse's key for a while, on the reasoning that "the editor draws neither surface" — and
-    /// that reasoning was false the moment the source pane was added: `editorLayout` mounts
-    /// `paneColumn(isLeft: true)` in its expanded arm, and that pane resolves its presentation
-    /// through `resolvedViewMode`, which for a single-source workspace answers the RAIL's key. So
-    /// the pane on screen drew a tree while the rail beside it listed the deepest open column, or
-    /// the pane drew columns the reader could drill through while the rail never moved. Asking the
-    /// one member both surfaces ask is what keeps them describing the same folder.
-    ///
-    /// **Always the LEFT pane, and that is a decision rather than an oversight.** Every other
-    /// pane-scoped verb in the app honours `shortcutTargetIsLeft`; this one does not, because the
-    /// editor's own source pane is the left one and the folder sidebar re-roots the left one on
-    /// every workspace. A ⌘N that opened its naming row in the right pane's folder while the
-    /// editor's rail listed the left pane's would be creating the file somewhere the user is not
-    /// looking — which is also why ``handOffToEditor(_:)`` re-roots the left pane whichever pane
-    /// the row was in.
+    /// Always the LEFT pane, by decision: it is Edit's source pane and the one the folder sidebar
+    /// re-roots, so ⌘N creates the file where the user is looking. That is also why
+    /// ``handOffToEditor(_:)`` re-roots the left pane whichever pane the row was in.
     var editorFolder: String { leftPaneFolder(in: selectedWorkspace) }
 
-    /// The folder the left pane shows in `workspace` — `editorFolder` for the workspace on screen,
-    /// and for the acts that move the pane on another workspace's behalf, the folder THAT
-    /// workspace will show (a hand-off asks Edit's; see `EditorHandOffRun.run`'s `paneFolder`).
+    /// The folder the left pane shows in `workspace`: `editorFolder` for the workspace on screen,
+    /// and for acts that move the pane on another workspace's behalf, the folder THAT workspace
+    /// will show (a hand-off asks Edit's; see `EditorHandOffRun.run`'s `paneFolder`).
     func leftPaneFolder(in workspace: Workspace) -> String {
         Self.paneFolder(treeRoot: currentLeftPath, browsePath: syncManager.leftBrowsePath,
                         drawsColumns: viewMode(in: workspace, isLeft: true) == .columns)
     }
 
-    /// In Columns the deepest open column, in Tree the pane's root — `~` expanded.
-    ///
-    /// **`/` stays `/`.** `PaneBrowsePath.normalized` strips a root's trailing slash, which leaves
-    /// the whole disk's root as `""` — so at the top of a whole-disk source in Columns, Edit read
-    /// no folder at all where Tree reads `/` (measured 2026-10-03): the rail said "No folder
-    /// selected", and ⌘N's log blamed a missing folder rather than a system one.
+    /// In Columns the deepest open column, in Tree the pane's root, with `~` expanded. `/` stays
+    /// `/`: `PaneBrowsePath.normalized` strips a root's trailing slash, which would leave the whole
+    /// disk's root as `""` and the rail with "No folder selected".
     static func paneFolder(treeRoot: String, browsePath: PaneBrowsePath, drawsColumns: Bool) -> String {
         let target = drawsColumns ? browsePath.currentDirectory(treeRoot: treeRoot) : treeRoot
         if target.isEmpty, treeRoot.hasPrefix("/") { return "/" }
@@ -66,12 +45,10 @@ extension ContentView {
     /// The rail's rows and its empty-caption count, re-read when the folder changes and after the
     /// editor writes to it.
     ///
-    /// Off the main actor: this is a directory read plus one `lstat` per surviving row and one
-    /// `stat` per link, and on an iCloud folder any of them can block. A folder with no text files in it pays a second `lstat` per
-    /// entry — see ``EditorRail/survey(in:showsHidden:fileManager:isCloudOnly:)``, which is where
-    /// that cost is confined and why it is only spent there. `id:` covers the folder *and* the
-    /// hidden-files preference, so flipping ⇧⌘. re-lists rather than leaving a stale answer on
-    /// screen.
+    /// Off the main actor: a directory read plus an `lstat` per row and a `stat` per link, any of
+    /// which can block on an iCloud folder. A folder with no text files pays a second `lstat` per
+    /// entry (``EditorRail/survey(in:showsHidden:fileManager:isCloudOnly:)``). `id:` covers the
+    /// folder and the hidden-files preference, so flipping ⇧⌘. re-lists.
     func refreshEditorRail() async {
         let folder = editorFolder
         let showsHidden = syncManager.showHiddenFiles
@@ -81,15 +58,13 @@ extension ContentView {
         let survey = await Task.detached(priority: .userInitiated) {
             await EditorRail.surveySuspending(in: folder, showsHidden: showsHidden)
         }.value
-        // The folder can change while the walk is out; a late answer for the wrong folder would
-        // list somebody else's files under this one's heading.
+        // The folder can change while the walk is out; a late answer must not list another
+        // folder's files under this one's heading.
         guard folder == editorFolder, editorRailRefreshes.admit(ticket) else { return }
         if editorRailSurveyFolder != folder { editorRailSurveyFolder = folder }
-        // **Only when the listing actually changed.** This runs after every autosave — twice a
-        // sentence, for a typist — and writing `@State` unconditionally is a change as far as
-        // SwiftUI is concerned, so an identical survey still bought a full body pass. The rows
-        // carry the file's size, so a write that changed the length does still land — and the
-        // survey is compared whole, so a PDF landing in an empty folder moves the caption too.
+        // Only when the listing changed. This runs after every autosave, and any `@State` write
+        // costs a full body pass. The rows carry each file's size and the survey is compared
+        // whole, so a length change or a PDF landing in an empty folder still lands.
         guard survey != editorRailSurvey else { return }
         editorRailSurvey = survey
     }
@@ -97,33 +72,28 @@ extension ContentView {
     // MARK: - Expand (once "Just the text")
 
     /// Whether the file rail is on screen: the pane is collapsed, Expand is off, and the list is
-    /// not folded into the strip (TE77).
+    /// not folded into the strip.
     var editorRailIsDrawn: Bool {
         TopPaneVisibility.editorRailIsDrawn(paneHidden: panesHiddenForCurrentTab,
                                             railHidden: editorRailHidden,
                                             railFolded: editorRailFolded)
     }
 
-    /// **Whether Expand is on: the rail bit set AND the source pane folded.** Opening the pane by
-    /// hand clears the bit now (CHR-3), but the bit alone is still not it: a bit stored by a build
-    /// that kept it across an open pane would otherwise light "Files" and tick Text ▸ Expand beside
-    /// an open pane and a sidebar, and its first press would change nothing visible. The header
-    /// lights on this, the menu ticks on it, and the toggle decides by it.
+    /// Whether Expand is on: the rail bit set AND the source pane folded. Opening the pane by hand
+    /// clears the bit, but a stored bit alone could still be set beside an open pane, lighting
+    /// "Files" for a press that changes nothing. The header, the menu tick and the toggle read this.
     var editorIsExpanded: Bool {
         editorRailHidden && panesHiddenForCurrentTab
     }
 
-    /// The Expand button's act, and Text ▸ Expand's (TE48) — the strip's buttons have their own,
-    /// `showEditorRail`, which leaves the pane folded. On:
-    /// the text alone — the rail, the pane and the sidebar put away. Off: each given back as it
-    /// was when Expand began (asked 2026-10-04). `EditorExpand` is the rule; this writes it.
+    /// The Expand button's act, and Text ▸ Expand's; the strip's buttons have their own,
+    /// `showEditorRail`, which leaves the pane folded. On: the text alone, with the rail, the pane
+    /// and the sidebar put away. Off: each given back as it was when Expand began. `EditorExpand`
+    /// is the rule; this writes it.
     ///
-    /// Decided by ``editorIsExpanded``, not by the bit: with the bit left set and the pane open
-    /// again, a press EXPANDS — folds the pane — which is what the unlit button offered.
-    ///
-    /// **Logged, both ways, naming what moved.** Two doors reach it and none draws anything that
-    /// outlives the change, so the log is the one place a session can read back which happened
-    /// and what went or came back with it.
+    /// Decided by ``editorIsExpanded``, not the bit: with the bit set and the pane open, a press
+    /// expands, as the unlit button offers. Logged both ways, naming what moved, since nothing on
+    /// screen records it.
     func toggleJustTheText() {
         let before = editorExpand
         var expand = before
@@ -138,8 +108,8 @@ extension ContentView {
         }
     }
 
-    /// Where a fold or an unfold of the list came from — named in its log line, because none of
-    /// the four doors leaves anything on screen that says which was used.
+    /// Where a fold or unfold of the list came from, named in its log line, since nothing on
+    /// screen says which of the four doors was used.
     enum EditorRailDoor: String {
         case strip = "the strip"
         case menu = "View ▸ File List"
@@ -147,11 +117,10 @@ extension ContentView {
         case statusLine = "the status line's heading menu"
     }
 
-    /// **The strip's pane button** (asked 2026-10-17): the pane is one of the strip's columns, lit
-    /// while it shows, folded by a second click — `EditorRailFold.paneRungAct`. **Opening it takes
-    /// the list's place**: the list is folded with it, so folding the pane again leaves nothing
-    /// open, as the lit button promised, rather than bringing back a list the click never named.
-    /// Through `togglePanesForCurrentTab`, which ends Expand when it opens the pane (CHR-3).
+    /// The strip's pane button: lit while the pane shows, folded by a second click
+    /// (`EditorRailFold.paneRungAct`). Opening it takes the list's place, folding the list too, so
+    /// folding the pane again leaves nothing open, as the lit button promised. Through
+    /// `togglePanesForCurrentTab`, which ends Expand when it opens the pane.
     func runEditorPaneRung() {
         switch EditorRailFold.paneRungAct(paneOpen: !editorPaneIsFolded) {
         case .openPane:
@@ -164,14 +133,13 @@ extension ContentView {
         }
     }
 
-    /// **The Files list back on screen, on `tab`** (TE77). From the strip, the menu or the
-    /// empty page — and from under Expand, which this ends the way the strip always did (CHR-2):
-    /// `EditorExpand.textFilesShown` clears Expand's bit and spends its record, and leaves the pane
-    /// folded, because an open pane draws no list. Not `toggleJustTheText`, whose way out reopens
-    /// a pane Expand folded.
+    /// The Files list back on screen, on `tab`, from the strip, the menu or the empty page. Under
+    /// Expand, `EditorExpand.textFilesShown` clears Expand's bit and spends its record but leaves
+    /// the pane folded, since an open pane draws no list. Not `toggleJustTheText`, whose way out
+    /// reopens a pane Expand folded.
     func showEditorRail(tab: EditorRailTab, from door: EditorRailDoor) {
         // The pane and the list are never on screen together, and the strip stays beside an open
-        // pane (asked 2026-10-17): a list button pressed there folds the pane to show the list.
+        // pane: a list button pressed there folds the pane to show the list.
         if !editorPaneIsFolded {
             var expand = editorExpand
             expand.paneFolded = true
@@ -192,30 +160,29 @@ extension ContentView {
         }
     }
 
-    /// **The Files list folded into the strip** (TE77). Writes only the hand-folded bit:
-    /// Expand's stays as it was, so the header does not light Files for a list folded by hand.
+    /// The Files list folded into the strip. Writes only the hand-folded bit; Expand's stays as it
+    /// was, so the header does not light Files for a list folded by hand.
     func foldEditorRail(from door: EditorRailDoor) {
         guard !editorRailFolded else { return }
         editorRailFolded = true
         Logger.shared.info("[edit] Files list folded from \(door.rawValue)")
     }
 
-    /// **The rail tab as DRAWN** — the stored one, unless that is Pages with no PDF open, or
-    /// Outline with nothing to outline (`EditorRailTab.resolved`). The strip lights and acts on
-    /// this, not on `editorRailTab`: the stored Pages survives a note opening, and a strip reading
-    /// it would light no button while the rail showed Files.
+    /// The rail tab as DRAWN: the stored one, unless that is Pages with no PDF open or Outline with
+    /// nothing to outline (`EditorRailTab.resolved`). The strip reads this, not `editorRailTab`:
+    /// the stored Pages survives a note opening, and would light no button while the rail shows Files.
     var editorRailShownTab: EditorRailTab {
         EditorRailTab.resolved(editorRailTab, pdfIsOpen: editorPDF.path != nil, pdfHasOutline: editorPDFHasOutline,
                                markdownIsOpen: EditorWorkspaceView.markdownIsOpen(editorDocument))
     }
 
-    /// Whether the open PDF's bookmarks earn the Outline tab and its strip button (asked
-    /// 2026-10-17) — `EditorRailTab.pdfOutlineIsWorthATab`, the rail's own rule.
+    /// Whether the open PDF's bookmarks earn the Outline tab and its strip button: the rail's own
+    /// rule, `EditorRailTab.pdfOutlineIsWorthATab`.
     var editorPDFHasOutline: Bool {
         EditorRailTab.pdfOutlineIsWorthATab(editorPDF.outline)
     }
 
-    /// A strip button's click — `EditorRailFold.rungAct` decides between showing the list on that
+    /// A strip button's click: `EditorRailFold.rungAct` decides between showing the list on that
     /// tab, folding it, and switching tabs.
     func runEditorRailRung(_ tab: EditorRailTab) {
         switch EditorRailFold.rungAct(for: tab, railDrawn: editorRailIsDrawn, currentTab: editorRailShownTab) {
@@ -225,12 +192,10 @@ extension ContentView {
         }
     }
 
-    /// **View ▸ File List ⌃⌘T** (TE81) — not "Files", which is Expand's lit button and brings
-    /// back the pane and the sidebar too; this brings back the list alone: ticked while the list is
-    /// on screen. `nil` — greyed — outside Edit. With the pane open it is unticked and ticking it
-    /// folds the pane for the list, as the strip's buttons do (asked 2026-10-17). Under Expand it
-    /// is offered and unticked, and
-    /// ticking it ends Expand as the strip's button does.
+    /// View ▸ File List ⌃⌘T: the list alone, ticked while it is on screen. Not Expand's "Files",
+    /// which brings back the pane and sidebar too. `nil` (greyed) outside Edit. With the pane open,
+    /// or under Expand, it is unticked, and ticking it folds the pane or ends Expand as the strip's
+    /// buttons do.
     var shortcutEditorTextFiles: Binding<Bool>? {
         guard selectedWorkspace == .editor else { return nil }
         return Binding(
@@ -242,19 +207,12 @@ extension ContentView {
 
     /// The pane's one-click open, as a rule: which path a selection change opens, or `nil`.
     ///
-    /// **Six guards, each a case in `EditorPaneClickTests`.** Edit only; pane expanded (collapsed,
-    /// the rail is the list and the pane has no rows on screen to click); exactly one path; not a
-    /// folder — `isDirectory` is `nil` when the selection could not be resolved to a node, which
-    /// refuses too; and a kind Edit opens. Cloud-only and too-large files pass, deliberately: they
-    /// reach `openInEditor`, which refuses them with the caption the rail's rows would have — one
-    /// refusal, in one place.
-    ///
-    /// **And not a selection the app just wrote for the open document** (`paidSelection`, TE47).
-    /// The pane selects the document on the user's behalf after every open; that is a selection
-    /// CHANGE, and this rule would answer it with the document. For a readable one `openInEditor`'s
-    /// guard returns anyway — but for a REFUSED one it does not (a second try is how a refusal is
-    /// retried), so the app's own write would reload the file and log a second refusal. The write
-    /// is not a click, and is not answered as one.
+    /// Six guards, each a case in `EditorPaneClickTests`: Edit only; pane expanded (collapsed, the
+    /// rail is the list); exactly one path; not a folder (`isDirectory` is `nil` for an
+    /// unresolved selection, which refuses too); a kind Edit opens; and not a selection the app
+    /// just wrote for the open document (`paidSelection`). That write is not a click: for a refused
+    /// file it would reload and log a second refusal. Cloud-only and too-large files pass, so
+    /// `openInEditor` refuses them in one place, with the rail's caption.
     static func paneSelectionOpens(workspace: Workspace, paneHidden: Bool,
                                    paths: Set<String>, isDirectory: Bool?,
                                    paidSelection: String? = nil) -> String? {
@@ -266,16 +224,15 @@ extension ContentView {
         return path
     }
 
-    /// In Edit, the open pane IS the file list, so selecting a single file Edit opens — text, or a
-    /// PDF read-only — opens the
-    /// file — the same route a rail row takes, `openInEditor`, which guards the already-open case
-    /// and settles a dirty buffer first. **Not `handOffToEditor`**: that re-roots the pane and
-    /// switches workspace, and here the pane is already the folder and the workspace is already
-    /// Edit. Arrow keys move the selection exactly as clicks do, so they open files too.
+    /// In Edit the open pane IS the file list, so selecting a single file Edit opens (text, or a
+    /// PDF read-only) opens it through `openInEditor`, as a rail row does: it guards the
+    /// already-open case and settles a dirty buffer first. Not `handOffToEditor`, which re-roots
+    /// the pane and switches workspace. Arrow keys move the selection as clicks do, so they open
+    /// files too.
     ///
-    /// `openInEditor` never writes the pane's selection, so this cannot fire itself. The row menu's
-    /// hand-off and the Info inspector's Open in Edit end in a selection that already names the
-    /// open document, and `openInEditor`'s first guard returns early for it.
+    /// `openInEditor` never writes the pane's selection, so this cannot fire itself. The row
+    /// menu's hand-off and the Info inspector's Open in Edit end on the open document, which
+    /// `openInEditor`'s first guard returns early for.
     func openSelectedPaneFileInEditor(_ paths: Set<String>) {
         // One-shot: the app's own write is the next selection change and nothing after it.
         let paid = editorPaneSelectionPaid
@@ -293,13 +250,11 @@ extension ContentView {
 
     // MARK: - Where the open document lives
 
-    /// The header's location for the open document (TE43): `in Finance` while the source pane is
-    /// open, the whole crumb while it is collapsed — see `EditorDocumentLocation.Style`. With no
-    /// document open, the same for `editorFolder`, where a new file would be made — the empty
-    /// page's header names that instead.
+    /// The header's location for the open document: `in Finance` while the source pane is open,
+    /// the whole crumb while it is collapsed (`EditorDocumentLocation.Style`). With no document
+    /// open, the same for `editorFolder`, where a new file would be made.
     ///
-    /// **The LEFT pane's source, for the reason `editorFolder` reads the left pane**: it is the one
-    /// pane Edit shows and the one every door here moves. `leftProviderId` rather than
+    /// The LEFT pane's source, as `editorFolder` reads the left pane. `leftProviderId` rather than
     /// `paneContext(isLeft:)`, which builds the whole pane's context to answer one id.
     var editorDocumentLocation: EditorDocumentLocation? {
         EditorHeaderLocation.location(
@@ -311,9 +266,8 @@ extension ContentView {
             otherSources: editorOtherSources)
     }
 
-    /// Every enabled source but the left pane's, as the location names them — so a document in
-    /// another cloud reads "in Dropbox › Backup" rather than "in Backup". Enabled only: a source
-    /// switched off in Settings is not one the user is working in.
+    /// Every enabled source but the left pane's, as the location names them, so a document in
+    /// another cloud reads "in Dropbox › Backup" rather than "in Backup".
     var editorOtherSources: [(name: String, root: String)] {
         settings.enabledProviders.filter { $0.id != leftProviderId }.map { provider in
             let root = (settings.rootPath(for: provider.id) as NSString).expandingTildeInPath
@@ -323,9 +277,9 @@ extension ContentView {
         }
     }
 
-    /// What the ＋, the naming row and the rail call `editorFolder` — the pane breadcrumb's word,
-    /// "iCloud" at the top of iCloud Drive rather than "com~apple~CloudDocs". See
-    /// `EditorHeaderLocation.folderName`.
+    /// What the ＋, the naming row and the rail call `editorFolder`: the pane breadcrumb's word,
+    /// "iCloud" at the top of iCloud Drive rather than "com~apple~CloudDocs"
+    /// (`EditorHeaderLocation.folderName`).
     var editorFolderDisplayName: String {
         EditorHeaderLocation.folderName(
             paneFolder: editorFolder,
@@ -334,8 +288,8 @@ extension ContentView {
             otherSources: editorOtherSources)
     }
 
-    /// The rail's folder menu: up from `editorFolder` to the top of the left pane's source, and down
-    /// into the folders the rail's survey found inside it — see `EditorHeaderLocation.folderTrail`.
+    /// The rail's folder menu: up from `editorFolder` to the top of the left pane's source, and
+    /// down into the folders the rail's survey found inside it (`EditorHeaderLocation.folderTrail`).
     var editorFolderTrail: EditorFolderTrail? {
         EditorHeaderLocation.folderTrail(
             paneFolder: editorFolder,
@@ -346,8 +300,8 @@ extension ContentView {
             otherSources: editorOtherSources)
     }
 
-    /// What a press on that location does — see `EditorLocationDoors`, which is handed neither the
-    /// pane's visibility nor the document, so no door can expand the pane or touch the file.
+    /// What a press on that location does. `EditorLocationDoors` is handed neither the pane's
+    /// visibility nor the document, so no door can expand the pane or touch the file.
     var editorLocationDoors: EditorLocationDoors {
         EditorLocationDoors(
             syncManager: syncManager,
@@ -362,29 +316,16 @@ extension ContentView {
     /// Editor: the folder sidebar, a collapsible source pane, then the file rail and the open
     /// document.
     ///
-    /// **The source pane is the same `paneColumn` Organize docks**, collapsing to the same
-    /// `railSpine`, driven by the same stored override — so "show me the files" behaves identically
-    /// in the two workspaces that offer it, and the collapse state is remembered per workspace.
-    /// It exists because the sidebar answers "a folder I have kept or visited" and the editor's
-    /// question is often "a folder I have not been to yet".
+    /// The source pane is the same `paneColumn` Organize docks, collapsing to the same `railSpine`
+    /// on the same stored override, so the two behave alike and remember their collapse per
+    /// workspace. It reaches folders the sidebar has never kept or visited. Collapsed by default
+    /// (`TopPaneVisibility.defaultPanesHidden`), since most sessions open a file and write.
     ///
-    /// **Collapsed by default** (`TopPaneVisibility.defaultPanesHidden`): the common session opens a
-    /// file and writes in it, and three columns before the text would be three things to look past.
-    ///
-    /// **The two states differ in one more thing than the collapse: whether the rail is drawn.** The
-    /// pane and the rail list the same folder — the sidebar re-roots the pane and so does every
-    /// hand-off into Edit — so with the pane open the rail is a second copy of the list beside it,
-    /// and the open state withholds it. The folded state draws it unless "Just the text" is on
-    /// (`editorRailIsDrawn`). Either way the document takes what the rail does not.
-    ///
-    /// **The sidebar is drawn in both states** (asked 2026-10-04): in Edit it outlives a collapsed
-    /// pane (`Workspace.folderSidebarOutlivesPaneCollapse`), and a click in it re-points the rail,
-    /// which reads the folder the folded pane is on. Its width comes from `lensSidebarWidth`, which
-    /// reserves more than the collapsed row needs — `theCollapsedEditRowFitsTheLensClamp`.
-    ///
-    /// **The open pane is no longer a dragged split** (asked 2026-10-17): the strip stays beside
-    /// the pane and the pane is the rail's fixed width, so the document takes the rest. It shared
-    /// `tidyRailFraction` with Organize until then; Organize keeps it.
+    /// With the pane open the rail is withheld, since both list the same folder; folded, the rail
+    /// is drawn unless Expand is on (`editorRailIsDrawn`). The sidebar is drawn in both states
+    /// (`Workspace.folderSidebarOutlivesPaneCollapse`), at `lensSidebarWidth`, which reserves more
+    /// than the collapsed row needs (`theCollapsedEditRowFitsTheLensClamp`). The open pane is the
+    /// rail's width, not a dragged split, and the document takes the rest.
     @ViewBuilder
     func editorLayout(collapsed: Bool, geo: GeometryProxy) -> some View {
         let totalWidth = geo.size.width
@@ -396,19 +337,14 @@ extension ContentView {
         let sidebarSlot = folderSidebarIsShowing
             ? sidebarWidth + PaneLogic.sidebarOverhead(gutter: LiquidGlass.gutter(surfaceStyle)) : 0
         let column = editorColumnWidth(in: totalWidth - sidebarSlot)
-        // **One row whether the pane is open or folded** (speed audit 13). The two states were the
-        // two arms of an `if`, so a fold gave the workspace a new identity: the text view was built
-        // again around the whole buffer, re-parsed, and opened at the top before jumping back to the
-        // caret. Now only the pane's slot comes and goes, and the workspace — with the same
-        // modifiers either way — is the same view on both sides of a fold.
+        // **One row whether the pane is open or folded:** only the pane's slot comes and goes. Two
+        // arms of an `if` would give the workspace a new identity on a fold, rebuilding and
+        // re-parsing the text view around the whole buffer.
         //
-        // **The strip stays, and the pane is the list's width** (asked 2026-10-17). The strip is
-        // where every column opens and folds, so it does not leave when the pane opens; and the pane
-        // takes the rail's slot — the column plus the gutter its card adds in Cards (none in
-        // Unified), as the rail's own does — so the pane, Files, Pages and Outline are all one
-        // width, dragged at one edge. At the 232pt default the pane is under
-        // `PaneViewMode.pushNavigationBelowWidth`, so Columns shows one column with ‹ to walk back;
-        // dragged wider, it shows two.
+        // The strip stays when the pane opens, and the pane takes the rail's slot (the column
+        // plus its card's gutter in Cards), so the pane, Files, Pages and Outline share one width,
+        // dragged at one edge. At the 232pt default the pane is under
+        // `PaneViewMode.pushNavigationBelowWidth`, so Columns shows one column with ‹ to walk back.
         HStack(spacing: 0) {
             if folderSidebarIsShowing {
                 folderSidebar(width: sidebarWidth)
@@ -423,21 +359,17 @@ extension ContentView {
                         .unifiedSeam(surfaceStyle, edge: .trailing)
                 }
             } workspace: {
-                // **No region frame here.** The workspace draws its own two cards in Cards — the
-                // rail and the document — and wrapping them in a third would put a card inside a
-                // card, which `bottomSectionCard` stacks into a doubled inset and a squared-off
-                // corner. In Unified the window's one region already frames them. With the pane
-                // open the pane is the file list, so `editorRailIsDrawn` withholds the rail.
+                // No region frame: the workspace draws its own two cards in Cards, and a third
+                // around them would double the inset and square the corner. In Unified the window's
+                // region frames them. With the pane open, `editorRailIsDrawn` withholds the rail.
                 editorWorkspace(showsRail: editorRailIsDrawn, railWidth: column)
                     .frame(maxWidth: .infinity)
                     .clipped()
-                    // The editor's result message — its saves, its PDF tools' notes (CA).
+                    // The editor's result message: its saves, its PDF tools' notes.
                     .modifier(workspaceResultMessageHost)
-                    // With the strip's own curve, so the header card moves down beside the pane's
-                    // toolbar card as the strip slides in, rather than a frame after it. Keyed on
-                    // the strip alone, not on `sourcePaneShowsTabStrip`: that one also flips when
-                    // the pane folds, and would ease the document's width — re-wrapping the whole
-                    // text every frame — on a fold that snaps.
+                    // With the strip's own curve, so the header card moves with the strip. Keyed
+                    // on the strip alone, not `sourcePaneShowsTabStrip`, which also flips on a fold
+                    // and would re-wrap the whole text every frame of a fold that should snap.
                     .designAnimation(.easeOut(duration: 0.18), value: sourcePaneStripIgnoringFold)
             }
             // The handle sits at the pane's edge with the pane open and at the list's with it
@@ -452,17 +384,16 @@ extension ContentView {
         .frame(width: totalWidth, height: geo.size.height)
     }
 
-    /// A side column's slot in Edit: its width plus the gutter its card's insets add in Cards, and
-    /// nothing in Unified, where it sits flush — the rail's arithmetic, so the pane and the list
-    /// draw at one width in either style.
+    /// A side column's slot in Edit: its width plus the gutter its card's insets add in Cards
+    /// (nothing in Unified, where it sits flush), so the pane and the list draw at one width.
     static func editorColumnSlot(_ column: CGFloat, style: SurfaceStyle) -> CGFloat {
         column + LiquidGlass.gutter(style)
     }
 
-    /// **The side column's width as drawn**: the stored one, inside
-    /// `EditorLayoutMetrics.clampedRailWidth`, and narrowed further when the row cannot also hold
-    /// the strip and the document's floor — never below the rail's floor, which the tabs need.
-    /// `rowWidth` is the row after the sidebar.
+    /// The side column's width as drawn: the stored one, inside
+    /// `EditorLayoutMetrics.clampedRailWidth`, narrowed when the row cannot also hold the strip and
+    /// the document's floor, but never below the rail's floor, which the tabs need. `rowWidth` is
+    /// the row after the sidebar.
     func editorColumnWidth(in rowWidth: CGFloat) -> CGFloat {
         let stored = EditorLayoutMetrics.clampedRailWidth(CGFloat(editorColumnWidthRaw))
         let room = rowWidth - PaneLogic.railSpineWidth - LiquidGlass.gutter(surfaceStyle)
@@ -470,10 +401,8 @@ extension ContentView {
         return max(EditorLayoutMetrics.railWidth, min(stored, room))
     }
 
-    /// **The open column's edge, dragged** (asked 2026-10-17) — one handle for the pane and the
-    /// list, writing the one width they share. Laid over the boundary rather than in the row, so
-    /// it costs the layout nothing: it sits in the gutter the two cards' insets make in Cards, and
-    /// on the hairline between them in Unified.
+    /// The open column's edge, dragged: one handle for the pane and the list, writing the width
+    /// they share. Laid over the boundary rather than in the row, so it costs the layout nothing.
     func editorColumnResizeHandle(displayedWidth: CGFloat, slot: CGFloat) -> some View {
         ResizeHandle(
             axis: .horizontal,
@@ -493,10 +422,9 @@ extension ContentView {
         .offset(x: slot - 5)
     }
 
-    /// - Parameter showsRail: whether the file rail is drawn — decided by the arm, see
-    ///   ``editorLayout(collapsed:geo:)``. The survey `.task` below runs regardless: the ⌘N refusal
-    ///   and the prefilled name read `editorFolder`, not the survey, but the survey is cheap and
-    ///   the rail returns often.
+    /// - Parameter showsRail: whether the file rail is drawn, decided by
+    ///   ``editorLayout(collapsed:geo:)``. The survey `.task` below runs regardless: it is cheap,
+    ///   and the rail returns often.
     func editorWorkspace(showsRail: Bool, railWidth: CGFloat = EditorLayoutMetrics.railWidth) -> some View {
         EditorWorkspaceView(
             document: editorDocument,
@@ -523,35 +451,34 @@ extension ContentView {
             goToLineRequest: editorGoToLineRequest,
             undoManager: editorUndoManager,
             stopped: editorAutosaveStop?.caption,
-            // The reason behind those words, as their tooltip — the banner that said it fades (TE114).
+            // The reason behind those words, as their tooltip; the banner that said it fades.
             stoppedDetail: editorAutosaveStop?.detail,
-            // **The stop's words become a door, and only where there is something behind them.**
-            // The alert is modal and its Cancel leaves the latch set, so the question would
-            // otherwise be reachable only through ⌘S. Which stops have a second version to show is
-            // `EditorAutosaveStop.offersDiff`'s rule — `nil` here leaves the header a plain word.
+            // The stop's words become a door where there is a second version to show
+            // (`EditorAutosaveStop.offersDiff`); the alert's Cancel leaves the latch set, so
+            // otherwise only ⌘S would reach the question. `nil` leaves the header a plain word.
             onShowWhatChanged: (editorAutosaveStop?.offersDiff ?? false)
                 ? { showEditorDivergenceDiff() } : nil,
-            // TE149: "unsaved — ⌘S" (no stop) and "couldn't write" save; "no longer on disk" is Save
+            // "unsaved — ⌘S" (no stop) and "couldn't write" save; "no longer on disk" is Save
             // Again. Which stops do is the stop's rule, as the door above is.
             onSaveNow: (editorAutosaveStop?.savesFromTheHeader ?? true) ? { _ = saveEditorDocument() } : nil,
             onSaveAgain: (editorAutosaveStop?.savesAgainFromTheHeader ?? false)
                 ? { saveEditorDocumentAgain(explicit: true) } : nil,
-            // TE152: a file that kept changing while it was read, read once more where it is.
+            // A file that kept changing while it was read, read once more where it is.
             onTryAgain: { if let path = editorDocument.path, editorDocument.refusal != nil { loadIntoEditor(path: path, recordsRecent: false) } },
-            // TE59: the question a change from elsewhere left standing, and what it did quietly.
+            // The question a change from elsewhere left standing, and what it did quietly.
             diskBanner: editorDiskWatch.banner,
             diskNotice: editorDiskWatch.notice?.text,
             onDiskBanner: { answerEditorDiskBanner($0) },
-            // Both closures, so neither walks the folder until the naming row is actually open.
-            // Where ⌘N's file will go — the pane's folder, or Notes (`newTextFileDestination`).
+            // Closures, so neither walks the folder until the naming row is open. The folder is
+            // where ⌘N's file will go: the pane's folder, or Notes (`newTextFileDestination`).
             prefilledName: { EditorFileStore.availableUntitledName(in: newTextFileDestination.folder) },
             refusal: { typed in EditorFileStore.refusal(forName: typed, in: newTextFileDestination.folder) },
             onOpen: { entry in openInEditor(path: entry.path, selectsInPane: true) },
             onCreate: { name in createTextFile(named: name) },
             onRevealInBrowse: { path in revealInBrowse(path, from: .header) },
             location: editorDocumentLocation,
-            // Read at press time, both of them: the closure is built during this render, and the
-            // document or the pane can have moved by the time the word is clicked.
+            // Both read at press time: the document or the pane can move between this render and
+            // the click.
             onLocationDoor: { door in
                 editorLocationDoors.open(door, documentPath: editorOpenPath,
                                          location: editorDocumentLocation)
@@ -560,24 +487,24 @@ extension ContentView {
                 // The rail row menu's Reveal in Browse: the same act as the header's, told which
                 // door it came through so the log can say so.
                 revealInBrowse: { path in revealInBrowse(path, from: .railRow) },
-                // Greyed where Browse cannot show the file (TE116) — the reveal's own reach.
+                // Greyed where Browse cannot show the file: the reveal's own reach.
                 revealInBrowseRefusal: { path in
                     EditorRevealInBrowse.refusal(
                         for: path, sourceRoot: (settings.rootPath(for: leftProviderId) as NSString).expandingTildeInPath)
                 },
-                // The two acts that need the window: the Info inspector, and the one Quick Look
-                // panel every other surface shares. `followsPane: false` — a rail row is not the
-                // pane's selection, so a pane click must not retarget a preview opened from here.
+                // The two acts that need the window: the Info inspector, and the shared Quick Look
+                // panel. `followsPane: false`: a rail row is not the pane's selection, so a pane
+                // click must not retarget a preview opened from here.
                 getInfo: { path in showInfo(for: path) },
                 quickLook: { path in toggleQuickLook(URL(fileURLWithPath: path), followsPane: false) },
                 download: { path in downloadFromEdit(path) },
-                // Browse's own Rename and Delete (TE117): its prompt, its confirmation, its undo —
-                // and the open document answers them as it answers the same act from Browse.
+                // Browse's own Rename and Delete: its prompt, confirmation and undo, and the open
+                // document answers them as it does from Browse.
                 rename: { path in actionHandler?.beginRename(Self.editorRailNode(path)) },
                 delete: { path in actionHandler?.confirmDelete([Self.editorRailNode(path)]) }),
             onToggleJustTheText: { toggleJustTheText() },
-            // The header's ＋ IS ⌘N — the same closure, so it opens the row and bumps the focus
-            // counter, and greys out on the same `nil` the menu item does.
+            // The header's ＋ IS ⌘N: the same closure, so it opens the row, bumps the focus counter,
+            // and greys out on the same `nil` as the menu item.
             onNewTextFile: shortcutNewTextFile,
             onCloseDocument: { closeEditorDocument() },
             onAutosaveResumed: { runAutosave() },
@@ -591,52 +518,49 @@ extension ContentView {
             // follows, since it lists that pane's folder.
             folderTrail: editorFolderTrail,
             onGoToFolder: { target in editorLocationDoors.goTo(target, from: "Edit rail folder menu") },
-            // No `onFoldRail`: the strip is the one place the columns open and fold from (asked
-            // 2026-10-17), so the list draws no fold button of its own, as the pane draws no ⇤.
-            // The empty page's way to the list while it is folded or put away — offered only with
-            // the pane folded, since an open pane IS the list.
+            // No `onFoldRail`: the strip is the one place the columns open and fold from. The empty
+            // page's way to the list while it is folded or put away, offered only with the pane
+            // folded, since an open pane IS the list.
             onShowTextFiles: (panesHiddenForCurrentTab && !showsRail)
                 ? { showEditorRail(tab: .files, from: .emptyPage) } : nil,
-            // The status line's heading menu (TE180): the list on its Outline, from any layout.
+            // The status line's heading menu: the list on its Outline, from any layout.
             onShowRailOutline: { showEditorRail(tab: .outline, from: .statusLine) },
-            // The folder menu's Show All (TE183): the pane, already on the list's folder, as the
-            // strip's pane button opens it.
+            // The folder menu's Show All: the pane, already on the list's folder, as the strip's
+            // pane button opens it.
             onOpenFilePane: { if editorPaneIsFolded { runEditorPaneRung() } },
-            // The empty page's recent files (TE58). A row opens through the hand-off, as Open in
-            // Edit does from any other list, so the pane follows the file there.
+            // The empty page's recent files. A row opens through the hand-off, as Open in Edit
+            // does from any other list, so the pane follows the file there.
             recentFiles: EditorRecentFiles.shared,
             onOpenRecent: { path in handOffToEditor(path) },
-            // A drop from Finder on the empty page (TE198) is an open from outside the app: the
-            // same queue, so the same rules — the first file here, the rest in the pane, a folder
-            // named in a banner, a file in the cloud fetched first.
+            // A drop from Finder on the empty page is an open from outside the app: the same
+            // queue and rules (the first file here, the rest in the pane, a folder named in a
+            // banner, a cloud file fetched first).
             onDropFiles: { urls in
                 Logger.shared.info(ExternalOpen.receiptLine(urls, droppedOnEdit: true))
                 externalOpens.receive(urls)
             },
             railWidth: railWidth)
         // The PDF tools' door to the window: what a written copy re-lists, and the banner's Open
-        // and Reveal in Browse. Set on every appearance — the model outlives this view.
+        // and Reveal in Browse. Set on every appearance, since the model outlives this view.
         .onAppear { editorPDF.tools.host = editorPDFToolHost }
-        // A new folder starts unfiltered (TE109) — on arrival too, for a folder changed in another
+        // A new folder starts unfiltered, on arrival too, for a folder changed in another
         // workspace while this view did not exist.
         .onChange(of: editorFolder, initial: true) { _, folder in noteEditorRailFolder(folder) }
         // The rail is re-listed on arrival and whenever the folder or the hidden-files preference
-        // moves — `.task(id:)` restarts on either.
+        // moves; `.task(id:)` restarts on either.
         .task(id: EditorRailKey(folder: editorFolder, showsHidden: syncManager.showHiddenFiles)) {
             await refreshEditorRail()
         }
-        // …and whenever the rail comes back into view. A fold used to rebuild this whole view,
-        // which restarted the task above; since the fold keeps the view (speed audit item 13), a
-        // file renamed, deleted or dropped in while the rail was hidden needs this to show.
+        // …and whenever the rail comes back into view: a fold keeps this view, so the task above
+        // does not restart, and a file changed while the rail was hidden needs this to show.
         .onChange(of: editorRailIsDrawn) { _, drawn in
             if drawn { Task { await refreshEditorRail() } }
         }
     }
 
-    /// **The rail's filter belongs to the folder it was typed in** (TE109). Kept across a trip to
-    /// another workspace and back, as `editorRailFilter`'s doc promises — but a filter typed in one
-    /// folder and still on in the next made that folder look empty ("No files here match…"), so
-    /// a different folder clears it and closes its field.
+    /// The rail's filter belongs to the folder it was typed in. Kept across a trip to another
+    /// workspace and back, as `editorRailFilter`'s doc promises, but a different folder clears it
+    /// and closes its field, since a leftover filter makes the folder look empty.
     func noteEditorRailFolder(_ folder: String) {
         if Self.railFilterClears(listedFolder: editorRailListedFolder, folder: folder) {
             editorRailFilter = ""
@@ -645,16 +569,16 @@ extension ContentView {
         editorRailListedFolder = folder
     }
 
-    /// Whether the rail's filter goes on arriving at `folder` — any folder but the one it last
+    /// Whether the rail's filter goes on arriving at `folder`: any folder but the one it last
     /// listed. The first listing has nothing typed to clear, so `nil` clearing is harmless.
     static func railFilterClears(listedFolder: String?, folder: String) -> Bool {
         listedFolder != folder
     }
 
-    /// **What a PDF tool's copy does to the window** — Export as PDF's follow-up exactly: the rail
-    /// lists the folder the copy landed in, and a pane showing that folder is re-read. The copy is
-    /// never opened for the reader; the banner's Open is theirs to press, and it goes through the
-    /// one door a rail click takes, which asks about the open document first.
+    /// What a PDF tool's copy does to the window, as Export as PDF's follow-up: the rail lists the
+    /// folder the copy landed in, and a pane showing that folder is re-read. The copy is never
+    /// opened for the reader; the banner's Open goes through the rail click's door, which asks
+    /// about the open document first.
     var editorPDFToolHost: EditorPDFToolHost {
         EditorPDFToolHost(
             didWrite: { path in
@@ -663,19 +587,19 @@ extension ContentView {
             },
             open: { path in openInEditor(path: path, selectsInPane: true) },
             reveal: { path in revealInBrowse(path, from: .pdfToolBanner) },
-            // A file only in the cloud now (TE185): Edit's own Download, for every provider.
+            // A file only in the cloud now: Edit's own Download, for every provider.
             download: { path in downloadFromEdit(path) })
     }
 
-    /// **A PDF tool from a pane row's menu** — any workspace's file pane, Edit's own included. The
-    /// copies' follow-up is Edit's: the panes holding the folder re-read (and Edit's rail, when Edit
-    /// is on screen); the banner's Open hands the copy to Edit through the pane's own door, and its
-    /// Reveal in Browse is the reader's.
+    /// A PDF tool from a pane row's menu, in any workspace's file pane. The copies' follow-up is
+    /// Edit's: the panes holding the folder re-read (and Edit's rail, when Edit is on screen); the
+    /// banner's Open hands the copy to Edit through the pane's own door, and its Reveal in Browse
+    /// is the reader's.
     func startPanePDFTool(_ request: PDFToolRequest, paths: [String]) {
         guard !refusedWhileRunLocked() else { return }
         let writer = "PDF Tools in \(selectedWorkspace.title)"
         // A request refused while a run goes leaves that run's origin and doors as they are: its
-        // ending still goes where it was started (CP), and its Reveal to its own files.
+        // ending still goes where it was started, and its Reveal to its own files.
         guard !panePDFTools.isBusy else {
             panePDFTools.start(request, paths: paths, writer: writer)
             return
@@ -687,10 +611,9 @@ extension ContentView {
                 rereadPanesAfterEditorWrite(path, writer: "\(writer) wrote")
             },
             open: { path in handOffToEditor(path) },
-            // A batch's copies can sit in several folders, and the pane shows one: it goes to the
-            // first copy's, which is the first file's, and selects every copy there (TE47's debt,
-            // with companions). The set the batch was run on is what Reveal answers, so it may
-            // replace that multi-selection; one file's run replaces nothing, as before.
+            // A batch's copies can sit in several folders, and the pane shows one: the first
+            // copy's, selecting every copy there as companions. Reveal may replace the
+            // multi-selection the batch was run on; one file's run replaces nothing.
             reveal: { copies in
                 guard let first = copies.first else { return }
                 revealInBrowse(first, with: EditorRevealInBrowse.companions(of: copies),
@@ -700,10 +623,10 @@ extension ContentView {
         panePDFTools.start(request, paths: paths, writer: writer)
     }
 
-    /// **Save as PDF from a pane row's menu or File ▸** — each file's PDF beside it (CV4). The
-    /// follow-up is the PDF tools': the panes holding the folder re-read, the banner's Open in Edit
-    /// goes through the pane's own door, and its Reveal in Browse selects the PDFs. A folder that
-    /// cannot be written to asks where, with a save panel.
+    /// Save as PDF from a pane row's menu or File ▸, each file's PDF beside it. The follow-up is
+    /// the PDF tools': the panes holding the folder re-read, the banner's Open in Edit goes through
+    /// the pane's own door, and its Reveal in Browse selects the PDFs. A folder that cannot be
+    /// written to asks where, with a save panel.
     func startSaveAsPDF(_ paths: [String]) {
         guard !refusedWhileRunLocked() else { return }
         let writer = "Save as PDF in \(selectedWorkspace.title)"
@@ -738,7 +661,7 @@ extension ContentView {
         paneSaveAsPDF.start(paths: paths, writer: writer)
     }
 
-    /// What re-lists the rail, as one value — so a change to either half restarts the one task
+    /// What re-lists the rail, as one value, so a change to either half restarts the one task
     /// rather than needing a second `.task(id:)` that could answer from a different folder.
     struct EditorRailKey: Equatable {
         var folder: String
@@ -747,31 +670,26 @@ extension ContentView {
 
     // MARK: - Opening
 
-    /// Opens a file in the editor, asking about an unsaved buffer first.
-    ///
-    /// The rail's click and the pane's one-click open come through here. ⌘N's new file
-    /// (`createTextFile`) and every hand-off (`EditorHandOffRun.run`) do not — each settles first
-    /// and then loads — but all three ask the one question, `settleEditorDocument()`, before the
-    /// buffer is replaced, so there is still exactly one place that can lose an edit and one
-    /// question guarding it.
+    /// Opens a file in the editor, asking about an unsaved buffer first. The rail's click and the
+    /// pane's one-click open come through here; ⌘N's new file (`createTextFile`) and every hand-off
+    /// (`EditorHandOffRun.run`) settle and load themselves. All ask `settleEditorDocument()` before
+    /// the buffer is replaced, so one question guards every edit that could be lost.
     ///
     /// - Parameter selectsInPane: whether the left pane should then select the file and bring it
-    ///   into view (TE47) — the rail's click, where the pane is folded away behind the rail and
-    ///   shows the same folder. **Not** the pane's own click (`openSelectedPaneFileInEditor`): the
-    ///   row is already selected where the pointer is, and a reveal would scroll it to the middle
-    ///   under the user's hand.
+    ///   into view: the rail's click, with the pane folded behind the rail on the same folder. Not
+    ///   the pane's own click (`openSelectedPaneFileInEditor`), where a reveal would scroll the row
+    ///   out from under the pointer.
     func openInEditor(path: String, selectsInPane: Bool = false) {
-        // Re-clicking the row that is already open does nothing — unless the last attempt was
-        // refused. See `EditorHandOffRun.opens`, the guard the hand-off asks too.
+        // Re-clicking the row that is already open does nothing, unless the last attempt was
+        // refused (`EditorHandOffRun.opens`, the guard the hand-off asks too).
         guard EditorHandOffRun.opens(path, openDocument: editorOpenPath,
                                      isRefused: editorOpenIsRefused) else {
             if selectsInPane { owePaneSelection(path) }
             return
         }
         guard settleEditorDocument(thenRetry: { openInEditor(path: path, selectsInPane: selectsInPane) }) else { return }
-        // Choosing a file is the answer to the question the naming row was asking, so the row goes
-        // with it. Left open it sat above a document the user was by then editing, with no way to
-        // dismiss it short of Esc and nothing on screen saying so.
+        // Choosing a file answers the naming row's question, so the row goes; left open, it would
+        // sit above the document being edited with only Esc to dismiss it.
         editorIsNaming = false
         loadIntoEditor(path: path)
         if selectsInPane { owePaneSelection(path) }
@@ -779,84 +697,68 @@ extension ContentView {
 
     /// Reads a file and puts it on screen. No prompt: callers have already dealt with the buffer.
     ///
-    /// - Parameter recordsRecent: whether the open goes on Edit's recent files (TE58) — every route
-    ///   but ``reloadOverTheBuffer(path:)``, which re-reads the file already open and opens nothing.
+    /// - Parameter recordsRecent: whether the open goes on Edit's recent files: every route but
+    ///   ``reloadOverTheBuffer(path:)``, which re-reads the file already open and opens nothing.
     func loadIntoEditor(path: String, recordsRecent: Bool = true) {
-        // **The ordering the undo stacks need is stated and tested where it lives** — see
-        // `EditorDocumentLoad`, which exists because this sequence could not be run from a test
-        // while it sat inline here.
+        // The ordering the undo stacks need is stated and tested in `EditorDocumentLoad`.
         //
-        // **The remembered mode is NOT narrowed on the way through**, and that is the fix rather
-        // than the omission. `EditorMode.resolved` is a display filter — `EditorWorkspaceView`
-        // already applies it on the way into `surfaces(for:)`, so a `.txt` file cannot show a
-        // preview whatever the stored mode says. Writing the narrowed value BACK, as this used to,
-        // made one non-Markdown file destroy the setting for the rest of the session: read three
-        // notes in Preview, open a `.txt` in between, and the third note opens in Edit. The type
-        // that owns the rule says the opposite in its own doc comment.
+        // **The remembered mode is NOT narrowed here.** `EditorMode.resolved` is a display filter
+        // that `EditorWorkspaceView` applies on the way into `surfaces(for:)`; writing the narrowed
+        // value back would let one `.txt` file switch every later note out of Preview.
         //
-        // **A PDF goes to its own model, before any text read** — `EditorOpenRoute`, which empties
-        // the text document so no save path has anything to write while the PDF is on screen.
+        // A PDF goes to its own model before any text read (`EditorOpenRoute`), which empties the
+        // text document so no save path has anything to write while the PDF is on screen.
         let kind = EditorOpenRoute.load(path: path, document: editorDocument, undoStore: editorUndoStore,
                                         pdf: editorPDF, log: { Logger.shared.info($0) })
-        // **Every way into Edit ends here, so this one call lists them all** (TE58) — once the
-        // load has opened the file, and never for one it refused.
+        // Every way into Edit ends here, so this one call records them all: once the load has
+        // opened the file, and never for one it refused.
         if recordsRecent {
             EditorOpenRoute.recordOpen(kind: kind, document: editorDocument, pdf: editorPDF,
                                        in: EditorRecentFiles.shared)
         }
     }
 
-    /// The open file, text or PDF — see ``EditorOpenRoute/openPath(document:pdf:)``.
+    /// The open file, text or PDF (``EditorOpenRoute/openPath(document:pdf:)``).
     var editorOpenPath: String? { EditorOpenRoute.openPath(document: editorDocument, pdf: editorPDF) }
 
     /// Whether the open file was refused, text or PDF.
     var editorOpenIsRefused: Bool { EditorOpenRoute.isRefused(document: editorDocument, pdf: editorPDF) }
 
-    /// The one line every load writes — opened, read-only or refused. A function of its own so a
-    /// test can count "Editor opened" lines through the same words the app writes (TE47).
-
-    /// Settles the buffer before it is replaced — by WRITING it, not by asking about it.
+    /// Settles the buffer before it is replaced, by WRITING it rather than asking. The ordinary
+    /// case is a silent flush: autosave leaves no decision, and the name and folder were settled
+    /// when the file was created.
     ///
-    /// **This used to be a three-button question at every route out of the document**, and autosave
-    /// is what removed it: the ordinary case is now a flush that finishes in microseconds and says
-    /// nothing, because there is no decision left to put to anybody. The name and the folder were
-    /// settled when the file was created, so "save where?" never had an answer to ask for.
-    ///
-    /// **The question survives for exactly one case: a document autosave is BLOCKED on.** When the
-    /// file has changed underneath the buffer, the flush cannot write and the work really would be
-    /// lost — so that, and only that, still asks. Callers must honour a `false`.
+    /// It still asks when the flush cannot safely write: autosave blocked (the file changed
+    /// underneath) or switched off, a failed or unchecked save, a deleted file whose text may be
+    /// the only copy, or PDF work in progress. **Callers must honour a `false`.**
     ///
     /// - Returns: `false` when the caller must do nothing at all.
-    /// - Parameter retry: the route itself, run again once Fill & Sign's Save Filled Copy — chosen
-    ///   in the leave question — has written the copy, so the save goes on to leave (decision AX).
-    /// - Parameter asksAboutTheOnlyCopy: `false` for a window close, which the document outlives —
-    ///   a deleted file's text is still on screen when the window comes back (TE146).
+    /// - Parameter retry: the route itself, run again once Fill & Sign's Save Filled Copy (chosen
+    ///   in the leave question) has written the copy, so the save goes on to leave.
+    /// - Parameter asksAboutTheOnlyCopy: `false` for a window close, which the document outlives:
+    ///   a deleted file's text is still on screen when the window comes back.
     @discardableResult
     func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool {
-        // **What a PDF can lose: a pending reorder, or a tool still running** — asked here because
-        // every route out of the document asks this. Asked only: the order and the run go when the
-        // PDF really closes, so a route that fails after the answer (⌘N's file could not be made)
-        // keeps both. Not for a window close, which the PDF outlives — nothing of it is at risk.
+        // What a PDF can lose: a pending reorder, or a tool still running. Only asked here: the
+        // order and the run go when the PDF really closes, so a route that fails after the answer
+        // keeps both. Not for a window close, which the PDF outlives.
         if asksAboutPDFWork { guard editorPDF.tools.mayLeave(thenRetry: retry) else { return false } }
-        // **A word being composed is committed first** (UND-5), so it is in the buffer for the
-        // question, the flush and the history below — never left in a storage put away without it.
+        // A word being composed is committed first, so it is in the buffer for the question, the
+        // flush and the history below.
         editorDocument.buffer.source.endComposition()
-        // **TE147: a save that couldn't be checked is checked now**, so a file holding what it wrote
-        // counts as saved rather than asked about.
+        // A save that couldn't be checked is checked now, so a file holding what it wrote counts
+        // as saved rather than asked about.
         if editorDocument.uncheckedWrite != nil { editorDiskWatch.reconcile() }
-        // **TE146: a file deleted with nothing typed is asked about too** — autosave has nothing to
-        // write, but the text on screen may be the only copy left. The watch looks first, so a move
-        // is followed and a trip to the Trash noted rather than asked about; a file in the Trash and
-        // still there can be put back, so it doesn't ask (decision BQ).
+        // A file deleted with nothing typed is asked about too: autosave has nothing to write, but
+        // the text on screen may be the only copy left. The watch looks first, so a move is
+        // followed; a file still in the Trash can be put back, so it doesn't ask.
         if asksAboutTheOnlyCopy, !editorDocument.isDirty, editorDiskWatch.isGone {
             editorDiskWatch.reconcile()
             if editorDiskWatch.mayBeTheOnlyCopy { return confirmLeavingTheOnlyCopy() }
         }
-        // **Two documents are asked about before the flush rather than flushed.** A blocked one,
-        // because the flush would refuse again for the same reason and the alert is where the
-        // choice lives. And one whose autosave switch is off, because flushing it on the way out is
-        // exactly the write the switch exists to prevent — a switch that held only until you
-        // changed file would not be a switch at all.
+        // Two documents are asked about rather than flushed: a stopped one, since the flush would
+        // refuse again; and one whose autosave switch is off, since flushing it on the way out is
+        // exactly the write the switch prevents.
         let withheld = !editorAutosavePolicy.isOn(editorDocument.path)
         if editorAutosaveStop != nil || withheld, editorDocument.isDirty {
             return confirmLeavingAnUnwrittenDocument()
@@ -874,8 +776,8 @@ extension ContentView {
             syncManager.banner = EditorAutosaveStop.savedBut(name: editorDocument.name, clause: clause)
             return true
         case .blocked(let divergence):
-            // **TE59: a move is followed and a re-stamp taken before anything is asked** — then the
-            // flush is tried once more, at the path the file is really at.
+            // A move is followed and a re-stamp taken before anything is asked, then the flush is
+            // tried once more, at the path the file is really at.
             switch editorDiskWatch.reconcile() {
             case .followed, .restamped, .settled:
                 if case .wrote = EditorAutosave.attempt(editorDocument) {
@@ -894,20 +796,17 @@ extension ContentView {
             syncManager.banner = editorAutosaveStop?.banner(name: editorDocument.name)
             return confirmLeavingAnUnwrittenDocument()
         case .savedUnchecked(let clause):
-            // On disk, but unchecked and unstamped — asked about as an unwritten document, since
-            // nothing can say the file holds this text (TE114).
+            // On disk, but unchecked and unstamped: asked about as an unwritten document, since
+            // nothing can say the file holds this text.
             editorAutosaveStop = .unchecked(clause)
             syncManager.banner = editorAutosaveStop?.banner(name: editorDocument.name)
             return confirmLeavingAnUnwrittenDocument()
         }
     }
 
-    /// The unsaved-changes question, for a document autosave is not going to write.
-    ///
-    /// **Two reasons reach it now.** Autosave can be *blocked* — the file changed underneath the
-    /// buffer — or it can be *switched off* for this file. The question is the same either way,
-    /// because the choice is: write over what is there, keep the document open, or lose the typing.
-    /// It was named for the first reason alone when that was the only one.
+    /// The unsaved-changes question, for a document autosave is not going to write: blocked or
+    /// failed, or switched off for this file. The choice is the same either way: write over what
+    /// is there, keep the document open, or lose the typing.
     private func confirmLeavingAnUnwrittenDocument() -> Bool {
         let isGone = editorDiskWatch.isGone
         let cause = EditorAlerts.leaveCause(isGone: isGone, stop: editorAutosaveStop,
@@ -916,34 +815,30 @@ extension ContentView {
         case .cancel: return false
         case .discard:
             editorAutosaveStop = nil
-            // **The undo history goes with the discarded typing, and it has to.** The file on disk
-            // now holds text from before those edits while the stack holds registrations made
-            // against the text after them — the exact mismatch `EditorUndoStore` refuses, made
-            // deliberately here rather than left for the fingerprint to catch.
+            // **The undo history goes with the discarded typing.** The file on disk holds text
+            // from before those edits, while the stack's registrations were made against the text
+            // after them: the mismatch `EditorUndoStore` refuses.
             if let path = editorDocument.path {
                 editorUndoStore.forget(path)
-                // **And the caret with it, for the same reason.** The buffer is being thrown away
-                // for the copy on disk, so an offset taken against the discarded text names a place
-                // in a document that no longer exists — the same mismatch the stack is dropped for.
-                // Clamping would stop it crashing; it would not stop it being the wrong place.
+                // And the caret, for the same reason: an offset into the discarded text names a
+                // place that no longer exists. Clamping would stop a crash, not the wrong place.
                 editorDocument.caretAnchors.forget(path)
             }
             return true
         case .save:
-            // A file that is gone is written back as Save Again writes it — looking first, and
-            // making its folder again — rather than asked about a second time (TE146).
+            // A file that is gone is written back as Save Again writes it (looking first, and
+            // making its folder again) rather than asked about a second time.
             if isGone { return saveEditorDocumentAgain(explicit: true) }
-            // "Save" here means "overwrite what is on disk", which is the choice the divergence
-            // alert puts. Routed through it rather than written directly, so the destructive answer
-            // keeps the confirmation it has everywhere else.
+            // "Save" here means "overwrite what is on disk". Routed through the divergence alert,
+            // so the destructive answer keeps the confirmation it has everywhere else.
             return saveEditorDocument()
         }
     }
 
-    /// **The question for a file that is gone with nothing typed** (TE146). Save is Save Again: if a
-    /// file has turned up at the path meanwhile, nothing is written and the watch shows it, and if
-    /// it can't be written, nothing closes. A file open read-only can't be written back, so it is
-    /// asked only whether to leave it.
+    /// The question for a file that is gone with nothing typed. Save is Save Again: if a file has
+    /// turned up at the path meanwhile, nothing is written and the watch shows it, and if it can't
+    /// be written, nothing closes. A read-only file can't be written back, so it only asks whether
+    /// to leave.
     private func confirmLeavingTheOnlyCopy() -> Bool {
         let name = editorDocument.name, path = editorDocument.path ?? ""
         let answer = editorDocument.isReadOnly
@@ -962,22 +857,20 @@ extension ContentView {
         }
     }
 
-    /// **The hand-off: "Open in Edit" from any file row, anywhere in the app.** The act and its
-    /// order — settle first, Cancel means nothing happened, then the pane, the workspace, the load,
-    /// one log line whichever way it ends — are `EditorHandOffRun.run`'s; this supplies the window's
-    /// pieces.
+    /// The hand-off: "Open in Edit" from any file row, anywhere in the app. The act and its order
+    /// (settle first, Cancel means nothing happened, then the pane, the workspace, the load, one
+    /// log line) are `EditorHandOffRun.run`'s; this supplies the window's pieces.
     ///
-    /// - Parameter pane: what happens to the left pane — `nil` for the in-app doors, which take
-    ///   ``EditorHandOffRun/pane(forDoorIn:isReviewing:)``'s answer for the workspace they are in.
-    ///   Compare's list of differences passes `.staysPut`, because there the left pane is half of
-    ///   the comparison the list is showing; a file from Finder passes `ExternalOpen.pane`'s.
+    /// - Parameter pane: what happens to the left pane: `nil` for the in-app doors, which take
+    ///   ``EditorHandOffRun/pane(forDoorIn:isReviewing:)``'s answer for their workspace. Compare's
+    ///   list of differences passes `.staysPut`, since its left pane is half the comparison; a file
+    ///   from Finder passes `ExternalOpen.pane`'s.
     ///
-    /// Then, unless the settle was cancelled, the pane owes the file a selection (TE47): where it
-    /// shows the file's folder — always, after a re-root — the document is selected there and
-    /// brought into view.
+    /// Unless the settle was cancelled, the pane then owes the file a selection: where it shows the
+    /// file's folder (always, after a re-root), the document is selected and brought into view.
     @discardableResult
     func handOffToEditor(_ path: String, pane: EditorHandOffRun.Pane? = nil) -> EditorHandOffRun.Outcome {
-        // Asked of the workspace the door is in — before `showEdit` leaves it.
+        // Asked of the workspace the door is in, before `showEdit` leaves it.
         let pane = pane ?? EditorHandOffRun.pane(forDoorIn: selectedWorkspace, isReviewing: reviewStore.isReviewing)
         let outcome = EditorHandOffRun.run(
             path, pane: pane,
@@ -999,10 +892,9 @@ extension ContentView {
     // MARK: - The pane follows the file, by tab
 
     /// The left pane's tabs as ``EditorTabFollow`` reads them: each one's root, tilde-expanded, and
-    /// where it is under it. The active one from the LIVE pane — its entry in the strip is a parked
-    /// snapshot, stale by construction (see `saveBrowseTabs`). **A parked tab on a source the pane
-    /// can no longer show is no candidate**: switching to it would discard it and land somewhere
-    /// else (`tabAction`'s `.unavailable`).
+    /// where it is under it. The active one comes from the LIVE pane, since its strip entry is a
+    /// stale parked snapshot (`saveBrowseTabs`). A parked tab on a source the pane can no longer
+    /// show is no candidate: switching to it would discard it (`tabAction`'s `.unavailable`).
     func leftPaneTabsForFollow() -> (active: EditorTabFollow.Tab, others: [EditorTabFollow.Tab]) {
         let list = syncManager.paneTabs(isLeft: true)
         func root(_ providerId: String) -> String {
@@ -1018,18 +910,18 @@ extension ContentView {
         return (active, others)
     }
 
-    /// `folder` under `root`, **both resolved first** — the spelling `sourceRoute` reads them in, so
-    /// "a tab is already here" and "this source owns it" cannot disagree about one folder reached
-    /// two ways (`~/OneDrive/…` and `~/Library/CloudStorage/OneDrive-…/…`). Then iCloud Drive's
-    /// linked Desktop and Documents, as `PaneLogic.relativePath` follows them.
+    /// `folder` under `root`, both resolved first, as `sourceRoute` reads them, so "a tab is
+    /// already here" and "this source owns it" agree about one folder reached two ways
+    /// (`~/OneDrive/…` and `~/Library/CloudStorage/OneDrive-…/…`). iCloud Drive's linked Desktop
+    /// and Documents are followed as `PaneLogic.relativePath` follows them.
     static func followRelative(_ folder: String, _ root: String) -> String? {
         // `resolved("")` is the process's working directory, not "no folder".
         guard !folder.isEmpty, !root.isEmpty else { return nil }
         return PaneLogic.relativePath(of: resolved(folder), under: resolved(root))
     }
 
-    /// Which configured source owns `folder`, and where in it — the sidebar's rule, see
-    /// ``ExternalOpen/route(toFolder:claims:roots:resolve:)``.
+    /// Which configured source owns `folder`, and where in it: the sidebar's rule
+    /// (``ExternalOpen/route(toFolder:claims:roots:resolve:)``).
     func sourceRoute(toFolder folder: String) -> ExternalOpen.SourceRoute? {
         let providers = folderSidebarProviders
         let roots = Dictionary(providers.map { ($0.id, ($0.rootPath as NSString).expandingTildeInPath) },
@@ -1039,15 +931,15 @@ extension ContentView {
                                   roots: roots, resolve: Self.resolved)
     }
 
-    /// **The hand-off's pane move: the tab showing the file's folder, or a new one.** See
-    /// ``EditorTabFollow`` for the rule. Every write here goes through the tab verbs the strip
-    /// itself uses — `selectTab`, and `tabAction` around `openTab` — so a tab on another source
-    /// adopts that source the way clicking its chip does, and the strip is saved.
+    /// The hand-off's pane move: the tab showing the file's folder, or a new one
+    /// (``EditorTabFollow`` holds the rule). Every write goes through the strip's own tab verbs,
+    /// `selectTab` and `tabAction` around `openTab`, so a tab on another source adopts it as a chip
+    /// click does, and the strip is saved.
     ///
     /// - Parameters:
-    ///   - purpose: what the move is for, for the log — a file being opened, or the one ⌘N is
-    ///     about to make, which does not exist yet.
-    ///   - keepsSource: `EditorHandOffRun.Pane.followsOnItsSource` — from Compare or Organize the
+    ///   - purpose: what the move is for, for the log: a file being opened, or the one ⌘N is
+    ///     about to make.
+    ///   - keepsSource: `EditorHandOffRun.Pane.followsOnItsSource`: from Compare or Organize the
     ///     pane follows only on the source it is on.
     func followFolderInTabs(_ folder: String, for purpose: String = "the file Edit is opening",
                             keepsSource: Bool = false) {
@@ -1083,14 +975,13 @@ extension ContentView {
         }
     }
 
-    /// **The files after the first, each waiting in the file pane** — in the folder already on
-    /// screen, in a tab already showing its folder, or in a new tab opened behind the live one with
-    /// its files selected (`ExternalOpen.waitingFolders`). Asked of the pane as the hand-off left
-    /// it, so the opened file's neighbours wait in its folder only where the pane went there.
-    /// Returns the files with nowhere to go: their folder is in no source.
+    /// The files after the first, each waiting in the file pane: in the folder already on screen,
+    /// in a tab already showing its folder, or in a new tab opened behind the live one with its
+    /// files selected (`ExternalOpen.waitingFolders`). Asked of the pane as the hand-off left it.
+    /// Returns the files whose folder is in no source.
     ///
-    /// **Never confined to the pane's source**, even from Organize: a tab opened BEHIND the live
-    /// one changes nothing the pane holds until it is chosen.
+    /// Never confined to the pane's source, even from Organize: a tab opened behind the live one
+    /// changes nothing the pane holds until it is chosen.
     func openWaitingTabs(for files: [String]) -> [String] {
         var waiting: [PaneTab] = []
         var inOpenTabs: [String] = []
@@ -1121,14 +1012,13 @@ extension ContentView {
         return unplaced
     }
 
-    /// **Files from Finder, the Dock or `open -a`**, taken from the delegate's queue and opened
-    /// through ``handOffToEditor(_:pane:)`` — the door every "Open in Edit" in the app goes through,
-    /// so a file from outside settles the open document, moves the pane and logs exactly as ⌘O
-    /// does. Called on every arrival and whenever something holding one back clears; a call with
-    /// nothing waiting does nothing. The act itself is ``ExternalOpen/run(_:superseded:isFolder:handOff:placeRest:paneIsFolded:banner:setBanner:log:)``.
+    /// Files from Finder, the Dock or `open -a`, taken from the delegate's queue and opened through
+    /// ``handOffToEditor(_:pane:)``, the door of every "Open in Edit", so a file from outside
+    /// settles the open document, moves the pane and logs as ⌘O does. Called on every arrival and
+    /// whenever a hold clears. The act itself is ``ExternalOpen/run(_:superseded:isFolder:handOff:placeRest:paneIsFolded:banner:setBanner:log:)``.
     func openExternalArrivals() {
-        // An earlier arrival's hand-off is stopped on the unsaved-changes question; this one waits
-        // for the answer and is taken at the bottom of that call.
+        // An earlier arrival's hand-off is waiting on the unsaved-changes question; this one is
+        // taken at the bottom of that call.
         guard !externalOpens.isOpening, !externalOpens.isEmpty else { return }
         if let hold = ExternalOpen.hold(launchIsFinished: launchBootstrap.isFinished,
                                         isPickingDestination: pendingDestination != nil,
@@ -1151,7 +1041,7 @@ extension ContentView {
             banner: { syncManager.banner },
             setBanner: { syncManager.banner = $0 },
             log: { Logger.shared.info($0) })
-        // **A launch from Finder opens Edit wide**: the document, and nothing beside it.
+        // A launch from Finder opens Edit wide: the document, and nothing beside it.
         if atLaunch, let outcome = result.outcome, outcome != .cancelled { openEditWideForLaunchFromFinder() }
         if let path = result.plan.opens, result.outcome == .opened { fetchExternalOpenFromCloud(path) }
         externalOpens.isOpening = false
@@ -1159,13 +1049,11 @@ extension ContentView {
         if !externalOpens.isEmpty { openExternalArrivals() }
     }
 
-    /// **What would stand between the user and the file they just double-clicked**, put away first:
-    /// Settings and Help, which hold no work (every setting is live), and the two pair viewers,
-    /// which hold one line of state that their own door re-opens. The setup form is left — it can
-    /// hold a half-answered questionnaire — and the file opens under it. One line names what went.
-    ///
-    /// Not a destination pick or the divergence diff: those are questions mid-answer, and the open
-    /// waits for them instead (``ExternalOpen/Hold``).
+    /// What would stand between the user and the file they double-clicked, put away first:
+    /// Settings and Help, which hold no work, and the two pair viewers, which their own door
+    /// re-opens. The setup form stays (it can hold a half-answered questionnaire) and the file
+    /// opens under it. A destination pick or the divergence diff is a question mid-answer, so the
+    /// open waits for it instead (``ExternalOpen/Hold``).
     func closeViewersForExternalOpen() {
         var closed: [String] = []
         if showSettings { showSettings = false; closed.append("Settings") }
@@ -1185,27 +1073,24 @@ extension ContentView {
         FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: false)
     }
 
-    /// **Download, from Edit** (TE96) — the Files list's row menu, the file name's menu and the
-    /// Download button on a refused card. Browse's own verb first (`CloudDownloadRequest`), so the
-    /// left pane's row watches its cloud badge clear as it does for Browse's Download; then the
-    /// fetch-then-open wait the external open uses (`ExternalOpen.fetch`), whose one-byte read
-    /// reaches a provider even where Browse's verb is refused (it serves iCloud and, measured,
-    /// Google Drive; Dropbox and OneDrive are not measured).
+    /// Download, from Edit: the Files list's row menu, the file name's menu and the Download
+    /// button on a refused card. Browse's own verb first (`CloudDownloadRequest`), so the left
+    /// pane's cloud badge clears as for Browse's Download; then the external open's fetch-then-open
+    /// wait (`ExternalOpen.fetch`), whose one-byte read reaches a provider even where Browse's verb
+    /// is refused (measured on iCloud and Google Drive, not Dropbox or OneDrive).
     ///
-    /// **The file opens when it arrives only if Edit is still showing its refusal** — the rule
-    /// ``fetchExternalOpenFromCloud(_:)`` keeps: a reader who has moved on is not moved back. A row
-    /// that was not the open file is re-listed, so it stops being dim.
+    /// The file opens on arrival only if Edit is still showing its refusal, as in
+    /// ``fetchExternalOpenFromCloud(_:)``: a reader who has moved on is not moved back. Any other
+    /// row is re-listed, so it stops being dim.
     static let editDownloadWait: Duration = .seconds(600)
 
     func downloadFromEdit(_ path: String) {
         let name = ExternalOpen.name(path)
         let opensOnArrival = editorOpenPath == path && editorOpenIsRefused
         Logger.shared.info("[edit] Download of \(path) from Edit\(opensOnArrival ? " — it opens when it arrives" : "")")
-        // The pane Edit shows is the left one, in the window's layout — File ▸ Download's token.
-        //
-        // **A refusal does nothing here, not Browse's reveal in Finder.** The fetch below already
-        // reaches every provider and opens the file in Edit when it lands; Finder brought forward
-        // over Edit, beside a note promising the file opens here, was two answers to one press.
+        // The pane Edit shows is the left one, in the window's layout: File ▸ Download's token.
+        // A refusal does nothing here, not Browse's reveal in Finder: the fetch below reaches
+        // every provider and opens the file in Edit, and Finder over Edit would contradict the note.
         CloudDownloadRequest.requestDownload(path: path, name: name,
                                              from: PaneToken(isLeft: true, isSingleSource: layoutMode == .singleSource),
                                              whenUnavailable: { _ in })
@@ -1213,9 +1098,8 @@ extension ContentView {
                                                           : "Downloading “\(name)”…")
         syncManager.banner = note
         Task { @MainActor in
-            // **Ten minutes, not the external open's one**: Download was asked for here, and the note
-            // promises the file opens when it arrives — a large file on a slow link took longer than
-            // a minute, and was called a failure while it went on downloading.
+            // Ten minutes, not the external open's one: Download was asked for here, and a large
+            // file on a slow link can take longer than a minute while still downloading.
             let landed = await ExternalOpen.fetch(path, timeout: Self.editDownloadWait)
             await refreshEditorRail()
             // Our own note goes; anything posted over it since is left alone.
@@ -1234,14 +1118,13 @@ extension ContentView {
         }
     }
 
-    /// **A file from Finder that is still in the cloud is fetched, then opened** — where every
-    /// in-app door shows "Not downloaded" and stops. Someone who double-clicked it asked for its
-    /// contents, which is the download the editor otherwise declines to start on its own.
+    /// A file from Finder that is still in the cloud is fetched, then opened, where every in-app
+    /// door shows "Not downloaded" and stops: a double-click asked for its contents.
     ///
     /// Only when the hand-off left exactly that refusal on screen. When the content lands, the
-    /// file is opened again through ``openInEditor(path:selectsInPane:)`` — which lets a refused
-    /// document through — but only if it is still the refused document by then: a user who has
-    /// moved on in the meantime is not moved back.
+    /// file is opened again through ``openInEditor(path:selectsInPane:)``, which lets a refused
+    /// document through, but only if it is still the refused document: a user who has moved on is
+    /// not moved back.
     func fetchExternalOpenFromCloud(_ path: String) {
         guard editorOpenPath == path, editorOpenIsRefused,
               MaterializationStatus.isCloudOnly(atPath: MaterializationStatus.linkTarget(of: path)) else { return }
@@ -1266,8 +1149,8 @@ extension ContentView {
 
     // MARK: - Closing
 
-    /// File ▸ Close Document's action, or `nil` — which greys the item — unless Edit is on screen
-    /// with a document open. See ``EditorDocumentClose/isOffered(workspace:hasDocument:)``.
+    /// File ▸ Close Document's action, or `nil` (greying the item) unless Edit is on screen with a
+    /// document open (``EditorDocumentClose/isOffered(workspace:hasDocument:)``).
     var shortcutCloseDocument: (() -> Void)? {
         guard EditorDocumentClose.isOffered(workspace: selectedWorkspace,
                                             hasDocument: editorOpenPath != nil) else { return nil }
@@ -1277,15 +1160,15 @@ extension ContentView {
     /// The header's × and File ▸ Close Document: settle, unload to the empty state, and clear the
     /// pane selection that named the file so clicking its row opens it again. The act itself is
     /// ``EditorDocumentClose/run(document:undoStore:settle:paneSelection:setPaneSelection:log:)``;
-    /// this supplies the window's own pieces and clears what was ABOUT the closed document — a
-    /// stop, or a diff overlay, left standing over the empty editor would describe nothing.
+    /// this supplies the window's pieces and clears what was about the closed document (a stop, a
+    /// diff overlay).
     ///
-    /// **The pane's selection is written directly, not through `paneSelectionBinding`**, and that is
-    /// the one exception to the binding's rule. The close only ever EMPTIES a selection naming the
-    /// closed file, and every rule the binding adds is about a pick: the other pane's clear and the
-    /// focused-pane move are both skipped for an empty write, and Compare's pick needs a row.
+    /// The pane's selection is written directly, the one exception to `paneSelectionBinding`: the
+    /// close only EMPTIES a selection naming the closed file, and every rule the binding adds is
+    /// about a pick.
     func closeEditorDocument() {
-        // A PDF has nothing to settle but a pending reorder; its own close releases its pages.
+        // A PDF has nothing to settle but a pending reorder or a running tool; its own close
+        // releases its pages.
         if editorPDF.path != nil {
             guard editorPDF.tools.mayLeave(thenRetry: { closeEditorDocument() }) else { return }
             EditorOpenRoute.closePDF(editorPDF,
@@ -1304,21 +1187,16 @@ extension ContentView {
         editorDivergenceReview = nil
     }
 
-    /// The reverse hand-off: Browse, pointed at the folder of `path` — the open document from the
-    /// header's name, any row from the rail row menu.
+    /// The reverse hand-off: Browse, pointed at the folder of `path`: the open document from the
+    /// header's name, any row from the rail row menu. It does NOT close the document, so coming
+    /// back with ⌘4 finds it as you left it, unsaved edits and all.
     ///
-    /// Deliberately does NOT close the document — you are going to look at where it lives, not to
-    /// put it away, and coming back with ⌘4 should find it exactly as you left it, unsaved edits
-    /// and all.
+    /// The pane moves as BROWSE draws it (`EditorRevealInBrowse.movePane`), then the workspace
+    /// switches, then the selection is owed, after the switch, so Browse's pane takes it and a
+    /// selection there opens nothing. The order lives, tested, in `EditorRevealInBrowse.reveal`.
     ///
-    /// **The pane moves as BROWSE draws it** (`EditorRevealInBrowse.movePane`): the breadcrumb's
-    /// route for Browse's view mode, and nothing when Browse already shows the folder. Then the
-    /// switch, then the owed selection (TE47) — owed after the switch, so the debt is Browse's and
-    /// the rule reads Browse's pane, where a selection opens nothing — so it lands with the file
-    /// selected, in view. The order lives in `EditorRevealInBrowse.reveal`, where it is tested.
-    ///
-    /// `companions` and `replaces` are a PDF batch's — its other copies beside `path`, and the set
-    /// it was run on (see ``PaneSelectionDebt``). Every other door passes neither.
+    /// `companions` and `replaces` are a PDF batch's: its other copies beside `path`, and the set
+    /// it was run on (``PaneSelectionDebt``). Every other door passes neither.
     func revealInBrowse(_ path: String, with companions: [String] = [], replacing replaces: Set<String> = [],
                         from door: EditorRevealInBrowse.Door) {
         EditorRevealInBrowse.reveal(
@@ -1332,24 +1210,20 @@ extension ContentView {
 
     // MARK: - The Text and Markup menus
 
-    /// What Text ▸ and Markup ▸ may do to the open document — `nil` unless Edit is on screen with a
-    /// document in it, which greys both menus at once.
-    ///
-    /// **Edit must be the WORKSPACE, not merely the owner of a document.** The document outlives a
-    /// workspace switch (it is held by the app), so a test on `editorDocument.path` alone would
-    /// leave Markup ▸ Bold live from Browse, aimed at text that is not on screen. Compare's items
-    /// follow a comparison the same way.
+    /// What Text ▸ and Markup ▸ may do to the open document: `nil` unless Edit is on screen with a
+    /// document in it, which greys both menus at once. Edit must be the WORKSPACE: the document
+    /// outlives a workspace switch, and Markup ▸ Bold must not reach text that is not on screen.
     var shortcutEditorVerbs: EditorVerbs? {
         guard let path = editorDocument.path,
               EditorVerbs.isOffered(workspace: selectedWorkspace, hasDocument: true,
                                     isRefused: editorDocument.refusal != nil) else { return nil }
         let isMarkdown = editorDocument.isMarkdown
-        // The mode being drawn, so the tick agrees with the capsule on a plain-text file — and so
-        // the verbs that need a text view are withheld in Preview, where none is on screen.
+        // The mode being drawn, so the tick agrees with the capsule on a plain-text file, and the
+        // verbs that need a text view are withheld in Preview, where none is on screen.
         let drawn = EditorMode.resolved(editorMode, isMarkdown: isMarkdown)
-        // Preview editable (TE67): the same rule the workspace mounts it by, on the 256 KB decision
-        // it holds (`PreviewLengthHold`). The length is read only when no decision is held for this
-        // note, mode and setting — a read, never an observation, so a keystroke re-renders nothing here.
+        // Preview editable: the workspace's own rule, on the 256 KB decision it holds
+        // (`PreviewLengthHold`). The length is read only when no decision is held, and never
+        // observed, so a keystroke re-renders nothing here.
         let previewEditing = EditorWorkspaceView.editsInPreview(
             preference: editsInPreviewSetting, hasDocument: true, isRefused: false, isMarkdown: isMarkdown,
             isReadOnly: editorDocument.isReadOnly, mode: drawn,
@@ -1368,9 +1242,8 @@ extension ContentView {
                 guard EditorModeSwitch.accepts(mode, isMarkdown: isMarkdown) else { return }
                 editorMode = mode
             },
-            // The header's switch and this item are one setting with two doors — same policy,
-            // same toggle, and switching back on writes what is already pending (see
-            // `EditorWorkspaceView.autosaveSwitch`).
+            // The header's switch and this item are one setting with two doors; switching back on
+            // writes what is already pending (`EditorWorkspaceView.autosaveSwitch`).
             autosave: showsSwitch
                 ? EditorVerbs.AutosaveSwitch(isOn: editorAutosavePolicy.isOn(path)) {
                     if editorAutosavePolicy.toggle(path) { runAutosave() }
@@ -1379,14 +1252,14 @@ extension ContentView {
             canMarkUp: EditorVerbs.canMarkUp(isReadOnly: editorDocument.isReadOnly, isMarkdown: isMarkdown,
                                              hasTextView: EditorVerbs.hasTextView(in: drawn, previewEditing: previewEditing)),
             canFind: EditorVerbs.hasTextView(in: drawn, previewEditing: previewEditing),
-            // Source and Split only — the status line's own rule, so the item and "Line, Col" are
-            // live together (TE61). The counter opens the workspace's field.
+            // Source and Split only, the status line's own rule, so the item and "Line, Col" are
+            // live together. The counter opens the workspace's field.
             goToLine: EditorWorkspaceView.offersGoToLine(drawn) ? { editorGoToLineRequest &+= 1 } : nil)
     }
 
-    /// ⌘F, ⌘G, ⇧⌘G and ⌘E over the open PDF — `nil` unless Edit is on screen with a PDF open in it
-    /// (`PDFFindVerbs.isOffered`). Beside ``shortcutEditorVerbs``, which stays `nil` while a PDF is
-    /// open: the text document is empty then.
+    /// ⌘F, ⌘G, ⇧⌘G and ⌘E over the open PDF: `nil` unless Edit is on screen with a PDF open in it
+    /// (`PDFFindVerbs.isOffered`). ``shortcutEditorVerbs`` stays `nil` while a PDF is open, since
+    /// the text document is empty then.
     ///
     /// Reads the facts, not the find's own state, so a match landing re-renders nothing here.
     var shortcutPDFFind: PDFFindVerbs? {
@@ -1399,14 +1272,14 @@ extension ContentView {
                             useSelection: { pdf.find.useSelection(pdf.view.selectedText()) })
     }
 
-    /// ⌘+, ⌘− and ⌘0 on the open PDF's zoom — `nil` unless Edit is on screen with a PDF open in
-    /// it AND its pages have the keyboard (`PDFZoomVerbs.isOffered`). Without it the same keys are
+    /// ⌘+, ⌘− and ⌘0 on the open PDF's zoom: `nil` unless Edit is on screen with a PDF open in it
+    /// AND its pages have the keyboard (`PDFZoomVerbs.isOffered`). Otherwise the same keys are
     /// View ▸ Text Size, as everywhere else.
     var shortcutPDFZoom: PDFZoomVerbs? {
         PDFZoomVerbs.resolve(workspace: selectedWorkspace, pdf: editorPDF, readerHasFocus: editorPDFReaderFocused)
     }
 
-    /// File ▸ PDF Tools — the open PDF's tools, `nil` unless Edit is on screen with a PDF open or
+    /// File ▸ PDF Tools: the open PDF's tools, `nil` unless Edit is on screen with a PDF open or
     /// locked (`PDFToolsMenu.isOffered`), which is where the header draws its Tools menu.
     var shortcutPDFTools: EditorPDFTools? {
         guard PDFToolsMenu.isOffered(workspace: selectedWorkspace, hasPDF: editorPDF.path != nil,
@@ -1414,7 +1287,7 @@ extension ContentView {
         return editorPDF.tools
     }
 
-    /// Text ▸ Fit Page / Fit Width / Actual Size, the zoom and Go to Page… — `nil` unless Edit is on
+    /// Text ▸ Fit Page / Fit Width / Actual Size, the zoom and Go to Page…: `nil` unless Edit is on
     /// screen with a PDF open (`PDFPageVerbs.isOffered`). Go to Page… only where the capsule draws
     /// its page field: a PDF with pages.
     var shortcutPDFPage: PDFPageVerbs? {
@@ -1425,7 +1298,7 @@ extension ContentView {
                             goToPage: (editorPDF.facts?.pageCount ?? 0) > 0 ? { view.requestPageField() } : nil)
     }
 
-    /// File ▸ Fill & Sign and Save Filled Copy — the open PDF's own, `nil` unless Edit is on screen
+    /// File ▸ Fill & Sign and Save Filled Copy: the open PDF's own, `nil` unless Edit is on screen
     /// with a PDF open (`PDFFillSignVerbs.isOffered`), which is where the header draws the button.
     var shortcutPDFFill: PDFFillSignVerbs? {
         guard PDFFillSignVerbs.isOffered(workspace: selectedWorkspace, hasPDF: editorPDF.path != nil,
@@ -1433,9 +1306,9 @@ extension ContentView {
         return PDFFillSignVerbs(fill: editorPDF.fill, tools: editorPDF.tools)
     }
 
-    /// Text ▸ Expand ⌃⌘E — the header button's bit and act, offered where the header draws the
-    /// button (`EditorExpandSwitch.isOffered`). The act is `toggleJustTheText`, the one the button
-    /// calls, so the item and the button cannot fold different things.
+    /// Text ▸ Expand ⌃⌘E: the header button's bit and act, offered where the header draws the
+    /// button (`EditorExpandSwitch.isOffered`). The act is the button's own `toggleJustTheText`, so
+    /// the two cannot fold different things.
     var shortcutEditorExpand: EditorExpandSwitch? {
         guard EditorExpandSwitch.isOffered(workspace: selectedWorkspace,
                                            hasDocument: editorOpenPath != nil,
@@ -1445,14 +1318,8 @@ extension ContentView {
 
     // MARK: - Saving
 
-    /// ⌘S. **Present even when the document is clean**, unlike before autosave.
-    ///
-    /// It used to be absent while clean, which greyed out File ▸ Save and was exactly right when
-    /// ⌘S was the only thing that ever wrote. Now the ordinary document is already on disk, so a
-    /// greyed-out Save would be the menu's answer to "did my work make it?" — and the one moment
-    /// somebody reaches for it is the moment autosave has STOPPED and the document is not clean at
-    /// all. It stays live whenever there is a document, and means "write it now, and settle
-    /// whatever is blocking that".
+    /// ⌘S, live whenever there is a writable document, even a clean one: it means "write it now,
+    /// and settle whatever is blocking that", and people reach for it when autosave has stopped.
     var shortcutSaveDocument: (() -> Void)? {
         guard editorDocument.path != nil, !editorDocument.isReadOnly else { return nil }
         return { _ = saveEditorDocument() }
@@ -1460,18 +1327,18 @@ extension ContentView {
 
     /// ⌘S: write the document now, asking about a divergence if there is one.
     ///
-    /// - Returns: `false` when the file does not hold the document afterwards — nothing was written,
+    /// - Returns: `false` when the file does not hold the document afterwards: nothing was written,
     ///   and something needed to be. A clean document with nothing stopped is `true` with no write.
     @discardableResult
     func saveEditorDocument() -> Bool {
-        // **TE59: the disk watch looks first** when the file has moved under the stamp — so a move is
-        // followed and a re-stamp over the same contents taken, rather than asked about; a real
+        // The disk watch looks first when the file has moved under the stamp, so a move is
+        // followed and a re-stamp over the same contents taken rather than asked about. A real
         // change raises its banner, and the question below is still asked, since ⌘S asked to write.
         if let path = editorDocument.path, let stamp = editorDocument.stamp,
            EditorFileStore.divergence(atPath: path, from: stamp) != nil {
-            // **FR50: autosave's own write, landed and not yet committed, is not a change from
-            // elsewhere.** It is committed here, with the host's half of a write, and the question
-            // below then compares against the stamp it left — so only a real change is asked about.
+            // Autosave's own write, landed and not yet committed, is not a change from elsewhere.
+            // It is committed here with the host's half of a write, and the question below then
+            // compares against the stamp it left.
             if EditorAutosave.settleLandedWrite(into: editorDocument) {
                 _ = writeEditorDocumentDidWrite()
             } else {
@@ -1480,19 +1347,18 @@ extension ContentView {
         }
         guard let path = editorDocument.path, let stamp = editorDocument.stamp,
               !editorDocument.isReadOnly else { return false }
-        // Re-stat before writing. A file opened an hour ago may have been filed, renamed or edited
-        // since — including by this same window's Organize run. **The stamp is kept**: it is the
-        // version the question is about, and Keep Mine replaces that one and no later one (FR48).
+        // Re-stat before writing: the file may have been filed, renamed or edited since it was
+        // opened, even by this window's Organize run. The stamp is kept: it is the version the
+        // question is about, and Keep Mine replaces that one and no later one.
         let seen = EditorFileStore.stamp(ofPath: path)
         if let divergence = EditorFileStore.divergence(of: seen, from: stamp) {
             return applyDivergenceAnswer(
                 EditorAlerts.askAboutDivergence(name: editorDocument.name, divergence: divergence),
                 divergence: divergence, path: path, explicit: true, seen: seen)
         }
-        // **TE145: nothing changed, nothing written.** The file is where the stamp says and holds the
-        // buffer, so a rewrite would only give it a new date — and a sync client a reason to upload
-        // it again. After the divergence check, so a file that went or changed is still asked about;
-        // and only with no stop, so a stopped autosave's ⌘S still writes. Not in
+        // Nothing changed, nothing written: a rewrite would only give the file a new date and a
+        // sync client a reason to upload it. After the divergence check, so a changed file is still
+        // asked about; only with no stop, so a stopped autosave's ⌘S still writes. Not in
         // `writeEditorDocument`, which Keep Mine and Save Again need to write whatever the buffer is.
         if Self.saveHasNothingToWrite(isDirty: editorDocument.isDirty, stop: editorAutosaveStop) {
             Logger.shared.debug("Editor saved nothing to \(path) — it already holds the document")
@@ -1501,80 +1367,70 @@ extension ContentView {
         return writeEditorDocument(explicit: true)
     }
 
-    /// Whether ⌘S has nothing to write (TE145): the buffer is the file's text and no stop stands. A
-    /// stop — a failed or unchecked write, a divergence — is ⌘S's to settle, so it always writes.
+    /// Whether ⌘S has nothing to write: the buffer is the file's text and no stop stands. A stop
+    /// (a failed or unchecked write, a divergence) is ⌘S's to settle, so it always writes.
     static func saveHasNothingToWrite(isDirty: Bool, stop: EditorAutosaveStop?) -> Bool {
         !isDirty && stop == nil
     }
 
     // MARK: - Which version wins
 
-    /// A divergence question that has been detoured into the diff overlay.
-    ///
-    /// **Carried rather than recomputed, because the answer has to come back to the same path that
-    /// asked.** `explicit` is what ⌘S and the header's door have in common and the autosave timer
-    /// does not: a write the user asked for logs at INFO and one the debounce made logs at DEBUG,
-    /// and the overlay's Keep Mine… must land in the right one. See `writeEditorDocument`.
+    /// A divergence question that has been detoured into the diff overlay, carried so the answer
+    /// comes back to the path that asked. `explicit` separates ⌘S and the header's door (logged at
+    /// INFO) from the autosave timer (DEBUG), so the overlay's Keep Mine… logs in the right one.
     struct EditorDivergenceReview: Equatable {
         var divergence: EditorFileStore.Divergence
         var explicit: Bool
-        /// **The document the diff is ABOUT.**
-        ///
-        /// The overlay leads the window's overlay chain and its scrim absorbs clicks, but the menu
-        /// bar is still live — File ▸ Open and ⌘N can hand the editor another file while two
-        /// versions of this one are on screen. Without this, the foot's Keep Mine… would write
-        /// whatever document happened to be open by then, on the strength of a diff of a different
-        /// file. The answer is refused instead: see ``answerEditorDivergenceDiff(_:)``.
+        /// The document the diff is ABOUT. The overlay's scrim absorbs clicks but the menu bar
+        /// stays live, so another file can be opened meanwhile; Keep Mine… must not write it. The
+        /// answer is refused instead (``answerEditorDivergenceDiff(_:)``).
         var path: String
-        /// **The disk's stamp as the diff was opened** — the version on the right-hand side, which
-        /// the foot's Keep Mine… agrees to replace. A version that arrives while the two columns are
-        /// on screen is not that one, and the write keeps it aside rather than delete it (FR48).
+        /// The disk's stamp as the diff was opened: the right-hand version, which Keep Mine…
+        /// agrees to replace. A version arriving while the diff is up is kept aside by the write,
+        /// not deleted.
         var seen: EditorFileStore.Stamp?
     }
 
-    /// **The one place a divergence answer is acted on** — from the alert, from the overlay's foot,
-    /// and from the header's door. One function, so a caller cannot answer one of the four cases
-    /// differently from the others, and `.showWhatChanged` cannot be dropped on the floor by a
-    /// `switch` that has run out of interesting cases.
+    /// The one place a divergence answer is acted on, from the alert, the overlay's foot and the
+    /// header's door, so no caller can answer one of the four cases differently.
     ///
-    /// - Parameter seen: the disk's stamp when the question was put — the version the user is
-    ///   answering about. Keep Mine consents to replacing that version only, so one that arrives
-    ///   while the question is on screen is kept aside by the write, not deleted unseen (FR48).
-    /// - Returns: whether anything was WRITTEN — so `false` for the detour, which resolves nothing.
+    /// - Parameter seen: the disk's stamp when the question was put. Keep Mine consents to
+    ///   replacing that version only, so one that arrives while the question is up is kept aside
+    ///   by the write, not deleted unseen.
+    /// - Returns: whether anything was WRITTEN, so `false` for the detour, which resolves nothing.
     @discardableResult
     func applyDivergenceAnswer(_ answer: EditorAlerts.DivergenceAnswer,
                                divergence: EditorFileStore.Divergence,
                                path: String, explicit: Bool, seen: EditorFileStore.Stamp?) -> Bool {
         switch answer {
         case .saveAnyway:
-            // **A gone file's Save Again is the banner's, through the same path** (TE151): it looks
-            // before it writes, and makes the folder again if that went too.
+            // A gone file's Save Again is the banner's: it looks before it writes, and makes the
+            // folder again if that went too.
             if divergence == .missing { return saveEditorDocumentAgain(explicit: explicit) }
-            // **Keep Mine… asks before it writes, through every door** (TE97) — the banner, the ⌘S
-            // alert and the comparison sheet's foot all land here, so the consent is asked once,
-            // in one place. Declining is Cancel: nothing written, and autosave stays stopped.
+            // Keep Mine… asks before it writes, through every door (banner, ⌘S alert, the
+            // comparison's foot), here in one place. Declining is Cancel: nothing written, and
+            // autosave stays stopped.
             if EditorAlerts.keepMineAsks(for: divergence),
                !EditorAlerts.confirmKeepMine(name: editorDocument.name) {
                 editorAutosaveStop = .diverged(divergence)
                 return false
             }
-            // The disk as it stood when they were ASKED — the version Keep Mine replaces on purpose,
-            // so the save does not keep it aside as one that arrived unasked (FR48). Not a stat taken
-            // now: a sync landing while the consent alert was up would be "agreed to" unseen.
+            // The disk as it stood when they were ASKED, the version Keep Mine replaces on purpose.
+            // Not a stat taken now: a sync landing while the consent alert was up would be "agreed
+            // to" unseen.
             return writeEditorDocument(explicit: explicit, consentedTo: seen)
         case .reloadFromDisk:
-            // **With the TE59 banner up, the reload is "Use Disk Version"** — the same answer, as one
-            // step ⌘Z takes back, so the typing the question was about can still come back. Every
-            // door onto this answer (the alert, the diff's foot) gets the safer of the two.
+            // With the disk-change banner up, the reload is "Use Disk Version": the same answer as
+            // one step ⌘Z takes back, so the typing can still come back. Every door gets the safer one.
             if editorDiskWatch.banner == .changed {
                 if editorDiskWatch.useDisksVersion() == .unreadable { reportDisksVersionUnreadable() }
                 return false
             }
             return reloadOverTheBuffer(path: path)
         case .showWhatChanged:
-            // **The latch goes on BEFORE the overlay, not after it.** While two versions are on
-            // screen the debounce must not quietly write one of them — and it makes dismissing the
-            // overlay identical to Cancel, which is the property Escape has to have.
+            // **The latch goes on BEFORE the overlay:** while two versions are on screen the
+            // debounce must not write one of them, and dismissing the overlay is then Cancel, as
+            // Escape must be.
             editorAutosaveStop = .diverged(divergence)
             // Stamped as the diff opens, which is the version it reads for its right-hand side.
             editorDivergenceReview = EditorDivergenceReview(divergence: divergence,
@@ -1582,8 +1438,8 @@ extension ContentView {
                                                             seen: EditorFileStore.stamp(ofPath: path))
             return false
         case .cancel:
-            // Declining leaves autosave stopped, and says so on the header rather than going
-            // quiet: the document is now in the one state where typing is not reaching disk.
+            // Declining leaves autosave stopped, and the header says so: typing is not reaching
+            // disk.
             editorAutosaveStop = .diverged(divergence)
             return false
         }
@@ -1597,19 +1453,16 @@ extension ContentView {
         applyDivergenceAnswer(.showWhatChanged, divergence: divergence, path: path, explicit: true, seen: nil)
     }
 
-    /// The overlay's foot, answered. **The same three answers travelling back**, through the same
-    /// function the alert's answer goes through — never a second write path.
+    /// The overlay's foot, answered: the same three answers, through the alert's function, never
+    /// a second write path.
     func answerEditorDivergenceDiff(_ verdict: EditorDivergenceVerdict) {
         guard let review = editorDivergenceReview else { return }
-        // Cleared FIRST. Every branch below either writes, reloads, or leaves the stop standing,
-        // and all three want the overlay gone; clearing after would leave it up over a document
-        // that has already been reloaded out from under it.
+        // Cleared FIRST: every branch below wants the overlay gone, and clearing after would leave
+        // it over a document already reloaded out from under it.
         editorDivergenceReview = nil
-        // **The answer is about the file the diff showed, and only that one.** The menu bar stays
-        // live behind the scrim, so another document can have been opened while the overlay was up
-        // — and then Keep Mine… would overwrite it on the strength of a comparison of something
-        // else. Dropping the answer is the safe end: nothing is written, and the stop on whatever
-        // is open now still says what it says.
+        // **The answer is about the file the diff showed, and only that one.** Another document
+        // can have been opened from the menu bar meanwhile, and Keep Mine… would overwrite it.
+        // Dropping the answer writes nothing and leaves the open document's stop as it is.
         guard editorDocument.path == review.path else {
             Logger.shared.info(
                 "Editor discarded a divergence answer for \(review.path) — the open document is now \(editorDocument.path ?? "none")")
@@ -1620,18 +1473,16 @@ extension ContentView {
                               path: review.path, explicit: review.explicit, seen: review.seen)
     }
 
-    /// The write itself, with no questions in it — both ⌘S and autosave land here.
-    ///
-    /// **A successful write clears the stop**, whatever it was: the file on disk is now this
-    /// buffer, so the reason autosave halted has gone with it.
+    /// The write itself, with no questions in it; ⌘S, Keep Mine and Save Again land here. A
+    /// successful write clears the stop, whatever it was: the file on disk is now this buffer.
     @discardableResult
     private func writeEditorDocument(explicit: Bool, consentedTo: EditorFileStore.Stamp? = nil) -> Bool {
-        // **A write that puts the file BACK** — Save Again after it was deleted — is a
-        // new file in a folder the panes have walked, and is shown there as ⌘N's is. A rewrite of a
-        // file the panes already list is not (see `rereadPanesAfterEditorWrite`).
+        // A write that puts the file BACK (Save Again after it was deleted) is a new file in a
+        // folder the panes have walked, and is shown there as ⌘N's is. A rewrite of a listed file is
+        // not (`rereadPanesAfterEditorWrite`).
         let recreates = editorDocument.path.map { !FileManager.default.fileExists(atPath: $0) } ?? false
-        // **Saved and checked, with a displaced version kept beside it** (FR48): the store has
-        // marked the document saved, so this is a save with something to say, not a stop.
+        // Saved and checked, with a displaced version kept beside it: the store has marked the
+        // document saved, so this is a save with something to say, not a stop.
         var keptAside: String?
         do {
             do {
@@ -1640,12 +1491,10 @@ extension ContentView {
                 keptAside = failure.savedBut
             }
             editorAutosaveStop = nil
-            // The disk agrees with the document now, so a TE59 banner has nothing left to ask.
+            // The disk agrees with the document now, so a disk-change banner has nothing to ask.
             editorDiskWatch.reconcile()
-            // **⌘S is INFO and autosave is DEBUG, and that split is deliberate.** He audits this
-            // log. One line per explicit save is a record; one line every two seconds of typing is
-            // a flood that buries everything around it — including the failures below, which is the
-            // half of this that has to be readable.
+            // An explicit save logs at INFO and an autosave at DEBUG: one line per save is a
+            // record, one every two seconds of typing would bury the failures below.
             let path = editorDocument.path ?? ""
             noteEditorWrote(path)
             if explicit {
@@ -1660,9 +1509,9 @@ extension ContentView {
             }
             return true
         } catch {
-            // **Banner, never log-only.** A save that silently failed is the one failure in this
-            // app that can cost work the user believes is on disk. One that landed and could not be
-            // checked says so instead (TE114), and stops autosave, which has no stamp to write by.
+            // **Banner, never log-only:** a silently failed save costs work the user believes is
+            // on disk. One that landed but could not be checked says so, and stops autosave, which
+            // has no stamp to write by.
             let stop = EditorAutosaveStop(saveError: error)
             if case .unchecked = stop { editorAutosaveStop = stop }
             syncManager.banner = stop.banner(name: editorDocument.name)
@@ -1672,49 +1521,30 @@ extension ContentView {
 
     // MARK: - Autosave
 
-    /// One autosave attempt, from the debounce or from a flush.
+    /// One autosave attempt: from the debounce, or when autosave resumes or is switched back on.
     ///
-    /// **The stop latch is checked first, and it is what keeps this from becoming a nag.** The
-    /// alert below interrupts the moment a divergence is found, which is what was asked for — but
-    /// an alert raised from a timer that restarts on every keystroke would come back two seconds
-    /// after it was dismissed, and again, and again, for as long as the file stayed diverged. So a
-    /// stop LATCHES: autosave does nothing further until a write succeeds or the user clears it,
-    /// and ⌘S is the way to ask again deliberately.
-    /// **The write itself happens off the main actor**, which is the whole of this change.
+    /// The stop latch is checked first, so the divergence alert cannot come back two seconds after
+    /// each dismissal: a stop LATCHES until a write succeeds or the user clears it, and ⌘S asks
+    /// again deliberately.
     ///
-    /// The debounce fires two seconds after the typing pauses — which, for anybody writing in
-    /// bursts, is the moment the typing resumes. What ran there was a `stat` with a symlink
-    /// resolve, an `attributesOfItem`, an O(n) encode, a `Data.write`, an `F_FULLFSYNC` (tens of
-    /// milliseconds on the internal SSD, considerably more on an external or iCloud volume), a
-    /// `replaceItem`, a `removeItem` and a re-`stat`, all of it on the main actor with the caret
-    /// blinking in the same run loop.
-    ///
-    /// **The durability is unchanged, deliberately.** `F_FULLFSYNC` stays on both paths. The reason
-    /// to weaken it to a plain `fsync` would have been the main-actor stall it caused, and that
-    /// reason has just been removed — a flush the user never waits for costs nothing to do
-    /// properly, and these are real cloud folders where a half-written file syncs to every other
-    /// machine.
-    ///
-    /// Everything the outcome leads to — the latch, the alert, the banner — is unchanged and still
-    /// happens on the main actor. What the outcome is *about* changed: it describes the snapshot
-    /// that was written, not the buffer as it stands now. See `EditorAutosave.Snapshot`.
+    /// The write runs off the main actor, since it includes an `F_FULLFSYNC` that can take tens of
+    /// milliseconds or more, and the debounce fires just as bursty typing resumes. `F_FULLFSYNC`
+    /// stays: these are cloud folders, where a half-written file syncs to every other machine. The
+    /// latch, alert and banner still happen on the main actor; the outcome describes the snapshot
+    /// written, not the buffer as it stands now (`EditorAutosave.Snapshot`).
     func runAutosave() {
-        // **The switch is checked here rather than in the driver**, so the timer still runs and the
-        // document is still asked the ordinary questions — only the write is withheld. Gating the
-        // driver instead would mean a file switched back ON mid-edit waited for the next keystroke
-        // before anything reached disk.
+        // The switch is checked here, not in the driver, so the timer still runs and only the
+        // write is withheld; a file switched back ON mid-edit then saves without another keystroke.
         guard editorAutosavePolicy.isOn(editorDocument.path) else { return }
         guard editorAutosaveStop == nil else { return }
-        // One background write at a time. Two overlapping ones would both spin up an `F_FULLFSYNC`
-        // against the same file to no purpose; the store's write order makes them *safe*, and this
-        // makes them not happen. The typing turned away here is not dropped: the write's commit
-        // moves the stamp the debounce is keyed on, which starts the wait again (FR51).
+        // One background write at a time: overlapping ones would be safe but wasteful. Typing
+        // turned away here is not dropped: the write's commit moves the stamp the debounce is
+        // keyed on, which starts the wait again.
         guard !editorIsWritingInBackground else { return }
         guard let snapshot = EditorAutosave.snapshot(of: editorDocument) else { return }
         editorIsWritingInBackground = true
-        // **An unstructured `Task`, not the driver's.** The driver's task is cancelled by the next
-        // keystroke — that cancellation IS the debounce — and a write that has already been
-        // dispatched must finish and commit whatever the typist does next.
+        // **An unstructured `Task`, not the driver's:** the driver's task is cancelled by the next
+        // keystroke (that IS the debounce), and a dispatched write must finish and commit.
         Task { @MainActor in
             let outcome = await EditorAutosave.write(snapshot, into: editorDocument)
             editorIsWritingInBackground = false
@@ -1722,8 +1552,7 @@ extension ContentView {
         }
     }
 
-    /// What an autosave attempt leads to on screen — identical for the synchronous and the
-    /// background path, which is why it is one function rather than two copies.
+    /// What an autosave attempt leads to on screen.
     private func applyAutosaveOutcome(_ outcome: EditorAutosave.Outcome) {
         switch outcome {
         case .nothingToDo:
@@ -1731,20 +1560,18 @@ extension ContentView {
         case .wrote:
             _ = writeEditorDocumentDidWrite()
         case .wroteKeepingAside(let clause):
-            // **A save, not a stop** (FR48): written and checked, with the version it displaced
-            // kept beside it — said in the banner, while the header goes back to saving.
+            // A save, not a stop: written and checked, with the version it displaced kept beside
+            // it, said in the banner, while the header goes back to saving.
             _ = writeEditorDocumentDidWrite()
             syncManager.banner = EditorAutosaveStop.savedBut(name: editorDocument.name, clause: clause)
         case .blocked(let divergence):
-            // **TE59: the disk watch answers this first**, with its banner rather than a modal — the
-            // write found what the watch would have found a moment later. A move it follows is not
-            // a divergence at all, and the write is simply made again at the new path.
+            // The disk watch answers this first, with its banner rather than a modal. A move it
+            // follows is not a divergence, and the write is made again at the new path.
             switch editorDiskWatch.reconcile() {
             case .asked:
-                // **The stop is re-latched from the banner**, which may have stood since before: a
-                // settle that cleared the stop without changing the document left the two
-                // disagreeing — the banner up, autosave free, and Compare (which reads the stop)
-                // doing nothing.
+                // The stop is re-latched from the banner, which may have stood since before: a
+                // settle that cleared the stop would otherwise leave the banner up, autosave free,
+                // and Compare (which reads the stop) doing nothing.
                 editorDiskBannerDidChange(editorDiskWatch.banner)
                 return
             // Followed to its new path, or only re-stamped over the same contents: nothing to ask,
@@ -1753,11 +1580,9 @@ extension ContentView {
             default: break
             }
             editorAutosaveStop = .diverged(divergence)
-            // Interrupt now rather than wait to be noticed. The latch above is already set, so
-            // declining leaves the document visibly stopped instead of asking again — and so does
-            // asking to see the diff, which is why both go through the one function below rather
-            // than being re-decided here.
-            // The version the alert is about, stamped before it is put (FR48).
+            // Interrupt now. The latch is already set, so declining or asking for the diff leaves
+            // the document visibly stopped instead of asking again. The version the alert is
+            // about is stamped before it is put.
             let path = editorDocument.path ?? ""
             let seen = EditorFileStore.stamp(ofPath: path)
             applyDivergenceAnswer(
@@ -1765,18 +1590,18 @@ extension ContentView {
                 divergence: divergence, path: path, explicit: false, seen: seen)
         case .failed(let message):
             // Latched for the same reason: a full disk or a read-only volume fails identically
-            // every two seconds, and a banner per attempt is not a report, it is noise.
+            // every two seconds, and a banner per attempt would be noise.
             editorAutosaveStop = .failed(message)
             syncManager.banner = editorAutosaveStop?.banner(name: editorDocument.name)
         case .savedUnchecked(let clause):
-            // Latched too, and said as what it is: saved, but not checked (TE114).
+            // Latched too, and said as what it is: saved, but not checked.
             editorAutosaveStop = .unchecked(clause)
             syncManager.banner = editorAutosaveStop?.banner(name: editorDocument.name)
         }
     }
 
-    /// `EditorAutosave.attempt` has already written and stamped the document; this is the host's
-    /// half — the log line, the rail, and clearing any stop.
+    /// The host's half of a write autosave has already made and stamped: the log line, the rail,
+    /// and clearing any stop.
     private func writeEditorDocumentDidWrite() -> Bool {
         editorAutosaveStop = nil
         editorDiskWatch.reconcile()
@@ -1789,13 +1614,10 @@ extension ContentView {
     /// Called after a flush that wrote or had nothing to do.
     func noteAutosave() { editorAutosaveStop = nil }
 
-    /// Records a file the editor just wrote over, for Compare — whose list is the last scan's and
-    /// is not told about writes made anywhere else. Paid on arriving in Compare, or at once if
-    /// Compare is what is on screen. See `ContentView.OwedComparison`.
-    ///
-    /// **A write under neither compared folder is not owed** — it cannot change the comparison.
-    /// Its cached walks are still stale, so they are dropped here, at the write, rather than by
-    /// the next comparing refresh: a pane moved to that folder later reads the file as written.
+    /// Records a file the editor just wrote over, for Compare, whose list is the last scan's.
+    /// Paid on arriving in Compare, or at once if Compare is on screen (`ContentView.OwedComparison`).
+    /// A write under neither compared folder is not owed, but its cached walks are dropped here, so
+    /// a pane moved to that folder later reads the file as written.
     func noteEditorWrote(_ path: String?) {
         guard let path, !path.isEmpty else { return }
         guard owedComparison.recordWrite(path, leftFolder: currentLeftPath, rightFolder: currentRightPath,
@@ -1807,29 +1629,25 @@ extension ContentView {
         if selectedWorkspace == .compare { payOwedComparisonIfNeeded() }
     }
 
-    /// "Use Disk Version" without the banner: throw the buffer away and re-read the file.
+    /// "Use Disk Version" without the banner: throw the buffer away and re-read the file. A named
+    /// function because it discards typing on purpose, and the undo stack must go with it: the
+    /// text view keeps the same document identity and would otherwise keep registrations made
+    /// against the discarded text.
     ///
-    /// **The only route in this app that discards typing on purpose**, which is why it is a named
-    /// function rather than a call to `loadIntoEditor` at two call sites: the thing worth stating
-    /// is that the buffer is gone deliberately and the undo stack goes with it, since the text view
-    /// is handed a document whose identity has not changed and would otherwise keep registrations
-    /// made against the text being discarded.
-    ///
-    /// - Returns: `false` always — nothing was written, and callers whose contract is "did the save
-    ///   happen" must not be told it did.
+    /// - Returns: `false` always: nothing was written, and callers asking "did the save happen"
+    ///   must not be told it did.
     @discardableResult
     func reloadOverTheBuffer(path: String) -> Bool {
         guard !path.isEmpty else { return false }
         Logger.shared.info("Editor reloaded \(path) from disk, discarding the buffer")
-        // Clear the stop BEFORE the load: `loadIntoEditor` re-stamps the document, so the reason
-        // autosave halted is gone by the time it returns, and leaving the latch set would stop the
-        // next keystroke reaching disk for no reason anybody could see.
+        // Clear the stop BEFORE the load: `loadIntoEditor` re-stamps the document, and a latch
+        // left set would silently keep the next keystroke from reaching disk.
         editorAutosaveStop = nil
-        // **Forgotten before the load, not cleared after it.** `loadIntoEditor` will ask the store
-        // for this path's stack; dropping it here is what makes that ask return a fresh one.
+        // **Forgotten before the load, not cleared after it:** `loadIntoEditor` asks the store for
+        // this path's stack, and dropping it here makes that return a fresh one.
         editorUndoStore.forget(path)
-        // Beside it, and for the reason given at the discard site: the file on disk is not the text
-        // this anchor was measured against.
+        // The caret too, as at the discard site: the file on disk is not the text this anchor was
+        // measured against.
         editorDocument.caretAnchors.forget(path)
         // Not a new open: the file was already open, and its place in the recent files stays.
         loadIntoEditor(path: path, recordsRecent: false)
@@ -1838,31 +1656,29 @@ extension ContentView {
 
     // MARK: - Changes from elsewhere (TE59)
 
-    /// Points the disk watch at the document and tells it what the window does about what it finds.
-    /// Every appearance of the window — the closures are this view's, and a reopened window is
-    /// this view again; the attach itself happens once.
+    /// Points the disk watch at the document and tells it what the window does about what it
+    /// finds. Called on every appearance, since the closures are this view's; the attach itself
+    /// happens once.
     func attachEditorDiskWatch() {
         editorDiskWatch.attach(document: editorDocument, undoStore: editorUndoStore)
         editorDiskWatch.onMoved = { old, new, byThisApp in editorDocumentDidMove(from: old, to: new, byThisApp: byThisApp) }
         editorDiskWatch.onBannerChange = { banner in editorDiskBannerDidChange(banner) }
-        // TE147: the write was on disk as written after all, so there is nothing left to check.
+        // The write was on disk as written after all, so there is nothing left to check.
         editorDiskWatch.onUncheckedWriteChecked = {
             if case .unchecked = editorAutosaveStop { editorAutosaveStop = nil }
         }
     }
 
-    /// **The open file moved, and the document followed it** — the path-keyed state the window
-    /// holds goes with it: the autosave switch, the outline's place, a diff question about it.
-    /// Then the lists: the rail re-reads its folder, and the panes re-read where the file went and
-    /// select it there if they had it selected where it was.
+    /// The open file moved and the document followed it, so the window's path-keyed state goes
+    /// with it: the autosave switch, the outline's place, a diff question about it. Then the rail
+    /// re-reads its folder, and the panes re-read where the file went and keep it selected.
     ///
-    /// **Not the lists after the app's own file operation** (`byThisApp`): its epilogue has just
-    /// refreshed both panes in full and the rail where it is drawn (`refreshEditorAfterFileOperation`),
-    /// and a second re-read here dropped the walks that refresh was reading — defeating its duplicate
-    /// suppression — and logged a write Edit never made.
+    /// Not the lists after the app's own file operation (`byThisApp`): its epilogue has refreshed
+    /// both panes and the rail (`refreshEditorAfterFileOperation`), and a second re-read would drop
+    /// the walks that refresh is reading and log a write Edit never made.
     func editorDocumentDidMove(from old: String, to new: String, byThisApp: Bool) {
         editorAutosavePolicy.move(from: old, to: new)
-        // The recent files list it where it went, by this app or by Finder (TE58).
+        // The recent files list it where it went, by this app or by Finder.
         EditorRecentFiles.shared.move(from: old, to: new)
         EditorOutlineScroll.moveAnchor(in: &editorOutlineAnchors, from: old, to: new)
         if var review = editorDivergenceReview, review.path == old {
@@ -1877,13 +1693,10 @@ extension ContentView {
         rereadPanesAfterEditorWrite(new, writer: "The open document was moved elsewhere to")
     }
 
-    /// **A banner stops autosave, and its going lets it resume** — the latch the header already
-    /// reads, set from the banner so the two can never disagree: while a change from elsewhere is
-    /// waiting for an answer, nothing is written over either version.
-    ///
-    /// Cleared only when the disk agrees with the document again — a reload, Use Disk Version, Keep
-    /// Mine, Save Again — and not merely because the banner went with a file being closed, which
-    /// settles the stop its own way.
+    /// A banner stops autosave, and its going lets it resume: the header's latch, set from the
+    /// banner so the two agree. While a change from elsewhere awaits an answer, nothing is written
+    /// over either version. Cleared only when the disk agrees with the document again (a reload,
+    /// Use Disk Version, Keep Mine, Save Again), not merely because the banner went.
     func editorDiskBannerDidChange(_ banner: EditorDiskBanner?) {
         let diskAgrees = editorDocument.path.flatMap { path in
             editorDocument.diskStamp.map { EditorFileStore.divergence(atPath: path, from: $0) == nil }
@@ -1891,8 +1704,8 @@ extension ContentView {
         editorAutosaveStop = Self.autosaveStop(after: banner, current: editorAutosaveStop, diskAgrees: diskAgrees)
     }
 
-    /// The stop a banner leaves — see ``editorDiskBannerDidChange(_:)``. A failed write's stop is
-    /// not the banner's to clear: only a divergence is.
+    /// The stop a banner leaves (``editorDiskBannerDidChange(_:)``). A failed write's stop is not
+    /// the banner's to clear: only a divergence is.
     static func autosaveStop(after banner: EditorDiskBanner?, current: EditorAutosaveStop?,
                              diskAgrees: Bool) -> EditorAutosaveStop? {
         switch banner {
@@ -1913,11 +1726,9 @@ extension ContentView {
             editorDiskBannerDidChange(editorDiskWatch.banner)
             showEditorDivergenceDiff()
         case .keepMine:
-            // **The same answer as the alert's and the sheet's Keep Mine…** (TE97), so it asks the
-            // same consent in the same place: the other changes are lost, said in words, with the
-            // destructive button off Return.
-            // Stamped at the click, before the consent alert is put: the version on disk as they
-            // chose, not one that lands while the alert is up (FR48).
+            // The same answer as the alert's and the sheet's Keep Mine…, so it asks the same
+            // consent, with the destructive button off Return. Stamped at the click, before the
+            // alert: the version on disk as they chose, not one that lands while the alert is up.
             guard let path = editorDocument.path else { return }
             applyDivergenceAnswer(.saveAnyway, divergence: .changed, path: path, explicit: true,
                                   seen: EditorFileStore.stamp(ofPath: path))
@@ -1930,9 +1741,9 @@ extension ContentView {
         }
     }
 
-    /// **Save Again** — the banner's, and the ⌘S alert's for a file that is gone (TE151). Only while
-    /// the path is still empty — a file back there is looked at, not written over — and with its
-    /// folder made again if that went too.
+    /// Save Again: the banner's, and the ⌘S alert's for a file that is gone. Only while the path is
+    /// still empty (a file back there is looked at, not written over), and with its folder made
+    /// again if that went too.
     ///
     /// - Returns: whether it wrote.
     @discardableResult
@@ -1948,21 +1759,20 @@ extension ContentView {
         }
     }
 
-    /// "Use Disk Version" found nothing it could put in the buffer — the file is now unreadable, too
+    /// "Use Disk Version" found nothing it could put in the buffer: the file is now unreadable, too
     /// large or not text. Nothing changed; the banner stays, and says so.
     private func reportDisksVersionUnreadable() {
         Logger.shared.info("[edit] Could not take the version of \(editorDocument.path ?? "") on disk — it cannot be read as text now")
         syncManager.banner = .error("Couldn’t read the version of “\(editorDocument.name)” on disk — your text is unchanged.")
     }
 
-    /// **After one of the app's own file operations** (`refreshSubject`'s epilogue): Edit's rail
-    /// re-reads its folder, and the disk watch looks at the open document now — a rename, a move to
-    /// another folder, a delete or Organize filing it. The watch hears those as file-system events
-    /// too; this is the look without waiting for them to settle.
+    /// After one of the app's own file operations (`refreshSubject`'s epilogue): Edit's rail
+    /// re-reads its folder, and the disk watch looks at the open document now (a rename, a move, a
+    /// delete, Organize filing it) without waiting for the file-system events to settle.
     ///
-    /// The rail only while Edit is on screen: anywhere else it is not drawn, and arriving in Edit
-    /// re-reads it (`editorWorkspace`'s `.task(id:)`). The subject also fires when a pane moves,
-    /// where both are a directory read and a `stat` that find nothing new.
+    /// The rail only while Edit is on screen; arriving in Edit re-reads it (`editorWorkspace`'s
+    /// `.task(id:)`). The subject also fires when a pane moves, where both are cheap and find
+    /// nothing new.
     func refreshEditorAfterFileOperation() {
         if Self.railRefreshesAfterFileOperation(workspace: selectedWorkspace) {
             Task { await refreshEditorRail() }
@@ -1970,68 +1780,61 @@ extension ContentView {
         editorDiskWatch.reconcile(afterOwnFileOperation: true)
     }
 
-    /// Whether a file operation's epilogue re-reads Edit's rail — only where the rail can be seen.
+    /// Whether a file operation's epilogue re-reads Edit's rail: only where the rail can be seen.
     static func railRefreshesAfterFileOperation(workspace: Workspace) -> Bool {
         workspace == .editor
     }
 
     // MARK: - Creating
 
-    /// ⌘N, from every workspace.
-    ///
-    /// **Offered always.** It used to be withheld with no folder in the pane — a pane with no
-    /// source has no path, and a naming row there offered to create a file nowhere. Now such a
-    /// file goes to Notes, as one in a system folder does (see `EditorNewFileFolder`). From
-    /// anywhere else this makes the ⌘4 move first, so the file is created in the folder the user
-    /// was already looking at.
+    /// ⌘N, from every workspace, offered always. With no folder in the pane the file goes to Notes,
+    /// as one in a system folder does (`EditorNewFileFolder`). From another workspace this makes the
+    /// ⌘4 move first, so the file is created in the folder the user was looking at.
     var shortcutNewTextFile: () -> Void {
         {
-            // A new file waits with the rest of the window's writes while a long run goes (BZ):
-            // the empty page's and the rail's buttons reach here without a menu item to grey.
+            // A new file waits with the rest of the window's writes while a long run goes: the
+            // empty page's and the rail's buttons reach here without a menu item to grey.
             guard !refusedWhileRunLocked() else { return }
             // Asked of the workspace being LEFT, before the switch below: from Compare the pane
             // is half of the comparison and stays; from Organize it keeps its source.
             editorNewFilePane = ExternalOpen.pane(workspace: selectedWorkspace,
                                                   isReviewing: reviewStore.isReviewing, atLaunch: false)
-            // The tab first, so a rail this switch builds starts on its files half rather than
-            // switching there in its first update — which, under a selection lens, glided across
-            // the rail tabs on a window nobody had touched yet. The rail's own `onChange` still
-            // moves the tab for a ⌘N made with the rail already on screen.
+            // The tab first, so a rail this switch builds starts on Files rather than visibly
+            // switching there in its first update. The rail's own `onChange` moves the tab for a
+            // ⌘N made with the rail already on screen.
             editorRailTab = .files
             if selectedWorkspace != .editor { selectedWorkspace = .editor }
             // After the switch: `editorFolder` reads the workspace on screen.
             guard takePaneToNotesIfItIsNoPlaceForAFile() else { return }
             editorIsNaming = true
-            // **Bumped every time, including when the row is already open.** Setting `isNaming`
-            // true when it is already true is not a change, so the rail's `onChange` does not fire
-            // and focus stays wherever it was — a second ⌘N looked like it did nothing.
+            // Bumped every time, even with the row already open: setting `isNaming` true again is
+            // not a change, so `onChange` would not fire and a second ⌘N would not move focus.
             editorNamingFocus &+= 1
         }
     }
 
-    /// Where ⌘N's file goes: the pane's folder, or Notes and why — see `EditorNewFileFolder`.
-    /// Reads the disk: asked when ⌘N is pressed, when the file is made, and by the naming row while
-    /// it is open (whose refusal reads the folder anyway). The ＋'s tooltip is drawn always, so it
-    /// asks ``editorNewFileFolderName`` instead.
+    /// Where ⌘N's file goes: the pane's folder, or Notes and why (`EditorNewFileFolder`). Reads the
+    /// disk, so it is asked only when ⌘N is pressed, when the file is made, and by the open naming
+    /// row. The ＋'s tooltip is drawn always, so it asks ``editorNewFileFolderName`` instead.
     var newTextFileDestination: (folder: String, refusal: EditorNewFileFolder.Refusal?) {
         EditorNewFileFolder.destination(paneFolder: editorFolder, home: NSHomeDirectory(),
                                         isWritable: { FileManager.default.isWritableFile(atPath: $0) },
                                         resolve: { Self.resolved($0) })
     }
 
-    /// "Notes" when the ＋'s tooltip and the naming row must name it instead of the pane's folder —
-    /// the spelling half of the rule only, since this is read on every body pass. A folder that
-    /// can't be written to is still named until ⌘N finds out; the pane then goes to Notes.
+    /// "Notes" when the ＋'s tooltip and the naming row must name it instead of the pane's folder:
+    /// the path half of the rule only, since this is read on every body pass. A folder that can't
+    /// be written to is still named until ⌘N finds out; the pane then goes to Notes.
     var editorNewFileFolderName: String? {
         EditorNewFileFolder.pathRefusal(of: editorFolder, home: NSHomeDirectory()) == nil
             ? nil : EditorNewFileFolder.notesName
     }
 
-    /// ⌘N's first step when the pane's folder is no place for a file: make Notes, and take the
-    /// pane there — a tab already showing it, or a new one — so the name is typed in the folder it
-    /// will land in. **As the pane rule says** (`editorNewFilePane`): from Compare it stays put —
-    /// the file still goes to Notes, and the naming row says so — and from Organize it follows only
-    /// on its own source. `false` when Notes could not be made; ⌘N then opens nothing.
+    /// ⌘N's first step when the pane's folder is no place for a file: make Notes, and take the pane
+    /// there (a tab already showing it, or a new one), so the name is typed where it will land. As
+    /// `editorNewFilePane` says, from Compare the pane stays put (the naming row says where the file
+    /// goes) and from Organize it follows only on its own source. `false` when Notes could not be
+    /// made; ⌘N then opens nothing.
     func takePaneToNotesIfItIsNoPlaceForAFile() -> Bool {
         let paneFolder = editorFolder
         let (folder, refusal) = newTextFileDestination
@@ -2047,9 +1850,8 @@ extension ContentView {
             followFolderInTabs(folder, for: "the file ⌘N is about to make",
                                keepsSource: editorNewFilePane == .followsOnItsSource)
         }
-        // **A folder made just now is in no walk yet** — a pane left on Documents or above it (from
-        // Compare, or with nowhere to go) would not list it until something re-read it. So the pane
-        // that holds Notes is re-read, as the move left it.
+        // A folder made just now is in no walk yet, so a pane left on Documents or above would not
+        // list it. The pane that holds Notes is re-read, as the move left it.
         if notes == .madeNow { rereadPanesAfterEditorWrite(folder) }
         return true
     }
@@ -2077,9 +1879,8 @@ extension ContentView {
 
     /// Creates the named file and opens it, clean.
     ///
-    /// - Returns: `false` when nothing was created, so the naming row can stay open with the typed
-    ///   name still in it. Cancelling a question about the *previous* document must not also throw
-    ///   away the name typed for this one.
+    /// - Returns: `false` when nothing was created, so the naming row stays open with the typed
+    ///   name: cancelling a question about the previous document must not throw it away.
     @discardableResult
     func createTextFile(named name: String) -> Bool {
         let (folder, refusal) = newTextFileDestination
@@ -2093,15 +1894,13 @@ extension ContentView {
             let path = try EditorFileStore.createEmptyFile(named: name, in: folder)
             Logger.shared.info("Editor created \(path)")
             loadIntoEditor(path: path)
-            // ⌘N took the pane to Notes; this is for a pane that could not go, or was moved off
-            // it while the name was typed. The file is opened in Edit, and the pane follows that —
-            // by the same rule ⌘N's own move took (`editorNewFilePane`).
+            // ⌘N took the pane to Notes; this is for a pane that could not go, or was moved off it
+            // while the name was typed. The pane follows the file by ⌘N's rule (`editorNewFilePane`).
             if refusal != nil, editorNewFilePane != .staysPut {
                 followFolderInTabs(folder, keepsSource: editorNewFilePane == .followsOnItsSource)
             }
-            // Both lists, whichever is on screen: the rail for the collapsed arm, the pane for the
-            // expanded one — and the pane is re-read even while collapsed, so it is current when
-            // it is next opened.
+            // Both lists, whichever is on screen; the pane is re-read even while collapsed, so it
+            // is current when next opened.
             Task { await refreshEditorRail() }
             showCreatedFileInPane(path)
             return true
@@ -2111,14 +1910,13 @@ extension ContentView {
         }
     }
 
-    /// **What an image dropped on or pasted into the open note left on disk — or why nothing did**
-    /// (TE56). The text view has already linked what was written; this is the host's half.
+    /// What an image dropped on or pasted into the open note left on disk, or why nothing did. The
+    /// text view has already linked what was written; this is the host's half.
     ///
-    /// A new image is a new file in a folder the panes have walked, so it is re-read the way ⌘N's
-    /// file is (`rereadPanesAfterEditorWrite`) — which, under a folder Compare is comparing, owes
-    /// that comparison its rescan. A folder this import made is re-read through its parent, as ⌘N's
-    /// Notes is; images in a folder that was there, through that folder. A refusal changed nothing
-    /// on disk and says so in the banner, as every other Edit write that could not happen does.
+    /// A new image is a new file in a walked folder, so it is re-read as ⌘N's file is
+    /// (`rereadPanesAfterEditorWrite`), owing a comparison its rescan. A folder this import made is
+    /// re-read through its parent, as ⌘N's Notes is. A refusal changed nothing on disk and says so
+    /// in the banner.
     func noteEditorImages(_ report: EditorImageImport.Report) {
         switch report {
         case .refused(let reason):
@@ -2136,64 +1934,49 @@ extension ContentView {
             // Nothing written is past what Preview draws: an import over it is refused whole.
             if let failed { syncManager.banner = .error(failed) }
             if let reread = madeFolder ?? files.first { rereadPanesAfterEditorWrite(reread) }
-            // The rail lists the note's folder — and an image, or the folder it went in, is a new
+            // The rail lists the note's folder, and an image, or the folder it went in, is a new
             // entry there.
             if !files.isEmpty || madeFolder != nil { Task { await refreshEditorRail() } }
-            // A few seconds in the status line: what was saved, and where (TE182).
+            // A few seconds in the status line: what was saved, and where.
             editorDiskWatch.noteImagesImported(report)
         }
     }
 
-    /// Makes the left pane list a file ⌘N just created, and select it once it does.
+    /// Makes the left pane list a file ⌘N just created, and select it once it does. The open pane
+    /// IS Edit's file list (the rail is withheld beside it), so refreshing the rail alone is not
+    /// enough.
     ///
-    /// **Since TE36 the open pane IS Edit's file list**, and the rail beside it is withheld — so
-    /// `refreshEditorRail()` alone, which is all ⌘N used to do, refreshed a list nobody could see.
-    /// The file was on disk and open, and the column it was created in went on listing the folder
-    /// as it was, with nothing on screen saying where the document lived (TE44, 2026-09-25).
-    ///
-    /// **The selection is owed, not written now.** The node does not exist until the re-read
-    /// publishes, and a selection naming a row the list does not hold is at the mercy of the
-    /// `List` and of `pruneSelection`. So it is recorded here and written by
-    /// ``settleOwedPaneSelection()`` on the tree publish that lists it — including a column's
-    /// graft, which arrives on its own publish after the walk. Since TE47 this is one of the
-    /// doors onto ``owePaneSelection(_:)``, not a mechanism of its own.
+    /// The selection is owed, not written now (``owePaneSelection(_:)``): the node does not exist
+    /// until the re-read publishes, and a selection naming a row the list lacks is at the mercy of
+    /// the `List` and `pruneSelection`. ``settleOwedPaneSelection()`` writes it on the publish that
+    /// lists it, including a column's graft, which arrives on its own publish after the walk.
     func showCreatedFileInPane(_ path: String) {
         owePaneSelection(path)
         rereadPanesAfterEditorWrite(path)
     }
 
-    /// The re-read a file Edit put on disk itself needs — the pane that shows it, and nothing
-    /// more.
+    /// The re-read a file Edit put on disk itself needs: the pane that shows it, and nothing more.
     ///
-    /// **Two halves, and neither is optional.** `prepareReread(afterWritingAt:)` drops the cached
-    /// walks that list the file's folder: without that a pane that has finished a deep walk is
-    /// served that walk, taken before the file existed (measured, `OutOfQueueWriteRereadTests`).
-    /// It also bumps the scan-config epoch, so a same-target refresh already in flight cannot
-    /// swallow this one as a duplicate. Then the reload, of each pane whose folder holds the file.
+    /// Two halves, neither optional. `prepareReread(afterWritingAt:)` drops the cached walks that
+    /// list the file's folder, or a pane would be served a walk taken before the file existed
+    /// (`OutOfQueueWriteRereadTests`); it also bumps the scan-config epoch, so a refresh already in
+    /// flight cannot swallow this one as a duplicate. Then each pane whose folder holds the file
+    /// (`panesHolding`) is reloaded, none when neither does.
     ///
-    /// **Targeted, where it was a file operation's `.both`** (TE47 review). A file operation can
-    /// touch many folders on both sides, so its epilogue empties the whole cache and re-reads and
-    /// re-compares both panes. One new file changes one folder, and this ran on every ⌘N and every
-    /// PDF export, in any workspace: the whole cache gone (every later navigation a cold walk), a
-    /// full comparison scan restarted — or a running one cancelled — and an export saved outside
-    /// both sources re-reading both. Now: only the walks listing the folder are dropped; only the
-    /// pane(s) whose folder holds the file are reloaded (`panesHolding`), none when neither does;
-    /// and the comparison runs only in Compare — elsewhere it is owed (`owedComparison`, the one
-    /// record every editor write feeds) and made good when Compare is next shown.
+    /// Targeted, unlike a file operation's epilogue, which empties the whole cache and re-compares
+    /// both panes: one new file changes one folder. The comparison runs only in Compare; elsewhere
+    /// it is owed (`owedComparison`) and made good when Compare is next shown.
     ///
-    /// Edit's writes do not go through the queue itself, deliberately — a new note must not wait
-    /// behind a long copy. **For writes that ADD a file only** (⌘N, Export as PDF): an autosave
-    /// rewrites a file the pane already lists, and a re-read twice a sentence would be the cost
-    /// the rail's own "only when the listing changed" guard exists to avoid — a rewrite is owed to
+    /// Edit's writes bypass the queue, so a new note never waits behind a long copy. For writes
+    /// that ADD a file only (⌘N, Export as PDF): an autosave rewrites a listed file, and is owed to
     /// Compare instead (`noteEditorWrote`).
     ///
     /// - Parameters:
-    ///   - writer: who put it there and how, for the log — the destination picker's New Folder and a
-    ///     move followed from elsewhere come through here too.
-    ///   - comparesInCompare: `false` where something else is about to compare — the picker's New
-    ///     Folder, whose transfer refreshes and compares both panes itself when it runs. The pane is
-    ///     re-read and the comparison owed, as outside Compare, so a declined transfer still lists
-    ///     the folder without a rescan the transfer's own would supersede a moment later.
+    ///   - writer: who put it there and how, for the log; the destination picker's New Folder and
+    ///     a move followed from elsewhere come through here too.
+    ///   - comparesInCompare: `false` where something else is about to compare: the picker's New
+    ///     Folder, whose transfer compares both panes itself. The pane is re-read and the comparison
+    ///     owed, so a declined transfer still lists the folder.
     func rereadPanesAfterEditorWrite(_ path: String, writer: String = "Edit wrote", comparesInCompare: Bool = true) {
         syncManager.prepareReread(afterWritingAt: path)
         guard let scope = Self.panesHolding(path, leftFolder: currentLeftPath, rightFolder: currentRightPath,
@@ -2203,23 +1986,23 @@ extension ContentView {
             return
         }
         if selectedWorkspace == .compare, comparesInCompare {
-            // Paid at once, as every write in Compare is: the pane(s) holding it re-read, compared.
+            // Paid at once, as every write in Compare is: the pane(s) holding it re-read and
+            // compared.
             noteEditorWrote(path)
         } else {
             refreshAction(reloading: scope, comparing: false)
-            // After the refresh, whose skipped comparison this names: the pane is re-read already,
-            // so Compare owes only the comparison, not a second walk.
+            // After the refresh, whose skipped comparison this names: the pane is re-read, so
+            // Compare owes only the comparison, not a second walk.
             owedComparison.skipped = OwedComparison.editorWrote(path)
         }
     }
 
-    /// Which panes a file written at `path` belongs in — each pane whose folder holds it (its
-    /// walk is deep, so a file anywhere below the folder is listed) — or `nil` for neither.
+    /// Which panes a file written at `path` belongs in: each pane whose folder holds it (its walk
+    /// is deep, so anywhere below counts), or `nil` for neither.
     ///
     /// `leftLinkTargets` / `rightLinkTargets` are where each pane's walk read through a folder
-    /// symlink (`FileSyncManager.leftTreeLinkTargets`): a file opened from a row below such a link
-    /// is saved where it leads, under no prefix of the pane's folder, and only the walk knows it
-    /// went there. Empty by default for the rule's own tests; the app passes the panes' records.
+    /// symlink (`FileSyncManager.leftTreeLinkTargets`): a file below such a link is saved where it
+    /// leads, under no prefix of the pane's folder. Empty by default for the rule's own tests.
     static func panesHolding(_ path: String, leftFolder: String, rightFolder: String,
                              leftLinkTargets: Set<String> = [], rightLinkTargets: Set<String> = [],
                              links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders)
@@ -2238,17 +2021,14 @@ extension ContentView {
     /// A selection the left pane owes: `path`, recorded while `document` was the open document
     /// and `workspace` was on screen.
     ///
-    /// The document is part of the debt rather than read at payment time, so "another file was
-    /// opened since" is a comparison the rule can make — and so a debt for a file that is NOT the
-    /// document (the rail menu's Reveal in Browse on another row) can be told apart from one whose
-    /// document has moved on. The workspace is part of it for the same reason: a debt is owed to
-    /// the moment it was recorded in, and a workspace switch ends that moment.
+    /// The document and workspace are recorded, not read at payment time, so the rule can tell
+    /// "another file was opened since" from a debt for a file that is not the document (the rail
+    /// menu's Reveal in Browse on another row). A debt is owed to the moment it was recorded in, and
+    /// a workspace switch ends that moment.
     ///
-    /// **One row, except for one door.** A PDF batch's Reveal in Browse owes every copy that sits
-    /// in the first copy's folder: `path` is the first, the row the pane scrolls to, and
-    /// `companions` the rest, selected with it. It may also replace the multi-selection the batch
-    /// was run on (`replaces`) — that set is what the banner's Reveal answers, not other work of
-    /// the user's. Both are empty for every other door, and the rule is then the one-row rule.
+    /// One row, except for a PDF batch's Reveal in Browse, which owes every copy in the first
+    /// copy's folder: `path` is the row the pane scrolls to, `companions` the rest. It may replace
+    /// the multi-selection the batch was run on (`replaces`). Both are empty for every other door.
     struct PaneSelectionDebt: Equatable {
         let path: String
         let document: String?
@@ -2260,20 +2040,20 @@ extension ContentView {
         var rows: Set<String> { Set(companions).union([path]) }
     }
 
-    /// What to do with an owed pane selection, as a rule — see ``owedPaneSelection(owed:openDocument:workspace:paneFolder:paneIsCurrent:isListed:selection:selectingOpens:)``.
+    /// What to do with an owed pane selection, as a rule: ``owedPaneSelection(owed:openDocument:workspace:paneFolder:paneIsCurrent:isListed:selection:selectingOpens:)``.
     enum OwedPaneSelection: Equatable {
         /// Nothing is owed.
         case nothing
         /// Not listed yet: keep it owed and ask again on the next publish.
         case wait
-        /// Listed: select it — with those of its companions the pane lists — and the debt is paid.
+        /// Listed: select it, with those of its companions the pane lists, and the debt is paid.
         case select(String, with: [String] = [])
-        /// No longer wanted: forget it without selecting anything — and say why in the log.
+        /// No longer wanted: forget it without selecting anything, and say why in the log.
         case drop(DropReason)
     }
 
-    /// Why an owed selection was dropped — each one a guard of the rule, and the log's account of
-    /// why the pane did NOT select the document, which is otherwise indistinguishable from a bug.
+    /// Why an owed selection was dropped: each a guard of the rule, and the log's account of why
+    /// the pane did NOT select the document, which would otherwise look like a bug.
     enum DropReason: Equatable {
         case anotherDocument
         case anotherWorkspace
@@ -2295,40 +2075,33 @@ extension ContentView {
         }
     }
 
-    /// **The one rule for "the pane selects the open document" (TE47)**, generalised from ⌘N's
-    /// (TE44). Each guard is a case in `EditorPaneFollowsDocumentTests`.
+    /// The one rule for "the pane selects the open document". Each guard is a case in
+    /// `EditorPaneFollowsDocumentTests`.
     ///
-    /// **When it applies: at a MOMENT, never continuously.** A debt is recorded only when a file is
-    /// opened from the rail, handed off from any door, created with ⌘N, revealed in Browse, or
-    /// shown by the header's "in <folder>" — ``owePaneSelection(_:)``'s callers, and nothing else.
-    /// Having a document open selects nothing: switching workspaces, collapsing the pane or
-    /// returning to Browse leaves the pane's selection, and a multi-selection made there, exactly
-    /// as the user left it.
+    /// It applies at a MOMENT, never continuously: a debt is recorded only by
+    /// ``owePaneSelection(_:)``'s callers (a rail open, a hand-off, ⌘N, Reveal in Browse, the
+    /// header's "in <folder>"). Having a document open selects nothing, so switching workspaces or
+    /// collapsing the pane leaves the user's selection as it was.
     ///
     /// - Another document has been opened since: dropped. In Edit a single selected text file
     ///   OPENS (`paneSelectionOpens`), so selecting the old one would drag the reader back to it.
     /// - Another workspace is on screen than the one the debt was recorded in: dropped. ⌘N's debt
-    ///   waits for a re-read, and the user can be in Compare by the time it publishes — where
-    ///   selecting would land in a pane the moment never concerned, over whatever they did there.
-    /// - The pane shows another folder than the file's: dropped. Selecting a row the pane is not
-    ///   showing would select something invisible — and a pane the user has navigated away is the
-    ///   user's. After a hand-off that re-roots, the pane is ALREADY on the file's folder here:
-    ///   `focusOn` moves the pane's folder synchronously, only its tree arrives later.
+    ///   waits for a re-read, and selecting in Compare would land over whatever the user did there.
+    /// - The pane shows another folder than the file's: dropped. The row would be invisible, and a
+    ///   pane navigated away is the user's. After a re-rooting hand-off the pane is ALREADY on the
+    ///   folder: `focusOn` moves it synchronously; only its tree arrives later.
     /// - Selecting would open a file that is not the document: dropped. Only the rail menu's Reveal
-    ///   in Browse owes a file that is not the document, and it lands in Browse, where a selection
-    ///   opens nothing — but if Edit's pane is what is showing when it comes due, the selection
-    ///   would open that file.
-    /// - The LEFT pane holds a multi-selection: dropped. Several rows selected there are the
-    ///   user's; the rule replaces a single selection or none, never a set — save the set a PDF
-    ///   batch was run on, or the copies themselves, which its Reveal is answering (`replaces`).
-    /// - The RIGHT pane's selection does not enter into it — one file or several. The payment
-    ///   clears it, exactly as a click in the left pane would: the app never keeps selections in
-    ///   both panes (his decision, 2026-09-26; see `PaneLogic.payOwedSelection`).
+    ///   in Browse owes such a file, and if Edit's pane is showing when it comes due, selecting
+    ///   would open it.
+    /// - The LEFT pane holds a multi-selection: dropped, as the user's. The rule replaces one row
+    ///   or none, except the set a PDF batch was run on or its copies (`replaces`).
+    /// - The RIGHT pane's selection does not enter into it. The payment clears it, as a click in
+    ///   the left pane would: the app never keeps selections in both panes
+    ///   (`PaneLogic.payOwedSelection`).
     /// - The pane's tree is not yet the folder it shows (`paneIsCurrent`), or does not list the
-    ///   file yet: wait. A re-root publishes the new folder's tree after the move, and a path can
-    ///   be listed, nested, in the OLD tree meanwhile; ⌘N's file is listed by the re-read. A batch's
-    ///   companions do not hold the payment up: one the pane does not list (deleted since the
-    ///   banner) is left out (`companionsListed`), and the rest are selected.
+    ///   file yet: wait. A re-root publishes the new tree after the move, and the path can be
+    ///   listed, nested, in the OLD tree meanwhile. A batch companion the pane does not list is
+    ///   left out (`companionsListed`); the rest are selected.
     ///
     /// Selecting the open document cannot open it a second time: the write is marked as the app's
     /// own (`paidSelection`), and `openInEditor`'s guard returns for the document besides.
@@ -2350,13 +2123,13 @@ extension ContentView {
         return .select(owed.path, with: owed.companions.filter { companionsListed.contains($0) })
     }
 
-    /// **The one door onto the rule**: record that the left pane owes `path` a selection, and try
-    /// to pay it now. Every entry point calls this and nothing else — the rail's click, every
-    /// hand-off, ⌘N, Reveal in Browse, the header's "in <folder>".
+    /// The one door onto the rule: record that the left pane owes `path` a selection, and try to
+    /// pay it now. Every entry point calls this: the rail's click, every hand-off, ⌘N, Reveal in
+    /// Browse, the header's "in <folder>".
     ///
     /// The workspace recorded is the one on screen NOW, so a door that switches workspace must
     /// switch first (Reveal in Browse, every hand-off into Edit). `companions` and `replaces` are
-    /// a PDF batch's (see ``PaneSelectionDebt``); every other door passes neither.
+    /// a PDF batch's (``PaneSelectionDebt``); every other door passes neither.
     func owePaneSelection(_ path: String, with companions: [String] = [], replacing replaces: Set<String> = []) {
         editorPaneSelectionOwed = PaneSelectionDebt(path: path, document: editorOpenPath,
                                                     workspace: selectedWorkspace,
@@ -2367,22 +2140,19 @@ extension ContentView {
         }
     }
 
-    /// Pays an owed pane selection once the pane lists it — called at the moment it is owed, on
-    /// every left-tree publish after, and on a workspace switch (which drops it); a single `nil`
-    /// test when nothing is owed.
+    /// Pays an owed pane selection once the pane lists it: called when it is owed, on every
+    /// left-tree publish after, and on a workspace switch (which drops it). A single `nil` test
+    /// when nothing is owed.
     ///
-    /// **Not through `paneSelectionBinding`**, the setter a click goes through: that resolves a
-    /// standing Compare-with pick, claims the selection surface and moves the keyboard's focus —
-    /// a click's consequences, which the app's own write must not have. `PaneLogic.payOwedSelection`
-    /// writes the selection and the one-pane invariant only — the right pane cleared, whatever it
-    /// held, as a left-pane click clears it — each marked as the app's own
-    /// (`editorPaneSelectionPaid`, `editorPaneRightClearPaid`) so neither the pane's one-click open
-    /// nor the Get Info target answers it as the user's. Then the
-    /// reveal: a fresh `PaneRowReveal` for the row, which the pane scrolls to — now if it is on
-    /// screen, when it next appears if it is not.
+    /// Not through `paneSelectionBinding`, the click's setter, whose consequences (a Compare-with
+    /// pick, the selection surface, keyboard focus) the app's own write must not have.
+    /// `PaneLogic.payOwedSelection` writes the selection and clears the right pane, each marked as
+    /// the app's own (`editorPaneSelectionPaid`, `editorPaneRightClearPaid`) so neither the
+    /// one-click open nor the Get Info target answers it as the user's. Then a fresh
+    /// `PaneRowReveal`, which the pane scrolls to now, or when it next appears.
     ///
-    /// One `.info` line either way — the selection, or the drop and its reason — since both are
-    /// something the user sees the pane do, or not do.
+    /// One `.info` line either way, the selection or the drop and its reason, since the user sees
+    /// the pane do it, or not.
     func settleOwedPaneSelection() {
         guard let owed = editorPaneSelectionOwed else { return }
         let decision = Self.owedPaneSelection(
@@ -2398,7 +2168,7 @@ extension ContentView {
             return
         case .wait:
             // A row the type filter hides would leave this waiting forever: the file was asked for
-            // by name, so the filter gives way and the republish pays the debt (FM).
+            // by name, so the filter gives way and the republish pays the debt.
             syncManager.clearTypeFilterHiding(owed.path, isLeft: true)
             return
         case .drop(let reason):
@@ -2417,13 +2187,13 @@ extension ContentView {
         }
     }
 
-    /// Whether the left pane's published tree was read at the folder the pane is on — see
-    /// `FileSyncManager.paneTreeFolder(isLeft:)`.
+    /// Whether the left pane's published tree was read at the folder the pane is on
+    /// (`FileSyncManager.paneTreeFolder(isLeft:)`).
     var paneTreeIsCurrent: Bool {
         Self.treeIsCurrent(readAt: syncManager.paneTreeFolder(isLeft: true), paneFolder: currentLeftPath)
     }
 
-    /// Whether a tree read at `readAt` is the tree of `paneFolder` — `false` for no tree at all.
+    /// Whether a tree read at `readAt` is the tree of `paneFolder`; `false` for no tree at all.
     /// Compared with `~` expanded and a trailing slash dropped, since the pane's folder is built
     /// from the source's stored root and the walk from the URL it was handed.
     static func treeIsCurrent(readAt: String?, paneFolder: String) -> Bool {
@@ -2432,10 +2202,10 @@ extension ContentView {
             == PaneBrowsePath.normalized((paneFolder as NSString).expandingTildeInPath)
     }
 
-    /// **Never fight the user**: once the pane's selection is something other than the owed or
+    /// Never fight the user: once the pane's selection is something other than the owed or
     /// revealed row, both are retired. A selection emptied by navigation or a prune retires the
-    /// reveal (there is no row to scroll to) but not the debt — the debt's own guards decide that.
-    /// Called on every change of the left pane's selection.
+    /// reveal (there is no row to scroll to) but not the debt, whose own guards decide. Called on
+    /// every change of the left pane's selection.
     func retirePaneSelectionDebts(after paths: Set<String>) {
         if let owed = editorPaneSelectionOwed, !Self.debtSurvives(owed, selection: paths) {
             editorPaneSelectionOwed = nil
@@ -2447,12 +2217,10 @@ extension ContentView {
         }
     }
 
-    /// **A reveal is answered once** (TE47 review): the pane reports it has scrolled to the row,
-    /// and the request is retired. It stood while its row stayed selected, and the pane answers a
-    /// standing reveal whenever it appears — so every scroll-away followed by Browse and back, or a
-    /// collapse and expand, jumped the pane back to the document. It still waits out a pane that
-    /// is not on screen when it is issued (Edit's pane folded behind the rail, a workspace switch
-    /// mounting it): that pane answers it when it appears, and only then is it retired.
+    /// A reveal is answered once: the pane reports it has scrolled to the row, and the request is
+    /// retired, since a pane answers a standing reveal whenever it appears and would jump back to
+    /// the document after every trip away. A pane not on screen when it is issued answers it when
+    /// it appears, and only then is it retired.
     ///
     /// On the next turn, not now: in Columns the column's scroll and the stack's are two answers to
     /// one request in one update, and the second must still see it.
@@ -2462,33 +2230,30 @@ extension ContentView {
         }
     }
 
-    /// The reveal left standing once the pane has answered `answered` — `nil` for that request, but
-    /// a NEWER one (another open since, the same file again) stands: its token differs.
+    /// The reveal left standing once the pane has answered `answered`: `nil` for that request, but
+    /// a NEWER one (another open since, the same file again) stands, since its token differs.
     static func revealAfterAnswer(standing: PaneRowReveal?, answered: PaneRowReveal) -> PaneRowReveal? {
         standing == answered ? nil : standing
     }
 
-    /// A debt survives a selection change that selects nothing — navigation and pruning empty the
-    /// selection, and are not the user choosing something else — or selects the owed rows
-    /// themselves (one row, or a batch's copies).
+    /// A debt survives a selection change that selects nothing (navigation and pruning are not
+    /// the user choosing something else) or selects the owed rows themselves.
     static func debtSurvives(_ owed: PaneSelectionDebt, selection: Set<String>) -> Bool {
         selection.isEmpty || selection == owed.rows
     }
 
-    /// A reveal survives only while its rows are the whole selection — the pane's own condition for
+    /// A reveal survives only while its rows are the whole selection: the pane's own condition for
     /// acting on it (`FileTreeView.revealsRow`), so a remount never scrolls to a row nobody selected.
     static func revealSurvives(_ reveal: PaneRowReveal, selection: Set<String>) -> Bool {
         selection == reveal.selection
     }
 }
 
-/// Tickets for overlapping refreshes, held by a view without observing them — see
-/// `editorRailRefreshes`.
+/// Tickets for overlapping refreshes, held by a view without observing them (`editorRailRefreshes`).
 ///
-/// **Newer than the last applied, not the latest taken.** Requiring the latest let every survey
-/// that a newer one had overtaken be thrown away — and an autosave takes a ticket every couple of
-/// seconds, so on a folder whose survey is slower than that (iCloud) the rail stopped updating
-/// for as long as the typing went on.
+/// A refresh may write if it is newer than the last applied, not only if it is the latest taken:
+/// an autosave takes a ticket every couple of seconds, and on a folder whose survey is slower
+/// (iCloud) requiring the latest would keep the rail from updating while the typing went on.
 @MainActor
 final class RefreshCounter {
     private(set) var count = 0

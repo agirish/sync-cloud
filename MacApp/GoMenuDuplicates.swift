@@ -1,38 +1,25 @@
 import AppKit
 import Design
 
-/// **One visible item per tab step in the Go menu, with the ⌃ chords still live** (SH3).
+/// One visible item per tab step in the Go menu, with the ⌃ chords still live.
 ///
-/// Go ▸ Next Tab ⇧⌘] and Previous Tab ⇧⌘[ each have a second chord: ⌃⇥ is Next Tab in Browse,
-/// and ⌃⇧⇥ is Previous Tab wherever Previous Tab is. Drawn as items of their own they put "Next
-/// Tab" in the menu twice. The owner's call was to make each ⌃ item an *alternate* of its ⇧⌘
-/// twin — one row, the ⌃ form showing while ⌃ is held.
+/// Next Tab ⇧⌘] and Previous Tab ⇧⌘[ each have a second chord (⌃⇥ is Next Tab in Browse, ⌃⇧⇥ is
+/// always Previous Tab), and as items of their own they would list each step twice.
+/// `NSMenuItem.isAlternate` can't fold them, since it needs the same key with different
+/// modifiers, so the ⌃ item is hidden and its key kept live by `allowsKeyEquivalentWhenHidden`;
+/// a hidden item answers ⌃⇥ (and ⌃⇧⇥, whose character is backtab, U+0019) only with that flag.
 ///
-/// **AppKit cannot fold these two.** `NSMenuItem.isAlternate` folds an item into the one above
-/// only when both share a key equivalent and differ in modifiers (Apple's documentation of the
-/// property); ⇧⌘] and ⌃⇥ differ in the key itself, so an "alternate" here is drawn as a second
-/// row regardless. This is the fallback the decision named: **the ⌃ item is hidden, and its key
-/// stays live** through `allowsKeyEquivalentWhenHidden` — measured 2026-10-25, a hidden item
-/// answers ⌃⇥ (and a ⌃⇧⇥ event, whose character is backtab, U+0019) only with that flag set.
+/// In Compare ⌃⇥ reads "Focus <pane>" and stays visible, so the rule reads the title. SwiftUI owns
+/// and rebuilds these items, so this re-applies on every Go menu change, not once at launch.
 ///
-/// In Compare the ⌃⇥ item is not a duplicate: it reads "Focus <pane>" and stays visible. So the
-/// rule reads the item's title, which SwiftUI keeps current, and is re-applied whenever SwiftUI
-/// adds or changes an item in the Go menu — SwiftUI owns these items and rebuilds them, so a
-/// one-time pass at launch would not survive the first workspace switch.
-///
-/// **SwiftUI also clears the flag, and says nothing.** When AppKit asks it to bring Go up to date
-/// (`menuNeedsUpdate(_:)`, the first time after a change: a menu opening, a key being looked up),
-/// `PlatformItemList.Item.update` sets every item's `allowsKeyEquivalentWhenHidden` back to false,
-/// and that setter posts no notification (measured 2026-10-30, KVO caught the write with SwiftUI's
-/// stack). On a hidden twin the same pass also un-hides it, which does post, so `apply` put both
-/// back; on the drawn "Focus <pane>" item nothing posted and the flag stayed off. So the flag is
-/// watched as well (`keepKeysLive`) and put back the moment it is cleared, in whichever order
-/// SwiftUI writes.
+/// SwiftUI also clears the flag silently: its item update in `menuNeedsUpdate(_:)` sets
+/// `allowsKeyEquivalentWhenHidden` back to false with no notification, so a visible item would
+/// lose its key. `keepKeysLive` watches the flag by KVO and sets it again the moment it is cleared.
 @MainActor
 enum GoMenuDuplicates {
 
-    /// Is `item` the ⌃⇥ or ⌃⇧⇥ item — the two this hides — and if so, should it be hidden now?
-    /// `nil` for every other item.
+    /// Is `item` the ⌃⇥ or ⌃⇧⇥ item, the two this hides, and if so, should it be hidden now? `nil`
+    /// for every other item.
     static func shouldHide(_ item: NSMenuItem) -> Bool? {
         guard item.keyEquivalent == AppChord.switchPaneFocus.appKitKeyEquivalent else { return nil }
         switch item.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) {
@@ -48,8 +35,8 @@ enum GoMenuDuplicates {
     }
 
     /// Hides the twins in `menu`, keeps their keys live, and hides a separator left with nothing
-    /// visible under it — the one above ⌃⇥ when ⌃⇥ is the menu's last item and hidden. Sets a
-    /// property only when it changes, so the change notifications it posts end here.
+    /// visible under it (the one above ⌃⇥ when that is last and hidden). Sets a property only when
+    /// it changes, so the change notifications it posts don't loop.
     static func apply(to menu: NSMenu) {
         for item in menu.items {
             guard let hide = shouldHide(item) else { continue }
@@ -70,8 +57,8 @@ enum GoMenuDuplicates {
     private static var observers: [NSObjectProtocol] = []
     private static var keyWatches: [ObjectIdentifier: NSKeyValueObservation] = [:]
 
-    /// Watches the flag on each ⌃ item now in `go`, and sets it again whenever anything clears it —
-    /// SwiftUI's update, which posts nothing. Drops the watches of items no longer there.
+    /// Watches the flag on each ⌃ item now in `go` and sets it again whenever anything clears it,
+    /// as SwiftUI's update does silently. Drops the watches of items no longer there.
     static func keepKeysLive(in go: NSMenu) {
         var watches: [ObjectIdentifier: NSKeyValueObservation] = [:]
         for item in go.items where shouldHide(item) != nil {

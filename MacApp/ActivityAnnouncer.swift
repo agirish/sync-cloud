@@ -1,10 +1,10 @@
 import AppKit
 
-/// **What VoiceOver hears as results arrive** (Run Room TE226). Each message is spoken once, where
-/// it shows (R19) — and two arriving within a moment, a Compress ending as a Save as PDF does, are
-/// spoken as one announcement rather than two that cut each other off: "2 new in Activity: Saved 4
-/// compressed copies; Saved 6 files as PDF." A problem is spoken at high priority, interrupting; a
-/// success at medium. Progress is never spoken: it is read on demand, from the capsule's label.
+/// What VoiceOver hears as results arrive. Each message is spoken once, where it shows, and two
+/// arriving within a moment (a Compress ending as a Save as PDF does) are spoken as one
+/// announcement rather than two that cut each other off: "2 new in Activity: Saved 4 compressed
+/// copies; Saved 6 files as PDF." A problem is spoken at high priority, interrupting; a success at
+/// medium. Progress is never spoken: it is read on demand, from the capsule's label.
 @MainActor
 enum ActivityAnnouncer {
     /// How long a message waits for a second one to join it.

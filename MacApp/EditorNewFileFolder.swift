@@ -1,21 +1,18 @@
 import Foundation
 
-/// **Where ⌘N makes a file when the pane's folder is no place for one: `~/Documents/Notes`.**
+/// Where ⌘N makes a file when the pane's folder is no place for one: `~/Documents/Notes`.
 ///
-/// ⌘N makes its file in the folder the left pane shows (see `editorFolder`), and that folder can be
-/// one nobody means to put a note in: the top of the disk on a whole-disk source, `/Applications`,
-/// `~/Library`, the top of the home folder — or none at all, with no source set up. Asked
-/// 2026-10-03: those go to `~/Documents/Notes` instead, made on first use, and the pane is taken
-/// there as ⌘N is pressed, so the name is typed in the folder it will land in.
+/// ⌘N uses the left pane's folder (see `editorFolder`), which can be one nobody means to put a
+/// note in: the top of the disk, `/Applications`, `~/Library`, the top of the home folder, or none
+/// at all. Those go to `~/Documents/Notes`, made on first use, and the pane is taken there as ⌘N is
+/// pressed, so the name is typed in the folder it will land in.
 ///
-/// **Two halves, because one of them reads the disk.** ``pathRefusal(of:home:)`` decides on the
-/// spelling alone and is safe in a view body — the ＋'s tooltip asks it on every pass.
-/// ``refusal(of:home:isWritable:resolve:)`` adds where the folder's links lead and whether it can be
-/// written to — reads that can wait on a slow volume — so it is asked when ⌘N is pressed, when the
-/// file is made, and by the naming row while it is open.
-///
-/// **A list, not a writability test.** `/Applications` is group-writable for an admin, so "can I
-/// write here" alone would let a note land among the apps.
+/// Two halves, because one reads the disk. ``pathRefusal(of:home:)`` decides on the spelling alone
+/// and is safe in a view body (the ＋'s tooltip asks it every pass).
+/// ``refusal(of:home:isWritable:resolve:)`` adds where links lead and whether the folder is
+/// writable, reads that can wait on a slow volume, so it is asked only on ⌘N, on making the file,
+/// and by the open naming row. A list, not just a writability test: `/Applications` is
+/// group-writable for an admin.
 enum EditorNewFileFolder {
 
     /// Why the pane's folder is no place for a new file.
@@ -25,9 +22,9 @@ enum EditorNewFileFolder {
         /// The system's: anything on the disk outside `/Users` and `/Volumes`, those two folders
         /// themselves, and `~/Library` but for the cloud folders inside it.
         case system
-        /// The top of the home folder — it holds Desktop, Documents and the rest, not files.
+        /// The top of the home folder, which holds Desktop, Documents and the rest, not files.
         case homeTop
-        /// A Trash — the user's, an iCloud Drive's, or a volume's.
+        /// A Trash: the user's, an iCloud Drive's, or a volume's.
         case trash
         /// A folder that can't be written to, or one that is no longer there.
         case notWritable
@@ -52,12 +49,12 @@ enum EditorNewFileFolder {
         (home as NSString).appendingPathComponent("Documents/\(notesName)")
     }
 
-    /// **The spelling half of the rule** — no disk read, so a body may ask it.
+    /// The spelling half of the rule, with no disk read, so a body may ask it.
     ///
-    /// Compared case-folded: the boot volume is case-insensitive, so `/applications` is the same
-    /// folder. **The cloud folders under `~/Library` are allowed** — iCloud Drive and every app's
-    /// iCloud folder under `Mobile Documents`, and OneDrive, Google Drive and Dropbox under
-    /// `CloudStorage` — each from its own top down, but not the two folders that hold them.
+    /// Compared case-folded, since the boot volume is case-insensitive. The cloud folders under
+    /// `~/Library` are allowed (iCloud folders under `Mobile Documents`; OneDrive, Google Drive and
+    /// Dropbox under `CloudStorage`), each from its own top down, but not the two folders that hold
+    /// them.
     static func pathRefusal(of folder: String, home: String) -> Refusal? {
         guard folder.hasPrefix("/") else { return .noFolder }
         let path = folded(folder)
@@ -79,10 +76,10 @@ enum EditorNewFileFolder {
         return .system
     }
 
-    /// The whole rule: the spelling, then **the spelling the disk resolves it to**, then whether
-    /// the folder can be written to. The second because a link can lead into a system folder from a
-    /// place the list allows — `/Volumes/Macintosh HD` IS `/`, so its `Applications` is the one in
-    /// `/Applications`, writable for an admin. Asked only of a folder the first spelling allows.
+    /// The whole rule: the spelling, then the spelling the disk resolves it to, then whether the
+    /// folder can be written to. The resolve matters because a link can lead into a system folder
+    /// from an allowed place: `/Volumes/Macintosh HD` is `/`, so its `Applications` is
+    /// `/Applications`. Asked only of a folder the first spelling allows.
     static func refusal(of folder: String, home: String, isWritable: (String) -> Bool,
                         resolve: (String) -> String = { $0 }) -> Refusal? {
         if let refusal = pathRefusal(of: folder, home: home) { return refusal }

@@ -13,9 +13,9 @@ import Design
 struct ContentView: View {
     @ObservedObject var syncManager: FileSyncManager
     @EnvironmentObject var settings: SettingsManager
-    /// Whose cloud app isn't syncing (RD68) — the amber bar under a pane's header.
+    /// Whose cloud app isn't syncing — the amber bar under a pane's header.
     @ObservedObject var cloudApps = CloudAppMonitor.shared
-    /// One-way sync (RD67): the toolbar's chip, the panes' role line, Compare's strip, its sheets.
+    /// One-way sync: the toolbar's chip, the panes' role line, Compare's strip, its sheets.
     @ObservedObject var oneWaySync = OneWaySyncController.shared
     /// Read here rather than in `ContentView+Toolbar`, which is an extension and cannot declare
     /// stored properties. Gates the sidebar toggle's reveal — see `withDesignAnimation`.
@@ -26,40 +26,37 @@ struct ContentView: View {
     /// Drives the in-window Help overlay (owned by the App so the Help ▸ SyncCloud Help / ⌘?
     /// menu command can open it). ContentView renders it and owns dismissal.
     @Binding var showHelp: Bool
-    /// The topic Help should open on when a surface pointed here rather than the reader opening
-    /// it cold. Cleared on close, so the next ⌘? opens the book at its front as before.
+    /// The topic Help opens on when a surface pointed here. Cleared on close, so the next ⌘? opens
+    /// the book at its front.
     @State private var helpTopic: String?
 
-    /// What the last plan found, and in which tree (RD11).
+    /// What the last plan found, and in which tree.
     ///
-    /// **State rather than computed, because the honest answer costs a whole-tree walk.** The offer
-    /// card shows no count until a plan has really been built — the numbers lying around are the
-    /// wrong ones, and a card that promised the profile's summed `fileCount` would overstate the
-    /// work by 7% in the one sentence a person decides on. These are seeded by the walk and then
-    /// stand until the next one.
+    /// State, not computed, because the honest answer costs a whole-tree walk. The offer card shows
+    /// no count until a plan is really built: the profile's summed `fileCount` would overstate the
+    /// work in the one sentence a person decides on. Seeded by the walk, then stands until the next
+    /// one.
     @State var documentSurveyPlan: DocumentSurveyPlanFacts?
-    /// §11's folder verbs, written by the menu and carried out by the workspace — see
+    /// The folder verbs, written by the menu and carried out by the workspace — see
     /// ``RestructureVerbRequest`` for why it is a value rather than a call. Not `private`: the
     /// verbs are built in `ShortcutCommands`' extension of this view.
     @State var restructureVerbRequest: RestructureVerbRequest?
-    /// Whether the once-per-session part of the `onAppear` bootstrap has already run. Owned by
-    /// the App (session-scoped, never persisted) so it outlives this view. A close + Dock reopen
-    /// re-runs `onAppear` on the same view, but a view-owned flag would forget if SwiftUI ever
-    /// rebuilt it — see `SyncCloudApp.hasBootstrappedSession`.
+    /// Whether the once-per-session part of the `onAppear` bootstrap has run. Owned by the App
+    /// (session-scoped, never persisted) so it outlives this view: a close and Dock reopen re-runs
+    /// `onAppear`, and a view-owned flag would forget if SwiftUI rebuilt the view. See
+    /// `SyncCloudApp.hasBootstrappedSession`.
     @Binding var hasBootstrappedSession: Bool
     /// Which settings tab the overlay shows. Owned here so it persists across open/close and can
     /// be preset (e.g. the invalid-pane fix-it action jumps straight to Providers).
     @State private var settingsTab: SettingsView.SettingsTab = .appearance
 
-    /// The tab a deep link displaced, held only until the open it asked for is honoured or refused.
+    /// The tab a deep link displaced, held until the open it asked for is honoured or refused.
     ///
-    /// **A deep link writes the tab BEFORE the latch, and the latch can say no.** `openSettings(on:)`
-    /// has to preset the tab — the overlay reads `settingsTab` as it appears, so setting it
-    /// afterwards would show the previous page first — but `onChange(of: showSettings)` refuses the
-    /// open outright while a destination pick is up. Without this the refusal left the tab changed:
-    /// the panel the user never saw had still moved Settings to Providers (or to Cloud Refine), and
-    /// the next ⌘, — a plain open, which presets nothing — landed on a page nobody asked for.
-    /// Non-nil means "a deep link is mid-flight"; a plain open leaves it nil and so restores nothing.
+    /// A deep link writes the tab before the latch, and the latch can say no. `openSettings(on:)`
+    /// must preset the tab, because the overlay reads `settingsTab` as it appears, but
+    /// `onChange(of: showSettings)` refuses the open while a destination pick is up. Without this,
+    /// the refused open would still leave Settings moved, and the next plain ⌘, would land on a
+    /// page nobody asked for. Non-nil means a deep link is mid-flight; a plain open leaves it nil.
     @State private var settingsTabBeforeDeepLink: SettingsView.SettingsTab?
 
     // MARK: The Editor workspace
@@ -69,13 +66,13 @@ struct ContentView: View {
     @ObservedObject var editorDocument: EditorDocument
     /// The PDF open in Edit, beside the text document and never at the same time — see
     /// ``EditorPDFDocument`` and `EditorOpenRoute`. Owned by the app for the document's reason.
-    /// Observed for its identity only: where the reader is in it lives on its `view`, which only
-    /// the PDF card observes, so a page turn does not re-render this window.
+    /// Observed for its identity only: the reader's position lives on its `view`, which only the
+    /// PDF card observes, so a page turn does not re-render this window.
     @ObservedObject var editorPDF: EditorPDFDocument
-    /// What the last look at the editor's folder found — the rail's rows, and the count its empty
-    /// caption needs. **One piece of state rather than two**, so the "did anything change" guard in
-    /// ``refreshEditorRail()`` stays a single comparison: held apart, a folder whose only change was
-    /// a PDF arriving would keep a caption claiming it was empty.
+    /// What the last look at the editor's folder found: the rail's rows, and the count its empty
+    /// caption needs. One piece of state, not two, so the "did anything change" guard in
+    /// ``refreshEditorRail()`` stays a single comparison; held apart, a folder whose only change
+    /// was a PDF arriving would keep a caption claiming it was empty.
     @State var editorRailSurvey = EditorRail.Survey(rows: [], otherFileCount: nil)
     /// The folder `editorRailSurvey` was read from — `editorFolder` moves at once, the survey only
     /// when its walk returns, and the folder menu must not pair the one with the other.
@@ -84,80 +81,56 @@ struct ContentView: View {
     /// re-render the window.
     @State var editorRailRefreshes = RefreshCounter()
 
-    /// Which folders each pane has open in its Tree presentation.
-    ///
-    /// **Here for the reason the editor's own session state is here**: `paneColumn(isLeft:)` is
-    /// mounted by four structurally different arms of `verticalSplit`'s switch, so the pane in
-    /// Browse and the rail in Organize are two SwiftUI identities over the same folder — and a set
-    /// kept as `FileTreeView`'s `@State` was destroyed on every trip between them. This view is
-    /// mounted once for the window's life and outlives all of it.
-    ///
-    /// **Per side, not per workspace.** Browse's pane, the lens rail and Compare's left pane are all
-    /// the left pane — one tree, one path, one provider — so they share one answer, and a folder
-    /// opened in one is open in the others. Two sets rather than one because Compare shows both at
-    /// once and they are genuinely different trees.
-    ///
-    /// Not persisted across launches: an expansion describes a reading session, the same call
-    /// `editorRailTab` and `editorMode` make just below.
-    ///
-    /// **Plain `@State`, so opening a folder re-renders this body — and that is a considered cost
-    /// rather than an oversight.** The pane's own selection is `syncManager.selectedLeftPaths`, a
-    /// `@Published` this view already observes, so *clicking a row* has always cost one pass here.
-    /// A disclosure triangle is the same kind of event at the same frequency, and it now costs the
-    /// same. The lens and differences sessions next door are reference types precisely because their
-    /// writes are keystroke-frequency; these are not, so a second observable object would buy
-    /// nothing and add a publisher to keep in step.
+    /// Which folders each pane has open in its Tree presentation. Held here, since
+    /// `paneColumn(isLeft:)` is mounted by four arms of `verticalSplit`, giving Browse's pane and
+    /// Organize's rail different identities over one folder. Per side, not per workspace (all of
+    /// Browse, the rail and Compare's left are the left pane); not persisted. Plain `@State`:
+    /// opening a folder re-renders this body, as a row click already does.
     @State var leftTreeExpanded: Set<String> = []
     @State var rightTreeExpanded: Set<String> = []
 
     /// How the reader had Organize's results narrowed — see `LensWorkspaceSession`.
     ///
-    /// **`@State` holding a reference type, deliberately not `@StateObject`.** This view must OWN
-    /// the object (so it survives the workspace switches that destroy `LensWorkspaceView`) without
-    /// OBSERVING it. A `@StateObject` here would subscribe this four-thousand-line body to every
-    /// keystroke in Organize's search field and every duplicate resolve — a window-wide re-render
-    /// for a change that concerns one panel, which is the shape of cost the v5 speed batch spent
-    /// itself removing. `@State` on a class stores and does not subscribe; `LensWorkspaceView`
-    /// observes it and re-renders alone. Same reasoning as the `RenderMemo`s inside that view.
+    /// `@State` holding a reference type, deliberately not `@StateObject`: this view must own the
+    /// object (so it survives the workspace switches that destroy `LensWorkspaceView`) without
+    /// observing it. A `@StateObject` would re-render this whole window on every keystroke in
+    /// Organize's search field and every duplicate resolve. `@State` on a class stores without
+    /// subscribing; `LensWorkspaceView` observes it and re-renders alone.
     @State var lensSession = LensWorkspaceSession()
 
-    /// How the reader had the differences table narrowed — see `DifferencesSession`. Held on the
-    /// same terms as `lensSession` above, and for the same reason: owned here so it survives the
-    /// switch, `@State` rather than `@StateObject` so the window is not subscribed to Compare's
-    /// search field.
+    /// How the reader had the differences table narrowed — see `DifferencesSession`. Held like
+    /// `lensSession` above: owned here so it survives the switch, `@State` so the window is not
+    /// subscribed to Compare's search field.
     @State var differencesSession = DifferencesSession()
     /// Bumped when the Never show Claude list changes, so the row menus' Hide or Show label is
-    /// rebuilt with it (TE263): nothing else the window draws from moves.
+    /// rebuilt with it: nothing else the window draws from moves.
     @State var askClaudePrivacyChanges = 0
     /// The PDF tools run from a pane's row menu — see `PanePDFTools`. Owned app-wide by
-    /// `ActivityCenter` (Run Room R11), so the Activity window lists its runs too; observed only by
-    /// the layer that draws its sheet, so a run's page-by-page progress re-renders that layer and
-    /// not this window.
+    /// `ActivityCenter`, so the Activity window lists its runs too; observed only by the layer that
+    /// draws its sheet, so a run's progress re-renders that layer and not this window.
     var panePDFTools: PanePDFTools { ActivityCenter.shared.panePDFTools }
     /// Save as PDF from a pane's row menu or File ▸ — see `PaneSaveAsPDF`. Owned as the tools are.
     var paneSaveAsPDF: PaneSaveAsPDF { ActivityCenter.shared.paneSaveAsPDF }
     /// Whether the rail's inline naming row is open. Held here because ⌘N opens it from any
     /// workspace, including ones where the editor is not on screen yet.
     @State var editorIsNaming = false
-    /// The name being typed in that row. **Here rather than inside the rail**, beside the flag that
-    /// says the row is open: as `@State` on the view it was thrown away by every workspace switch
-    /// while the flag survived, so the row came back open with the typed name silently replaced by
-    /// the `Untitled` prefill.
+    /// The name being typed in that row. Held here, beside the flag that says the row is open: as
+    /// view `@State` it would be thrown away by a workspace switch while the flag survived, and the
+    /// row would come back open with the `Untitled` prefill.
     @State var editorTypedName = ""
     /// Bumped by ⌘N so the naming row takes focus even when it is already open — a pure signal,
     /// never read for its value.
     @State var editorNamingFocus = 0
-    /// Bumped by Text ▸ Go to Line… (⌃⌘L) so Edit opens the status line's field (TE61) — a pure
-    /// signal like the one above, never read for its value.
+    /// Bumped by Text ▸ Go to Line… (⌃⌘L) so Edit opens the status line's field — a pure signal
+    /// like the one above, never read for its value.
     @State var editorGoToLineRequest = 0
     /// What the file the open naming row will make does to the pane, when it goes to Notes. Set by
     /// each ⌘N from the workspace it was pressed in (`ExternalOpen.pane`): from Compare or during a
     /// guided review the left pane is half of the comparison and stays put; from Organize it
     /// follows only on its own source.
     @State var editorNewFilePane: EditorHandOffRun.Pane = .followsTheFile
-    /// A file the left pane owes a selection — the document just opened, created, revealed or
-    /// shown — paid once the pane lists it. See ``owePaneSelection(_:)`` (TE47, generalising
-    /// ⌘N's TE44 debt). `nil` whenever nothing is owed.
+    /// A file the left pane owes a selection — the document just opened, created, revealed or shown
+    /// — paid once the pane lists it. See ``owePaneSelection(_:)``. `nil` whenever nothing is owed.
     @State var editorPaneSelectionOwed: PaneSelectionDebt?
     /// The path the app last wrote into the left pane's selection for the open document, until the
     /// selection change it causes has been seen — so the pane's one-click open does not answer the
@@ -173,49 +146,46 @@ struct ContentView: View {
     @State var paneRowReveal: PaneRowReveal?
     /// Makes each reveal a new request, even for the same path.
     @State var paneRowRevealToken = 0
-    /// What is typed into the rail's filter, and whether its field is showing. **Here for the
-    /// reason `editorTypedName` is here**: both are things the user typed, and the editor's view is
-    /// rebuilt from nothing by every workspace switch.
+    /// What is typed into the rail's filter, and whether its field is showing. Held here for
+    /// `editorTypedName`'s reason: both are typed by the user, and the editor's view is rebuilt
+    /// from nothing by every workspace switch.
     @State var editorRailFilter = ""
     @State var editorRailFilterIsExpanded = false
-    /// The filter's search inside files (RD38) — its Names | Contents switch and its results. Here
-    /// beside the filter's text, for the filter's reason; **held, not observed**, so its progress
-    /// redraws the rail's results and not this window.
+    /// The filter's search inside files: its Names | Contents switch and its results. Beside the
+    /// filter's text for the same reason; held, not observed, so its progress redraws the rail's
+    /// results and not this window.
     @State var editorContentSearch = EditorContentSearchModel()
-    /// The folder the rail last listed — the folder that filter was typed in. A different one clears
-    /// it (TE109): a filter carried into a new folder made the folder look empty.
+    /// The folder the rail last listed, where that filter was typed. A different folder clears it:
+    /// a filter carried into a new folder would make the folder look empty.
     @State var editorRailListedFolder: String?
-    /// Which half of the rail is showing. **Here for the reason the filter is here**, and for one
-    /// more: ⌘N puts it back on the files, and ⌘N is pressed from workspaces where the editor's
-    /// view does not exist yet. Not persisted across launches — it describes a reading session,
-    /// the same call ``EditorMode`` makes.
+    /// Which half of the rail is showing. Held here for the filter's reason, and because ⌘N puts it
+    /// back on the files from workspaces where the editor's view does not exist yet. Not persisted
+    /// — it describes a reading session, as ``EditorMode`` does.
     @State var editorRailTab: EditorRailTab = .files
-    /// Where each document's outline was last scrolled to, keyed by path. **Here for the reason the
-    /// tab is**, and it has to outlive more than the tab does: the rail's outline is destroyed by a
-    /// tab switch as well as by a workspace one, and the memory is the whole point of it.
+    /// Where each document's outline was last scrolled to, keyed by path. Held here because the
+    /// rail's outline is destroyed by a tab switch as well as a workspace switch, and the memory is
+    /// the point.
     @State var editorOutlineAnchors: [String: Int] = [:]
 
     /// Why autosave has stopped writing, or `nil` while it is working.
     ///
-    /// **A latch, and the reason it exists is the alert.** Autosave interrupts the moment it finds
-    /// the file changed underneath the buffer — but the attempt behind it restarts on every
-    /// keystroke, so without somewhere to record "this was already asked and declined" the alert
-    /// would return two seconds after each dismissal for as long as the file stayed diverged. It is
-    /// cleared by a successful write, by discarding the buffer, and by nothing else.
+    /// A latch, for the alert's sake. Autosave stops the moment it finds the file changed under the
+    /// buffer, but its attempt restarts on every keystroke, so without a record of "already asked
+    /// and declined" the alert would return seconds after each dismissal. Cleared by a successful
+    /// write, by discarding the buffer, and by nothing else.
     @State var editorAutosaveStop: EditorAutosaveStop?
     /// The divergence question, detoured into the diff overlay and waiting for an answer.
     ///
-    /// **Not a fourth answer and not a second state machine** — `editorAutosaveStop` is still the
-    /// latch, still set while this is non-nil, so autosave stays stopped and the header still says
-    /// so. This only records that the same question is currently being asked with the two versions
-    /// on screen instead of in a modal. See `applyDivergenceAnswer`.
+    /// Not a fourth answer or a second state machine: `editorAutosaveStop` is still the latch and
+    /// still set while this is non-nil, so autosave stays stopped and the header says so. This only
+    /// records that the question is being asked with both versions on screen instead of in a modal.
+    /// See `applyDivergenceAnswer`.
     @State var editorDivergenceReview: EditorDivergenceReview?
     /// Whether an autosave write is out on a background thread right now.
     ///
-    /// **Not a lock, and not what makes the write safe** — `EditorFileStore`'s write order does
-    /// that, and it has to, because ⌘S and the quit flush write synchronously and cannot wait for
-    /// anything. This only stops a second background write being dispatched over the first, which
-    /// would be two `F_FULLFSYNC`s against one file for one document's worth of text.
+    /// Not a lock, and not what makes the write safe: `EditorFileStore`'s write order does that,
+    /// because ⌘S and the quit flush write synchronously and cannot wait. This only stops a second
+    /// background write being dispatched over the first.
     @State var editorIsWritingInBackground = false
     /// Whether the PDF reader's pages have the keyboard — `EditorPDFViewState.hasFocus`, copied
     /// here by `onReceive` so ⌘+ ⌘− ⌘0 can follow it (`shortcutPDFZoom`). Copied rather than read
@@ -235,16 +205,14 @@ struct ContentView: View {
     @ObservedObject var editorUndoStore: EditorUndoStore
     /// Which files autosave may write. Owned by the app — see `SyncCloudApp`.
     @ObservedObject var editorAutosavePolicy: EditorAutosavePolicy
-    /// What happened to the open document's file elsewhere (TE59) — a reload, a banner, a move
-    /// followed. Owned by the app beside the document it watches; see `EditorDiskWatch`.
+    /// What happened to the open document's file elsewhere — a reload, a banner, a move followed.
+    /// Owned by the app beside the document it watches; see `EditorDiskWatch`.
     @ObservedObject var editorDiskWatch: EditorDiskWatch
     /// Source / Preview / Split for the open document.
     ///
-    /// **Window state, not a persisted preference.** Which of the three you want is a fact about
-    /// the file you are looking at right now; remembering it across launches would open the next
-    /// document in whatever mode the last one was left in. It lives here rather than in the
-    /// workspace view for the same reason the document does — the view is torn down on every tab
-    /// switch, and the mode would go back to Edit each time you came back.
+    /// Window state, not a persisted preference: the mode is a fact about the file you are looking
+    /// at, and remembering it would open the next document in whatever mode the last was left in.
+    /// Held here, not in the workspace view, because that view is torn down on every tab switch.
     @State var editorMode: EditorMode = .edit
     /// How the editor's split divides its column. Beside `editorMode` because the two describe the
     /// same reading session, and the workspace view that draws them is rebuilt on every tab switch.
@@ -256,132 +224,109 @@ struct ContentView: View {
     /// observers that must outlive a body pass — see `CommandPalettePanel.swift` for why the
     /// palette is a window rather than an overlay on this view.
     @StateObject var palettePanel = CommandPalettePanelController()
-    /// Whether the palette is up. **Not the source of truth** — the panel is — but the menu chords
-    /// are suspended off it (`ShortcutValuePublisher.suspended`), so it is kept in step by the
-    /// controller's single `onDismiss`. The query and the selection live with the panel; a copy
-    /// here would be a second answer to what has been typed.
+    /// Whether the palette is up. Not the source of truth — the panel is — but the menu chords are
+    /// suspended off it (`ShortcutValuePublisher.suspended`), so the controller's single
+    /// `onDismiss` keeps it in step. The query and selection live with the panel; a copy here would
+    /// be a second answer to what was typed.
     @State var showCommandPalette = false
-    /// Ask Claude's panel (RD69, v7.0) and its chat. One chat for the window: it follows the
-    /// person across workspaces and tabs (decision DU).
-    /// Holds Ask Claude's chat without observing it: see `AskClaudeChatHolder`.
+    /// Ask Claude's panel and its chat. One chat for the window: it follows the person across
+    /// workspaces and tabs. Held without observing it: see `AskClaudeChatHolder`.
     @StateObject var askClaudeHolder = AskClaudeChatHolder()
 
-    /// Organize's rail selection, **as `@AppStorage` rather than raw `UserDefaults`**.
+    /// Organize's rail selection, as `@AppStorage` rather than raw `UserDefaults`: `@AppStorage`
+    /// keeps a process-wide storage location per (store, key) and can lose a raw standard-domain
+    /// write outright, and `LensWorkspaceView` holds this key in `@AppStorage`. Writing through the
+    /// same wrapper puts both on one location.
     ///
-    /// `aimOrganize` writes it when ⌘K routes to a lens, and it wrote it through
-    /// `UserDefaults.standard.set` — which this app has already been bitten by and documented:
-    /// `@AppStorage`'s process-wide storage location per (store, key) can **lose** a standard-domain
-    /// write outright rather than deliver it late, which is why the defaults-backed test suites
-    /// mount with their own `ScratchDefaults`. `LensWorkspaceView` holds this key in `@AppStorage`, so a
-    /// route could land on Organize and leave the rail on whatever lens it was already showing,
-    /// intermittently and with nothing to see. Writing through the same property wrapper puts both
-    /// sides on one storage location, which is the path every other writer in the app already takes.
-    ///
-    /// **The scope has no second spelling here.** This pair used to be a pair: a `paletteScopePath`
-    /// sat beside it on the same defaults key as ``organizeScopePath``, so the same key had one
-    /// property documented "never written directly" and another the palette wrote raw — which is
-    /// how the palette came to carry its own copy of the root-means-no-scope normalization. The
-    /// palette's write now goes through ``setOrganizeScope(_:)`` like every other, and the second
-    /// writable spelling is gone rather than merely unused; `theRouteCannotMintASecondEncodingOfTheGlobalView`
-    /// pins its absence by name.
+    /// The scope's write goes through ``setOrganizeScope(_:providerRoot:)``, the one writer;
+    /// `theRouteCannotMintASecondEncodingOfTheGlobalView` pins that.
     @AppStorage(OrganizeLens.defaultsKey) var paletteRailLens: OrganizeLens?
 
     @AppStorage("selectedLeftProviderId") var leftProviderId: String = "iCloud"
-    /// To File's File Into choices, source id → folder, as JSON (TE287). See `ContentView+FileInto`.
+    /// To File's File Into choices, source id → folder, as JSON. See `ContentView+FileInto`.
     @AppStorage(FilingDestinationRoot.storedKey) var toFileDestinationsJSON: String = ""
     /// Text ▸ Edit in Preview (Experimental): whether Preview has a text view for the Markup and
-    /// find items to act on (TE67) — read here so the menus follow the switch at once.
+    /// find items to act on — read here so the menus follow the switch at once.
     @AppStorage(EditorTextSettings.editsInPreviewKey) var editsInPreviewSetting = EditorTextSettings.editsInPreviewDefault
-    /// The workspace's 256 KB decision for the open note, handed up when it is taken (V4) — so the
-    /// menus agree with the Preview they act on without this view observing the buffer.
+    /// The workspace's 256 KB decision for the open note, handed up when it is taken, so the menus
+    /// agree with the Preview they act on without this view observing the buffer.
     @State var editorPreviewLengthHold: PreviewLengthHold?
     @AppStorage("selectedRightProviderId") var rightProviderId: String = "iCloud"
     @State var isScanning = false
     /// `syncManager.isScanShown`, mirrored like `isScanning` so the swap animates: what Compare's
     /// busy surfaces draw from — the scanning card and the panes' Stop rung. A scan that ends
-    /// inside `FileSyncManager.defaultScanShownAfter` never reaches either. `isScanning` stays what the
+    /// inside `FileSyncManager.defaultScanShownAfter` reaches neither. `isScanning` stays what the
     /// commands decide by, because whether ⌘R may start a scan is not a question of display.
     @State var isScanShown = false
 
     /// The retired welcome tour's seen flag, still read and never written.
     ///
-    /// **It is now evidence about the user rather than about the tour.** Every machine that ran a
-    /// build before the setup form carries it, and it means "this person has already been greeted",
-    /// so `SetupFlow.shouldAutoShow` uses it to refuse to open the form over somebody's working app.
-    /// A fresh install has it false and gets the form; Help ▸ Set Up SyncCloud… ignores it entirely.
+    /// It now means "this person has already been greeted": every machine that ran a build before
+    /// the setup form carries it, so `SetupFlow.shouldAutoShow` uses it to refuse to open the form
+    /// over somebody's working app. A fresh install has it false and gets the form; Help ▸ Set Up
+    /// SyncCloud… ignores it.
     @AppStorage(SetupFlow.legacyWelcomeSeenDefaultsKey) private var hasSeenFirstRunWelcome: Bool = false
     /// Set when the user reaches the end of the setup form. Persisted, so it never auto-opens twice.
     @AppStorage(SetupFlow.hasCompletedDefaultsKey) private var hasCompletedSetup: Bool = false
-    /// Whether setup has been dismissed for the rest of this session. App-owned (a binding) for the
-    /// same reason as `hasBootstrappedSession`: it has to outlive this view, because a form the
-    /// user answered *Not Now* to must not come back when they reopen the window.
+    /// Whether setup has been dismissed for the rest of this session. App-owned (a binding) like
+    /// `hasBootstrappedSession`, so a form answered *Not Now* does not come back when the window
+    /// reopens.
     ///
-    /// Separate from `hasCompletedSetup`, and the difference is the whole point: *Not Now* hides it
-    /// for this session and leaves the persisted flag alone, so the form offers itself again on the
-    /// next launch of a machine that still has not been set up.
+    /// Separate from `hasCompletedSetup`: *Not Now* hides it for this session and leaves the
+    /// persisted flag alone, so the form offers itself again on the next launch of a machine still
+    /// not set up.
     @Binding var setupDismissedThisSession: Bool
     /// Whether Help ▸ Set Up SyncCloud… asked for the form explicitly. App-owned so the menu
-    /// command — which lives in the App scene and cannot see this view's state — can set it.
+    /// command, which lives in the App scene, can set it.
     ///
-    /// **The explicit latch is what makes the form reachable after it has been completed.** The
-    /// auto-show gate refuses a machine that is already set up, which is correct for a launch and
-    /// wrong for a menu item; the two are separate inputs to the same overlay rather than one flag
-    /// the menu has to lie to.
+    /// The explicit latch is what makes the form reachable after it has been completed: the
+    /// auto-show gate refuses a machine already set up, which is right for a launch and wrong for a
+    /// menu item.
     @Binding var showSetup: Bool
 
-    /// Number of provider-id `onChange` notifications still expected from an in-flight pane
-    /// swap. A swap flips both @AppStorage ids at once, which would fire both id onChanges and
-    /// drive two navigation resets that wipe the focus/selection the swap just moved to the
-    /// other side. Each suppressed onChange decrements this; the swap action seeds it with the
-    /// number of ids that actually change (2, or 0 when both panes already share a provider) so
-    /// later real provider switches are never suppressed.
+    /// Number of provider-id `onChange` notifications still expected from an in-flight pane swap. A
+    /// swap flips both @AppStorage ids at once, which would fire both onChanges and drive two
+    /// navigation resets that wipe the focus and selection the swap just moved. Each suppressed
+    /// onChange decrements this; the swap seeds it with the number of ids that actually change (2,
+    /// or 0 when both panes share a provider), so later real provider switches are never
+    /// suppressed.
     @State private var pendingSwapProviderChanges: Int = 0
 
-    /// The same counter for a **tab switch**, which also writes a provider id behind the user's
-    /// back and must not have `retargetPane()` run over the navigation it has just restored.
+    /// The same counter for a tab switch, which also writes a provider id behind the user's back
+    /// and must not have `retargetPane()` run over the navigation it just restored.
     ///
-    /// Its own counter rather than the swap's, and not private because `ContentView+PaneTabs`
-    /// writes it: sharing one would let a swap consume a tab switch's suppression (or the reverse)
-    /// and reset exactly the state the other had moved.
+    /// Separate from the swap's, and not private because `ContentView+PaneTabs` writes it: one
+    /// shared counter would let a swap consume a tab switch's suppression, or the reverse.
     @State var pendingTabProviderChanges: Int = 0
 
-    /// View ▸ Tab Bar. **Off by default** — the strip appears when a second tab does, which is
-    /// Finder's behaviour and what keeps an install that never opens one unchanged. Ticking it
-    /// keeps a one-tab strip (and therefore a permanent ＋) on screen at the cost of a row that
-    /// restates the folder name the header already shows.
+    /// View ▸ Tab Bar. Off by default: the strip appears when a second tab does, as in Finder, so
+    /// an install that never opens one is unchanged. Ticking it keeps a one-tab strip (and its ＋)
+    /// on screen.
     ///
-    /// App-wide rather than per pane, like the column width every pane shares:
-    /// "do I want a tab bar" is a question about the app, not about one of three surfaces that all
-    /// draw the same pane.
+    /// App-wide rather than per pane, like the shared column width: "do I want a tab bar" is a
+    /// question about the app.
     @AppStorage("browseTabBarVisible") var tabBarVisible: Bool = false
-    /// View ▸ Status Bar. **On by default**, unlike the tab bar above it — the strip states facts
-    /// the window has nowhere else to put (how many items are here at all, how much of the tree
-    /// lives in the cloud), where a tab bar restates a folder name the header already shows. It
-    /// costs one 10pt row and the roadmap's brief asks for it on.
+    /// View ▸ Status Bar. On by default, unlike the tab bar: the strip states facts the window has
+    /// nowhere else to put (how many items are here, how much of the tree lives in the cloud), and
+    /// costs one 10pt row.
     ///
-    /// App-wide rather than per pane, for the reason the tab bar's key gives: "do I want a status
-    /// bar" is a question about the app. It reaches only Browse today (see `PaneStatusBar`), which
-    /// is a fact about where the bar is *drawn*, not about what the preference means — so a
-    /// Compare bar arriving later would read this same key rather than minting a second one.
+    /// App-wide, for the tab bar's reason. It is drawn only in Browse (see `PaneStatusBar`); a bar
+    /// drawn elsewhere later should read this same key.
     @AppStorage("browseStatusBarVisible") var statusBarVisible: Bool = true
-    /// The folder sidebar's column. **On by default**: the store has always held the pinned and
-    /// recent lists and nothing but a menu ever showed them, so shipping this off would have left
-    /// the item exactly as discoverable as the menu it replaced.
+    /// The folder sidebar's column. On by default, so the pinned and recent lists are discoverable.
     ///
-    /// **One preference across every workspace that draws the column**, not Browse's — Browse,
-    /// Compare, Organize and Storage all carry it (`Workspace.supportsFolderSidebar`), and
-    /// `folderSidebarIsShowing` is the one rule that reads this value. The KEY keeps its `browse`
-    /// spelling from when Browse was the only one: renaming it would re-default the column to `true`
-    /// for everyone who had switched it off, which is the same reason the key survived the v4.2/v4.3
-    /// hold rather than being deleted with the column.
+    /// One preference across every workspace that draws the column
+    /// (`Workspace.supportsFolderSidebar`); `folderSidebarIsShowing` is the one rule that reads it.
+    /// The key keeps its `browse` spelling: renaming it would re-default the column to `true` for
+    /// everyone who switched it off.
     @AppStorage("browseSidebarVisible") var browseSidebarVisible: Bool = true
-    /// **Edit's own sidebar switch, off until shown** (asked 2026-10-17): Edit opens on the strip
-    /// and the text, and ⌃⌘S there no longer moves the sidebar in Browse, Compare or Organize —
-    /// which share `browseSidebarVisible` above. See `folderSidebarPreference`.
+    /// Edit's own sidebar switch, off until shown: Edit opens on the strip and the text, and ⌃⌘S
+    /// there does not move the sidebar in Browse, Compare or Organize, which share
+    /// `browseSidebarVisible` above. See `folderSidebarPreference`.
     @AppStorage("editorSidebarVisible") var editorSidebarVisible: Bool = false
-    /// **Edit's side-column width, one for the pane and the list's three tabs** (asked
-    /// 2026-10-17): dragged at the open column's edge, so whichever is showing, the column is the
-    /// same width. Floor and default `EditorLayoutMetrics.railWidth`; see `editorColumnWidth(in:)`.
+    /// Edit's side-column width, one for the pane and the list's three tabs: dragged at the open
+    /// column's edge, so whichever is showing, the column is the same width. Floor and default
+    /// `EditorLayoutMetrics.railWidth`; see `editorColumnWidth(in:)`.
     @AppStorage("editorColumnWidth") var editorColumnWidthRaw: Double = Double(EditorLayoutMetrics.railWidth)
     /// The width at the start of a drag of that edge — `folderSidebarDragOrigin`'s reason.
     @State var editorColumnDragOrigin: CGFloat?
@@ -391,8 +336,8 @@ struct ContentView: View {
     @AppStorage("browseSidebarWidth") var browseSidebarWidthRaw: Double = 180
     /// Which sections are folded, comma-joined — see `folderSidebarCollapsedSections`.
     @AppStorage("browseSidebarCollapsed") var browseSidebarCollapsed: String = ""
-    /// Which list the sidebar's Recents heading shows — `RecentsMode`'s raw value (SQ5, SQ3). One
-    /// sidebar-wide setting, remembered across launches like the folded sections.
+    /// Which list the sidebar's Recents heading shows — `RecentsMode`'s raw value. One sidebar-wide
+    /// setting, remembered across launches like the folded sections.
     @AppStorage("browseSidebarRecentsMode") var browseSidebarRecentsMode: String = RecentsMode.recents.rawValue
     /// Which places sit in Favorites, JSON-encoded — see `SidebarFavoritePlaces`. Empty means the
     /// key has never been written, which is not the same as "no favorites"; that distinction is
@@ -401,68 +346,54 @@ struct ContentView: View {
     @AppStorage("browseSidebarFavoritePlaces") var browseSidebarFavoritePlacesRaw: String = ""
     /// The sidebar's rows, resolved rather than recomputed in `body`.
     ///
-    /// `FolderJumpStore.reachable` touches the disk — one `stat` for the root, then one per
-    /// remembered folder — and the root's is the one that can block for seconds under a network
-    /// mount that has gone away. That is survivable on the ⌘K path, which runs once per open; in a
-    /// view body it would run on every render of the workspace. Refreshed at the four moments the
-    /// answer can change instead: appearing, the provider changing, the pane moving, and the store
-    /// publishing a pin or a visit.
+    /// `FolderJumpStore.reachable` touches the disk, one `stat` per folder, and the root's can
+    /// block for seconds under a network mount that has gone away. Fine once per ⌘K open; in a view
+    /// body it would run on every render. Refreshed at the four moments the answer can change
+    /// instead: appearing, the provider changing, the pane moving, and the store publishing a pin
+    /// or a visit.
     @State var folderSidebarRows: [FolderSidebarRow] = []
     @State var folderSidebarLocationRows: [SidebarSourceRow] = []
-    /// **The mount points a row may be ejected from**, resolved with the rows rather than in the
-    /// view body.
+    /// The mount points a row may be ejected from, resolved with the rows rather than in the view
+    /// body.
     ///
-    /// It was computed inline in the sidebar's arguments for one build, which put a
-    /// `mountedVolumeURLs` call plus a `resourceValues` read per volume into **every** evaluation of
-    /// that body — and the body re-evaluates on hover, on a drag, on every selection change. That
-    /// is the exact cost `refreshFolderSidebarRows`'s own gate exists to keep off the render path,
-    /// and under an unresponsive network mount a resource read can block. Resolved on the same
-    /// pass as the rows, it happens when the volumes can actually have changed.
+    /// Inline, a `mountedVolumeURLs` call plus a `resourceValues` read per volume would run on
+    /// every evaluation of the sidebar's body (hover, drag, selection change), and a resource read
+    /// can block under an unresponsive network mount. Resolved on the rows' pass, it runs when the
+    /// volumes can actually have changed.
     @State var folderSidebarEjectablePaths: Set<String> = []
-    /// **The narrower half: where an unmount actually forgets the sources.**
+    /// The narrower half: where an unmount actually forgets the sources.
     ///
-    /// Eject is offered on anything Finder would eject, a network share included; a share is not
-    /// local, so unmounting it leaves its sources in place. The confirmation has to know which of
-    /// the two it is looking at, or it promises a removal that will not happen — which it did until
-    /// this was split out. Resolved on the same walk as the rows, from
+    /// Eject is offered on anything Finder would eject, network shares included; a share is not
+    /// local, so unmounting it leaves its sources in place. The confirmation must know which it is
+    /// looking at, or it promises a removal that will not happen. Resolved on the rows' walk, from
     /// `SidebarSourceModel.Volume.losesItsSourcesOnUnmount`, so the sentence the user reads and the
     /// rule `MountedVolumeMemory` applies are one rule.
     @State var folderSidebarDetachablePaths: Set<String> = []
     @State var folderSidebarShortcutRows: [SidebarSourceRow] = []
-    /// **The comparison Compare owes, and why** — one record for every way Compare's list falls
-    /// behind the disk, paid in one place (`payOwedComparisonIfNeeded`). See `OwedComparison`.
+    /// The comparison Compare owes, and why — one record for every way Compare's list falls behind
+    /// the disk, paid in one place (`payOwedComparisonIfNeeded`). See `OwedComparison`.
     ///
-    /// View `@State` rather than manager state because the fact it records is a fact about the
-    /// *workspace* — nothing in `FileSyncManager` knows which workspace is on screen, and the debt
-    /// exists only because a single-source workspace cannot display the answer.
+    /// View `@State` rather than manager state because it records a fact about the workspace:
+    /// nothing in `FileSyncManager` knows which workspace is on screen, and the debt exists only
+    /// because a single-source workspace cannot display the answer.
     @State var owedComparison = OwedComparison()
 
-    /// **The switch the sidebar refresh coalesces on**, in a box the view holds rather than as a
-    /// `@State` value.
-    ///
-    /// It is written and read back inside one synchronous stretch — the ticket is bumped and then
-    /// compared across a main-actor hop. `@State`'s storage belongs to SwiftUI and the promises it makes are about *rendering*;
-    /// whether a value written and read back within one event handler is the value that comes out
-    /// is not a question this code should have hanging over it. A reference the view holds has no
-    /// such question: the write is a property write and the read after it sees it.
-    ///
-    /// `@State` is still the right holder, of a reference: it gives the box this view's lifetime.
-    /// A close and Dock reopen keeps the same view, and so the same box; a rebuilt view would get
-    /// a fresh one, which is also correct, since the ticket describes nothing that outlives the
-    /// view.
+    /// The switch the sidebar refresh coalesces on, in a box rather than a `@State` value: it is
+    /// written and read back across a main-actor hop, and SwiftUI's `@State` storage promises only
+    /// about rendering, while a reference's property reads back what was written. `@State` still
+    /// holds the box, for this view's lifetime.
     @State var sidebarRefresh = SidebarRefreshState()
 
     /// The box behind ``ContentView/sidebarRefresh``.
     final class SidebarRefreshState {
-        /// **The ticket the sidebar refresh coalesces on.** Bumped by every call to
-        /// `refreshFolderSidebarRows`, and checked twice by the one that wins — once after the hop
-        /// to the next main-actor turn, which is what collapses the two-to-four calls a single
-        /// workspace switch fires into one walk, and once after that walk returns, which is what
-        /// stops an answer overtaken while it was out being drawn over a newer one.
+        /// The ticket the sidebar refresh coalesces on. Bumped by every call to
+        /// `refreshFolderSidebarRows` and checked twice by the call that wins: after the hop to the
+        /// next main-actor turn, which collapses the calls one workspace switch fires into one
+        /// walk, and after the walk returns, so an overtaken answer is not drawn over a newer one.
         ///
-        /// `&+=` at the call site rather than `+=`: this is bumped on every pane move for the life
-        /// of the window, and trapping at `Int.max` to protect a comparison that only ever asks "is
-        /// this still the newest" would be a crash standing in for a wrap that changes nothing.
+        /// `&+=` rather than `+=`: it is bumped on every pane move for the window's life, and
+        /// trapping at `Int.max` for an "is this still the newest" comparison would be a crash
+        /// standing in for a harmless wrap.
         var ticket = 0
     }
 
@@ -471,27 +402,24 @@ struct ContentView: View {
     /// The sidebar width when the current resize drag began — see `folderSidebarResizeHandle`.
     @State var folderSidebarDragOrigin: CGFloat?
 
-    /// Active "compare two duplicate copies" handoff from the Duplicates lens: the keeper (left pane) and the
-    /// redundant copy (right pane) opened in Compare, plus the duplicate scan root to re-scan once
-    /// the right copy is trashed. Drives the keep-left / trash-right banner over Compare; nil when
-    /// no such review is in progress. App-owned (a binding, like `hasBootstrappedSession`) so it
-    /// outlives this view: were ContentView ever rebuilt, losing the review context with it while
-    /// its provider pins persist in @AppStorage would strand the panes pinned to the duplicate's
-    /// provider with no banner, no Done button, and no restore snapshot.
+    /// Active "compare two duplicate copies" handoff from the Duplicates lens: the keeper (left
+    /// pane) and the redundant copy (right pane) open in Compare, plus the duplicate scan root to
+    /// re-scan once the right copy is trashed. Drives the keep-left / trash-right banner over
+    /// Compare; nil when no review is in progress. App-owned (a binding) so it outlives this view:
+    /// losing the review while its provider pins persist in @AppStorage would strand the panes on
+    /// the duplicate's provider with no banner, no Done button and no restore snapshot.
     @Binding var duplicateReview: DuplicateCompareContext?
 
-    /// The app's text scale. Read here rather than off `UserDefaults` inside the toolbar because
-    /// the workspace bar's shedding rule depends on it: a direct defaults read produces the right
-    /// answer once and never invalidates, so raising Settings ▸ Text size would leave the bar
-    /// claiming its labels still fit until something unrelated re-rendered it.
+    /// The app's text scale. Read here rather than off `UserDefaults` in the toolbar because the
+    /// workspace bar's shedding rule depends on it: a direct defaults read never invalidates, so
+    /// raising Settings ▸ Text size would leave the bar claiming its labels still fit.
     @Environment(\.appFontScale) var appFontScale
     @Environment(\.undoManager) var undoManager
     @Environment(\.openWindow) var openWindow
 
-    /// Shared geometry for the workspace bar's selected-segment fill, so the accent capsule
-    /// TRAVELS between segments instead of being cut out of one and into the next. Declared here
-    /// rather than beside the bar because `@Namespace` is a stored property and the bar lives in
-    /// an extension (`ContentView+Toolbar`), which cannot hold one.
+    /// Shared geometry for the workspace bar's selected-segment fill, so the accent capsule travels
+    /// between segments instead of being cut out of one and into the next. Declared here because
+    /// `@Namespace` is a stored property and the bar lives in an extension (`ContentView+Toolbar`).
     @Namespace var workspaceMarker
 
     @State var actionHandler: FileActionHandler?
@@ -508,11 +436,10 @@ struct ContentView: View {
     /// The `openCommandPaletteOnLaunch` diagnostic, waiting for provider discovery — see the
     /// bootstrap case that sets it.
     @State private var paletteOnLaunchArmed = false
-    /// Guided-review state, owned by the App (like `duplicateReview`) so it outlives BOTH
-    /// DifferencesView — that view unmounts on a Details-tab peek and whenever the live
-    /// differences list goes empty, and the session (plus any in-flight copy's outcome) must
-    /// survive both — and this ContentView itself, should it ever be rebuilt (see
-    /// `hasBootstrappedSession`).
+    /// Guided-review state, owned by the App (like `duplicateReview`) so it outlives
+    /// DifferencesView — which unmounts on a Details-tab peek and whenever the differences list
+    /// goes empty, while the session and any in-flight copy's outcome must survive — and this view,
+    /// should it be rebuilt (see `hasBootstrappedSession`).
     @ObservedObject var reviewStore: ReviewSessionStore
     /// Files handed over from Finder, the Dock or `open -a`, waiting for this window to open them in
     /// Edit. The app delegate's, because it outlives the window — see ``ExternalOpenQueue``.
@@ -531,14 +458,14 @@ struct ContentView: View {
     // spine's card, and `private` is invisible to a same-type extension across files.
     @AppStorage(LiquidGlass.tintKey) var surfaceTint: Double = 0
 
-    /// Left pane's share of the pane row's width (0…1). Persisted so the split survives relaunches.
-    /// Drives the custom two-pane split that replaced HSplitView, whose NSSplitView divider bled
-    /// up through the `.hiddenTitleBar` toolbar band; a SwiftUI HStack + divider respects the
-    /// toolbar's safe area, so the divider now starts at the pane headers.
+    /// Left pane's share of the pane row's width (0…1), persisted across relaunches. Drives a
+    /// custom two-pane split rather than HSplitView, whose NSSplitView divider bleeds up through
+    /// the `.hiddenTitleBar` toolbar band; an HStack and divider respect the toolbar's safe area,
+    /// so the divider starts at the pane headers.
     @AppStorage("mainPaneSplitFraction") var paneSplitFraction: Double = 0.5
-    /// Live split fraction while the divider is being dragged; nil when idle. Kept in @State so a
-    /// drag updates smoothly without rewriting @AppStorage every frame — it's persisted once, on
-    /// drag end. `mainContentView` reads this in preference to `paneSplitFraction` mid-drag.
+    /// Live split fraction while the divider is dragged; nil when idle. Kept in @State so a drag
+    /// updates smoothly without rewriting @AppStorage every frame; persisted once, on drag end.
+    /// `mainContentView` reads this in preference to `paneSplitFraction` mid-drag.
     @State var paneDragFraction: Double? = nil
 
     /// The bottom (Differences/Details) pane's share of the content height. Persisted so it
@@ -558,8 +485,8 @@ struct ContentView: View {
         static let railFractionKey = "tidyRailFraction"
     }
 
-    /// The single-source source rail's share of the content width when expanded (the lens workspaces). Persisted
-    /// like the other split fractions; the workspace fills the rest.
+    /// The single-source rail's share of the content width when expanded (the lens workspaces).
+    /// Persisted like the other split fractions; the workspace fills the rest.
     @AppStorage(RailLayout.railFractionKey) var railFraction: Double = 0.28
     /// Live rail-split fraction while dragging; nil when idle (persisted once on release).
     @State var railDragFraction: Double? = nil
@@ -574,108 +501,75 @@ struct ContentView: View {
     var glassLevel: GlassLevel {
         GlassLevel(rawValue: glassLevelRaw) ?? .frosted
     }
-    // Not `private`: the split-layout extension (ContentView+SplitLayout.swift) paints its
-    // seam chrome (swap button, rail spine) with the same user-selected hue (C7).
+    // Not `private`: the split-layout extension (ContentView+SplitLayout.swift) paints its seam
+    // chrome (swap button, rail spine) with the same user-selected hue.
     var glassHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
     }
 
-    /// The selected workspace, persisted so a session resumes where it left off. Stored by
-    /// ``Workspace`` raw value — `WorkspaceTests` pins those as a stable format, and
-    /// `Workspace.migrateSelection` carries the old two-key selection forward at launch.
-    /// Internal, not private: the workspace bar it drives lives in the window toolbar
-    /// (ContentView+Toolbar.swift), which `private` would put out of reach.
+    /// The selected workspace, persisted so a session resumes where it left off, stored by
+    /// ``Workspace`` raw value (pinned by `WorkspaceTests`; `Workspace.migrateSelection` carries
+    /// old selections forward). Internal for the toolbar's workspace bar.
     ///
-    /// **`.browse`, and it must stay equal to ``WorkspaceSelection/default``.** This value is
-    /// where a *first run* lands, because `migrateSelection` deliberately writes nothing when
-    /// nothing is stored; that other constant is where an *unreadable or retired* stored value
-    /// lands. They are reached by different paths and were allowed to disagree, so a fresh install
-    /// opened on Compare while a corrupted one opened on Browse — the property both of them claim
-    /// to have, quietly false. `theFirstRunDefaultAgreesWithTheFallback` now fails if they part.
-    ///
-    /// Browse for the reason that constant gives: a file browser is a better place to land than a
-    /// comparison of two clouds nothing has scanned yet. Existing installs are untouched — they
-    /// carry a stored value that still resolves, and this default is never consulted for them.
+    /// `.browse`, and it must stay equal to ``WorkspaceSelection/default``: this is where a first
+    /// run lands, that is where an unreadable stored value lands, and the two must agree
+    /// (`theFirstRunDefaultAgreesWithTheFallback`).
     @AppStorage(Workspace.defaultsKey) var selectedWorkspace: Workspace = .browse
     /// Which lens is showing inside Organize, or `nil` for its overview.
     ///
-    /// Lives beside the workspace rather than inside `LensWorkspaceView` because programmatic navigation
-    /// needs to write it: "Find duplicates of this" names a lens, and since the fold that lens is
-    /// one rail item inside Organize rather than a workspace of its own. `LensWorkspaceView` reads the same
-    /// key through its own `@AppStorage`, so the two cannot disagree.
+    /// Lives beside the workspace rather than in `LensWorkspaceView` because programmatic
+    /// navigation writes it: "Find duplicates of this" names a lens, which is one rail item inside
+    /// Organize. `LensWorkspaceView` reads the same key through its own `@AppStorage`, so the two
+    /// cannot disagree.
     @AppStorage(OrganizeLens.defaultsKey) var selectedOrganizeLens: OrganizeLens?
     /// Set while a ⌘F query has been turned into a person gather. Clearing it returns the pane to
     /// whatever it was showing — the gather is a lens over the source, not a place you navigate to.
     @State var personScope: PersonScope?
 
-    /// The subtree Organize is answering about — **empty is the global view, and it is the
-    /// default.**
+    /// The subtree Organize is answering about; empty is the global view, and the default. Beside
+    /// the lens selection because programmatic callers set it before any scan runs.
+    /// `LensWorkspaceView` reads the same key through its own `@AppStorage`.
     ///
-    /// Beside the lens selection and for the same reason: programmatic callers set it. "Organize
-    /// This Folder…" from a folder's context menu and the ⌘K command both name a folder, and both
-    /// have to be able to re-aim Organize before any scan has run. `LensWorkspaceView` reads the same key
-    /// through its own `@AppStorage`, so the two cannot disagree.
-    ///
-    /// Never written directly — see ``setOrganizeScope(_:)``, which asks
-    /// ``OrganizeScope/normalizedPath(_:providerRoot:)`` for the stored form, so the provider root
-    /// collapses to the empty string and the global view has exactly one representation.
+    /// Never written directly — see ``setOrganizeScope(_:providerRoot:)``, which stores
+    /// ``OrganizeScope/normalizedPath(_:providerRoot:)`` so the global view has one representation.
     @AppStorage(OrganizeScopeDefaults.pathKey) var organizeScopePath: String = ""
 
-    /// The lens the selected workspace shows, or `nil` on Compare. Derived, not stored: there is
-    /// one selection now, and a second copy of it would be a second thing to keep in step.
+    /// The lens the selected workspace shows, or `nil` on Compare. Derived, not stored: a second
+    /// copy of the selection would be a second thing to keep in step.
     var selectedLens: WorkspaceLensKind? { selectedWorkspace.lens }
 
     /// The file a pane row's "Find duplicates of this" asked the Duplicates lens to reveal.
     ///
-    /// Held HERE and not inside `LensWorkspaceView`, because the workspace switch that carries the user
-    /// there mounts that view: state set on the way in has to outlive the mount. Not persisted —
-    /// it names a scan that only exists in this session.
+    /// Held here, not in `LensWorkspaceView`, because the workspace switch that carries the user
+    /// there mounts that view: state set on the way in has to outlive the mount. Not persisted — it
+    /// names a scan that exists only in this session.
     @State var duplicateRevealRequest: DuplicateRevealRequest?
 
-    /// The file pair the Compare Copies surface is open on, if any.
-    ///
-    /// **Held at the window, not inside `LensWorkspaceView`, because the surface needs the
-    /// window.** macOS clamps a sheet to its host window's content width and the lens workspace is
-    /// a fraction of that window (the panes take the rest), so an overlay anchored inside the lens
-    /// would get a few hundred points to draw two previews in. Anchored here it clamps against the
-    /// live window: 1080×760 with room, 712×512 at the 760×560 floor. The rest of the wiring is
-    /// still the lens's — it decides which pairs come here at all.
-    /// Not private: a file opened from Finder closes it (`closeViewersForExternalOpen`).
+    /// The file pair the Compare Copies surface is open on, if any. Held at the window because
+    /// macOS clamps a sheet to its host window's width, and the lens is only part of it (1080×760
+    /// with room, 712×512 at the floor). Not private: a file opened from Finder closes it
+    /// (`closeViewersForExternalOpen`).
     @State var compareFilePair: DuplicateComparePair?
 
-    /// The same surface, opened on a changed row from the Differences list — ROADMAP §11. Two
-    /// states rather than one sum type: the two hosts carry different payloads and mean different
-    /// verdict bars, and a shared case would have to be unwrapped at every use anyway.
-    /// Not private: a file opened from Finder closes it (`closeViewersForExternalOpen`).
+    /// The same surface, opened on a changed row from the Differences list. Two states rather than
+    /// one sum type: the two hosts carry different payloads and mean different verdict bars, and a
+    /// shared case would be unwrapped at every use anyway. Not private: a file opened from Finder
+    /// closes it (`closeViewersForExternalOpen`).
     @State var compareDifferencePair: DifferencePair?
 
     /// The file armed for comparison, waiting for the click that names its counterpart — see
-    /// ``ComparePick``.
-    ///
-    /// **`@State` here rather than a selection anywhere**, which is the whole design: an armed path
-    /// that lived in a pane's selection would be cleared by the very click meant to complete it,
-    /// because `PaneLogic.applySelectionWrite` holds the one-pane-selected invariant. Outside both
-    /// sets, it survives the selection moving, a scroll, and a navigation — the last of which
-    /// finding the counterpart usually requires.
+    /// ``ComparePick``. Kept out of every selection, because `PaneLogic.applySelectionWrite`'s
+    /// one-pane-selected invariant would clear it on the very click meant to complete it.
     @State private var comparePick: ComparePick?
 
     /// Both rungs of the toolbar row, resolved together from the window's width — see
     /// `WorkspaceBarMetrics.styleSet`.
     ///
-    /// **One value, not two decisions.** The workspace bar and the Go-to control share one row, and
-    /// two states resolved from two thresholds is how each concludes it fits a width the other is
-    /// also spending. Stored as the closed/open PAIR for a second reason: the field opens on a
-    /// keystroke rather than on a resize, so the open answer has to already be in hand.
-    ///
-    /// The *styles*, not the width. `.onGeometryChange` only calls its action when the transformed
-    /// value changes, so resolving the answer inside the transform means a live window resize
-    /// writes this once — when the labels actually shed — instead of once per frame. Storing the
-    /// raw width invalidated `ContentView.body` on every frame of every drag to answer a question
-    /// whose answer flips maybe twice in a session.
-    ///
-    /// `.onGeometryChange` rather than a `GeometryReader` writing a preference: it fires outside
-    /// the layout pass, which is what keeps a width-driven toolbar from re-entering layout and
-    /// tripping the AppKit constraint-loop crash that pattern caused before.
+    /// One value, so the workspace bar and the Go-to control cannot each conclude they fit the
+    /// width the other is spending; the closed/open pair, because the field opens on a keystroke
+    /// and its answer must already be in hand. The styles, not the width, so a live resize writes
+    /// this only when the labels shed. `.onGeometryChange` rather than a `GeometryReader`
+    /// preference: it fires outside layout, avoiding AppKit's constraint-loop crash.
     @State var toolbarStyleSet = ToolbarBarStyleSet(
         closed: ToolbarBarStyles(workspace: .iconOnly, search: .compact),
         open: ToolbarBarStyles(workspace: .iconOnly, search: .compact,
@@ -687,9 +581,8 @@ struct ContentView: View {
         return toolbarStyleSet.resolved(fieldOpen: showCommandPalette, runShowing: runCapsuleShowing,
                                         messageShowing: capsuleShowsMessage)
     }
-    /// The row as it was when Activity's popover opened under the capsule, held until it closes
-    /// (TE231): nothing moves under the popover — not when its last run ends, and not when the
-    /// message it opened from leaves.
+    /// The row as it was when Activity's popover opened under the capsule, held until it closes:
+    /// nothing moves under the popover, not when its last run ends and not when its message leaves.
     @State var activityPopoverStyles: ToolbarBarStyles?
     /// A pane-launched PDF tool run or Save as PDF showing in the toolbar capsule — reported by
     /// `RunCapsulePresence`, so this view need not observe the PDF models.
@@ -701,10 +594,9 @@ struct ContentView: View {
     }
     /// Whether the toolbar seats the progress capsule.
     var runCapsuleShowing: Bool { syncManager.activeProgress != nil || paneRunShowing }
-    /// **Why writes wait** while a long run is going — "Wait for the merge to finish" — or `nil`.
-    /// Read from the run itself; published to every write control as `runWriteLock` (BZ). The
-    /// pane PDF runs and Save as PDF do not lock: they only ever add a file of their own beside
-    /// its original, and never locked the window before.
+    /// Why writes wait while a long run is going — "Wait for the merge to finish" — or `nil`. Read
+    /// from the run itself; published to every write control as `runWriteLock`. The pane PDF runs
+    /// and Save as PDF do not lock: they only add a file of their own beside its original.
     var runWriteLockReason: String? {
         syncManager.activeProgress.map { $0.runLockReason ?? Progress.genericRunLockReason }
     }
@@ -716,9 +608,9 @@ struct ContentView: View {
         return true
     }
     /// What is typed in the toolbar's Go-to field. Held here rather than in the panel's state so
-    /// the field can redraw (its trailing key becomes a clear button) without observing it — and
-    /// in an object this view holds but does not observe, so a keystroke redraws the field and
-    /// not the window (speed audit item 6). `GoToFieldHost` is its only observer.
+    /// the field can redraw (its trailing key becomes a clear button), and in an object this view
+    /// holds but does not observe, so a keystroke redraws the field and not the window.
+    /// `GoToFieldHost` is its only observer.
     @State var goToQuery = GoToQuery()
     /// Bumped to claim the caret: on open, and again on ⌘K while already open — where it also
     /// selects what is there, so the next keystroke replaces it.
@@ -729,32 +621,31 @@ struct ContentView: View {
     /// deliberately showing or hiding the panes on a workspace sticks across launches.
     @AppStorage(TopPaneVisibility.overridesKey) private var topPaneOverridesRaw: String = ""
 
-    /// "Just the text" — the editor's file rail withheld: Expand's bit. Read only while the editor's
+    /// "Just the text": the editor's file rail withheld, Expand's bit. Read only while the editor's
     /// source pane is collapsed (`TopPaneVisibility.editorRailIsDrawn`); opening the pane by hand
-    /// clears it, which ends Expand (`EditorExpand.paneOpenedByHand`). Persisted, like the pane
-    /// override above it, for the same reason.
+    /// clears it, which ends Expand (`EditorExpand.paneOpenedByHand`). Persisted like the pane
+    /// override above.
     @AppStorage(TopPaneVisibility.editorRailHiddenKey) var editorRailHidden: Bool = false
-    /// The Text Files list folded into the strip by hand (TE77) — the strip's buttons, the list's
-    /// fold button and View ▸ Text Files move it. Separate from Expand's bit above, so folding the
-    /// list does not light Expand and leaving Expand gives back a list folded by hand still folded.
+    /// The Text Files list folded into the strip by hand — the strip's buttons, the list's fold
+    /// button and View ▸ Text Files move it. Separate from Expand's bit, so folding the list does
+    /// not light Expand, and leaving Expand gives back a list folded by hand still folded.
     @AppStorage(TopPaneVisibility.editorRailFoldedKey) var editorRailFolded: Bool = TopPaneVisibility.editorRailFoldedDefault
     /// Expand's record of what it put away — see `EditorExpand`, the only thing that writes them.
     @AppStorage(TopPaneVisibility.editorExpandSidebarPutAwayKey) var editorExpandSidebarPutAway: Bool = false
     @AppStorage(TopPaneVisibility.editorExpandFoldedPaneKey) var editorExpandFoldedPane: Bool = false
 
 
-    /// Whether the Compare Info inspector is shown. It replaces the old Details tab: a toggleable
-    /// right-side panel that shows metadata (and both-sides status) for the current selection.
-    /// Persisted so it stays open/closed across launches. Internal, not private: its toggle sits in
-    /// the window toolbar now (ContentView+Toolbar.swift).
+    /// Whether the Compare Info inspector is shown: a toggleable right-side panel with metadata
+    /// (and both-sides status) for the current selection. Persisted across launches. Internal, not
+    /// private: its toggle sits in the window toolbar (ContentView+Toolbar.swift).
     @AppStorage("showCompareInspector") var showInspector: Bool = false
-    /// The Info inspector's persisted width, resizable by dragging its leading edge. 360pt until it
-    /// is dragged — 270 before it carried the preview (TE317·4), which a page does not read at.
-    /// Clamped to `PaneLogic.inspector{Min,Max}Width` whenever it's written.
+    /// The Info inspector's persisted width, resizable by dragging its leading edge. 360pt until
+    /// dragged, wide enough for the preview to read a page. Clamped to
+    /// `PaneLogic.inspector{Min,Max}Width` whenever it's written.
     @AppStorage("compareInspectorWidth") private var inspectorWidth: Double = 360
-    /// The inspector preview's downloads, owned here so a "Downloading…" outlives the preview, which
-    /// is taken down whenever the inspector shows a folder or folds the picture away. `@State` on
-    /// a class, for `lensSession`'s reason: owned, not observed — the preview observes it.
+    /// The inspector preview's downloads, owned here so a "Downloading…" outlives the preview,
+    /// which is taken down whenever the inspector shows a folder or folds the picture away.
+    /// `@State` on a class, for `lensSession`'s reason: owned, not observed.
     @State private var inspectorDownloads = InspectorDownloads()
     /// The Get Info target as a node of its own, for one no pane's tree holds — a differences row
     /// outside the folder the pane is in, a file the pane's filter hides. Made when Get Info is
@@ -764,8 +655,8 @@ struct ContentView: View {
     /// the layout reads `inspectorDragWidth ?? inspectorWidth`, and the drag commits to
     /// `inspectorWidth` only on release, so `inspectorWidth` stays the stable drag-start base.
     @State private var inspectorDragWidth: Double? = nil
-    /// The preview's share of the Info inspector's height (TE318 B): set by dragging the bar under
-    /// it, kept across launches, and most of the panel until the user says otherwise.
+    /// The preview's share of the Info inspector's height: set by dragging the bar under it, kept
+    /// across launches, and most of the panel until the user says otherwise.
     @AppStorage("infoInspectorPreviewFraction") private var inspectorPreviewFraction: Double =
         DetailsSidebar.defaultPreviewFraction
     /// Per-pane action-bar placement scratch space. `FileTreeView` fills each with live row/viewport
@@ -773,19 +664,19 @@ struct ContentView: View {
     /// known synchronously the instant the selection changes — no gate, no show-then-flip.
     @State var leftPlacement = PaneBarPlacement()
     @State var rightPlacement = PaneBarPlacement()
-    /// Where each pane's columns were scrolled, kept HERE for the reason `leftTreeExpanded` is: this
+    /// Where each pane's columns were scrolled, kept here for `leftTreeExpanded`'s reason: this
     /// view outlives a workspace switch and the pane does not. See `PaneScrollMemory`.
     @State private var paneScrollMemory = PaneScrollMemory()
     /// Orders the deferred cross-pane selection clears, so a clear queued by one pane's click can
     /// never wipe a selection a later click made in the other pane. See
     /// `PaneLogic.applySelectionWrite`.
     @State private var selectionSequencer = PaneSelectionSequencer()
-    /// A pure re-render trigger for SCROLL-driven edge flips: `FileTreeView` mutates the placement
-    /// (a class, so no invalidation) and calls back to toggle this, which re-renders `paneColumn` so
-    /// it re-reads the flipped edge — animated. Selection changes re-render on their own.
+    /// A pure re-render trigger for scroll-driven edge flips: `FileTreeView` mutates the placement
+    /// (a class, so no invalidation) and calls back to toggle this, which re-renders `paneColumn`
+    /// so it re-reads the flipped edge, animated. Selection changes re-render on their own.
     @State var leftBarAtTop = false
     @State var rightBarAtTop = false
-    /// The tab strip kept under the pointer after a click closed it down to one tab (TE214) — see
+    /// The tab strip kept under the pointer after a click closed it down to one tab — see
     /// `PaneTabStripHold`.
     @State var tabStripHold = PaneTabStripHold()
     /// Whether the pointer is on each pane's strip — a reference, so crossing a strip re-renders
@@ -797,21 +688,21 @@ struct ContentView: View {
     @State private var infoPath: String? = nil
 
     @State var bannerDismissScheduler = BannerDismissScheduler()
-    /// Where the reader last clicked in Organize and Edit — their source pane, or the lens or the
-    /// editor beside it — so a result message shows where they were working (Banner Room, CA).
-    /// See `ResultMessageRoute`.
+    /// Where the reader last clicked in Organize and Edit — their source pane, or the lens or
+    /// editor beside it — so a result message shows where they were working. See
+    /// `ResultMessageRoute`.
     @State var resultMessageInPane = false
     /// The doors a pane-launched PDF tool's or Save as PDF's result hands to its message's
     /// follow-up buttons, for the message it was posted as. See `postPaneToolResult`.
     @State var paneToolResultDoors: PaneToolResult?
-    /// The message the toolbar's capsule shows instead of a pane (Run Room CG): a long run's ending
-    /// after the reader moved to another workspace.
+    /// The message the toolbar's capsule shows instead of a pane: a long run's ending after the
+    /// reader moved to another workspace.
     @State var capsuleMessageID: UUID?
     /// The capsule message folding into its ring on its way into Activity (`retireResultMessage`).
     @State var capsuleFoldingID: UUID?
     /// A run's ending a pane shows, which the capsule mirrors until it goes (`mirrorsInCapsule`).
     @State var capsuleMirrorID: UUID?
-    /// Where each long run was started, for its ending's route (CP).
+    /// Where each long run was started, for its ending's route.
     @State var fileOperationOrigin: Workspace?
     @State var paneToolOrigin: Workspace?
     @State var saveAsPDFOrigin: Workspace?
@@ -821,9 +712,9 @@ struct ContentView: View {
     /// closes (`BannerDismissScheduler.holdChanged`).
     @State var ruleOfferIsOpen = false
 
-    // Per-pane diff lookups for the tree rows, rebuilt only when the differences
-    // or pane roots change (not per render — the panes re-render per file during
-    // bulk sync, and rebuilding walks every difference's ancestor chain).
+    // Per-pane diff lookups for the tree rows, rebuilt only when the differences or pane roots
+    // change, not per render: the panes re-render per file during bulk sync, and a rebuild walks
+    // every difference's ancestor chain.
     @State private var leftDiffIndex: DiffStatusIndex = .empty
     @State private var rightDiffIndex: DiffStatusIndex = .empty
 
@@ -836,34 +727,32 @@ struct ContentView: View {
     /// What the user typed and where the walk has got to, per pane. The field's own state.
     @State var leftPaneSearch = PaneSearchFieldState()
     @State var rightPaneSearch = PaneSearchFieldState()
-    /// The results those queries produced, recomputed off the debounce rather than per render — a
-    /// query runs over the whole loaded tree, and `body` here is re-evaluated by any of the
-    /// manager's ~56 published properties.
+    /// The results those queries produced, recomputed off the debounce rather than per render: a
+    /// query runs over the whole loaded tree, and this `body` is re-evaluated by any of the
+    /// manager's many published properties.
     @State var leftSearchResults: PaneSearchResults = .empty(side: .left)
     @State var rightSearchResults: PaneSearchResults = .empty(side: .right)
-    /// The recomputation counter behind `PaneSearchResults.generation`. One per side, exactly like
-    /// the manager's own publish counters, so a stamp is only ever compared against its own pane's.
+    /// The recomputation counter behind `PaneSearchResults.generation`. One per side, like the
+    /// manager's own publish counters, so a stamp is only compared against its own pane's.
     @State var leftSearchGeneration = 0
     @State var rightSearchGeneration = 0
-    /// Each pane's file-type counts while it has no type filter, for the type list (RD70). With a
-    /// filter on, the manager's pass counts instead. See `ContentView+TypeFilter.swift`.
+    /// Each pane's file-type counts while it has no type filter, for the type list. With a filter
+    /// on, the manager's pass counts instead. See `ContentView+TypeFilter.swift`.
     @State var leftTypeCensus: PaneTypeFilterFacts?
     @State var rightTypeCensus: PaneTypeFilterFacts?
 
-    /// Each pane's presentation, stored per side so one can be a deep tree while the other is
-    /// flat. Defaults to Columns — which rests as a single full-pane column, so the pane opens
-    /// exactly as it did before the setting existed.
+    /// Each pane's presentation, stored per side so one can be a deep tree while the other is flat.
+    /// Defaults to Columns, which rests as a single full-pane column.
     @AppStorage(PaneViewMode.defaultsKey(isLeft: true)) private var leftViewModeRaw = PaneViewMode.default.rawValue
     @AppStorage(PaneViewMode.defaultsKey(isLeft: false)) private var rightViewModeRaw = PaneViewMode.default.rawValue
-    /// The single-source rail's own presentation, on its own key so switching a comparison pane never
-    /// restacks the rail. Columns by default for the same reason the panes are: a resting Columns
-    /// pane is one full-width column listing exactly what the tree listed, so this changes what a
-    /// click *does* — one click opens a folder instead of needing the row menu's Open.
+    /// The single-source rail's own presentation, on its own key so switching a comparison pane
+    /// never restacks the rail. Columns by default, like the panes: a resting Columns pane is one
+    /// full-width column, so one click opens a folder instead of needing the row menu's Open.
     @AppStorage(PaneViewMode.railDefaultsKey) private var railViewModeRaw = PaneViewMode.default.rawValue
-    /// Browse's own presentation, on its own key for the same reason the rail has one: Browse draws
-    /// the same pane the rail does, at full window width instead of in a 220pt column, and a stack
-    /// chosen for one is not a choice about the other. Sharing the rail's key would mean flipping
-    /// Browse to Tree silently restacks Organize.
+    /// Browse's own presentation, on its own key for the rail's reason: Browse draws the same pane
+    /// at full window width instead of in a 220pt column, and a stack chosen for one is not a
+    /// choice about the other. Sharing the rail's key would let flipping Browse to Tree silently
+    /// restack Organize.
     @AppStorage(PaneViewMode.browseDefaultsKey) private var browseViewModeRaw = PaneViewMode.default.rawValue
 
     func paneViewMode(isLeft: Bool) -> PaneViewMode {
@@ -883,49 +772,42 @@ struct ContentView: View {
 
     /// Which of the three stored presentations the pane on screen right now is reading.
     ///
-    /// **One member, deliberately.** Three surfaces draw `FileTreeView` — the two comparison panes,
-    /// the single-source rail, and Browse — and before Browse existed the choice was a bare
-    /// `layoutMode == .singleSource ? rail : pane` ternary restated at each of its three call
-    /// sites. Adding a third surface to two of them and missing the third is not a hypothetical:
-    /// the missed one would show Browse in the rail's stack and write the user's choice into the
-    /// rail's key, which is the exact bug the separate key exists to prevent, arriving silently.
+    /// One member, deliberately: three surfaces draw `FileTreeView` (the comparison panes, the
+    /// single-source rail, and Browse), and a ternary restated at each call site invites missing
+    /// one, which would show Browse in the rail's stack and write the user's choice into the rail's
+    /// key.
     func resolvedViewMode(isLeft: Bool) -> PaneViewMode {
         viewMode(in: selectedWorkspace, isLeft: isLeft)
     }
 
-    /// The presentation `workspace` draws its pane in, whichever workspace is on screen — for the
-    /// acts that move the pane on ANOTHER workspace's behalf: a hand-off into Edit asks Edit's
-    /// (`railViewMode`), Reveal in Browse asks Browse's. Reading `resolvedViewMode` there answered
-    /// for the workspace being left, and the two can disagree about the same pane — the column
-    /// stack is shared and only parked while Tree is drawn.
+    /// The presentation `workspace` draws its pane in, whichever workspace is on screen — for acts
+    /// that move the pane on another workspace's behalf: a hand-off into Edit asks Edit's
+    /// (`railViewMode`), Reveal in Browse asks Browse's. `resolvedViewMode` would answer for the
+    /// workspace being left, and the two can disagree about the same pane: the column stack is
+    /// shared and only parked while Tree is drawn.
     func viewMode(in workspace: Workspace, isLeft: Bool) -> PaneViewMode {
         if workspace == .browse { return browseViewMode }
         return TopPaneVisibility.mode(for: workspace) == .singleSource ? railViewMode : paneViewMode(isLeft: isLeft)
     }
 
-    /// Whether that presentation draws the pane's column stack.
-    ///
-    /// The header's path line, the tab chip that mirrors it, the crumb and quick-jump routing,
-    /// `‹`/`›`, the lens scan target and New Folder all turn on this one question — see
-    /// `FileSyncManager.paneLocation(isLeft:drawsColumns:)`. In Tree the stack is parked, not on
-    /// screen, and every one of those surfaces that reads it anyway describes a folder the pane is
-    /// not showing.
-    ///
-    /// Through `resolvedViewMode`, so it inherits that member's whole point: Browse, the rail and
-    /// the comparison panes each answer from their own key.
+    /// Whether that presentation draws the pane's column stack. The header's path, the tab chip,
+    /// crumb and quick-jump routing, `‹`/`›`, the lens scan target and New Folder all turn on it
+    /// (see `FileSyncManager.paneLocation(isLeft:drawsColumns:)`): in Tree the stack is parked and
+    /// describes a folder not on screen.
     func paneDrawsColumns(isLeft: Bool) -> Bool {
         resolvedViewMode(isLeft: isLeft) == .columns
     }
 
     /// The destination question on screen, if any. Held here because both surfaces that raise it —
-    /// the single-source rail's row menu and an Organize card's "Choose folder…" — are children of this view.
+    /// the single-source rail's row menu and an Organize card's "Choose folder…" — are children of
+    /// this view.
     @State var pendingDestination: PendingDestination?
     /// The recents the on-screen picker was opened with.
     ///
-    /// Snapshotted when the card is raised, not read in the card's body: `DestinationRecents.load`
-    /// stats every stored path to prune the ones that no longer resolve, and a body reads on every
-    /// render. The list also must not shift under the user mid-decision — recording a destination
-    /// happens on commit, by which point the card is gone.
+    /// Snapshotted when the card is raised, not read in its body: `DestinationRecents.load` stats
+    /// every stored path to prune dead ones, and a body reads on every render. The list also must
+    /// not shift under the user mid-decision; a destination is recorded on commit, when the card is
+    /// gone.
     @State var pendingRecents: [String] = []
     /// The sidebar's Favorites, Recents and Locations the on-screen picker was opened with,
     /// snapshotted with the recents and for the same reason.
@@ -934,16 +816,13 @@ struct ContentView: View {
     /// Raises the picker, whoever asked for it. The one place `pendingDestination` is set, so the
     /// recents snapshot can never drift out of step with the request it belongs to.
     func presentDestination(_ pending: PendingDestination) {
-        // The palette is a real window that holds key (observed: `[palette] panel key=true
-        // active=true` in `~/sync-cloud.log`); the picker is an overlay *inside* the host, so
-        // raising one under the other would leave the picker unable to take a keystroke or a click —
-        // its buttons, ↩ and esc would all go to the palette's field instead.
+        // The palette is a real window that holds key, while the picker is an overlay inside the
+        // host, so raising one under the other would leave the picker unable to take a keystroke or
+        // a click: its buttons, ↩ and esc would go to the palette's field.
         //
-        // **No caller can reach that today**, and an earlier version of this comment invented one
-        // ("a file operation finishing while the palette is up"). Both callers are direct mouse
-        // gestures inside the content, which by this file's own model land on the panel and dismiss
-        // it. The line is here so a fourth caller — or a keyboard route to the picker — cannot
-        // invert the ownership silently. `toggleCommandPalette` blocks the other order.
+        // Both current callers are mouse gestures inside the content, which land on the panel and
+        // dismiss it already. This line keeps a new caller, or a keyboard route to the picker, from
+        // inverting the ownership silently. `toggleCommandPalette` blocks the other order.
         palettePanel.dismiss()
         pendingRecents = DestinationRecents.load(providerRoot: pending.request.providerRoot)
         pendingPlaces = destinationPlaceSections()
@@ -952,10 +831,9 @@ struct ContentView: View {
 
     /// Raises the picker for a rail selection, and runs the transfer into whatever it returns.
     ///
-    /// Routes through `moveItems(_:toPath:)` / `pasteItems(_:toPath:isCut:)` — the same explicit
-    /// destination entry points drag-and-drop already uses — rather than the cross-pane transfer,
-    /// which derives its own destination and would ignore the folder just chosen. That distinction
-    /// is the entire point of this verb.
+    /// Routes through `moveItems(_:toPath:)` / `pasteItems(_:toPath:isCut:)`, the
+    /// explicit-destination entry points drag-and-drop uses, rather than the cross-pane transfer,
+    /// which derives its own destination and would ignore the folder just chosen.
     func requestDestination(for nodes: [FileNode], isMove: Bool) {
         guard let first = nodes.first else { return }
         let root = lensProviderRootExpanded
@@ -970,11 +848,10 @@ struct ContentView: View {
             ContentView.runDestinationPanel(for: first.name, itemCount: nodes.count,
                                             startingAt: root.isEmpty ? nil : root)
         }
-        // No provider root — an unconfigured provider path — means there is nothing to browse.
-        // `subfolders` refuses an empty root, and the column stack resolves an empty root against
-        // "/", so the card would offer the whole filesystem drawn as a stack whose first column is
-        // permanently empty. The system panel is the honest surface for that, and it is the one
-        // this verb was built to replace, so falling back to it costs the user nothing.
+        // No provider root (an unconfigured provider path) means there is nothing to browse:
+        // `subfolders` refuses an empty root, and the column stack resolves one against "/", so the
+        // card would offer the whole filesystem with a permanently empty first column. The system
+        // panel is the honest surface for that, and costs the user nothing.
         guard !root.isEmpty else {
             if let chosen = panel() { commit(chosen) }
             return
@@ -986,11 +863,11 @@ struct ContentView: View {
                 isMove: isMove,
                 providerRoot: root,
                 providerName: lensProviderName.isEmpty ? "this provider" : lensProviderName,
-                // The selection's own parent, NOT the rail's current directory. In Columns,
-                // clicking a folder drills into it, so the rail's current directory IS the folder
-                // being moved — opening there would land the picker inside the selection and greet
-                // it with the nesting refusal. The parent is where the item lives, is never inside
-                // the selection, and is one click from anywhere else.
+                // The selection's own parent, not the rail's current directory. In Columns,
+                // clicking a folder drills into it, so the current directory is the folder being
+                // moved, and opening there would land the picker inside the selection with the
+                // nesting refusal. The parent is never inside the selection and is one click from
+                // anywhere else.
                 openAt: (first.id as NSString).deletingLastPathComponent
             ),
             onCommit: commit,
@@ -1015,21 +892,19 @@ struct ContentView: View {
     }
 
     /// Applies a column drill, mirroring it onto the sibling pane when the panes are linked (or ⌥
-    /// is held) — the same rule the breadcrumb and the tree's drill-in already follow, so all three
-    /// ways of walking into a folder move the panes together or not together as one setting says.
+    /// is held) — the rule the breadcrumb and the tree's drill-in follow, so all three ways of
+    /// walking into a folder obey one setting.
     ///
-    /// The mirror is *pruned* against the other pane's tree rather than copied outright. The two
-    /// sides are being compared precisely because they differ, so the folder you just opened may
-    /// not exist over there; pruning walks that pane as deep as it genuinely can and stops, which
-    /// is both honest and useful — it lands you on the deepest folder the two still share instead
-    /// of on an empty column claiming a folder that isn't there.
+    /// The mirror is pruned against the other pane's tree rather than copied outright. The two
+    /// sides differ, so the folder just opened may not exist over there; pruning walks that pane as
+    /// deep as it can and stops on the deepest folder the two still share, not on an empty column
+    /// claiming a folder that isn't there.
     func applyColumnNavigation(_ path: PaneBrowsePath, isLeft: Bool) {
         // Walking onto another source's own root re-roots the pane there instead of showing it
         // nested under this one. Takes the navigation whole when it fires, so nothing below runs.
         if adoptSourceWalkedInto(path, isLeft: isLeft) { return }
-        // Only the comparison layout has a sibling to mirror into; the single-source rail has none. The
-        // link-or-⌥ test is the same one the breadcrumb and the tree's drill-in already apply, so
-        // all three ways of walking into a folder obey one setting.
+        // Only the comparison layout has a sibling to mirror into; the single-source rail has none.
+        // The link-or-⌥ test is the one the breadcrumb and the tree's drill-in apply.
         let mirror = layoutMode == .compare
             && (PaneLinkPreference.isLinked || NSEvent.modifierFlags.contains(.option))
         let otherRoot = isLeft ? currentRightPath : currentLeftPath
@@ -1043,42 +918,26 @@ struct ContentView: View {
         )
     }
 
-    /// **A column drill that walks into another source: point the pane at that source instead.**
+    /// A column drill that walks into another source: point the pane at that source instead.
     ///
-    /// `Home folder ▸ Dropbox ▸ Backup` and `Dropbox ▸ Backup` are the same folder described two
-    /// ways, and the nested one is the worse description: it carries Home folder's root, so the
-    /// breadcrumb ceiling, the scan scope and every "the source root" the pane reports belong to a
-    /// source the user stopped thinking about two columns ago. Walking onto Dropbox's doorstep
-    /// re-roots the pane there. `PaneLogic.sourceRootedAt` holds the four conditions and says why
-    /// each one is there.
+    /// `Home folder ▸ Dropbox ▸ Backup` carries Home folder's root, so the breadcrumb ceiling, scan
+    /// scope and "source root" would belong to the wrong source. `PaneLogic.sourceRootedAt` holds
+    /// the four conditions.
     ///
-    /// **Drills only, and that guard is the whole reason this reads the current depth.** Three
-    /// things come through this same door going the other way: ⌘↑, a crumb click inside the scope,
-    /// and `handleBackgroundDeselect`, which truncates the stack when you click a pane's empty
-    /// space. A click on empty space that changed the pane's SOURCE would be the least explicable
-    /// gesture in the app — and nothing is lost by refusing, because arriving at a source root from
-    /// above shows the same folder either way.
+    /// Drills only, hence the depth check: ⌘↑, a crumb click and `handleBackgroundDeselect` come
+    /// through the same door, and a click on empty space must never change the pane's source.
     ///
-    /// **A plain provider write, not the armed `adoptProviderForTab`.** The armed seam exists for
-    /// callers that have already decided where the pane is going and need `retargetPane()` NOT to
-    /// run; this caller wants exactly what `retargetPane()` does. The pane should come out of this
-    /// indistinguishable from one that picked Dropbox in the source menu — Back inside the new
-    /// source, the old source's Back stack gone rather than silently re-anchored (its entries are
-    /// paths relative to a root the pane no longer has), the column stack cleared, the tree
-    /// reloaded, the selection dropped. One behaviour, not a second one that merely resembles it.
-    ///
-    /// **Only this pane moves, and the seam link deliberately does not apply** — the same rule
-    /// `switchSourceAndReveal` states. A mirrored drill hands this pane's stack to the sibling, and
-    /// the sibling is on a different source: it would be pruned against a tree that has no such
-    /// folder, for a re-root it had no part in.
-    ///
-    /// Returns whether it took the navigation.
+    /// A plain provider write, not the armed `adoptProviderForTab`: this wants exactly what
+    /// `retargetPane()` does, so the pane ends up as if Dropbox were picked from the source menu
+    /// (old Back stack gone, columns cleared, tree reloaded, selection dropped). Only this pane
+    /// moves; the seam link does not apply, since the sibling is on a different source. Returns
+    /// whether it took the navigation.
     func adoptSourceWalkedInto(_ path: PaneBrowsePath, isLeft: Bool) -> Bool {
         guard path.depth > paneStack(isLeft: isLeft).depth else { return false }
         let providerId = paneProviderId(isLeft: isLeft)
-        // The pane's location as one absolute path: its own root, its own scope, its own new stack.
-        // Scope joined in because a pane focused inside its source still browses relative to that
-        // focus — reading the stack alone names a folder one or more components too shallow.
+        // The pane's location as one absolute path: its root, its scope, its new stack. The scope
+        // is joined in because a pane focused inside its source browses relative to that focus; the
+        // stack alone names a folder too shallow.
         let absolute = PaneLogic.fullPath(
             root: settings.rootPath(for: providerId),
             relativePath: PathBoundary.joinRelative(paneScope(isLeft: isLeft), path.relativePath))
@@ -1086,10 +945,9 @@ struct ContentView: View {
                                                      currentProviderId: providerId,
                                                      among: settings.enabledProviders,
                                                      resolve: Self.resolved) else { return false }
-        // Said out loud, because this is the one navigation in the app the user did not ask for by
-        // name: they clicked a folder and the pane changed source. The provider handler logs its
-        // own "User switched … provider" line a beat later, and on its own that line describes a
-        // menu pick that never happened.
+        // Logged because this is the one navigation the user did not ask for by name: they clicked
+        // a folder and the pane changed source. The provider handler's own "User switched …
+        // provider" line, on its own, would describe a menu pick that never happened.
         let from = settings.availableProviders.first { $0.id == providerId }?.displayName ?? providerId
         Logger.shared.info(
             "The \(PaneSideChoice.name(isLeft)) pane walked into \(adopted.displayName)'s own root "
@@ -1100,19 +958,17 @@ struct ContentView: View {
 
     /// A crumb click that must move both panes: the ⌥-click, and every plain click while the seam
     /// link is on. Hands the sibling's tree to the manager so the mirrored stack is pruned against
-    /// the folders that pane genuinely has — the same treatment a mirrored column drill gets above.
+    /// the folders that pane really has, as a mirrored column drill is above.
     ///
-    /// The root captured here is the sibling's root *before* the navigation, which is the one its
-    /// current tree was loaded for; `navigateBothPanes` ignores it when that pane re-roots.
+    /// The root captured here is the sibling's root before the navigation, the one its current tree
+    /// was loaded for; `navigateBothPanes` ignores it when that pane re-roots.
     func navigateBothPanes(toCombinedPath combined: String, from isLeft: Bool) {
         let otherRoot = isLeft ? currentRightPath : currentLeftPath
         syncManager.navigateBothPanes(
             toCombinedPath: combined,
             // Translated, because the two sources need not open at the same depth: iCloud lands at
-            // its root and OneDrive two components in, so one root-relative string names folders
-            // that far apart. Driving both panes with the clicked pane's spelling sent the sibling
-            // to `~/Documents/Documents/Family` one way, and to a real-but-unrelated
-            // `<account>/Family` the other — where the comparison then diffed the wrong pair.
+            // its root and OneDrive two components in. The clicked pane's spelling would send the
+            // sibling to a wrong or unrelated folder, and the comparison would diff the wrong pair.
             otherCombinedPath: relativePathForPane(combined, isLeft: !isLeft),
             from: isLeft,
             // Each side answers for itself — the presentation is a per-pane setting, so a linked
@@ -1143,16 +999,16 @@ struct ContentView: View {
         Binding(get: { browseViewMode }, set: { browseViewModeRaw = $0.rawValue })
     }
 
-    /// The write side of ``resolvedViewMode(isLeft:)``, and the same one-member argument applies:
-    /// a reader that resolved Browse correctly paired with a writer that did not would show the
-    /// right stack and store it in the wrong key.
+    /// The write side of ``resolvedViewMode(isLeft:)``, for the same reason: a reader that resolved
+    /// Browse correctly paired with a writer that did not would show the right stack and store it
+    /// in the wrong key.
     func resolvedViewModeBinding(isLeft: Bool) -> Binding<PaneViewMode> {
         if selectedWorkspace == .browse { return browseViewModeBinding }
         return layoutMode == .singleSource ? railViewModeBinding : paneViewModeBinding(isLeft: isLeft)
     }
 
-    /// Everything the tree diff indices are derived from, as one Equatable value
-    /// so a single task(id:) covers scan results, navigation, and provider switches.
+    /// Everything the tree diff indices are derived from, as one Equatable value so a single
+    /// task(id:) covers scan results, navigation, and provider switches.
     private struct DiffIndexInputs: Equatable, Sendable {
         let differences: [FileDifference]
         let leftRoot: String
@@ -1163,8 +1019,10 @@ struct ContentView: View {
         DiffIndexInputs(differences: syncManager.differences, leftRoot: currentLeftPath, rightRoot: currentRightPath)
     }
 
-    /// Resolves the left and right provider IDs from the current list (e.g. after provider list changes or bootstrap).
-    /// - Parameter preferDistinctPair: If `true`, when both sides would be the same, pick a different provider for the right.
+    /// Resolves the left and right provider IDs from the current list (after a provider list change
+    /// or bootstrap).
+    /// - Parameter preferDistinctPair: If `true`, when both sides would be the same, pick a
+    ///   different provider for the right.
     /// - Returns: `(leftId, rightId)` or `nil` if there are no providers.
     static func resolvedProviderSelection(
         providers: [CloudProvider],
@@ -1189,18 +1047,10 @@ struct ContentView: View {
         return (leftId, rightId)
     }
 
-    /// **Which panes** a provider-list edit re-roots, or `nil` when it re-roots neither —
-    /// comparing only identity-relevant fields (id, root path, type), so a root-path edit counts,
-    /// but changes to other providers don't. Cosmetic fields are deliberately excluded: comparing
-    /// whole structs made a Settings rename (setCustomName → new displayName) read as a root edit,
-    /// which tore down an in-flight duplicate review (`.comparisonRootEdited` has no restore) and
-    /// forced a full rescan for a label change.
-    ///
-    /// **A side, not a Bool**, because the two panes are edited independently and the answer drives
-    /// what gets thrown away. Editing the right pane's source Location in Settings used to return
-    /// `true` and take the LEFT pane down with it — tree dropped, columns flattened, spinner — for
-    /// a root that had not moved. That is the same over-reach `retargetPane` exists to end, arriving
-    /// through Settings instead of through the pane's own source menu.
+    /// Which panes a provider-list edit re-roots, or `nil` for neither. Compares identity fields
+    /// only (id, root path, type): a rename must not read as a root edit, which would tear down an
+    /// in-flight duplicate review and force a rescan. A side, not a Bool, so editing one pane's
+    /// source never takes the other pane down.
     static func paneRootEdits(
         old: [CloudProvider],
         new: [CloudProvider],
@@ -1213,11 +1063,10 @@ struct ContentView: View {
         func sameIdentity(_ a: CloudProvider?, _ b: CloudProvider?) -> Bool {
             switch (a, b) {
             case (nil, nil): return true
-            // The ROOT, and deliberately not the landing folder. A pane's tree is rooted at
-            // `rootPath`, so moving that is a root edit and must tear the comparison down. Changing
-            // where a source *opens* moves no pane that is already open — it decides where the
-            // next one starts — so treating it as a root edit would throw away an in-flight
-            // duplicate review to honour a preference the current panes never read.
+            // The root, deliberately not the landing folder. A pane's tree is rooted at `rootPath`,
+            // so moving that is a root edit and must tear the comparison down. Where a source opens
+            // decides only where the next pane starts, so treating it as a root edit would throw
+            // away an in-flight duplicate review for a preference the current panes never read.
             case let (a?, b?): return a.id == b.id && a.rootPath == b.rootPath && a.type == b.type
             default: return false
             }
@@ -1234,65 +1083,32 @@ struct ContentView: View {
     }
 
     /// The window content with its overlays, animations, and background. Split out of `body` so the
-    /// full modifier chain stays under the Swift type-checker's budget — `mainContentView` is a heavy
-    /// `some View` now (it owns the panes and workspace), and chaining everything on it in
-    /// one expression times the checker out.
+    /// modifier chain stays under the Swift type-checker's budget: `mainContentView` is a heavy
+    /// `some View`, and chaining everything on it in one expression times the checker out.
     private var chromedContent: some View {
-        // No provider sidebar: provider choice now rides on each pane/source header (ProviderMenu),
-        // so the window is a single content column — the panes fill the space the sidebar used to take.
+        // No provider sidebar: provider choice rides on each pane and source header (ProviderMenu),
+        // so the window is a single content column.
         mainContentView
-            // The window's floor, and `.windowResizability(.contentMinSize)` is what makes this
-            // frame that floor rather than a suggestion.
+            // The window's floor; `.windowResizability(.contentMinSize)` makes this frame a floor
+            // rather than a suggestion.
             //
-            // **600 → 760 → 810 → 760, and every move was made by the same measurement.** The
-            // workspace bar has to keep its labels at the narrowest window the app allows, because
-            // a toolbar that does not fit is not truncated — macOS folds it behind an overflow
-            // chevron, and the only control for switching workspace disappears with no error.
+            // The width keeps the workspace bar's labels at every text size: a toolbar that does
+            // not fit is folded behind an overflow chevron, hiding the workspace switch with no
+            // error. Four labels need at most 785.6pt (Largest, counting
+            // `WorkspaceBarMetrics.reservedChrome`'s 44pt for Ask Claude's button), leaving 18.4pt;
+            // a fifth segment would need a wider floor. The icon-only rung is therefore unreachable
+            // at any legal width (`testTheIconOnlyRungIsOutOfTheShippingBarsReachButStillLive`).
             //
-            // At 600 the bar was icon-only at every text size the moment the window sat at its
-            // minimum. 760 fixed that for four labels. **Edit made a fifth and the threshold went
-            // to 781** at the default text size (833 at Large, 853 at Largest), so the floor went
-            // to 810 — which still left the two largest sizes shedding at the floor.
-            //
-            // **Folding Storage into Organize took the bar back to four labels, and the floor came
-            // back down with it.** Measured through `WorkspaceBarMetrics.styles` with the ⌘K pill
-            // compact: **666.8 / 683.8 / 725.1 / 741.6** at Small / Default / Large / Largest, all
-            // of them under 760. So this is not a return to a previous compromise — it is the first
-            // floor at which the bar keeps its labels at EVERY text size, which neither 760 nor 810
-            // managed before.
-            //
-            // The margin to watch is Largest: 741.6 against 760 is **18.4pt**, and that is what a
-            // fifth segment spends first. `ROADMAP.md` §1b prices Backup against exactly this, and
-            // the answer there is that 810 comes back with it.
-            //
-            // **v7.0: 760 → 804, for Ask Claude's button** (RD69). The button is charged 44pt in
-            // `WorkspaceBarMetrics.reservedChrome`, which moves the four thresholds above to
-            // 710.8 / 727.8 / 769.1 / 785.6. 804 is 760 plus exactly that charge, so every margin
-            // here — Largest's 18.4pt, and the ⌘K field's own floor — is what it was before.
-            //
-            // **One consequence, recorded rather than fixed:** with four labels fitting at every
-            // size, the bar's icon-only rung is unreachable at any legal window width.
-            // `testTheIconOnlyRungIsOutOfTheShippingBarsReachButStillLive` states that in both
-            // directions and says why it is kept.
-            //
-            // **A height floor at all**, which is the hole rather than the tightening. With no
-            // `minHeight`, the window could be dragged down to the toolbar and nothing else: a
-            // sliver with the pane header, the file list and the action bar all squeezed out —
-            // not a size a user picks so much as one the window cannot refuse. 560 is what keeping
-            // it a window costs, in the panes' own constants: the pane header card takes 86
-            // (`LiquidGlass.headerHeight` 81 inside 2×`cardInset`) and the action bar 44
-            // (`ActionBarMetrics.height` 28 inside 2×8pt of padding), so a 560pt window leaves the
-            // file list on the order of 430 — enough to be a list rather than a peephole. (That is
-            // the two fixed rungs subtracted, not a rendered measurement of the list itself.) It
-            // also clears the 428pt below which `SettingsLayout` stops shrinking its sheet
-            // (`floorSize` 380 + `hostMargin` 48) and
-            // starts overflowing the window it is centered in.
+            // The height keeps it a window: 560 less the header card's 86
+            // (`LiquidGlass.headerHeight` 81 in 2×`cardInset`) and the action bar's 44 leaves the
+            // file list about 430, and clears the 428pt below which `SettingsLayout` overflows the
+            // window (`floorSize` 380 + `hostMargin` 48).
             .frame(minWidth: 804, minHeight: 560)
-            // Resolved in the transform, so the action — and the state write behind it — fires
-            // only when the answer changes. See `workspaceBarStyle`. The label widths are measured
-            // rather than tabulated because the app scales its own type (Settings ▸ Text size), and
-            // reading `appFontScale` here means a scale change rebuilds this closure and
-            // re-resolves; a constant would be correct at exactly one setting.
+            // Resolved in the transform, so the action and the state write behind it fire only when
+            // the answer changes. See `workspaceBarStyle`. The label widths are measured rather
+            // than tabulated because the app scales its own type (Settings ▸ Text size): reading
+            // `appFontScale` here rebuilds this closure on a scale change, where a constant would
+            // be right at one setting only.
             .onGeometryChange(for: ToolbarBarStyleSet.self) { proxy in
                 WorkspaceBarMetrics.styleSet(
                     contentWidth: proxy.size.width,
@@ -1301,8 +1117,8 @@ struct ContentView: View {
                                                                           scale: appFontScale),
                     searchKeycapWidth: CommandPaletteBarMetrics.keycapWidth(
                         symbol: AppChord.commandPalette.display, scale: appFontScale),
-                    // The OPEN field's key is `esc`, not ⌘K — measured from the same string the
-                    // field draws, so the reserve cannot be right for one and wrong for the other.
+                    // The open field's key is `esc`, not ⌘K, measured from the same string the
+                    // field draws so the reserve cannot be right for one and wrong for the other.
                     fieldKeycapWidth: CommandPaletteBarMetrics.keycapWidth(
                         symbol: GoToFieldMetrics.closeKeycap, scale: appFontScale),
                     scale: appFontScale)
@@ -1311,7 +1127,8 @@ struct ContentView: View {
             }
             .toolbar { mainToolbar }
             .oneWaySyncSheets(host: .main)
-            // A synced Dropbox file is changed in iCloud: the panes' rename, move and delete ask first.
+            // A synced Dropbox file is changed in iCloud: the panes' rename, move and delete ask
+            // first.
             .task {
                 syncManager.oneWaySyncRefusal = { paths in OneWaySyncController.shared.refusal(forChanging: paths) }
                 oneWaySync.onOpenActivity = { openActivityOnNow() }
@@ -1320,8 +1137,8 @@ struct ContentView: View {
                     openWindow(id: ActivityCenter.windowID)
                 }
                 oneWaySync.onOpenSettings = { openSettings(on: .sync) }
-                // The sync's own writes are this process's, which the watcher doesn't report:
-                // the walks listing them are dropped and the panes read again.
+                // The sync's own writes are this process's, which the watcher doesn't report: the
+                // walks listing them are dropped and the panes read again.
                 oneWaySync.onWrote = { paths in
                     for path in paths { syncManager.prepareReread(afterWritingAt: path) }
                     // Only the pane that shows what was written reads again: usually Dropbox's.
@@ -1349,28 +1166,26 @@ struct ContentView: View {
             // up, and ⌘J and its toolbar button are off then.
             .modifier(askClaudeHost)
             // Names the window on the two surfaces that read `NSWindow.title` whether or not a
-            // title bar is drawn — the Window menu and Mission Control. Zero-sized, in the
-            // background, because it is a binding to AppKit and not a view.
+            // title bar is drawn: the Window menu and Mission Control. Zero-sized and in the
+            // background, because it is a binding to AppKit, not a view.
             .background(WindowChromeBinder(subtitle: windowSubtitleText).frame(width: 0, height: 0))
         // A PDF tool run from a row's menu: its sheet, and its progress at the window's foot; its
-        // ending is the pane's result message (TE207). Ahead of the overlay chain below, so every
-        // panel in it covers the progress — and not IN the chain, because the sheet must not yield
-        // to them (see `PanePDFToolsPresenter`).
+        // ending is the pane's result message. Ahead of the overlay chain below, so every panel in
+        // it covers the progress, and not in the chain, because the sheet must not yield to them
+        // (see `PanePDFToolsPresenter`).
         .modifier(PanePDFToolsPresenter(model: panePDFTools, saveAsPDF: paneSaveAsPDF,
                                         accent: glassHue.accentColor,
                                         onResult: { postPaneToolResult($0) }))
         .overlay {
-            // **The divergence diff leads, ahead of even the picker.** Everything below is
-            // something the user *opened*; this is a question they are in the middle of ANSWERING.
-            // It is on screen only because a modal alert asked which version wins and they chose to
-            // look first, and the latch behind it has autosave stopped until they say. An ambient
-            // panel that covered it would leave the document silently not saving with the question
-            // it is waiting on drawn nowhere — the one failure this whole feature exists to remove.
-            // Escape and a click on the scrim answer Cancel, which is exactly what the alert's
-            // Cancel does, so it is never a surface somebody is stuck behind.
+            // The divergence diff leads, ahead of even the picker. Everything below is something
+            // the user opened; this is a question they are in the middle of answering, with
+            // autosave stopped by the latch until they do. A panel covering it would leave the
+            // document silently not saving with its question drawn nowhere. Escape and a click on
+            // the scrim answer Cancel, as the alert's Cancel does, so nobody is stuck behind it.
             if editorDivergenceReview != nil {
                 // Use Disk Version is the undoable take while the banner stands — see
-                // `applyDivergenceAnswer` — and its tooltip says ⌘Z brings the typing back only then.
+                // `applyDivergenceAnswer` — and its tooltip says ⌘Z brings the typing back only
+                // then.
                 EditorDivergenceDiffOverlay(document: editorDocument,
                                             takingDiskIsUndoable: editorDiskWatch.banner == .changed,
                                             onAnswer: { answerEditorDivergenceDiff($0) })
@@ -1382,25 +1197,21 @@ struct ContentView: View {
                 helpOverlay
             } else if showSetup || shouldAutoShowSetup {
                 // Wait for provider discovery to finish before showing the form. Its Sources step
-                // is a list of what was discovered, and that list is empty at first render
-                // (discovery runs async in onAppear) — opening early would show "SyncCloud found 0
-                // places on this Mac" and then fill in behind the user's eyes.
+                // lists what was discovered, which is empty at first render (discovery runs async
+                // in onAppear), so opening early would show "SyncCloud found 0 places on this Mac"
+                // and then fill in behind the user's eyes.
                 setupOverlay
             } else if let pair = compareDifferencePair {
                 DifferencesPairCompareOverlay(pair: pair, hue: glassHue,
                                               onClose: { compareDifferencePair = nil })
             } else if let pair = compareFilePair {
-                // **Last in the chain, deliberately.** The four above are either a direct answer to
-                // something the user just did to a file (the picker) or an ambient panel with its
-                // own entry points this window cannot gate (⌘, and ⌘? live in the App scene). A
-                // compare that yields to them loses one line of state and no work: the pair is
-                // `@State` HERE, so closing Settings brings the same two copies straight back.
-                // Not the reading position, though — page, mode, keeper, rendered pages and the
-                // verify result all live on the covered view and go with it, so the surface
-                // returns at its opening state rather than where it was left. That is the price,
-                // and it is the small half: refusing those panels instead would need the whole
-                // latch-refusal apparatus the picker has, to protect a surface one line of state
-                // reopens.
+                // Last in the chain, deliberately. The ones above are a direct answer to something
+                // the user just did (the picker) or ambient panels with entry points this window
+                // cannot gate (⌘, and ⌘? live in the App scene). Yielding to them loses no work:
+                // the pair is `@State` here, so closing Settings brings the same two copies back.
+                // The reading position (page, mode, keeper, rendered pages, verify result) lives on
+                // the covered view and is lost, which is cheaper than giving this surface the
+                // picker's whole latch-refusal apparatus.
                 CompareCopiesOverlay(
                     syncManager: syncManager, pair: pair,
                     scanRoot: syncManager.duplicateScanRoot,
@@ -1409,9 +1220,8 @@ struct ContentView: View {
             }
         }
         // `designAnimation`, not `.animation`: the scrim fade is motion, and Reduce Motion has to
-        // reach it. (The four `.animation` lines below predate the wrapper and are classified in
-        // `ReduceMotionCoverageScanTests`; a new raw one would have to be classified too, and this
-        // one has no reason to be.)
+        // reach it. The raw `.animation` lines below are classified in
+        // `ReduceMotionCoverageScanTests`; a new raw one would have to be classified too.
         .designAnimation(.easeOut(duration: 0.15), value: editorDivergenceReview)
         .designAnimation(.easeOut(duration: 0.15), value: compareFilePair)
         .designAnimation(.easeOut(duration: 0.15), value: compareDifferencePair)
@@ -1423,15 +1233,15 @@ struct ContentView: View {
         // The armed launch diagnostic, fired once discovery has given the palette a root to index.
         .onChange(of: isBootstrappingProviders) { _, bootstrapping in
             // The arm is consumed only when it is actually spent. Discovery can land anywhere from
-            // a fraction of a second to hours after launch, so a destination picker may well be up
-            // when it does — and clearing the flag before `toggleCommandPalette` could refuse it
-            // burned the one shot for that session with nothing but a debug line to say so.
+            // a fraction of a second to hours after launch, so a destination picker may be up when
+            // it does; clearing the flag before `toggleCommandPalette` could refuse would burn the
+            // session's one shot silently.
             guard !bootstrapping, paletteOnLaunchArmed, pendingDestination == nil else { return }
             paletteOnLaunchArmed = false
             toggleCommandPalette()
         }
         // The launch has finished. Lowers this view's guard too, for a view that appeared while
-        // discovery was running and so kept it up (see `.endProviderBootstrapGuard`) — then lets a
+        // discovery was running and so kept it up (see `.endProviderBootstrapGuard`), then lets a
         // file from Finder through.
         .onChange(of: launchBootstrap.isFinished) {
             if launchBootstrap.isFinished { isBootstrappingProviders = false }
@@ -1443,28 +1253,16 @@ struct ContentView: View {
         .onChange(of: externalOpens.arrivals) { openExternalArrivals() }
         .onChange(of: pendingDestination == nil) { openExternalArrivals() }
         .onChange(of: editorDivergenceReview == nil) { openExternalArrivals() }
-        // The quit alert's cause line reads it (TE148); the delegate is outside the view layer.
+        // The quit alert's cause line reads it; the delegate is outside the view layer.
         .onChange(of: editorAutosaveStop, initial: true) { _, stop in SyncCloudAppDelegate.editorAutosaveStop = stop }
-        // The overlays are mutually exclusive; Settings wins the precedence above. Close Help
-        // from every Settings entry point (toolbar, ⌘,, the invalid-pane fix-it) so it can't be
-        // left lingering underneath a Settings card the user opened on top of it.
-        // **The ambient panels are refused while a destination pick is up, whichever path asked.**
+        // The overlays are mutually exclusive; Settings wins. Opening Settings closes Help from
+        // every entry point, so it can't linger underneath.
         //
-        // `showSettings` and `showHelp` are plain latches and the overlay chain above renders the
-        // picker in front of both, so setting either mid-pick did nothing visible and then produced
-        // the panel the instant the pick was answered. Each has entry points this window cannot
-        // gate — ⌘, and ⌘? live in the App scene and see none of this state — so refusing at the
-        // latch is the one place that covers every caller of both.
-        //
-        // The toolbar buttons are ALSO disabled, which is not a contradiction: with the latch
-        // refusing, an enabled button would be a control that silently does nothing, which this
-        // file's own ⌘K pill calls "its own bug". Disabled says so.
-        //
-        // A refused open must leave nothing behind. The two deep links preset `settingsTab` before
-        // flipping this latch (they have to — see `settingsTabBeforeDeepLink`), so refusing without
-        // putting it back changed which page Settings shows next time from a panel that never
-        // appeared. Restored here rather than at each caller because this is the one place that
-        // knows whether the open was honoured.
+        // While a destination pick is up, Settings and Help are refused at the latch, whichever
+        // path asked: the picker renders in front of both, so a mid-pick open would appear the
+        // instant the pick was answered, and ⌘, and ⌘? live in the App scene, out of this view's
+        // reach. A refused deep link restores the tab it preset (`settingsTabBeforeDeepLink`); this
+        // is the one place that knows whether the open was honoured.
         .onChange(of: showSettings) { _, isOpen in
             guard isOpen else { return }
             if pendingDestination != nil {
@@ -1477,18 +1275,17 @@ struct ContentView: View {
             showHelp = false
         }
         .onChange(of: showHelp) { _, isOpen in
-            // One observer rather than a clear at each dismissal: Help closes from four places
-            // (its own button, the deep-link chain above, "Set Up SyncCloud…", and this refusal),
-            // and three of them left `helpTopic` set — so the next ⌘? opened on the Restructure
-            // page instead of the front of the book. Keying off the flag covers the next one too.
+            // One observer rather than a clear at each dismissal: Help closes from four places (its
+            // own button, the deep-link chain above, "Set Up SyncCloud…", and this refusal), and
+            // each must clear `helpTopic` or the next ⌘? opens on a topic instead of the front of
+            // the book.
             guard isOpen else { helpTopic = nil; return }
             guard pendingDestination != nil else { return }
             showHelp = false
         }
-        // Setup is the third member of the same chain. A destination pick is a direct answer to
-        // something the user just did to a file, so it wins — and a form refused here must leave
-        // nothing behind, which for this one means putting the session latch back rather than
-        // persisting anything.
+        // Setup is the third member of the same chain. A destination pick answers something the
+        // user just did to a file, so it wins; a form refused here leaves nothing behind, which for
+        // this one means putting the session latch back rather than persisting anything.
         .onChange(of: showSetup) { _, isOpen in
             guard isOpen, pendingDestination != nil else { return }
             showSetup = false
@@ -1504,36 +1301,34 @@ struct ContentView: View {
             // FIRST: it reads the paid marker, which the next line consumes.
             clearInfoTargetAfterLeftSelection(paths)
             openSelectedPaneFileInEditor(paths)
-            // A selection the user moved retires what the app owed or was revealing (TE47).
+            // A selection the user moved retires what the app owed or was revealing.
             retirePaneSelectionDebts(after: paths)
         }
-        // The open document is selected in the pane once the pane lists it — the tree is what
-        // changes, so the tree is what is watched. The rule is `owedPaneSelection`; this only
-        // supplies the trigger, and it returns at once when nothing is owed.
+        // The open document is selected in the pane once the pane lists it, so the tree is what is
+        // watched. The rule is `owedPaneSelection`; this only supplies the trigger, and returns at
+        // once when nothing is owed.
         .onChange(of: syncManager.leftPaneTree) { _, _ in settleOwedPaneSelection() }
-        // Dismissing the panel by hand nils the binding without going through `toggleQuickLook`,
-        // so the origin flag has to be cleared here or the NEXT preview — opened from a Differences
-        // row — would inherit "follows the panes" from this one and be yanked by a pane click.
+        // Dismissing the panel by hand nils the binding without going through `toggleQuickLook`, so
+        // the origin flag is cleared here, or the next preview (opened from a Differences row)
+        // would inherit "follows the panes" and be yanked by a pane click.
         .onChange(of: quickLookURL) { _, url in if url == nil { quickLookFollowsPane = false } }
         .animation(.easeOut(duration: 0.15), value: pendingDestination?.id)
-        // The theme is the one Appearance control no view can render on its own: it lives on
-        // NSApp, so that the AppKit surfaces (the NSAlert prompts, NSOpenPanel, the About panel,
-        // and the separate Activity Log / Sync History windows) follow it too. Applied from the
-        // root view rather than from the Settings picker so it re-applies whoever writes the key
-        // and whether or not the Settings overlay happens to be on screen; App.init covers launch.
+        // The theme is the one Appearance control no view can render on its own: it lives on NSApp,
+        // so the AppKit surfaces (NSAlert prompts, NSOpenPanel, the About panel, the Activity Log
+        // and Sync History windows) follow it too. Applied from the root view rather than the
+        // Settings picker so it re-applies whoever writes the key; App.init covers launch.
         .onChange(of: appearanceModeRaw) { AppAppearance.applyPersisted() }
         .liquidGlassAppBackground(level: glassLevel, hue: glassHue, tint: surfaceTint)
-        // Render the glass as if the window were always key. SwiftUI materials/`glassEffect` thin out
-        // and desaturate to gray when the window loses focus (the whole surface visibly shifts as you
-        // click away); pinning the active state keeps the panes and chrome looking identical whether
-        // or not the app is frontmost.
+        // Render the glass as if the window were always key. SwiftUI materials and `glassEffect`
+        // thin out and desaturate to gray when the window loses focus; pinning the active state
+        // keeps the panes and chrome identical whether or not the app is frontmost.
         .environment(\.controlActiveState, .active)
     }
 
     var body: some View {
         chromedContent
         // Every write control below reads this and greys itself, with the reason as its tooltip,
-        // while a long run is going (decision BZ). Reading stays live.
+        // while a long run is going. Reading stays live.
         .environment(\.runWriteLock, runWriteLockReason)
         // Whether a pane PDF run or Save as PDF is in the toolbar capsule — the toolbar's width
         // ladder has to seat it (`runCapsuleShowing`).
@@ -1543,7 +1338,7 @@ struct ContentView: View {
             activityPopoverStyles = open ? toolbarStyles : nil
         }))
         // Edit's own PDF tool and Fill & Sign results, which never pass through the window's
-        // message, into Activity's Recent (R18).
+        // message, into Activity's Recent.
         .background(ActivityEditRecorder(tools: editorPDF.tools))
         // Opens the Activity window when something outside a view asks — a notification's click.
         .background(ActivityWindowOpener(center: .shared))
@@ -1571,28 +1366,21 @@ struct ContentView: View {
         }
         .onReceive(syncManager.refreshSubject) { scope in
             // The scope is the subject's, not this view's: only the sender knows whether one pane
-            // moved or something changed under both. See `refreshSubject`. Every pane move compares:
-            // the one that did not — `presentLensRail`'s re-home to the provider root on entering a
-            // lens — no longer moves the pane at all.
+            // moved or something changed under both. See `refreshSubject`. Every pane move
+            // compares.
             refreshAction(reloading: scope)
-            // The app's own file operations end here — a rename, a move, a delete, Organize filing
+            // The app's own file operations end here: a rename, a move, a delete, Organize filing
             // the open note. Edit's rail lists the folder those touched, and the open document may
-            // be one of the files they moved (TE59: the disk watch hears it anyway; this looks at
-            // once rather than after the events settle).
+            // be one of the files they moved; the disk watch hears it anyway, but this looks at
+            // once rather than after the events settle.
             refreshEditorAfterFileOperation()
         }
         .onAppear {
-            // This block runs again mid-session, on the same view: a close + Dock reopen, an open
-            // from Finder and a launch with a file all re-present the window (see
-            // `PaneLogic.BootstrapStep`, which also says why a rebuilt view is still provided for).
-            // PaneLogic.bootstrapSteps owns the once-per-session vs per-window split: re-running
-            // the session steps would discard a mid-session hidden-files toggle and re-apply the
-            // distinct-pair provider selection over panes the user may have deliberately set to
-            // the same provider.
-            // The quit guard needs the document, and this is the one place that runs once per
-            // window with the `@StateObject` already built. Without it ⌘Q is the only way out of
-            // the app that never asks about an unsaved buffer — every other route through the
-            // editor prompts.
+            // This runs again mid-session on the same view (a Dock reopen, an open from Finder), so
+            // `PaneLogic.bootstrapSteps` splits once-per-session from per-window steps: re-running
+            // the session steps would discard a hidden-files toggle and re-pair providers the user
+            // set deliberately. The delegate adopts the document here so ⌘Q can ask about an
+            // unsaved buffer.
             SyncCloudAppDelegate.shared?.adoptEditorDocument(editorDocument)
             SyncCloudAppDelegate.shared?.adoptAutosavePolicy(editorAutosavePolicy)
             SyncCloudAppDelegate.shared?.adoptDiskWatch(editorDiskWatch)
@@ -1604,48 +1392,44 @@ struct ContentView: View {
             for step in PaneLogic.bootstrapSteps(isFirstAppearance: isFirstAppearance) {
                 switch step {
                 case .resetShowHiddenFilesFromDefault:
-                    // General setting: start the session with hidden files shown when the user asked for it.
+                    // General setting: start the session with hidden files shown when the user
+                    // asked for it.
                     syncManager.showHiddenFiles = UserDefaults.standard.bool(forKey: GeneralSettings.showHiddenByDefaultKey)
                 case .honorLaunchOverlayDiagnostics:
-                    // Diagnostic hook: `defaults write com.abhishekgirish.SyncCloud
-                    // openSettingsOnLaunch -bool YES` opens the Settings overlay at startup, so
-                    // automated verification can reach it without synthesizing input. No-op
-                    // unless explicitly armed; honors `settingsSelectedTab` for the initial tab.
+                    // Diagnostic hook:
+                    // `defaults write com.abhishekgirish.SyncCloud openSettingsOnLaunch -bool YES`
+                    // opens the Settings overlay at startup, so automated verification can reach it
+                    // without synthesizing input. No-op unless armed; honours `settingsSelectedTab`
+                    // for the initial tab.
                     if UserDefaults.standard.bool(forKey: "openSettingsOnLaunch") {
                         // Through `resolvingStored` rather than spelling the fallback here: this
-                        // file is in no SPM package, so a `??` written inline is reachable by no
+                        // file is in no SPM package, so an inline `??` would be reachable by no
                         // test. See `StoredTabResolutionTests`.
                         openSettings(on: SettingsView.SettingsTab.resolvingStored(
                             UserDefaults.standard.string(forKey: SettingsView.selectedTabDefaultsKey)))
                     }
-                    // `defaults write com.abhishekgirish.SyncCloud openCommandPaletteOnLaunch
-                    // -bool YES` brings up ⌘K at startup. The palette is keyboard-only and its
-                    // chord is a menu key equivalent, so nothing short of assistive access — which
-                    // this machine refuses — can open it from a script; without this hook the one
-                    // surface that most needs looking at is the one nothing but a human can reach.
-                    //
-                    // **Armed here, opened when provider discovery finishes** — the same wait the
-                    // first-run card takes, and for a sharper reason. Discovery is async and fills
-                    // `availableProviders`, so at this point `lensProviderRootExpanded` is still
-                    // empty and the palette's folder index resolves to NOTHING. Opened here it
-                    // logged "19 rows from 0 folders" on a tree of 3,013 — a diagnostic showing a
-                    // state no user can ever be in, which is worse than no diagnostic.
+                    // `openCommandPaletteOnLaunch` set to YES in the defaults domain brings up ⌘K
+                    // at startup, so a script can reach the keyboard-only palette. Armed here and
+                    // opened when provider discovery finishes: until then
+                    // `lensProviderRootExpanded` is empty and the palette's folder index would show
+                    // a state no user can be in.
                     paletteOnLaunchArmed = UserDefaults.standard.bool(forKey: "openCommandPaletteOnLaunch")
                 case .createActionHandler:
                     actionHandler = FileActionHandler(syncManager: syncManager, settings: settings)
-                    // The pane → source mapping is this view's state, and both linked navigation
-                    // and the durable ignore store need it to tell whether the two panes are in the
-                    // same place. A closure rather than two stored strings so it is read at the
-                    // moment of the decision — captured values go stale on the next switch.
+                    // The pane → source mapping is this view's state, and linked navigation and the
+                    // durable ignore store both need it to tell whether the two panes are in the
+                    // same place. A closure rather than two stored strings, so it is read at the
+                    // moment of the decision; captured values go stale on the next switch.
                     syncManager.paneOpenAt = paneOpenAtForSyncManager
-                    // And which source each pane is on, which is what decides the coordinate
-                    // system the durable ignore store's entries are written in — see
-                    // `FileSyncManager.ignoreAnchorIsLeft`. Without it every pair is quoted
-                    // against the left pane, and a swap re-reads a mixed pair's entries against
-                    // the other source's root.
+                    // And which source each pane is on, which decides the coordinate system the
+                    // durable ignore store's entries are written in — see
+                    // `FileSyncManager.ignoreAnchorIsLeft`. Without it every pair is quoted against
+                    // the left pane, and a swap re-reads a mixed pair's entries against the other
+                    // source's root.
                     syncManager.paneSourceId = paneSourceIdForSyncManager
                     // How the manager reads a pane's search field when it parks a tab. The field is
-                    // this view's `@State` and `Sync` cannot see its type — see `paneSearchSnapshot`.
+                    // this view's `@State`, and `Sync` cannot see its type — see
+                    // `paneSearchSnapshot`.
                     syncManager.paneSearchSnapshot = { [self] isLeft in
                         let state = isLeft ? leftPaneSearch : rightPaneSearch
                         return (query: state.query, isExpanded: state.isExpanded)
@@ -1656,7 +1440,7 @@ struct ContentView: View {
                     }
                 case .rewireUndoManager:
                     syncManager.undoManager = undoManager
-                    // A Recent row's Undo is live only while its step is the newest here (TE223).
+                    // A Recent row's Undo is live only while its step is the newest here.
                     ActivityCenter.shared.watchUndo(undoManager)
                     ActivityCenter.shared.doors = activityDoors
                 case .syncProviderQuirkSettings:
@@ -1673,26 +1457,25 @@ struct ContentView: View {
                     }
                     syncManager.ignoredItemsStore?.activate(
                         pairKey: IgnoredItemsStore.pairKey(leftProviderId, rightProviderId))
-                    // The names the user has said they meant. Created once, alongside the ignore
-                    // store, and for the same reason — it outlives this view. It takes no pair key:
-                    // a keep is a decision about a name, not about a comparison (see
-                    // `KeptNamesStore`), so there is nothing to re-key on a provider change.
+                    // The names the user has said they meant. Created once, beside the ignore store
+                    // and for the same reason. No pair key: a keep is a decision about a name, not
+                    // a comparison (see `KeptNamesStore`), so there is nothing to re-key on a
+                    // provider change.
                     if syncManager.keptNamesStore == nil {
                         syncManager.keptNamesStore = KeptNamesStore()
                     }
-                    // What the cross-person rule has refused. Created here for the same reason:
-                    // it outlives this view, and it is keyed on nothing — a refusal is a fact
-                    // about a document and a person, not about the pair being compared.
+                    // What the cross-person rule has refused. Created here for the same reason, and
+                    // keyed on nothing: a refusal is a fact about a document and a person, not
+                    // about the pair being compared.
                     if syncManager.filingPersonVetoLog == nil {
                         syncManager.filingPersonVetoLog = PersonVetoLog()
                     }
                 case .discoverProvidersAndApplyInitialSelection:
                     Task { @MainActor in
                         await settings.discoverProviders()
-                        // One-time: convert the legacy remembered filing rules (F3) into
-                        // automations. Destinations stay absolute — the same provider scoping
-                        // the legacy rules had — so nothing needs the provider list; the flag
-                        // makes re-runs no-ops.
+                        // One-time: convert the legacy remembered filing rules into automations.
+                        // Destinations stay absolute, the same provider scoping the legacy rules
+                        // had, so nothing needs the provider list; the flag makes re-runs no-ops.
                         syncManager.migrateFilingRulesToAutomations()
                         applyProviderSelection(preferDistinctPair: true)
                         syncManager.ignoredItemsStore?.activate(
@@ -1702,18 +1485,17 @@ struct ContentView: View {
                         // refresh scans.
                         await openPanesAtTheirLandingFolders()
                         // After the focus restore, deliberately: both answer "where was this pane",
-                        // and the strip's own active tab is the more specific answer — it carries
-                        // the column stack as well as the scope, and the parked tabs beside it.
-                        // Both panes, each from its own stored strip; a pane with nothing stored
-                        // keeps what the focus restore above just gave it.
+                        // and the strip's active tab is the more specific answer, carrying the
+                        // column stack, the scope and the parked tabs beside it. Each pane reads
+                        // its own stored strip; a pane with nothing stored keeps what the focus
+                        // restore gave it.
                         restoreBrowseTabs(isLeft: true)
                         restoreBrowseTabs(isLeft: false)
                         if !settings.enabledProviders.isEmpty {
-                            // **Recorded when it does not start.** `enabledProviders` being
-                            // non-empty does not mean it holds THESE two: a folder source, or one a
-                            // restored tab has just adopted, can still be on its way. The load then
-                            // never happens and the pane draws whatever it had — so the attempt is
-                            // remembered and finished the moment the sources arrive.
+                            // Recorded when it does not start: a non-empty `enabledProviders` need
+                            // not hold these two, since a folder source, or one a restored tab just
+                            // adopted, can still be on its way. The attempt is remembered and
+                            // finished the moment the sources arrive.
                             launchRefreshPending = !refreshAction()
                         }
                         isBootstrappingProviders = false
@@ -1722,11 +1504,11 @@ struct ContentView: View {
                         launchBootstrap.finish()
                     }
                 case .endProviderBootstrapGuard:
-                    // **Only once the launch's discovery is done.** A re-appearance DURING it is
-                    // SwiftUI re-presenting the window for a file opened from Finder (measured
-                    // 2026-10-03, the same view), and lowering the guard there handed every provider
-                    // write still to come to the user-switch path. `onChange(of:
-                    // launchBootstrap.isFinished)` lowers it when discovery ends.
+                    // Only once the launch's discovery is done. A re-appearance during it is
+                    // SwiftUI re-presenting the window (same view) for a file opened from Finder,
+                    // and lowering the guard there would hand every provider write still to come to
+                    // the user-switch path. `onChange(of: launchBootstrap.isFinished)` lowers it
+                    // when discovery ends.
                     isBootstrappingProviders = !launchBootstrap.isFinished
                 }
             }
@@ -1735,22 +1517,15 @@ struct ContentView: View {
             openExternalArrivals()
         }
         .onChange(of: leftProviderId) { _, newId in
-            // **The counters are consumed BEFORE the bootstrap guard is tested, and that order is
-            // load-bearing.** A counter is armed only by a writer that has already done this
-            // handler's work itself, so it has to be balanced wherever the write lands. Testing the
-            // guard first got this wrong in both directions: a write made during the bootstrap
-            // returned without decrementing (stranding the counter, so the user's next real switch
-            // was silently swallowed), and — measured, not assumed — a write made in the guard's
-            // last synchronous moments arrived here with the guard already DOWN, because SwiftUI
-            // evaluates `onChange` on the next view update rather than at the point of the write.
-            // That is exactly `restoreBrowseTabs`, and it made a launch restore run the full
-            // user-switch path below and reset the navigation it had just restored.
+            // The counters are consumed before the bootstrap guard is tested, and that order
+            // matters. A counter is armed only by a writer that already did this handler's work, so
+            // it must be balanced wherever the write lands, and SwiftUI evaluates `onChange` on the
+            // next view update: a write in the guard's last moments (`restoreBrowseTabs`) arrives
+            // with the guard already down. Testing the guard first would strand counters and run
+            // the user-switch reset over restored navigation.
             //
-            // A pane swap flips this id itself; its navigation was already swapped atomically, so
-            // skip the reset (which would wipe it) and let swapPanesAction drive the rescan. A tab
-            // switch flips it too, and the tab it switched to carries the navigation — same shape,
-            // own counter, armed only by `adoptProviderForTab`, which does everything below except
-            // the reset.
+            // A swap or a tab switch flips this id with its navigation already in place, so the
+            // reset is skipped; each has its own counter (`adoptProviderForTab` arms the tab's).
             switch PaneProviderChange.decide(swapPending: pendingSwapProviderChanges,
                                              tabPending: pendingTabProviderChanges,
                                              isBootstrapping: isBootstrappingProviders) {
@@ -1761,22 +1536,19 @@ struct ContentView: View {
             }
             Logger.shared.info("User switched left provider to \(newId)")
             // Ends the guided review and drops the duplicate review without restoring the
-            // comparison (the user chose this switch) — but releases the review's pin from the
-            // RIGHT pane if the review was no longer active, since that pin is not their choice.
+            // comparison (the user chose this switch), but releases the review's pin from the right
+            // pane if the review was no longer active, since that pin is not their choice.
             reviewCoordinator.dispatchReview(.providerSwitched(isLeft: true))
-            // Stale Tidy results must not outlive their provider — every lens, from the one list
-            // that owns that rule. Spelling them out here is what let the risky-name finding be
-            // forgotten when Rename folded into Organize. The person gather is subject to the same
-            // rule and is NOT in that list — it is this view's state, not the manager's — so it is
-            // cleared from the unconditional id handler further down, which this one's early
-            // returns cannot skip.
+            // Stale lens results must not outlive their provider: every lens, from the one list
+            // that owns that rule, so none can be forgotten here. The person gather is subject to
+            // the same rule but is this view's state, not the manager's, so it is cleared from the
+            // unconditional id handler further down, which this one's early returns cannot skip.
             syncManager.clearLensResultsForProviderSwitch()
             syncManager.ignoredItemsStore?.activate(
                 pairKey: IgnoredItemsStore.pairKey(newId, rightProviderId))
-            // retargetPane() fires refreshSubject, which onReceive above turns into a refresh — of
-            // this pane only. The new source opens at its own landing folder; the other pane is
-            // untouched in every sense, keeping its tree, its open columns, its selection and its
-            // Back stack rather than being reset by a switch it had no part in.
+            // retargetPane() fires refreshSubject, which onReceive above turns into a refresh of
+            // this pane only. The new source opens at its own landing folder; the other pane keeps
+            // its tree, open columns, selection and Back stack.
             syncManager.retargetPane(isLeft: true, landing: settings.openAtIfReachable(for: newId))
         }
         .onChange(of: rightProviderId) { _, newId in
@@ -1798,43 +1570,28 @@ struct ContentView: View {
             // Mirror of the left handler: the switched pane lands, the untouched one stays put.
             syncManager.retargetPane(isLeft: false, landing: settings.openAtIfReachable(for: newId))
         }
-        // The Info inspector reads the selection directly, so a selection change no longer needs to
-        // switch tabs — it just clears any explicit "Get Info" target so the inspector follows the
-        // new selection.
-        // The saved tab strip follows the live pane — see `BrowseTabPersistence`. ONE modifier
-        // rather than its two `onChange`s written here: adding a second to this chain tipped the
-        // body over the type-checker's budget outright ("unable to type-check this expression in
-        // reasonable time"), which is a hazard this file is already close enough to feel.
+        // The saved tab strip follows the live pane — see `BrowseTabPersistence`. One modifier
+        // rather than its two `onChange`s here, because another `onChange` in this chain pushes the
+        // body past the type-checker's budget ("unable to type-check this expression in reasonable
+        // time").
         .modifier(BrowseTabPersistence(syncManager: syncManager,
                                        leftProviderId: leftProviderId,
                                        rightProviderId: rightProviderId) { saveBrowseTabs(isLeft: $0) })
         .modifier(EditorAutosaveDriver(document: editorDocument,
                                        buffer: editorDocument.buffer) { runAutosave() })
-        // The LEFT pane's clear is in the selection handler above, where it can tell the app's own
-        // write from the user's — see `clearInfoTargetAfterLeftSelection`; this one skips the
-        // clear that same write makes here.
+        // The left pane's clear is in the selection handler above, where it can tell the app's own
+        // write from the user's — see `clearInfoTargetAfterLeftSelection`; this one skips the clear
+        // that same write makes here.
         .onChange(of: syncManager.selectedRightPaths) { _, paths in clearInfoTargetAfterRightSelection(paths) }
-        // The Get-Info override also goes stale when the comparison context changes underneath it:
-        // a provider switch (its file is on the old provider) or a tab switch (Organize is single-source
-        // and shows its own selection). Without these, `DetailsSidebar` — which prefers `overridePath`
-        // over everything — keeps showing the old-provider/old-tab file, defeating the single-source
-        // guard. `retargetPane` only clears a selection when non-empty, so the selection onChanges
-        // above don't cover the no-selection case.
+        // The Get Info override and any person gather go stale when the comparison context changes
+        // under them: a provider switch (the file is on the old provider) or a tab switch.
+        // `DetailsSidebar` prefers `overridePath` over everything, and `retargetPane` clears only a
+        // non-empty selection, so neither clears here on its own. A gather's card would list a tree
+        // no longer shown and its "Open" would silently degrade to a Finder reveal;
+        // `clearLensResultsForProviderSwitch()` cannot reach it (it is this view's `@State`).
         //
-        // **A person gather goes stale on the same switch, and nothing above could clear it.** The
-        // gather is an answer about the whole SOURCE, read off `filingFolderProfile`, so after a
-        // switch its card lists files from a tree this window no longer shows — and its "Open"
-        // joins the OLD profile root to a relative path and then relativizes that against the NEW
-        // `lensProviderRootExpanded`, which cannot match: the button silently degrades to a Finder
-        // reveal. `clearLensResultsForProviderSwitch()` in the handler above is the list that owns
-        // "no stale Tidy result outlives its provider", and it structurally cannot reach this one —
-        // that list is the manager's, while the gather takes the lens slot from `ContentView`'s own
-        // `@State`. So the rule is honoured here instead, exactly as the workspace switch honours it.
-        //
-        // **This pair, not the handler above, because this is what every writer of the ids trips.**
-        // That handler returns early while providers are still being discovered and again on a pane
-        // swap — and a swap moves the single lens source onto the other provider just as surely as
-        // picking one from the source menu does, so a gather must not survive it either.
+        // This pair, not the handler above, because that handler returns early during discovery and
+        // on a pane swap, and a swap moves the lens source just as surely as the source menu.
         .onChange(of: leftProviderId) { _, _ in
             infoPath = nil
             clearPersonScope()
@@ -1844,54 +1601,39 @@ struct ContentView: View {
             clearPersonScope()
         }
         .onChange(of: selectedWorkspace) { _, workspace in
-            // The context every later line is read against. v4.0 added Browse as a fourth
-            // workspace, and "User focused folder …" means a different thing in each — so without
-            // this the log cannot tell a Browse move from a Compare one. Fires only on a real
-            // change (see below), so it is one line per switch, not per re-selection.
-            // `title`, not `rawValue`: the log should name what the bar names. The raw values are
-            // a pinned persistence format that says "Filing" where the user reads "Organize".
+            // The context every later line is read against: "User focused folder …" means a
+            // different thing in each workspace. Fires only on a real change, so one line per
+            // switch. `title`, not `rawValue`: the log should name what the bar names, and the raw
+            // values are a pinned persistence format that says "Filing" where the user reads
+            // "Organize".
             Logger.shared.info("User switched to \(workspace.title)")
             infoPath = nil
-            // **A person gather does not survive leaving the workspace it was opened from.** It
-            // takes the lens slot in every workspace, so without this, switching to Compare showed
-            // a list of someone's files where the differences table belongs — nothing on screen
-            // explaining why, and the only way out a ✕ on a view you would not connect to Compare.
-            //
-            // Here rather than in `workspaceSelection`'s setter, which is where it was: that
-            // binding is only the *bar* (and the chords and ⌘K that route through it). Every
-            // programmatic switch went around it — `show(_:)` behind "Find duplicates of this" and
-            // the automation preview, `findFilingSuggestionsAction`, `buildStorageLensAction`, and
-            // both duplicate coordinators — so right-clicking a file and asking for its duplicates
-            // while a gather was open landed on Organize with the gather still holding the slot,
-            // and the click looked dead. `onChange` fires for every writer, which is the property
-            // that matters. It also fires only on a real change, so re-selecting the workspace you
-            // are already on still does not throw the gather away.
+            // A person gather does not survive leaving the workspace it was opened from: it takes
+            // the lens slot everywhere, so Compare would show someone's files instead of the
+            // differences. Here, not in `workspaceSelection`'s setter, because programmatic
+            // switches (`show(_:)`, the duplicate coordinators) go around it; `onChange` fires for
+            // every writer, and only on a real change.
             clearPersonScope()
             restoreStorageLensIfShowing()
             autoRescanLensIfShowing()
-            // **Compare is the only workspace that displays a comparison, so it is where one that
-            // is owed gets paid.** The editor writes files a comparison describes and re-reads them
-            // without comparing outside Compare; this is the other half of that, and it no-ops
-            // whenever nothing is owed here.
-            //
-            // Here rather than in `workspaceSelection`'s setter for the reason `clearPersonScope`
-            // is: every programmatic switch — `show(_:)`, the duplicate-review handoff — goes
-            // around the binding, and Compare is exactly where those land.
+            // Compare is the only workspace that displays a comparison, so an owed one is paid on
+            // arriving; a no-op when nothing is owed. Here rather than in `workspaceSelection`'s
+            // setter, because the programmatic switches that land on Compare go around that
+            // binding.
             if workspace == .compare { payOwedComparisonIfNeeded() }
             // A selection the left pane still owes belongs to the workspace it was owed in, so
-            // leaving that workspace drops it now (with its line), rather than whenever the next
-            // publish happens to ask — a debt recorded AFTER a switch (Reveal in Browse switches
-            // first, then owes) is for this workspace, and may pay here. See `owedPaneSelection`.
+            // leaving that workspace drops it now (with its line), rather than at the next publish.
+            // A debt recorded after a switch (Reveal in Browse switches first, then owes) is for
+            // this workspace, and may pay here. See `owedPaneSelection`.
             settleOwedPaneSelection()
         }
-        // The workspace is @AppStorage, so quitting on Storage means the next launch STARTS there
-        // and `onChange` never fires — the restore has to be attempted on appearance too, or the
-        // feature silently fails in exactly the case it exists for. The root is also empty until
-        // provider discovery finishes, which is why its own change is a trigger as well.
+        // The workspace is @AppStorage, so quitting on Storage means the next launch starts there
+        // and `onChange` never fires: the restore must also be attempted on appearance. The root is
+        // empty until provider discovery finishes, so its change is a trigger too.
         // `restoreStorageLens` declines when a build is running or results already exist, so the
-        // three triggers cannot fight: whichever arrives first wins and the rest are no-ops.
-        // `autoRescanLensIfShowing` rides the same trio under the same contract, for the two
-        // lenses whose results are recomputed rather than restored.
+        // triggers cannot fight: the first wins and the rest are no-ops. `autoRescanLensIfShowing`
+        // rides the same triggers under the same contract, for the two lenses whose results are
+        // recomputed rather than restored.
         .onAppear {
             restoreStorageLensIfShowing()
             autoRescanLensIfShowing()
@@ -1900,28 +1642,24 @@ struct ContentView: View {
             restoreStorageLensIfShowing()
             autoRescanLensIfShowing()
         }
-        // **The fourth trigger, added by the Storage fold.** The trio above watches the workspace,
-        // appearance and the scan root — not the rail lens, and until now nothing needed it to: the
-        // two auto-rescanned lenses recompute from published arrays, so arriving at one by clicking
-        // the rail had nothing to kick off. Storage breaks that assumption, because its report is
-        // restored from a store rather than derived from anything on screen — switch the rail to
-        // Storage and, without this, the page stays empty until some other trigger happens to fire.
-        //
-        // Safe to add for the reason the trio documents: whichever arrives first wins and the rest
-        // are no-ops, so a fourth caller cannot start a second scan.
+        // The rail lens is a trigger too. The two auto-rescanned lenses recompute from published
+        // arrays, but Storage's report is restored from a store, so switching the rail to Storage
+        // would otherwise leave the page empty until another trigger fired. Safe for the reason
+        // above: the first trigger wins and the rest are no-ops, so this cannot start a second
+        // scan.
         .onChange(of: selectedOrganizeLens) { _, _ in
             restoreStorageLensIfShowing()
             autoRescanLensIfShowing()
         }
-        // A scope change RE-SUBJECTS Storage rather than filtering it (Decision B): the report for
-        // the old root is dropped and the new root's snapshot restored if there is one, leaving the
-        // lens's own Analyze button aimed at the scope when there is not. Deliberately narrow: the
-        // other lenses treat scope as a filter over results they already hold, and widening their
-        // triggers here would turn a chip into a rescan for all five.
+        // A scope change re-subjects Storage rather than filtering it: the old root's report is
+        // dropped and the new root's snapshot restored if there is one, leaving the lens's Analyze
+        // button aimed at the scope when there is not. Deliberately narrow: the other lenses treat
+        // scope as a filter over results they hold, and adding them here would turn a chip into a
+        // rescan.
         .onChange(of: organizeScope?.path) { _, _ in
             restoreStorageLensIfShowing()
         }
-        // The cloud app status (RD68) reports on every source not turned off in Settings.
+        // The cloud app status reports on every source not turned off in Settings.
         .onChange(of: settings.availableProviders, initial: true) { _, providers in
             cloudApps.setProviders(providers, disabled: settings.disabledProviderIds)
             cloudApps.start()
@@ -1929,58 +1667,45 @@ struct ContentView: View {
         .onChange(of: settings.disabledProviderIds) { _, disabled in
             cloudApps.setProviders(settings.availableProviders, disabled: disabled)
         }
-        // Settings ▸ Sources on screen is asking about every source (DN): checked at once.
+        // Settings ▸ Sources on screen is asking about every source: checked at once.
         .onChange(of: showSettings && settingsTab == .providers) { _, showsSources in
             if showsSources { cloudApps.checkNow(settings.availableProviders.map(\.id)) }
         }
-        // Watches the enabled subset (not the full discovered list) so toggling a provider
-        // off in Settings re-resolves any pane that was showing it and rescans.
+        // Watches the enabled subset, not the full discovered list, so turning a provider off in
+        // Settings re-resolves any pane that was showing it and rescans.
         .onChange(of: settings.enabledProviders) { oldProviders, newProviders in
             let previousLeftId = leftProviderId
             let previousRightId = rightProviderId
             applyProviderSelection(preferDistinctPair: isBootstrappingProviders)
-            // **Before the bootstrap guard, because that guard is what strands it.** A launch
-            // refresh that could not start for want of a source has to be finished when the source
-            // turns up, and that arrival is this handler — which returns below while the bootstrap
-            // is still up, i.e. exactly when the pending flag is set. Only ever completes a refresh
-            // that was already asked for and skipped; it starts nothing new.
+            // Before the bootstrap guard, because that guard would strand it. A launch refresh that
+            // could not start for want of a source must finish when the source turns up, and that
+            // arrival is this handler, which returns below while the bootstrap is up, exactly when
+            // the pending flag is set. Only completes a refresh already asked for; starts nothing
+            // new.
             if launchRefreshPending, refreshAction() {
                 launchRefreshPending = false
                 Logger.shared.info("Completed the launch refresh once its sources were published")
             }
             guard !isBootstrappingProviders else { return }
-            // If re-resolution switched a pane's provider, its id onChange below already
-            // refreshes via retargetPane — don't schedule a second scan here.
+            // If re-resolution switched a pane's provider, its id onChange already refreshes via
+            // retargetPane; don't schedule a second scan here.
             guard leftProviderId == previousLeftId, rightProviderId == previousRightId else { return }
-            // Only rescan when a pane's own provider changed (e.g. its root path was
-            // edited). Toggling or re-pathing a provider neither pane shows must not
-            // reload the trees — that spurious rescan put spinners over both panes
-            // on every unrelated Settings edit.
+            // Only rescan when a pane's own provider changed (its root path was edited, say).
+            // Toggling or re-pathing a provider neither pane shows must not reload the trees and
+            // spin both panes.
             if let edited = Self.paneRootEdits(
                 old: oldProviders,
                 new: newProviders,
                 leftId: previousLeftId,
                 rightId: previousRightId
             ) {
-                // Same pane ids, different root underneath: the current trees and
-                // differences were built against the old root, so drop them before the
-                // rescan rather than leaving their stale absolute paths clickable. The
-                // review teardown goes through the reducer — this handler used to call
-                // endReviewForComparisonChange inline and (like the two shipped bugs the
-                // reducer exists for) forgot to clear the duplicate review, whose keeper/
-                // copy paths live under the edited root.
-                //
-                // **The same scope to both calls.** A pane whose tree is dropped here and not
-                // walked by the rescan stays blank, and a pane whose root did not move needs
-                // neither — editing the right source's Location used to reload the left pane
-                // and flatten its columns for a root it had not touched.
-                //
-                // **Logged, because the scope made this reload selective and nothing else says
-                // so.** The other route to a re-walk announces itself ("User switched left
-                // provider to …"); this one was silent even when it reloaded both panes, and a
-                // silent reload of ONE pane is worse — a pane spinning with its sibling still
-                // showing rows is exactly the "why did that happen?" a reader brings to the log.
-                // `[load]` lines are DEBUG and dropped at the level most sessions run at.
+                // Same pane ids, different root: the trees and differences were built against the
+                // old root, so drop them before the rescan rather than leave stale absolute paths
+                // clickable. The review teardown goes through the reducer, which also clears a
+                // duplicate review under that root. Both calls take the same scope: a pane dropped
+                // and not walked stays blank. Logged, because a selective reload (one pane
+                // spinning, its sibling still showing rows) is otherwise unexplained; `[load]`
+                // lines are DEBUG.
                 Logger.shared.info("A source root changed in Settings under \(edited.describedPanes); "
                                    + "dropping the comparison and re-walking \(edited.describedPanes).")
                 reviewCoordinator.dispatchReview(.comparisonRootEdited)
@@ -1989,29 +1714,29 @@ struct ContentView: View {
             }
         }
         .modifier(SettingsEngineMirrors(syncManager: syncManager, settings: settings))
-        // A republish can delete a folder a column stack is standing in — externally, or by the
+        // A republish can delete a folder a column stack is standing in, externally or by the
         // user's own Delete. Re-resolve each stack against the new tree so it falls back to the
-        // deepest surviving ancestor; without this the columns render nothing while
-        // `currentDirectory` still names the dead folder, which is where New Folder and paste
-        // would then act. `PaneTree` compares by publish stamp, so this fires once per publish.
+        // deepest surviving ancestor; otherwise the columns render nothing while `currentDirectory`
+        // still names the dead folder, where New Folder and paste would act. `PaneTree` compares by
+        // publish stamp, so this fires once per publish.
         .modifier(ColumnStackPruning(syncManager: syncManager,
                                      leftTreeRoot: currentLeftPath,
                                      rightTreeRoot: currentRightPath))
-        // Rebuilding the indices walks every difference's ancestor chain — with tens of
-        // thousands of differences that froze the main thread after every scan, so the
-        // work runs detached and only the results land on main. task(id:) also cancels a
-        // stale rebuild when the inputs change again mid-flight.
+        // Rebuilding the indices walks every difference's ancestor chain, which with tens of
+        // thousands of differences would freeze the main thread after every scan, so the work runs
+        // detached and only the results land on main. task(id:) also cancels a stale rebuild when
+        // the inputs change mid-flight.
         .task(id: diffIndexInputs) {
             let inputs = diffIndexInputs
             let (left, right) = await Task.detached(priority: .userInitiated) {
-                // Per-pane case-fold gating for the folded badge fallback: a missing row's
-                // expected path carries the SOURCE side's ancestor casing, so a destination
-                // folder differing only in case showed no contained-diff badge. One stat per
-                // rebuild, on the detached walk with the rest of the work.
+                // Per-pane case-fold gating for the folded badge fallback: a missing row's expected
+                // path carries the source side's ancestor casing, so a destination folder differing
+                // only in case would show no contained-diff badge. One stat per rebuild, on the
+                // detached walk.
                 func foldsCase(_ root: String) -> Bool {
-                    // Only a DEFINITE insensitive answer enables folding: the ??-false helper
-                    // reads a vanished/unmounted root as "insensitive", enabling merges on a
-                    // volume of unknown semantics during a transient state.
+                    // Only a definite insensitive answer enables folding: the ??-false helper would
+                    // read a vanished or unmounted root as "insensitive", enabling merges on a
+                    // volume of unknown semantics.
                     guard !root.isEmpty,
                           let sensitive = try? URL(fileURLWithPath: root).resourceValues(
                               forKeys: [.volumeSupportsCaseSensitiveNamesKey]).volumeSupportsCaseSensitiveNames
@@ -2029,9 +1754,8 @@ struct ContentView: View {
         }
     }
     
-    /// The settings→engine mirror handlers, extracted as a modifier: chaining them all
-    /// inline pushed the body expression past the type-checker's budget (the same failure
-    /// mode that split the Differences Table into per-cell structs).
+    /// The settings→engine mirror handlers, extracted as a modifier: chaining them inline pushes
+    /// the body expression past the type-checker's budget.
     private struct SettingsEngineMirrors: ViewModifier {
         @ObservedObject var syncManager: FileSyncManager
         @ObservedObject var settings: SettingsManager
@@ -2041,8 +1765,8 @@ struct ContentView: View {
                 .onChange(of: settings.ignoreGoogleDriveNewerDateOnly) { _, new in
                     syncManager.ignoreGoogleDriveNewerDateOnly = new
                 }
-                // The remaining Sync-tab settings mirror the same way; the manager's didSets
-                // decide whether a change needs a refilter (ignores) or a rescan (tolerance,
+                // The remaining Sync-tab settings mirror the same way; the manager's didSets decide
+                // whether a change needs a refilter (ignores) or a rescan (tolerance,
                 // verification).
                 .onChange(of: settings.dateToleranceSeconds) { _, new in
                     syncManager.dateToleranceSeconds = new
@@ -2056,9 +1780,9 @@ struct ContentView: View {
                 .onChange(of: settings.ignorePatterns) { _, new in
                     syncManager.ignorePatterns = new
                 }
-                // Sort mirrors BOTH ways: the Settings picker drives the panes, and a pane
-                // sort-menu change persists as the new default (the equality guards stop
-                // the ping-pong after one hop).
+                // Sort mirrors both ways: the Settings picker drives the panes, and a pane
+                // sort-menu change persists as the new default (the equality guards stop the
+                // ping-pong after one hop).
                 .onChange(of: settings.defaultSortOption) { _, new in
                     syncManager.sortOption = new
                 }
@@ -2067,28 +1791,15 @@ struct ContentView: View {
                         settings.defaultSortOption = new
                     }
                 }
-                // `lastLeftFocusPath` / `lastRightFocusPath` were persisted here, on every
-                // navigation, for a launch path that no longer reads them: the tab strip records a
-                // folder per tab and restores it, and `openPanesAtTheirLandingFolders` now opens a
-                // strip-less pane at its source's landing folder. Two defaults written on every
-                // keystroke-fast pane move and read by nothing is worse than no record at all,
-                // because the next reader has to prove that before trusting anything else.
         }
     }
 
-    /// Provider display names for the two panes, disambiguated when both panes show the same provider.
-    /// What this window is on, for `NSWindow.title` — both sides on Compare, the single source
+    /// What this window is on, for `NSWindow.title`: both sides on Compare, the single source
     /// elsewhere.
     ///
-    /// Reads the provider's `displayName` directly rather than going through `paneNames`, which
-    /// substitutes "Left"/"Right" for an unresolved provider and appends "(left)"/"(right)" when
-    /// both sides are the same cloud. Both are right for a pane header and wrong here: a window
-    /// called "Left" says less than one called "SyncCloud", and the two paths already distinguish
-    /// two tabs on one provider.
-    ///
-    /// Each side's location is resolved **through its own view mode**, the same way `paneContext`
-    /// does it: a Tree pane's location is its scope, and its parked column stack is not part of
-    /// where it is.
+    /// The provider's `displayName`, not `paneNames`, whose "Left"/"Right" and "(left)"/"(right)"
+    /// suit a pane header and not a window title. Each side's location goes through its own view
+    /// mode, as in `paneContext`: a Tree pane's location is its scope.
     var windowSubtitleText: String? {
         func source(isLeft: Bool) -> WindowSubtitle.Source {
             let id = isLeft ? leftProviderId : rightProviderId
@@ -2109,30 +1820,32 @@ struct ContentView: View {
 
     /// Both panes' name rulesets, for the Differences table's risky-name badge.
     ///
-    /// `SettingsManager.nameRuleType(for:)` owns both substitutions: OneDrive — the strictest — for
-    /// a provider id that won't resolve, so an unresolved source over-reports rather than letting a
+    /// `SettingsManager.nameRuleType(for:)` owns both substitutions: OneDrive, the strictest, for a
+    /// provider id that won't resolve, so an unresolved source over-reports rather than leaving a
     /// name that will break a sync pass unflagged; and the user's `folderNameRule` for a folder
-    /// source, which has no rules of its own to check against.
+    /// source, which has no rules of its own.
     var paneRules: PaneProviderRules {
         PaneProviderRules(left: settings.nameRuleType(for: leftProviderId),
                           right: settings.nameRuleType(for: rightProviderId))
     }
 
-    /// Builds the full path for the left pane. Uses only the left provider's root + left relative path to avoid mixing roots.
+    /// Builds the full path for the left pane from the left provider's root and left relative path
+    /// only, so roots never mix.
     var currentLeftPath: String {
         PaneLogic.fullPath(root: settings.rootPath(for: leftProviderId), relativePath: syncManager.leftRelativePath)
     }
 
-    /// Builds the full path for the right pane. Uses only the right provider's root + right relative path to avoid mixing roots.
+    /// Builds the full path for the right pane from the right provider's root and right relative
+    /// path only, so roots never mix.
     var currentRightPath: String {
         PaneLogic.fullPath(root: settings.rootPath(for: rightProviderId), relativePath: syncManager.rightRelativePath)
     }
 
     // MARK: - Pane visibility & content layout
 
-    /// The resolved arrangement of the panes and workspace, which now start directly under the
-    /// window toolbar. Comparison tabs stack two panes over the workspace; the single-source
-    /// workspaces dock one collapsible rail beside a workspace that's always shown.
+    /// The resolved arrangement of the panes and workspace, which start directly under the window
+    /// toolbar. Comparison tabs stack two panes over the workspace; the single-source workspaces
+    /// dock one collapsible rail beside a workspace that's always shown.
     enum ContentLayout {
         /// Compare: panes over workspace.
         case compareSplit
@@ -2145,51 +1858,37 @@ struct ContentView: View {
         case browseFull
         /// Editor: a source pane, then the file rail and the open document.
         ///
-        /// **Two arms, like the lens workspaces, because the source pane collapses.** The editor is
-        /// where you choose a folder to write in, and the sidebar alone answers that only for
-        /// folders you have already kept or visited — so the same file pane Organize docks on its
-        /// left is available here to browse to anywhere. It starts collapsed to its spine
+        /// Two arms, like the lens workspaces, because the source pane collapses. The sidebar alone
+        /// reaches only folders already kept or visited, so the same file pane Organize docks is
+        /// available here to browse anywhere. It starts collapsed to its spine
         /// (`TopPaneVisibility.defaultPanesHidden`): most sessions open a file and write in it, and
         /// the pane is one click away when they do not.
         case editorExpanded
         /// Editor with the source pane collapsed to a spine.
         case editorCollapsed
 
-        /// Whether this arrangement draws a `FileTreeView` at all — which is the question every
-        /// pane-scoped chord is really asking before it offers itself.
-        ///
-        /// The Editor is the first workspace to answer **no**. ⇧⌘N was gated on `layoutMode`, which
-        /// cannot tell a workspace with a rail from one with neither, so it stayed live in a
-        /// workspace with no pane to act on and put an invisible pane into a naming state. (⇧⌘P,
-        /// the in-pane preview's chord until TE318, had the same defect.)
+        /// Whether this arrangement draws a `FileTreeView` at all, which is what every pane-scoped
+        /// chord asks before it offers itself. `layoutMode` cannot tell a workspace with a rail
+        /// from one with neither, so a chord gated on it (⇧⌘N, say) would stay live with no pane to
+        /// act on and put an invisible pane into a naming state.
         var drawsAPaneList: Bool {
             switch self {
             case .compareSplit, .singleExpanded, .browseFull: return true
             // Expanded, a workspace with a source rail draws a real `FileTreeView` and the
-            // pane-scoped chords mean what they say. **Collapsed, there is only a 34pt spine, and
-            // that is true of BOTH kinds** — the editor's source pane and the lens rail collapse to
-            // the same strip through the same stored override.
-            //
-            // The lens arm answered `true` when this member was introduced, and that was a
-            // half-fix: it was written for the editor, and the collapsed-lens case is the same
-            // defect in a workspace that shipped long before it. ⇧⌘N put a naming row into a pane
-            // nobody can see (and ⇧⌘P, before TE318 retired it, toggled a preview for a stack that
-            // was not on screen).
-            // Now that Storage is a lens on Organize's rail, that rail is collapsed more often, not
-            // less.
+            // pane-scoped chords mean what they say. Collapsed, there is only a 34pt spine, for
+            // both kinds: the editor's source pane and the lens rail collapse to the same strip
+            // through the same stored override.
             case .editorExpanded: return true
             case .singleCollapsed, .editorCollapsed: return false
             }
         }
 
-        /// Whether this arrangement has a source rail that can collapse to a spine — which is the
-        /// question the pane header's collapse rung is really asking.
+        /// Whether this arrangement has a source rail that can collapse to a spine — what the pane
+        /// header's collapse rung asks.
         ///
-        /// **Asked of the LAYOUT rather than of the workspace**, and switched with no `default:`.
-        /// The rung used to read `layoutMode == .singleSource && selectedWorkspace != .browse`: a
-        /// growing exclusion list, in which every new full-window workspace has to remember to
-        /// exclude itself and nothing says so if it forgets. Editor would have inherited a collapse
-        /// rung it has no spine for.
+        /// Asked of the layout rather than of the workspace, and switched with no `default:`, so a
+        /// new full-window workspace cannot inherit a collapse rung it has no spine for by
+        /// forgetting to exclude itself.
         var hasCollapsibleRail: Bool {
             switch self {
             case .singleExpanded, .singleCollapsed, .editorExpanded, .editorCollapsed: return true
@@ -2201,16 +1900,10 @@ struct ContentView: View {
     /// The current tab's layout mode (compare vs single-source).
     var layoutMode: TopPaneVisibility.Mode { TopPaneVisibility.mode(for: selectedWorkspace) }
 
-    /// Whether the current workspace's panes are hidden, honoring any stored override on top of
-    /// its default. Computed (not stored) so switching workspace auto-applies its remembered state
-    /// with no onChange plumbing.
-    ///
-    /// **Through the memo, not `decodeOverrides` directly.** This is read from around three dozen
-    /// sites — `contentLayout`, `folderSidebarIsShowing`, both shortcut gates, `showSourcePicker`,
-    /// two `.animation` modifiers and an `onChange` — several of them per body pass, and each read
-    /// was allocating a `JSONDecoder` and parsing the stored string. `TopPaneVisibility.overrides`
-    /// answers from a one-entry memo keyed on that string, so a body pass parses it once and only
-    /// a real write to the defaults key re-parses. See that member for why the key is total.
+    /// Whether the current workspace's panes are hidden: its default plus any stored override.
+    /// Computed, so a workspace switch applies its remembered state with no plumbing. Read through
+    /// `TopPaneVisibility.overrides`' one-entry memo rather than `decodeOverrides`, because it is
+    /// read from dozens of sites per body pass and each direct read would parse the JSON again.
     var panesHiddenForCurrentTab: Bool {
         TopPaneVisibility.panesHidden(
             for: selectedWorkspace,
@@ -2220,25 +1913,24 @@ struct ContentView: View {
 
     /// Resolves the content layout from the tab's mode and its pane/workspace visibility.
     var contentLayout: ContentLayout {
-        // Browse is decided BEFORE the pane-hiding question is asked, and that ordering is the
-        // point: the pane is the entire window here, so "panes hidden" would mean an empty window.
-        // No control in Browse can write that override today — the header's collapse rung is nil
-        // and there is no spine to click — but a stray key in the stored map must not be able to
-        // blank the workspace either.
+        // Browse is decided before the pane-hiding question is asked, deliberately: the pane is the
+        // whole window here, so "panes hidden" would mean an empty window. No control in Browse
+        // writes that override, but a stray key in the stored map must not blank the workspace
+        // either.
         if selectedWorkspace == .browse { return .browseFull }
         // Editor is decided here for the same reason and one more: it owns no lens, so the lens
-        // mounting path answers nothing for it — `presentLensRail` early-returns on a nil lens and
-        // `bottomPaneView` mounts nothing — and a workspace that fell through to `.singleExpanded`
-        // would draw a source pane beside an empty half. It takes the same collapse state the lens
-        // workspaces do, through the same stored override, and only the workspace half differs.
+        // mounting path answers nothing for it (`presentLensRail` early-returns on a nil lens and
+        // `bottomPaneView` mounts nothing), and falling through to `.singleExpanded` would draw a
+        // source pane beside an empty half. It takes the lens workspaces' collapse state, through
+        // the same stored override.
         if selectedWorkspace == .editor {
             return panesHiddenForCurrentTab ? .editorCollapsed : .editorExpanded
         }
         switch layoutMode {
         case .compare:
-            // The comparison panes and the workspace are both always shown (their toggles were
-            // removed — you resize with the divider instead; no current control writes a hidden
-            // override for a compare tab), so compare is always the split.
+            // The comparison panes and the workspace are both always shown (you resize with the
+            // divider; no control writes a hidden override for a compare tab), so compare is always
+            // the split.
             return .compareSplit
         case .singleSource:
             // The single-source workspace is always shown; only the rail collapses.
@@ -2298,16 +1990,10 @@ struct ContentView: View {
         }
     }
 
-    /// **A launch from Finder opens Edit wide** — Expand: the Text Files rail hidden, the file pane
-    /// collapsed and the sidebar put away. Asked 2026-10-03: "on cold open, it should always have
-    /// the left side bar and file pane both closed. So it feels like a wide screen experience."
-    ///
-    /// **Remembered, as the header's own button is** — chosen that way when asked: Edit stays wide
-    /// until it is left. It IS Expand's entry (`EditorExpand.enter`), so leaving gives back what
-    /// was showing before the launch, as leaving the button's Expand does. Written for `.editor`
-    /// by name through `editorExpand`, never through `togglePanesForCurrentTab`, which writes
-    /// whatever workspace is on screen and TOGGLES — this has to close the pane whatever it was,
-    /// and only Edit's.
+    /// A launch from Finder opens Edit wide, through Expand's own entry (`EditorExpand.enter`): the
+    /// Text Files rail hidden, the file pane collapsed, the sidebar put away, until Edit is left.
+    /// Written for `.editor` by name, never through `togglePanesForCurrentTab`, which toggles
+    /// whatever workspace is on screen.
     func openEditWideForLaunchFromFinder() {
         let before = editorExpand
         var expand = before
@@ -2318,33 +2004,18 @@ struct ContentView: View {
                                 : " (closed \(EditorExpand.moved(from: before, to: expand)))"))
     }
 
-    /// Entering a lens workspace from the workspace bar opens the source rail — and leaves the left
-    /// pane exactly where it was. Fired only from the bar itself — the programmatic scan actions
-    /// (Find Duplicates / loose files from a Compare menu) set the workspace directly and bypass this,
-    /// so they keep scanning the folder the user picked.
+    /// Entering a lens workspace from the workspace bar opens the source rail and leaves the left
+    /// pane where it was: Browse, Organize's rail and Compare's left pane are one pane over one
+    /// folder. Fired only from the bar; the programmatic scan actions set the workspace directly
+    /// and keep their folder.
     ///
-    /// **Continuity, not a fresh start.** Browse, Organize's source rail and Compare's left pane are
-    /// one pane over one folder, and this used to re-home it to the provider root on every entry
-    /// into Organize: a folder open in Browse was gone when you came back from Organize, and Organize
-    /// opened on the whole source whatever you had been looking at. Now the folder you are in stays
-    /// the folder you are in, in both directions — a folder opened in Organize's rail is the one
-    /// Browse shows, and the other way round.
-    ///
-    /// **What Organize works on is unchanged in kind.** A scope, when one is set, is the subject —
-    /// sticky and visible (`organizeScope`). Without one the lenses follow the rail's position
-    /// (`lensScanRootExpanded`), exactly as they already did while you clicked around inside
-    /// Organize; arriving in a folder is the same as having browsed to it there. Arriving starts no
-    /// scan the user has not already run: the auto-rescan repeats only a scan of that folder that
-    /// completed before, once a session. Anything else is the "Scan '<folder>'" offer, which names
-    /// the folder.
-    ///
-    /// **The inbox is not automatic either.** Organize once opened on the loose-files inbox
-    /// (`tidyRailRelativePath(for:)`), which moved the rail into a folder nobody had asked for on a
-    /// fresh install; the overview offers it as a one-click scope instead ("Inbox (TODO) — N loose
-    /// files"), sticky across launches. `filingInboxFolder` still resolves the path for exactly that.
+    /// Arriving starts no scan the user has not already run: with no scope the lenses follow the
+    /// rail (`lensScanRootExpanded`), and the auto-rescan repeats only a completed scan of that
+    /// folder. The loose-files inbox is never opened unasked; the overview offers it as a one-click
+    /// scope (`filingInboxFolder`).
     func presentLensRail(for workspace: Workspace) {
-        // The lens itself no longer changes where the rail opens — it is the guard that this is a
-        // lensed workspace at all, which is what makes the early return correct for Compare.
+        // The lens no longer decides where the rail opens; it guards that this is a lensed
+        // workspace at all, which makes the early return correct for Compare.
         guard workspace.lens != nil else { return }
         // Show the rail for this workspace (remembered per workspace, like the manual toggle). It
         // arrives with the switch, unanimated, like the switch itself.
@@ -2377,32 +2048,15 @@ struct ContentView: View {
     /// Reloads pane trees and runs a diff scan (with re-entrancy and cancellation handled by the
     /// manager).
     ///
-    /// - Parameter reloading: which panes to WALK. The scan that follows always compares both; a
-    ///   pane left out contributes the tree it is already holding. Defaults to `.both`, which is
-    ///   what the force refresh, the launch bootstrap and a pane swap all mean. The narrow scopes
-    ///   come from the places that know a single pane moved: `refreshSubject`, a tab or cross-source
-    ///   open (`refreshForTabSwitch`), and the enabled-providers handler, which asks
-    ///   `paneRootEdits` which pane's Location was edited and must pass that same scope to
-    ///   `invalidateComparisonState` — a pane whose tree is dropped there and not walked here stays
-    ///   blank.
-    /// - Returns: whether a refresh was actually started. **The `false` is the point.**
-    ///
-    /// This guard returned in silence, and a pane load skipped at launch with nothing said about it
-    /// is how a pane comes to draw one source's tree under another source's name for a whole
-    /// session. The two ids are `@AppStorage` and are restored before discovery finishes, so at
-    /// bootstrap it is ordinary for a pane to name a source `enabledProviders` has not published
-    /// yet — a folder source, or one a restored tab just adopted. When that happens this does
-    /// nothing, and `onChange(of: enabledProviders)` cannot pick it up either, because that handler
-    /// returns early while the bootstrap guard is up. Nothing else walks the tree, so the pane
-    /// keeps whatever an earlier, differently-targeted refresh happened to leave in it.
-    ///
-    /// Saying so is half the fix; the caller completing it when the source arrives is the other
-    /// half (see `launchRefreshPending`).
-    /// - Parameter comparing: whether the reload is followed by the two-pane comparison. Defaults
-    ///   to `true`. The one caller that passes `false` is Edit's re-read after a file it made
-    ///   itself, outside Compare (`rereadPanesAfterEditorWrite`) — see `owedComparison`, which is
-    ///   what makes the skipped comparison owed rather than lost. Not `private` for that caller,
-    ///   which lives in `ContentView+Editor`.
+    /// - Parameter reloading: which panes to walk; the scan always compares both. Defaults to
+    ///   `.both`. A narrow scope must also be what `invalidateComparisonState` was given, or a
+    ///   dropped pane stays blank.
+    /// - Parameter comparing: whether the reload is followed by the two-pane comparison. Only
+    ///   Edit's re-read outside Compare passes `false`; `owedComparison` makes that skip owed, not
+    ///   lost.
+    /// - Returns: whether a refresh started. At bootstrap a pane can name a source not yet
+    ///   published; the warning says so, and `launchRefreshPending` finishes the refresh when it
+    ///   arrives.
     @discardableResult
     func refreshAction(reloading: FileSyncManager.PaneReloadScope = .both,
                                comparing: Bool = true) -> Bool {
@@ -2415,16 +2069,16 @@ struct ContentView: View {
                 + "\(missing.count == 1 ? "is" : "are") not among the enabled sources yet")
             return false
         }
-        // **Written on the way out, both ways.** A refresh that compares settles the whole debt,
-        // whatever put it there, and one that does not takes the comparison on — so the record
-        // always describes what has actually happened since the last comparison.
+        // Written on the way out, both ways: a refresh that compares settles the whole debt, and
+        // one that does not takes the comparison on, so the record always describes what has
+        // happened since the last comparison.
         var reloading = reloading
         if comparing {
-            // **And it walks every pane holding such a file**, not only the panes it was asked to:
-            // the drop below takes that pane's walk too, and a pane left out went on showing the
-            // file as it was, its folder was compared cold, and the debt that would have re-read
-            // it on arrival in Compare was gone. A source or tab switch is the usual case — it
-            // asks for the moved pane alone, and the file is usually under the other one.
+            // And it walks every pane holding such a file, not only the panes it was asked to: the
+            // drop below takes that pane's walk too, so a pane left out would keep showing the file
+            // as it was, its folder compared cold, with the debt gone. A source or tab switch is
+            // the usual case: it asks for the moved pane alone, and the file is usually under the
+            // other one.
             if let because = owedComparison.reasonToWalkBoth(insteadOf: reloading,
                                                             leftFolder: currentLeftPath, rightFolder: currentRightPath,
                                                             leftLinkTargets: syncManager.leftTreeLinkTargets,
@@ -2432,8 +2086,9 @@ struct ContentView: View {
                 Logger.shared.info("Walking both panes, not only \(reloading.describedPanes): \(because)")
                 reloading = .both
             }
-            // Its scan reads every file the editor wrote: the cached walks that list their folders
-            // go first, or the scan's in-memory fast path compares the walk taken before the write.
+            // Its scan reads every file the editor wrote: the cached walks listing their folders go
+            // first, or the scan's in-memory fast path would compare the walk taken before the
+            // write.
             for path in owedComparison.unreadWrites { syncManager.prepareReread(afterWritingAt: path) }
             owedComparison = OwedComparison()
         } else if owedComparison.skipped == nil {
@@ -2446,44 +2101,29 @@ struct ContentView: View {
         return true
     }
 
-    /// **What Compare's list owes the disk, and why** — ONE record for every way the list falls
-    /// behind, paid in ONE place (`payOwedComparisonIfNeeded`).
+    /// What Compare's list owes the disk, and why — one record for every way the list falls behind,
+    /// paid in one place (`payOwedComparisonIfNeeded`). Two things leave it behind:
     ///
-    /// Compare's list of differences is the last scan's answer, and nothing in this app watches the
-    /// disk. Two things leave it behind:
+    /// - A refresh that skipped its comparison (`refreshAction(comparing: false)`, Edit's re-read
+    ///   outside Compare): the trees are current, only the comparison is owed (`skipped`). Unpaid,
+    ///   Compare would draw stale rows under correct pane headers.
+    /// - A file the editor wrote over (`noteEditorWrote`): its cached walks still hold the old size
+    ///   and date, so the panes holding it are re-read first (`unreadWrites`), or a row would offer
+    ///   to overwrite what was just written.
     ///
-    /// - **A refresh that skipped its comparison** (`refreshAction(comparing: false)`) — the lens
-    ///   entry's re-home, which moves the pane on the way into a workspace that draws no
-    ///   differences, and Edit's re-read after ⌘N or Export as PDF outside Compare. The trees that
-    ///   refresh loaded are current; only the comparison is owed (`skipped`, with its reason).
-    ///   Left alone, Compare would draw a comparison of a folder the left pane was moved off —
-    ///   stale rows under correct pane headers, worse than the "not scanned" card.
-    /// - **A file the editor wrote over** — ⌘S and Keep Mine, background autosave, the flush on
-    ///   the way to another document (`noteEditorWrote`). A document opened from a differences row
-    ///   (`.staysPut`, so the comparison stays as it was) and edited came back to its pre-edit row,
-    ///   "Dropbox is newer → copy to left", offering to overwrite what had just been written. The
-    ///   cached walks listing the file's folder still hold its old size and date, so the pane(s)
-    ///   holding it are re-read before the comparison (`unreadWrites`).
-    ///
-    /// ⌘N's new file and an exported PDF are writes too, but their pane is re-read at once
-    /// (`rereadPanesAfterEditorWrite`), so outside Compare they owe only the comparison — as a
-    /// `skipped` naming the file, not as an unread write that would walk the pane a second time.
-    ///
-    /// Any refresh that compares settles all of it (`refreshAction`). **A write under neither
-    /// compared folder is not recorded at all** (`recordWrite`): it cannot change the comparison,
-    /// and kept here it made the next comparing refresh drop cached walks the comparison does not
-    /// show. Its caller drops those walks at the moment of the write instead
-    /// (`noteEditorWrote`), so a pane moved to that folder later still reads the write.
+    /// ⌘N's new file and an exported PDF re-read their pane at once, so they owe only a `skipped`.
+    /// A write under neither compared folder is not recorded (`recordWrite`); its caller drops its
+    /// walks at the moment of the write instead. Any refresh that compares settles all of it.
     struct OwedComparison: Equatable {
         /// Why a refresh skipped the comparison, for the line that pays it — `nil` when none did.
         var skipped: String?
         /// Files the editor wrote over since the last comparison that nothing has re-read.
         var unreadWrites: Set<String> = []
 
-        /// Records a file the editor wrote over — **only when it is under either compared
-        /// folder** (`ContentView.panesHolding`, links included, and the folder links the panes'
-        /// walks followed), since nothing else can change what Compare shows. Returns whether it
-        /// was recorded; a caller told `false` owns the write's stale cached walks itself.
+        /// Records a file the editor wrote over, only when it is under either compared folder
+        /// (`ContentView.panesHolding`, links included, and the folder links the panes' walks
+        /// followed), since nothing else can change what Compare shows. Returns whether it was
+        /// recorded; a caller told `false` owns the write's stale cached walks itself.
         mutating func recordWrite(_ path: String, leftFolder: String, rightFolder: String,
                                   leftLinkTargets: Set<String> = [], rightLinkTargets: Set<String> = [],
                                   links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> Bool {
@@ -2503,7 +2143,7 @@ struct ContentView: View {
         }
 
         enum Payment: Equatable {
-            /// The editor wrote files under the compared folders: re-read the pane(s) holding them,
+            /// The editor wrote files under the compared folders: re-read the panes holding them,
             /// and compare. That refresh settles a skipped comparison with it.
             case reread(FileSyncManager.PaneReloadScope, because: String)
             /// Only the comparison — a refresh skipped it, and the trees it loaded are current.
@@ -2516,12 +2156,11 @@ struct ContentView: View {
             }
         }
 
-        /// What arriving in Compare pays, or `nil` when nothing is owed THERE: nothing recorded,
-        /// or only writes outside both compared folders (a pane moved off them since the write
-        /// was recorded). Each pane is re-read when it holds any
-        /// written file (`ContentView.panesHolding`, which knows iCloud Drive's linked
-        /// `Documents`, and the folder links the panes' walks followed); the first such file in
-        /// path order is the one named, so the line does not depend on set order.
+        /// What arriving in Compare pays, or `nil` when nothing is owed there: nothing recorded, or
+        /// only writes outside both compared folders (a pane moved off them since). Each pane is
+        /// re-read when it holds any written file (`ContentView.panesHolding`, which knows iCloud
+        /// Drive's linked `Documents`, and the folder links the panes' walks followed); the first
+        /// such file in path order is the one named, so the line does not depend on set order.
         func payment(leftFolder: String, rightFolder: String,
                      leftLinkTargets: Set<String> = [], rightLinkTargets: Set<String> = [],
                      links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> Payment? {
@@ -2545,7 +2184,7 @@ struct ContentView: View {
         /// pane holds a file.
         ///
         /// Settling drops the cached walks listing each written folder (`prepareReread`), so a pane
-        /// holding one that the refresh does not walk would keep showing the file as it was, while
+        /// holding one that the refresh does not walk would keep showing the file as it was while
         /// its folder is compared cold.
         func reasonToWalkBoth(insteadOf requested: FileSyncManager.PaneReloadScope,
                               leftFolder: String, rightFolder: String,
@@ -2560,18 +2199,14 @@ struct ContentView: View {
         }
     }
 
-    /// **Pays the comparison Compare owes** — the one place it is paid, with one line saying why.
-    /// Called on arriving in Compare, which is the only workspace that displays a comparison, and
-    /// on each editor write while Compare is on screen (an autosave's debounce can fire after the
-    /// switch). Returns at once when nothing is owed there. See `OwedComparison`.
+    /// Pays the comparison Compare owes, once, with one line saying why. Called on arriving in
+    /// Compare and on each editor write while Compare is on screen (an autosave's debounce can fire
+    /// after the switch). See `OwedComparison`.
     ///
-    /// A re-read goes through `refreshAction`, whose comparing refresh drops the written folders'
-    /// cached walks and settles the record. A skipped comparison alone is `scanDirectories` rather
-    /// than another refresh: the trees were loaded by the refresh that skipped it, and it walks the
-    /// two folders itself, so it does not depend on that load having finished.
-    ///
-    /// Nothing is cleared until the providers resolve — during bootstrap they may not yet, and a
-    /// debt dropped there would leave Compare on stale rows for the session.
+    /// A re-read goes through `refreshAction`, which settles the record. A skipped comparison alone
+    /// is `scanDirectories`, which walks both folders itself. Nothing is cleared until the
+    /// providers resolve, or a debt dropped during bootstrap would leave Compare stale for the
+    /// session.
     func payOwedComparisonIfNeeded() {
         guard let payment = owedComparison.payment(leftFolder: currentLeftPath, rightFolder: currentRightPath,
                                                    leftLinkTargets: syncManager.leftTreeLinkTargets,
@@ -2594,22 +2229,18 @@ struct ContentView: View {
     }
 
     /// Swaps the left and right panes entirely — providers, focused folders, selections,
-    /// per-pane back/forward history, trees, and the differences list (remapped, so every
-    /// row's arrows flip with the pane labels) all flip sides in one click. The manager's
-    /// paired state is swapped first (so the single post-swap rescan reads already-swapped
-    /// focus and selection), then the @AppStorage provider ids. Both id onChanges fire but are
-    /// suppressed via `pendingSwapProviderChanges` so they don't reset the just-swapped
-    /// navigation; this method drives the one rescan itself. The manager refuses the swap
-    /// while file operations are in flight — the provider ids must then stay put too, or the
-    /// pane labels would flip over unswapped state.
+    /// back/forward history, trees, and the differences list (remapped, so every row's arrows flip
+    /// with the pane labels). The manager's paired state is swapped first, so the single post-swap
+    /// rescan reads swapped focus and selection, then the @AppStorage provider ids. Both id
+    /// onChanges fire but are suppressed via `pendingSwapProviderChanges`, so they don't reset the
+    /// swapped navigation; this method drives the one rescan. The manager refuses the swap while
+    /// file operations are in flight, and the provider ids must then stay put too, or the pane
+    /// labels would flip over unswapped state.
     func swapPanesAction() {
         // The window is interactive while discoverProviders() is still awaiting, and a swap there
-        // would repoint panes the bootstrap is still deciding the sources of. Refused outright.
-        //
-        // **This used to say the counter would strand**, because both id `onChange`s bailed on the
-        // bootstrap guard without decrementing. They no longer do: `PaneProviderChange` consumes a
-        // counter BEFORE testing that guard, so a suppressed write is balanced wherever it lands.
-        // The refusal above is still right for the reason given, but stranding is not the reason.
+        // would repoint panes whose sources the bootstrap is still deciding. Refused outright. (The
+        // suppression counter cannot strand: `PaneProviderChange` consumes it before testing the
+        // bootstrap guard.)
         guard !isBootstrappingProviders else { return }
         guard syncManager.swapPanes() else { return }
         reviewCoordinator.dispatchReview(.panesSwapped)   // the swap redefines the comparison; end the guided review + drop any duplicate review (no restore)
@@ -2617,10 +2248,9 @@ struct ContentView: View {
             leftProviderId: leftProviderId,
             rightProviderId: rightProviderId
         )
-        // Both ids change together (unless the panes already share a provider, in which case
-        // the plan is empty and neither onChange fires) — seed the suppression counter with the
-        // plan's exact change count. `=` rather than `+=`, preserving the swap's historical
-        // reset semantics.
+        // Both ids change together (unless the panes already share a provider, when the plan is
+        // empty and neither onChange fires), so the suppression counter is seeded with the plan's
+        // exact change count. `=` rather than `+=`: a swap resets the counter.
         let plan = ProviderPinPlan.make(
             currentLeft: leftProviderId, currentRight: rightProviderId,
             targetLeft: swapped.leftProviderId, targetRight: swapped.rightProviderId)
@@ -2628,15 +2258,11 @@ struct ContentView: View {
             pendingSwapProviderChanges = plan.suppressCount
         }
         applyProviderPinAssignments(plan)
-        // The swap moved the LISTS as well as the panes, so each saved strip is now the other
+        // The swap moved the lists as well as the panes, so each saved strip is now the other
         // pane's. Saved explicitly rather than left to the path `onChange`, which does not fire
-        // when both panes happened to be showing the same folder — and then the strips on disk are
-        // the ones that just left.
-        //
-        // **Both sides, and that is not symmetry for its own sake.** A swap is the one move that
-        // changes both strips at once, so saving only the left would leave the right's stored strip
-        // naming the pane that is no longer there — and the next launch would restore the two
-        // halves of a swap that never happened, one side from before it and one from after.
+        // when both panes show the same folder. Both sides, because a swap changes both strips at
+        // once: saving one would make the next launch restore one side from before the swap and one
+        // from after.
         saveBrowseTabs(isLeft: true)
         saveBrowseTabs(isLeft: false)
         refreshAction()
@@ -2646,34 +2272,23 @@ struct ContentView: View {
     /// invalid-root / disabled-provider pane placeholders.
     private func openProviderSettings() { openSettings(on: .providers) }
 
-    /// **The one door for every Settings deep link**, so no caller has to remember the pairing.
-    ///
-    /// The tab is written before the latch because the overlay renders `settingsTab` as it finds
-    /// it — presetting afterwards shows the previous page for a frame and then jumps. What that
-    /// ordering costs is a write that outlives a refused open, so the displaced tab is stashed here
-    /// and `onChange(of: showSettings)` either forgets it (the open happened) or puts it back (the
-    /// open was refused mid-destination-pick).
-    /// Internal, not private: `CommandPaletteHost.swift` is another extension on this type in
-    /// another file, and `.settings(tab:)` must come through this door rather than reproducing the
-    /// preset-then-latch ordering the comment above spells out.
+    /// The one door for every Settings deep link. The tab is preset before the latch, because the
+    /// overlay reads `settingsTab` as it appears; the displaced tab is stashed so
+    /// `onChange(of: showSettings)` can put it back if the open is refused mid-destination-pick.
+    /// Internal for `CommandPaletteHost.swift`'s `.settings(tab:)`.
     func openSettings(on tab: SettingsView.SettingsTab) {
-        // Only while the latch is actually flipping. `onChange` is what consumes the stash and it
-        // does not fire for a redundant `true`, so stashing on an already-open panel would leave a
-        // value to be restored later over a tab the user had since chosen by hand.
+        // Only while the latch is actually flipping. `onChange` consumes the stash and does not
+        // fire for a redundant `true`, so stashing on an already-open panel would leave a value to
+        // be restored later over a tab the user had since chosen by hand.
         if !showSettings { settingsTabBeforeDeepLink = settingsTab }
         settingsTab = tab
         showSettings = true
     }
 
-    /// "Choose Folder…" from a source menu: pick a folder, make it a source, and hand the id back
-    /// so the caller can point its own pane at it — the create-and-select gesture, as against
-    /// Settings ▸ Sources ▸ Add Folder…, which is the deliberate door and selects nothing.
-    ///
-    /// Choosing a folder that is ALREADY a source (or is a discovered provider's own root) selects
-    /// that source instead of adding a second — `addFolderSource` returns the existing id, so this
-    /// closure does the right thing either way without knowing which happened.
-    /// Internal, not private: the ⌘K palette's "Choose Folder…" action runs the same panel, from
-    /// `CommandPaletteHost.swift`. Two open-panel call sites would be two prompts to keep in step.
+    /// "Choose Folder…" from a source menu: pick a folder, make it a source and hand back its id,
+    /// so the caller points its pane at it (Settings ▸ Sources ▸ Add Folder… selects nothing). An
+    /// existing source is returned rather than duplicated (`addFolderSource`). Internal for the ⌘K
+    /// palette's "Choose Folder…", so there is one prompt.
     func chooseFolderSource(_ select: @escaping (String) -> Void) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -2685,16 +2300,16 @@ struct ContentView: View {
         select(settings.addFolderSource(path: url.path))
     }
 
-    /// "Get Info" from a pane or differences-row right-click: show the in-app Info inspector for the
-    /// path (not Finder's Get Info). Opens the inspector in place on the current tab — the inspector
-    /// is available on both Compare and Organize, so this no longer yanks the single-source rail over to Compare.
+    /// "Get Info" from a pane or differences-row right-click: show the in-app Info inspector for
+    /// the path (not Finder's Get Info). Opens the inspector in place on the current tab; it is
+    /// available on both Compare and Organize.
     func showInfo(for path: String) {
         infoPath = path
         infoNode = nil
         withAnimation(.easeInOut(duration: 0.15)) { showInspector = true }
-        // Off the main thread, with its date (review 2 of 11-04): a stat on a provider that has
-        // stopped answering hung the app at the click, and without the date a file previewed this
-        // way never refreshed when it changed.
+        // Off the main thread, with its date: a stat on a provider that has stopped answering would
+        // hang the app at the click, and without the date a file previewed this way would not
+        // refresh when it changed.
         Task { @MainActor in
             let node = await Task.detached(priority: .userInitiated) { () -> FileNode? in
                 let keys: Set<URLResourceKey> = [.isDirectoryKey, .contentModificationDateKey]
@@ -2708,12 +2323,11 @@ struct ContentView: View {
     }
 
     /// A change of the left pane's selection retires an explicit Get Info target, so the inspector
-    /// follows the new selection — unless the change is the app's own payment of an owed selection
-    /// (TE47), marked `editorPaneSelectionPaid` before it is written. That payment can land a
-    /// moment after the open it was owed for, once the pane's tree publishes; by then the user may
-    /// have used a rail row's Get Info on another file, and a write they did not make must not
-    /// jump the inspector to the document. **Called before `openSelectedPaneFileInEditor`**, which
-    /// consumes the marker.
+    /// follows the new selection — unless the change is the app's own payment of an owed selection,
+    /// marked `editorPaneSelectionPaid` before it is written. That payment can land a moment after
+    /// the open it was owed for, when the user may have used a rail row's Get Info on another file,
+    /// and a write they did not make must not jump the inspector. **Called before
+    /// `openSelectedPaneFileInEditor`**, which consumes the marker.
     func clearInfoTargetAfterLeftSelection(_ paths: Set<String>) {
         if Self.leftSelectionClearsInfoTarget(paths, paidSelection: editorPaneSelectionPaid) {
             infoPath = nil
@@ -2726,10 +2340,10 @@ struct ContentView: View {
         return paths != [paidSelection]
     }
 
-    /// The right pane's half. Paying an owed selection clears the right pane — whatever it holds,
-    /// as a left-pane click would (his decision, 2026-09-26) — and that clear is a change the user
-    /// did not make either, so it keeps a Get Info target just as the left-pane write does. The
-    /// marker is one-shot: consumed by the change it announced.
+    /// The right pane's half. Paying an owed selection clears the right pane, whatever it holds, as
+    /// a left-pane click would, and that clear is not the user's either, so it keeps a Get Info
+    /// target as the left-pane write does. The marker is one-shot: consumed by the change it
+    /// announced.
     func clearInfoTargetAfterRightSelection(_ paths: Set<String>) {
         let paid = editorPaneRightClearPaid
         editorPaneRightClearPaid = false
@@ -2741,43 +2355,24 @@ struct ContentView: View {
         !(clearWasPaid && paths.isEmpty)
     }
 
-    /// Opens each pane at its source's landing folder. Runs once, inside the first-appearance
-    /// bootstrap, after the provider selection resolves and before the initial refresh.
+    /// Opens each pane at its source's landing folder (`openAt`). Runs once, inside the
+    /// first-appearance bootstrap, after the provider selection resolves and before the initial
+    /// refresh.
     ///
-    /// **It was `restoreLastPaneFocusIfEnabled`, and the name outlived the gate.** There is no
-    /// `isEnabled` here any more: this is where a pane opens, not a restoration of where it was, so
-    /// "Reopen panes where I left off" does not govern it — turning that setting off leaves a pane
-    /// on the folder its source says it opens at, which is the same absolute folder every pane
-    /// opened at before sources had roots. The setting still gates `restoreBrowseTabs`, which is
-    /// the thing that actually restores a position.
-    ///
-    /// **The saved per-pane focus path no longer decides the launch position, deliberately.** It
-    /// could not express the one position this release added: `PaneLogic.paneFocusRestores` skips a
-    /// saved path of `""` and `""` is also what "never saved" reads as, so a user who navigated up
-    /// to the account root and quit was bounced back down to `Documents` on every launch — the
-    /// restore setting honoured for every folder except the root. Rather than teach the stored key a
-    /// sentinel, the launch position is now the source's own answer to "where do panes on me open",
-    /// which is what `openAt` is for.
-    ///
-    /// **This is the launch position only for a pane with no tab strip** — a fresh install, a newly
-    /// connected account, or the first launch after upgrading from a build that predates the strip.
-    /// `restoreBrowseTabs` runs next and re-points a pane that has one to its selected tab's own
-    /// folder, and that is untouched: "Reopen panes where I left off" still restores where you were,
-    /// through the strip that actually records it per tab.
+    /// Where a pane opens, not a restoration of where it was, so "Reopen panes where I left off"
+    /// does not govern it; `restoreBrowseTabs` runs next and re-points a pane that has a tab strip.
     private func openPanesAtTheirLandingFolders() async {
         // `focusOn` rather than a history reset: it leaves the root one Back away, which on a pane
-        // the user has not navigated yet is a way up, not a false step in their history.
+        // not yet navigated is a way up, not a false step in its history.
         for isLeft in [true, false] {
             let id = isLeft ? leftProviderId : rightProviderId
             let landing = settings.openAtIfReachable(for: id)
             guard !landing.isEmpty else {
-                // **The degrade is logged, because the log is what gets audited.** `openAtIfReachable`
-                // answers `""` for two different reasons and only one of them is interesting: the
-                // user chose a landing folder and it has since been renamed or deleted, so the pane
-                // opens at the account root instead. Settings shows a sentence about it; without
-                // this the log — read long after the fact, when the folder is the question — said
-                // nothing at all. A source that simply has no `openAt` is the ordinary case and
-                // stays quiet.
+                // The degrade is logged, because the log is what gets audited. `openAtIfReachable`
+                // answers `""` for two reasons and only one is interesting: the chosen landing
+                // folder has been renamed or deleted, so the pane opens at the account root.
+                // Settings shows a sentence about it, and this puts it in the log too. A source
+                // with no `openAt` is the ordinary case and stays quiet.
                 let chosen = settings.openAt(for: id)
                 if !chosen.isEmpty {
                     Logger.shared.info(
@@ -2791,40 +2386,32 @@ struct ContentView: View {
         }
     }
 
-    /// The full reset behind Settings → Advanced. `resetAllSettings()` clears the defaults
-    /// domain (all but `SettingsResetKeeps`) and republishes the manager's own settings (each `.onChange` mirror above then
-    /// re-seeds the engine); the pieces built from the old values that DON'T flow through
-    /// those mirrors — the log gate and the in-memory ignore sets — are reset here.
+    /// The full reset behind Settings → Advanced. `resetAllSettings()` clears the defaults domain
+    /// (all but `SettingsResetKeeps`) and republishes, and the `.onChange` mirrors re-seed the
+    /// engine; the log gate and the in-memory ignore sets don't flow through those and are reset
+    /// here.
     ///
-    /// A static over the two collaborators so a test can pin all three steps together (the view
-    /// method below is the only caller). The order matters and is part of what's pinned:
-    /// `resetAllSettings()` re-seeds the live log gate from the just-cleared defaults, so the
-    /// `.debug` write must follow it — ahead of it, the re-seed would overwrite it and a user who
-    /// had raised the threshold would stay half-reset, seeing no INFO entries after a "reset all".
-    ///
-    /// `setLogLevel` is a seam only so the test can observe that write without mutating the
-    /// process-wide `Logger.shared` gate (which would swallow other suites' entries); production
-    /// passes the real one.
+    /// Static so a test can pin all three steps and their order: `resetAllSettings()` re-seeds the
+    /// log gate from the cleared defaults, so the `.debug` write must follow it. `setLogLevel` is a
+    /// seam so the test need not mutate the process-wide `Logger.shared` gate.
     @MainActor
     static func applyFullSettingsReset(
         settings: SettingsManager,
         syncManager: FileSyncManager,
-        // Optional rather than a defaulted closure. A default argument is evaluated in a
-        // *nonisolated* context, so `{ Logger.shared.minimumLevel = $0 }` sitting there mutated
-        // main-actor state from outside the actor — a warning today and an error under Swift 6.
-        // Resolving the fallback inside this `@MainActor` body puts the same write where it is
-        // already isolated, with no change to what production does.
+        // Optional rather than a defaulted closure: a default argument is evaluated in a
+        // nonisolated context, so `{ Logger.shared.minimumLevel = $0 }` there would mutate
+        // main-actor state from outside the actor (an error under Swift 6). Resolving the fallback
+        // inside this `@MainActor` body keeps the write isolated.
         setLogLevel: ((LogLevel) -> Void)? = nil
     ) {
         settings.resetAllSettings()
         (setLogLevel ?? { Logger.shared.minimumLevel = $0 })(.debug)
         syncManager.clearAllIgnoredItems()
-        // **The one thing the defaults domain does not carry.** `resetAllSettings()` drops all
-        // three setup flags with the rest of the domain, so the alert's "SyncCloud forgets that
-        // setup has run" needs no code behind it (setup then offers itself only where no folder
-        // profile exists, `SetupFlow.shouldAutoShow`) — but the draft is a file beside the
-        // profiles, and a reset that left it would have setup open on a fresh machine with a
-        // household already in it.
+        // The one thing the defaults domain does not carry. `resetAllSettings()` drops all three
+        // setup flags with the rest of the domain, so the alert's "SyncCloud forgets that setup has
+        // run" needs no code here (setup then offers itself only where no folder profile exists,
+        // `SetupFlow.shouldAutoShow`). But the draft is a file beside the profiles, and leaving it
+        // would open setup on a fresh machine with a household already in it.
         if let draft = SetupDraftStore.defaultURL() { SetupDraftStore.clear(at: draft) }
     }
 
@@ -2847,16 +2434,16 @@ struct ContentView: View {
         showSetup = true
     }
 
-    /// The in-window Help overlay (Help ▸ SyncCloud Help / ⌘?). HelpOverlay owns the backdrop,
-    /// card decoration, and the searchable topic/article layout; this just feeds it the current
-    /// surface style so the Help card matches Settings and Welcome, and wires dismissal.
+    /// The in-window Help overlay (Help ▸ SyncCloud Help / ⌘?). HelpOverlay owns the backdrop, card
+    /// decoration and the searchable topic/article layout; this feeds it the current surface style
+    /// so the Help card matches Settings, and wires dismissal.
     @ViewBuilder
     private var helpOverlay: some View {
         HelpOverlay(
             glassHue: glassHue,
             glassLevel: glassLevel,
             surfaceTint: surfaceTint,
-            // A page something pointed at, or else the workspace's own (TE169).
+            // A page something pointed at, or else the workspace's own.
             openAt: helpTopic ?? HelpBook.topicID(for: selectedWorkspace, pdfIsOpen: editorPDF.path != nil),
             onClose: { showHelp = false; helpTopic = nil }
         )
@@ -2876,8 +2463,8 @@ struct ContentView: View {
                                         hasFilingProfile: syncManager.filingFolderProfile != nil)
     }
 
-    /// The setup form (Fig. 1–6). `SetupSheet` owns the card, the rail and every step; this wires
-    /// it to the live settings object, the roster where one exists, and the two ways out.
+    /// The setup form. `SetupSheet` owns the card, the rail and every step; this wires it to the
+    /// live settings object, the roster where one exists, and the two ways out.
     @ViewBuilder
     private var setupOverlay: some View {
         GeometryReader { proxy in
@@ -2890,23 +2477,20 @@ struct ContentView: View {
                 availableSize: proxy.size,
                 hasFilingProfile: syncManager.filingFolderProfile != nil,
                 syncManager: syncManager,
-                // `showSetup` is the explicit route — the Help menu item and Settings' "Run setup
-                // again…". `shouldAutoShowSetup` is the app offering itself on launch. Only the
-                // first is an ask, and only an ask opens on the welcome card.
+                // `showSetup` is the explicit route (the Help menu item and Settings' "Run setup
+                // again…"); `shouldAutoShowSetup` is the app offering itself on launch. Only an
+                // explicit ask opens on the welcome card.
                 wasAskedFor: showSetup,
-                // A profile the user just produced has to take effect without a relaunch: this is
-                // the same read the app does at launch, run again now that there is something new
-                // on disk to read.
-                // A walk just wrote a profile — a new survey, and the one moment besides launch
-                // and a landing that O16's line should record.
+                // A profile the user just produced takes effect without a relaunch: the same read
+                // the app does at launch, run again now there is something new on disk. A new
+                // survey is one of the moments the profile trend should record.
                 onProfileWritten: { FilingArtifacts.attach(to: syncManager, recordingTrend: true) },
                 // Setup writes the profile and then offers to read the documents in it. The scope
                 // moves with it, so the strip on every Organize lens reports the run setup started.
                 onStartSurvey: { root in startDocumentSurvey(learnedRoot: root) },
                 // Through the one door, not by writing the latch here: `openSettings(on:)` stashes
-                // the tab it displaces so a refused open — one landing mid-destination-pick — can
-                // put it back. Presetting the tab and raising the latch by hand is the pairing that
-                // door exists to stop anyone having to remember.
+                // the tab it displaces so a refused open (one landing mid-destination-pick) can put
+                // it back.
                 onOpenSettings: { tab in
                     dismissSetup()
                     openSettings(on: tab)
@@ -2920,14 +2504,9 @@ struct ContentView: View {
         .transition(.opacity)
     }
 
-    /// Hide the form for the rest of this session, without marking setup finished.
-    ///
-    /// **The answers are already kept by the time this runs.** Preferences and the location list
-    /// are live settings, and the sheet commits the open screen before calling here — Esc, ✕ and a
-    /// click outside keep what a screen change keeps (`SetupModel.commitBeforeClosing`), so a name
-    /// typed on You lands in the draft. A reading that was never saved is dropped with the sheet.
-    /// What is *not* recorded is that setup was finished, which is what lets an unanswered form
-    /// offer itself again next launch.
+    /// Hide the form for the rest of this session without marking setup finished, so an unanswered
+    /// form offers itself again next launch. The answers are already kept: preferences are live,
+    /// and the sheet commits the open screen first (`SetupModel.commitBeforeClosing`).
     private func dismissSetup() {
         setupDismissedThisSession = true
         showSetup = false
@@ -2935,10 +2514,9 @@ struct ContentView: View {
 
     /// What a Start-with button on setup's Summary opens.
     ///
-    /// **The workspace is set before the sheet closes**, so the app is already showing the thing
-    /// the button named when the card fades rather than a beat afterwards. Compare is only offered
-    /// when two locations are enabled — the button is hidden otherwise rather than opening two
-    /// copies of one account.
+    /// The workspace is set before the sheet closes, so the app already shows what the button named
+    /// as the card fades. Compare is offered only when two locations are enabled; the button is
+    /// hidden otherwise rather than opening two copies of one account.
     private func openAfterSetup(_ start: SetupStart) {
         switch start {
         case .toFile:
@@ -2956,33 +2534,29 @@ struct ContentView: View {
     /// The user reached the end of the form.
     private func finishSetup() {
         hasCompletedSetup = true
-        // The retired tour's flag is set alongside it so a build that predates the form — or a
-        // rollback to one — does not greet a user who has already been through all of this.
+        // The retired tour's flag is set too, so a build that predates the form (a rollback, say)
+        // does not greet a user who has already been through setup.
         hasSeenFirstRunWelcome = true
         dismissSetup()
     }
 
-    /// The in-window settings overlay: a dimmed backdrop (click to dismiss) behind a centered
-    /// card. Because it lives inside the main window it floats over the content even in full
-    /// screen, and never kicks the user out to another Space the way a separate window would.
-    /// The destination picker, floated over the window on a scrim — the Settings overlay's shape,
-    /// for the same reason: a card that wants the app's glass needs the app behind it. As a sheet
-    /// it had its own opaque window backing, so every material composited onto white and rendered
-    /// flat no matter what was applied to it.
+    /// The destination picker, floated over the window on a scrim, like the Settings overlay: a
+    /// card that wants the app's glass needs the app behind it, and a sheet's own opaque window
+    /// backing would composite every material onto white. Inside the main window it also floats
+    /// over the content in full screen without moving the user to another Space.
     @ViewBuilder
     private var destinationOverlay: some View {
         if let pending = pendingDestination {
             GeometryReader { proxy in
                 ZStack {
-                    // `overlayScrimOpacity`'s Clear value at every level: since TE316 that is no
-                    // dimming at all in Light, at Frosted and Solid too. This card takes the
-                    // app's level verbatim, so a heavy scrim would leave clear material with
-                    // nothing to reveal. Enough to focus the card and settle what shows through
-                    // it, not enough to switch the window off.
+                    // `overlayScrimOpacity`'s Clear value at every level, which in Light is no
+                    // dimming at all. This card takes the app's level verbatim, so a heavy scrim
+                    // would leave clear material with nothing to reveal. Enough to focus the card,
+                    // not enough to switch the window off.
                     OverlayScrim(level: .clear)
                         .ignoresSafeArea()
-                        // Clicking away cancels, like every other overlay. Nothing has been moved
-                        // at this point, so there is nothing to lose by dismissing.
+                        // Clicking away cancels, like every other overlay. Nothing has moved yet,
+                        // so dismissing loses nothing.
                         .onTapGesture { pendingDestination = nil }
 
                     destinationCard(pending, available: proxy.size)
@@ -3012,9 +2586,9 @@ struct ContentView: View {
             },
             onChooseOther: {
                 pendingDestination = nil
-                // Deferred a runloop turn: `onOther` runs a modal NSOpenPanel, and raising a modal
-                // while the overlay that launched it is still animating out is the kind of overlap
-                // AppKit handles unpredictably. Let the card go first.
+                // Deferred a runloop turn: `onOther` runs a modal NSOpenPanel, and AppKit handles a
+                // modal raised while the overlay that launched it is still animating out
+                // unpredictably. Let the card go first.
                 DispatchQueue.main.async {
                     guard let chosen = pending.onOther() else { return }
                     DestinationRecents.record(chosen, providerRoot: pending.request.providerRoot)
@@ -3022,16 +2596,16 @@ struct ContentView: View {
                 }
             },
             onCancel: { pendingDestination = nil },
-            // A new folder is on disk whether or not the transfer after it goes ahead — the pane
-            // showing its parent lists it now, as one ⌘N's Notes folder is listed.
-            // Not compared at once in Compare: the transfer, when it runs, refreshes and compares both
-            // panes itself, and a rescan now would only be superseded by it.
+            // A new folder is on disk whether or not the transfer after it goes ahead, so the pane
+            // showing its parent lists it now, as ⌘N's new file is listed. Not compared at once in
+            // Compare: the transfer refreshes and compares both panes itself, and a rescan now
+            // would only be superseded.
             onFolderCreated: { rereadPanesAfterEditorWrite($0, writer: "The destination picker made", comparesInCompare: false) }
         )
         .contentSurface(hue: glassHue, tint: surfaceTint)
-        // The level at face value, with a ground under the content — see `groundedGlassCard`.
-        // Flooring this to Frosted is what made Clear and Frosted indistinguishable.
-        // The hairline comes from `groundedGlassCard`, which now owns it in both schemes.
+        // The level at face value, with a ground under the content — see `groundedGlassCard`, which
+        // also owns the hairline in both schemes. Flooring this to Frosted would make Clear and
+        // Frosted indistinguishable.
         .groundedGlassCard(level: glassLevel)
         .overlayPanelShadow()
     }
@@ -3039,8 +2613,8 @@ struct ContentView: View {
     @ViewBuilder
     private var settingsOverlay: some View {
         // The card is sized in points and grows with the Text size setting, but the window's own
-        // minimum is 760×560 — less than the card wants in both axes once `hostMargin` is off it.
-        // Hand it the space it actually has so it can clamp itself rather than hang off the edge.
+        // minimum is 804×560, less than the card wants once `hostMargin` is off it. Hand it the
+        // space it has so it can clamp itself rather than hang off the edge.
         GeometryReader { proxy in
             ZStack {
                 OverlayScrim(level: glassLevel)
@@ -3058,14 +2632,11 @@ struct ContentView: View {
         .transition(.opacity)
     }
 
-    /// The Settings card. It picks up the accent tint and the glass material like every other
-    /// surface, at the level's FACE VALUE — `groundedGlassCard` rather than `glassCardStyle`.
-    ///
-    /// It used to floor Clear to Frosted, on the grounds that clear glass over live content is two
-    /// layers of text competing (it rendered at ~9% opacity before the floor existed). True, but
-    /// the cure removed the setting: Clear and Frosted drew the identical card, which reads as the
-    /// control being broken. The ground under the content solves the same legibility problem
-    /// without spending the level to do it.
+    /// The Settings card. It takes the accent tint and the glass material like every other surface,
+    /// at the level's face value: `groundedGlassCard` rather than `glassCardStyle`. Clear glass
+    /// over live content would be two layers of text competing; the ground under the content solves
+    /// that without flooring Clear to Frosted, which would make the two levels draw the identical
+    /// card.
     @ViewBuilder
     private func settingsCard(available: CGSize) -> some View {
         SettingsView(
@@ -3073,23 +2644,23 @@ struct ContentView: View {
             onClose: { showSettings = false },
             syncManager: syncManager,
             onResetAllSettings: { resetAllSettingsAction() },
-            // Unconditional, like the Help entry: setup has things to offer a machine that has
-            // already been through it, and finding it should not depend on the gate.
+            // Unconditional, like the Help entry: setup has things to offer a machine already
+            // through it, and finding it should not depend on the gate.
             onRunSetup: {
                 showSettings = false
                 setupDismissedThisSession = false
                 showSetup = true
             },
             onResetSetup: { resetSetupAction() },
-            // Settings ▸ People's "Show Their Files": the same gather ⌘K's People rows reach,
-            // with the sheet closed first so the answer lands on a pane the user can see.
+            // Settings ▸ People's "Show Their Files": the same gather ⌘K's People rows reach, with
+            // the sheet closed first so the answer lands on a pane the user can see.
             onShowPerson: { person in
                 showSettings = false
                 acceptPersonScope(person)
             },
             // Settings ▸ Intelligence's pointer at "Reading your documents". Settings and Help are
-            // mutually exclusive overlays in the latch chain above, so the sheet is closed on the
-            // way rather than left behind the article — the same hand-off `onShowPerson` makes.
+            // mutually exclusive in the latch chain above, so the sheet closes on the way rather
+            // than staying behind the article, the same hand-off `onShowPerson` makes.
             onOpenHelp: { topic in
                 showSettings = false
                 helpTopic = topic
@@ -3102,11 +2673,10 @@ struct ContentView: View {
         .environmentObject(settings)
         .contentSurface(hue: glassHue, tint: surfaceTint)
         .groundedGlassCard(level: glassLevel)
-        // The hairline comes from `groundedGlassCard` — it draws `.quaternary` in light and the
-        // specular edge in dark, so a card no longer adds one of its own (that is what doubled the
-        // dark border on all four panels).
-        // The floating-modal drop shadow, deeper than a content card's: this panel is meant to
-        // read as lifted off the window, whatever material it resolved to.
+        // The hairline comes from `groundedGlassCard` (`.quaternary` in light, the specular edge in
+        // dark), so a card adds none of its own, or the dark border doubles. The floating-modal
+        // drop shadow, deeper than a content card's: this panel should read as lifted off the
+        // window, whatever material it resolved to.
         .overlayPanelShadow()
     }
 
@@ -3123,11 +2693,11 @@ struct ContentView: View {
                 syncManager.currentError = nil
             }
         case .retry:
-            // Capture the handler when the button is BUILT, not when it's clicked: SwiftUI may
-            // run the alert's isPresented setter (which clears currentError and, via its didSet,
-            // nils currentErrorRetry) before the button action — the same unspecified ordering
-            // documented at FileSyncManager.verifiedCopyDialogDismissed. Read at click time,
-            // Retry would silently no-op.
+            // Capture the handler when the button is built, not when it's clicked: SwiftUI may run
+            // the alert's isPresented setter (which clears currentError and, via its didSet, nils
+            // currentErrorRetry) before the button action — the unspecified ordering documented at
+            // FileSyncManager.verifiedCopyDialogDismissed. Read at click time, Retry would silently
+            // no-op.
             let retry = syncManager.currentErrorRetry
             Button("Retry") {
                 syncManager.currentError = nil
@@ -3137,11 +2707,10 @@ struct ContentView: View {
             // mash because every destructive operation in this app confirms separately. Escape
             // stays on Dismiss via its .cancel role.
             //
-            // No `.shortcutKeycap` here, and not as an omission: `.alert` renders its buttons
-            // through the native alert machinery, which takes title/role/action/key equivalent
-            // and drops custom modifiers — a keycap attached here never reaches the screen or the
-            // accessibility tree. The Return affordance is the alert's own default-button
-            // highlight, which is the system's version of the same badge.
+            // No `.shortcutKeycap` here: `.alert` renders its buttons through the native alert
+            // machinery, which drops custom modifiers, so a keycap would never reach the screen or
+            // the accessibility tree. The alert's default-button highlight is the system's version
+            // of the same badge.
             .keyboardShortcut(.defaultAction)
         case .dismiss:
             Button("Dismiss", role: .cancel) {
@@ -3151,17 +2720,17 @@ struct ContentView: View {
     }
 
     /// The alert body: the human message, then the underlying reason and affected path when known.
-    /// The path is labeled and tilde-abbreviated, matching the "From:/To:" convention in
+    /// The path is labelled and tilde-abbreviated, matching the "From:/To:" convention in
     /// `SyncOperationAlerts`.
     private func errorAlertMessage(_ error: SyncError) -> String {
         var lines = [error.message]
         if let reason = error.reason, !reason.isEmpty { lines.append(reason) }
         if let path = error.path {
-            // "Location:" deliberately — no File/Folder distinction. Deciding one would need a
-            // stat, and this closure runs on the main thread on every alert re-render, against
-            // exactly the path most likely to sit on a dead volume (it's the one that just
-            // failed). A neutral label is also the only honest one: createFolderFailed carries
-            // the parent directory and bulkFailed only the first item's path.
+            // "Location:" deliberately, with no File/Folder distinction. Deciding one would need a
+            // stat, on the main thread on every alert re-render, against the path most likely to
+            // sit on a dead volume (it just failed). A neutral label is also the only honest one:
+            // createFolderFailed carries the parent directory and bulkFailed only the first item's
+            // path.
             lines.append("Location: \((path as NSString).abbreviatingWithTildeInPath)")
         }
         return lines.joined(separator: "\n")
@@ -3170,21 +2739,18 @@ struct ContentView: View {
     /// User-triggered refresh: clears prefetch cache so new files on disk appear immediately.
     func forceRefreshAction() {
         Logger.shared.info("User requested a force refresh")
-        // Drop the cache AND bump the scan-config epoch so this supersedes any same-target refresh
-        // already in flight — a bare cache clear leaves the RefreshKey identical and the forced
-        // rescan gets deduped away, silently doing nothing.
+        // Drop the cache and bump the scan-config epoch so this supersedes any same-target refresh
+        // already in flight: a bare cache clear leaves the RefreshKey identical, and the forced
+        // rescan would be deduped away, silently doing nothing.
         syncManager.prepareForcedRescan()
         refreshAction()
     }
 
-    /// ROADMAP item 5's opt-in step: the folder watcher saw the panes in `scope` change on disk
-    /// since their walks began, and Settings ▸ Sync ▸ "Rescan when files change" is on — so re-read
-    /// them, as Refresh would. Off (the default), this does nothing and the scan age says "changed
-    /// since" instead, so rows never move under someone part-way through a review.
-    ///
-    /// No cache drop here, unlike `forceRefreshAction`: the manager has already dropped exactly the
-    /// walks the change made stale and bumped the epoch, so this refresh is not swallowed as a
-    /// duplicate — and it never arrives while another refresh runs (`tellPanesChanged`).
+    /// The folder watcher's opt-in step: the panes in `scope` changed on disk and Settings ▸ Sync ▸
+    /// "Rescan when files change" is on, so re-read them. Off (the default), the scan age says
+    /// "changed since" instead, so rows never move mid-review. No cache drop: the manager already
+    /// dropped the stale walks and bumped the epoch, and never calls this while another refresh
+    /// runs.
     func rescanAfterDiskChange(_ scope: FileSyncManager.PaneReloadScope) {
         guard settings.rescanWhenFilesChange else { return }
         Logger.shared.info("Rescanning \(scope.describedPanes): files changed there on disk")
@@ -3193,39 +2759,38 @@ struct ContentView: View {
 
     // MARK: Lens scans — Find Duplicates
 
-    /// Whether a lens scan/inspect should target the right pane. Always false in a single-source workspace
-    /// (the rail is the left pane), so a stale right-pane selection can't silently aim the scan at the
-    /// hidden provider. In compare mode the focused pane wins. See `PaneLogic.lensTargetsRightPane`.
+    /// Whether a lens scan or inspect should target the right pane. Always false in a single-source
+    /// workspace (the rail is the left pane), so a stale right-pane selection can't silently aim
+    /// the scan at the hidden provider. In compare mode the focused pane wins. See
+    /// `PaneLogic.lensTargetsRightPane`.
     var lensTargetIsRight: Bool {
         PaneLogic.lensTargetsRightPane(isCompare: layoutMode == .compare,
                                        focusedSide: syncManager.focusedPaneSide,
                                        activePane: activePane)
     }
 
-    /// The provider name for the pane a lens scan targets: the single-source rail is always the left
-    /// pane; in compare mode it follows the focused pane.
+    /// The provider name for the pane a lens scan targets: the single-source rail is always the
+    /// left pane; in compare mode it follows the focused pane.
     ///
-    /// **The PLAIN name, without "(left)"/"(right)".** This used to read `paneNames.left`, whose
-    /// suffix exists to tell two visible panes apart — and a lens workspace shows one. So every
-    /// breadcrumb in Organize and Storage said "iCloud (left) › Documents › …" whenever the
-    /// Compare tab's two panes happened to be on the same provider, disambiguating against a pane
-    /// that is not on screen. The Differences table and the duplicate-review banner, which really
-    /// do show both, keep `paneNames` and its suffix.
+    /// The plain name, without "(left)"/"(right)": that suffix tells two visible panes apart, and a
+    /// lens workspace shows one, so it would disambiguate against a pane that is not on screen. The
+    /// Differences table and the duplicate-review banner, which do show both, keep `paneNames` and
+    /// its suffix.
     var lensProviderName: String {
         paneNames.plain(isLeft: !lensTargetIsRight)
     }
 
-    /// The absolute (tilde-expanded) folder a lens scan walks: the targeted pane's current directory
-    /// (always the left rail in single-source; the focused pane in compare) — **including where the
-    /// pane is browsing**, so clicking through columns moves the target and the "Scan '<folder>'"
-    /// offer follows in real time. See `PaneLogic.lensScanRoot`.
+    /// The absolute (tilde-expanded) folder a lens scan walks: the targeted pane's current
+    /// directory (always the left rail in single-source; the focused pane in compare), including
+    /// where the pane is browsing, so clicking through columns moves the target and the "Scan
+    /// '<folder>'" offer follows in real time. See `PaneLogic.lensScanRoot`.
     var lensScanRootExpanded: String {
         PaneLogic.lensScanRoot(
             focusRootExpanded: ((lensTargetIsRight ? currentRightPath : currentLeftPath) as NSString)
                 .expandingTildeInPath,
             // Only where the columns are on screen. In Tree the stack is parked state, and reading
-            // it here made the "Scan '<folder>'" offer name — and then walk — a folder that pane was
-            // not showing. The tree lists its scope whole, so its scope is what a scan of it covers.
+            // it would make the "Scan '<folder>'" offer name and walk a folder the pane is not
+            // showing. The tree lists its scope whole, so its scope is what a scan of it covers.
             browsePath: paneDrawsColumns(isLeft: !lensTargetIsRight)
                 ? (lensTargetIsRight ? syncManager.rightBrowsePath : syncManager.leftBrowsePath)
                 : PaneBrowsePath())
@@ -3249,29 +2814,20 @@ struct ContentView: View {
         )
     }
 
-    /// Opens Duplicates on one row's file. Aimed at the row's OWN side rather than at
+    /// Opens Duplicates on one row's file. Aimed at the row's own side rather than at
     /// `lensTargetIsRight`'s focused pane: a right-click does not necessarily move focus, and a
-    /// scan aimed at the other pane would answer about a different provider entirely.
+    /// scan aimed at the other pane would answer about a different provider.
     func findDuplicatesOfAction(_ node: FileNode, isLeft: Bool) {
         revealCoordinator.findDuplicates(of: node, isLeft: isLeft)
     }
 
-    /// Switches to the Duplicates lens and kicks off a duplicate scan of **the subject** — the scope when
-    /// one is set, the focused pane's folder otherwise.
+    /// Switches to the Duplicates lens and scans the subject: the scope when set, the focused
+    /// pane's folder otherwise.
     ///
-    /// **The scope, not the pane, for the same reason `autoRescanLensIfShowing` targets it.**
-    /// The scan target is browse-aware and moves on every column click, so a pane-targeted scan
-    /// answers about wherever the user last clicked while every control that starts it is captioned
-    /// for the scope — the overview's Rescan help says "every file in scope is hashed". Scoped to
-    /// `Legal` with the pane in `Photos/2024`, that click hashed `Photos/2024`, REPLACED the
-    /// duplicate list (results are never merged), and the Legal filter then showed zero: the
-    /// overview flipped to "clean" for a subtree nothing had hashed, and a 722-group working list
-    /// was gone.
-    ///
-    /// The header's own Rescan is unaffected in the case it appears — `targetMoved` keeps it off
-    /// screen once the pane leaves the subject — and this is what its docstring already claimed it
-    /// did ("re-runs the current subject's scan"). The re-aim branch sets the scope first and then
-    /// calls this, so it targets the folder it just aimed at.
+    /// The scope, because every control that starts this is captioned for the scope, while the
+    /// pane's target moves on every column click; a pane-targeted scan would replace the duplicate
+    /// list (results are never merged) with one the scope then shows as clean. The header's Rescan
+    /// hides once the pane leaves the subject (`targetMoved`).
     func findDuplicatesAction() {
         let root = organizeScope?.path ?? lensScanRootExpanded
         guard !root.isEmpty else { return }
@@ -3281,103 +2837,69 @@ struct ContentView: View {
         syncManager.startFindDuplicates(root: URL(fileURLWithPath: root), options: options)
     }
 
-    /// Switches to the Storage workspace and builds a read-only storage picture of the focused
-    /// folder (same target-root helper as Find Duplicates). Walk + analyze only — nothing moves.
     /// Shows the saved Storage report for the current root, if Storage is what's on screen and
     /// nothing has been analyzed yet. Safe to call from any trigger — see the call sites.
     func restoreStorageLensIfShowing() {
-        // **Keyed on the LENS now, not the workspace** — the same migration
-        // `autoRescanLensIfShowing` made when duplicates and filing became two rail items inside
-        // one workspace, and for the same reason: since the fold, `selectedWorkspace == .filing` is
-        // true on six different pages and only one of them is Storage.
+        // Keyed on the lens, not the workspace, as in `autoRescanLensIfShowing`:
+        // `selectedWorkspace == .filing` is true on six pages and only one of them is Storage.
         guard selectedWorkspace == .filing, selectedOrganizeLens == .storage else { return }
-        // **A report about somewhere else cannot stand under a declared scope, so it goes.**
+        // A report about somewhere else cannot stand under a declared scope, so it goes.
         //
-        // This is the half that makes Decision B true rather than merely intended. `restoreStorage-
-        // Lens` refuses while a report is in hand — that guard is what stops the trigger trio
-        // re-reading the store on every pane move — so without this the scope chip would change the
-        // header and leave the previous root's treemap underneath it: exactly the "restored report
-        // presented under a scope it was not built from" the decision exists to prevent. Clearing
-        // first is what turns the restore below into the re-analysis the design promises, and
-        // `clearStorageLens()` deliberately keeps the stored snapshot, so a scope you come back to
-        // restores instantly instead of walking the tree again.
-        //
-        // **Only under a scope** — `storageReportStandsUnder` answers true when none is set, so
-        // browsing the pane still keeps the report and offers to re-aim, as it always has.
-        //
-        // Not while a build is running: `clearStorageLens()` cancels the task, and a scope change
-        // arriving mid-analysis should not kill work that may already be for the new root. The
-        // narrow cost is that an analysis finishing after a scope change leaves a report for the
-        // old root until the next trigger fires, which any interaction does.
+        // `restoreStorageLens` refuses while a report is in hand, so without this a scope change
+        // would leave the previous root's treemap under the new header. Clearing first turns the
+        // restore below into a re-analysis; `clearStorageLens()` keeps the stored snapshot, so a
+        // scope you return to restores instantly. Only under a scope (`storageReportStandsUnder` is
+        // true without one). Not while a build runs: `clearStorageLens()` cancels it, and the work
+        // may already be for the new root.
         if !syncManager.isBuildingStorageLens,
            !OrganizeAim.storageReportStandsUnder(scope: organizeScope,
                                                  reportRoot: syncManager.storageLensRoot?.path) {
             syncManager.clearStorageLens()
         }
-        // **The scope is the subject** (Decision B). `StorageLensStore` keys snapshots by absolute
-        // root path, which is what lets a scoped report and a pane-root report coexist rather than
-        // clobber one another. Same fallback `autoRescanLensIfShowing` uses.
+        // The scope is the subject. `StorageLensStore` keys snapshots by absolute root path, so a
+        // scoped report and a pane-root report coexist rather than clobber one another. Same
+        // fallback as `autoRescanLensIfShowing`.
         let root = organizeScope?.path ?? lensScanRootExpanded
         guard !root.isEmpty else { return }
         syncManager.restoreStorageLens(root: URL(fileURLWithPath: root))
     }
 
-    /// Re-runs the showing lens's scan on open — Duplicates and Organize, the two lenses whose
-    /// results are never restored (their rows carry destructive applies; see
-    /// `StorageLensSnapshot`). Same trigger trio and safe-to-call-anytime contract as
-    /// `restoreStorageLensIfShowing` above: the manager declines unless the target is one the
-    /// user has scanned to completion before and still exists, and nothing has run this session.
-    /// The rows an auto-rescan shows are recomputed from the live filesystem, so nothing stale is
-    /// offered.
-    ///
-    /// Organize's "can this cost money?" question is deliberately NOT asked here. It lives inside
-    /// the scan, which stops before it walks anything expensive — so this stays a plain
-    /// synchronous call that cannot race a scan the user starts a moment later.
+    /// Re-runs the showing lens's scan on open, for Duplicates and Organize, whose results are
+    /// never restored (their rows carry destructive applies; see `StorageLensSnapshot`). The
+    /// manager declines unless the target was scanned to completion before, still exists, and
+    /// nothing has run this session, so the rows are always live. Organize's cost question lives
+    /// inside the scan, so this stays a plain synchronous call.
     func autoRescanLensIfShowing() {
-        // Keyed on the LENS now, not the workspace: duplicates and filing are two rail items
-        // inside one workspace, so `selectedWorkspace` can no longer tell them apart. The overview
-        // deliberately rescans nothing — it reports what each lens already knows, and starting two
-        // scans because a folder changed under a summary page is not "if showing".
+        // Keyed on the lens, not the workspace: duplicates and filing are two rail items inside one
+        // workspace. The overview deliberately rescans nothing: it reports what each lens already
+        // knows.
         guard selectedWorkspace == .filing, let lens = selectedOrganizeLens else { return }
-        // **A scope makes the auto-rescan refresh THE SUBJECT, not the pane.**
-        //
-        // This fires on every pane-folder change — and, now that the scan target is browse-aware,
-        // on every column click too, which the eligibility gates absorb: the manager declines once
-        // anything has run this session, so browsing can only ever refresh the remembered subject
-        // on a fresh lens, never replace a queue. It targeted `lensScanRootExpanded`. With a
-        // scope set that is the queue-destroying failure the design rejects live-binding to
-        // prevent, arriving through a different door: browse from a scoped `Legal` into some other
-        // previously-scanned folder and the rescan silently replaces `filingSuggestions` with that
-        // folder's files, which the Legal scope then filters to nothing. To File empties, and
-        // nothing on screen says why.
-        //
-        // The subject is the scope, so that is what gets refreshed. The manager still declines
-        // unless the target is one scanned to completion before and nothing has run this session,
-        // so pointing it at a never-scanned scope is a no-op rather than a surprise scan.
+        // A scope makes the auto-rescan refresh the subject, not the pane. This fires on every
+        // column click; targeting the pane under a scope would let browsing into another
+        // previously-scanned folder replace `filingSuggestions` with files the scope then filters
+        // to nothing. The manager still declines unless the target was scanned to completion before
+        // and nothing has run this session.
         let target = organizeScope?.path ?? lensScanRootExpanded
         switch lens {
         case .duplicates:
             guard !target.isEmpty else { return }
             syncManager.autoRescanDuplicatesIfEligible(root: URL(fileURLWithPath: target),
                                                        options: DuplicateFinderOptions.fromDefaults())
-        // The one filing scan publishes both of these lists — the loose files and the rename
-        // backlog, risky names included — so either of them showing is a reason to refresh it.
+        // The one filing scan publishes both of these lists (the loose files and the rename
+        // backlog, risky names included), so either showing is a reason to refresh it.
         case .toFile, .renames:
-            // The taxonomy a filing scan files against — File Into's folder (TE287), which is the
-            // anchor unless the source is a folder or the user chose another.
+            // The taxonomy a filing scan files against — File Into's folder, which is the anchor
+            // unless the source is a folder or the user chose another.
             let root = lensFilingDestinationRoot
             guard !target.isEmpty, !root.isEmpty else { return }
             syncManager.autoRescanFilingIfEligible(
                 folder: URL(fileURLWithPath: target), providerRoot: URL(fileURLWithPath: root),
                 providerName: lensFilingProviderName, nameProvider: lensProviderType,
                 reportsTreeFindings: lensFilingReportsTreeFindings)
-        // **Storage is handled by `restoreStorageLensIfShowing`, not here, and the arm is written
-        // out to say so.** Its results are RESTORED rather than recomputed — it is the one lens
-        // whose report survives a launch — and it had a function of its own for that before the
-        // rail existed. Both functions fire from the same four triggers, so calling the restore
-        // here too would be the identical call with the identical argument twice per trigger:
-        // harmless, because the manager declines when a build is running or a report is in hand,
-        // but two paths to one behaviour is how the two come to disagree later.
+        // Storage is handled by `restoreStorageLensIfShowing`, not here, and the arm is written out
+        // to say so. Its results are restored rather than recomputed (the one lens whose report
+        // survives a launch), and both functions fire from the same triggers, so calling the
+        // restore here too would be a second path to one behaviour.
         case .storage:
             break
         // Restructure reads the profile rather than the disk, and rules are configuration —
@@ -3387,91 +2909,70 @@ struct ContentView: View {
         }
     }
 
-    /// The person the find was turned into a gather for, and where the gather is.
-    ///
-    /// Held here rather than in the pane because the answer is not about one pane: it collects
-    /// across the whole source, which is the difference between a find and a gather.
-    ///
-    /// Carries the **phase**, not just the finished answer, so the slot is taken the moment the
-    /// offer is accepted: the sweep behind it takes long enough to notice, and a slot that stays
-    /// on its previous content for that interval reads as "nothing happened".
+    /// The person the find was turned into a gather for, and where the gather is. Held here, not in
+    /// the pane, because a gather collects across the whole source. Carries the phase, so the slot
+    /// is taken the moment the offer is accepted instead of reading as "nothing happened" during
+    /// the sweep.
     struct PersonScope: Equatable {
         let person: Person
-        /// `let`, like `person`: every write replaces the whole scope. Nothing mutates a phase in
-        /// place, and a `var` here invited something to.
+        /// `let`, like `person`: every write replaces the whole scope, and nothing mutates a phase
+        /// in place.
         let phase: PersonGatherPhase
 
         /// Whether a finished sweep for `person` may still write its answer into the slot.
         ///
-        /// The slot has to be **the same person and still waiting**. This is the last-write-wins
-        /// half of the double-accept race: cancellation stops the loser's sweep, but a sweep that
-        /// had already left the loop before the cancel lands would otherwise write its answer over
-        /// the winner's.
+        /// The slot must be the same person and still waiting. This is the last-write-wins half of
+        /// the double-accept race: cancellation stops the loser's sweep, but a sweep that left the
+        /// loop before the cancel lands would otherwise write over the winner's answer.
         static func awaits(_ person: Person, in current: PersonScope?) -> Bool {
             current?.person == person && current?.phase == .gathering
         }
 
         /// Whether accepting an offer for `person` should start a sweep, given what is in the slot.
+        /// A second ⌘↩ on the same offer must not restart a sweep already partway through; anything
+        /// else starts one.
         ///
-        /// **A second ⌘↩ on the same offer is a repeat of the same question**, not a new one, and
-        /// restarting would throw away a sweep that is already partway through 10,171 documents.
-        /// Anything else — nobody in the slot, a different person, or the same person whose gather
-        /// has already finished or failed — does start one.
-        ///
-        /// **Exactly `!awaits`, and written that way rather than restated.** Both ends of the race
-        /// ask the same question — "is a gather for this person already in flight?" — one before
-        /// starting and one before writing, so a second copy of that expression is a place for the
-        /// two to drift apart while every test on each of them still passes. If the two ever need
-        /// to differ (say, declining to re-gather an answer that is already fresh), expand this
-        /// body; that is a deliberate edit rather than a silent divergence.
+        /// Exactly `!awaits`, not a restatement: both ends of the race ask "is a gather for this
+        /// person in flight?", and two copies could drift while every test passes.
         static func shouldStart(_ person: Person, given current: PersonScope?) -> Bool {
             !awaits(person, in: current)
         }
     }
 
-    /// The in-flight sweep behind `personScope`, held so a successor or a clear can cancel it.
-    /// Without this, accepting twice raced two gathers with last-write-wins.
+    /// The in-flight sweep behind `personScope`, held so a successor or a clear can cancel it;
+    /// otherwise accepting twice would race two gathers with last-write-wins.
     ///
-    /// **Deliberately not cleared when a gather finishes**, which looks like a leak and is not.
-    /// A completed `Task` retains nothing that matters, and the tidy-looking `personGatherTask =
-    /// nil` at the end of the task body is a race: task 1 finishing *after* task 2 has been
-    /// assigned here would null out task 2's handle, and the next accept or clear would then have
-    /// nothing to cancel — re-opening, by hand, the exact bug this property exists to close.
-    /// Every writer of this property is on the main actor and outside the task body; keep it that
-    /// way. Cancelling an already-finished task is a no-op, so the stale handle costs nothing.
+    /// Deliberately not cleared when a gather finishes. A completed `Task` retains nothing that
+    /// matters, and `personGatherTask = nil` at the end of the task body would be a race: task 1
+    /// finishing after task 2 was assigned would null task 2's handle, leaving the next accept or
+    /// clear nothing to cancel. Every writer is on the main actor and outside the task body; keep
+    /// it that way. Cancelling a finished task is a no-op.
     @State private var personGatherTask: Task<Void, Never>?
 
-    /// Accepts the ⌘F offer: compute what is theirs and show it.
-    ///
-    /// **Computed on accept, never per keystroke.** The gather walks every surveyed document —
-    /// 10,171 of them on the real tree — so doing it as the query changes would put that sweep
-    /// between a key and its character. The offer row itself is cheap (one tokenize) and is what
-    /// runs per keystroke.
-    ///
-    /// The corpus read (a 4.9 MB file nothing else in the app holds) **and the sweep itself** run
-    /// off the main actor, in ``gatherOffMainActor(personId:profileId:directory:profile:registry:)``;
-    /// the main-actor task only waits and writes the result.
+    /// Accepts the ⌘F offer: compute what is theirs and show it. On accept, never per keystroke:
+    /// the gather walks every surveyed document, while the offer row is one tokenize. The corpus
+    /// read and the sweep run off the main actor in
+    /// ``gatherOffMainActor(personId:profileId:directory:profile:registry:)``; this task only waits
+    /// and writes the result.
     func acceptPersonScope(_ person: Person) {
         guard PersonScope.shouldStart(person, given: personScope) else { return }
         guard let profile = syncManager.filingFolderProfile,
               let registry = syncManager.filingPersonRegistry,
               let directory = syncManager.filingProfilesDirectory else {
-            // Cancel first, like every other path that takes the slot from someone: a sweep for
-            // the *previous* person can no longer be shown once this write lands, and leaving it
-            // running would sweep 10,171 documents for an answer `awaits` will then discard.
+            // Cancel first, like every other path that takes the slot: a sweep for the previous
+            // person can no longer be shown once this write lands, and would sweep every document
+            // for an answer `awaits` then discards.
             personGatherTask?.cancel()
             personGatherTask = nil
-            // **Said, not swallowed.** The offer that leads here needs only the roster
-            // (`personOffer` guards on `filingPersonRegistry` alone) while the gather needs the
-            // survey too, and `FilingProfileStore.personRegistry` deliberately reads a roster on a
-            // machine with no profile at all. So a roster outliving its survey puts an offer on
-            // screen whose accept did *nothing*, with no message — the exact "nothing happened"
-            // this whole feature exists to remove, surviving in the one path it had not covered.
+            // Said, not swallowed. The offer needs only the roster (`personOffer` guards on
+            // `filingPersonRegistry` alone) while the gather needs the survey too, and
+            // `FilingProfileStore.personRegistry` reads a roster on a machine with no profile. A
+            // roster that outlives its survey would otherwise put an offer on screen whose accept
+            // does nothing, silently.
             personScope = PersonScope(person: person, phase: .failed(Self.noSurveyToGather))
-            // Said in the log too, and *why*. On screen this is one sentence in the slot; to
-            // someone reading `~/sync-cloud.log` afterwards the accept would otherwise leave no
-            // trace at all — no "User asked…" line, because that is logged past this guard — and a
-            // feature that did nothing looks identical to one that was never used.
+            // Said in the log too, and why. The "User asked…" line is logged past this guard, so
+            // without this the accept would leave no trace in `~/sync-cloud.log`, and a feature
+            // that did nothing would look like one never used.
             Logger.shared.warning("Could not gather \(person.displayName)'s files: this tree has no "
                                   + "readable survey (profile, roster or corpus missing)")
             return
@@ -3479,55 +2980,43 @@ struct ContentView: View {
         Logger.shared.info("User asked for everything that is \(person.displayName)'s")
         personGatherTask?.cancel()
         personScope = PersonScope(person: person, phase: .gathering)
-        // The folder the artifacts were read from, not the field inside them — the gather reads
-        // `filing-corpus.json` under this id, so a disagreement finds no corpus and the accept
-        // returns nothing at all. See `FileSyncManager.filingProfileDirectoryId`.
+        // The folder the artifacts were read from, not the field inside them: the gather reads
+        // `filing-corpus.json` under this id, so a disagreement would find no corpus and the accept
+        // would return nothing. See `FileSyncManager.filingProfileDirectoryId`.
         let id = syncManager.filingProfileDirectoryId ?? profile.profileId
-        // Snapshotted here, on the main actor, rather than read inside the sweep: the store is
+        // Snapshotted here on the main actor rather than read inside the sweep: the store is
         // `@MainActor` and the sweep deliberately is not. A verdict recorded while a gather runs
-        // therefore lands in the *next* gather, which is right — the one in flight is answering the
-        // question as it stood when it was asked.
+        // lands in the next gather, which is right: the one in flight answers the question as it
+        // stood when asked.
         let tags = syncManager.filingPersonTagStore?.index ?? PersonTagIndex(tags: [])
         personGatherTask = Task {
             do {
                 let files = try await Self.gatherOffMainActor(
                     personId: person.id, profileId: id, directory: directory,
                     profile: profile, registry: registry, tags: tags)
-                // **Both checks, and they close different holes.**
-                //
-                // `Task.isCancelled` — this gather was superseded or cleared. A cancel that lands
-                // *after* the sweep has already returned raises no error at all, so the `catch`
-                // below never sees it. The case that needs this: accept Daughter, clear, accept Daughter
-                // again. The first sweep finishes in the window before its cancel is observed, and
-                // the slot is now the *second* gather's — same person, still `.gathering`, so
-                // `awaits` says yes and the dead task writes into the live one's slot.
-                //
-                // `awaits` — the slot must still be waiting for this person at all. It is the
-                // invariant that actually protects the pixels, and it is what stops Daughter's answer
-                // landing under Elder's name.
+                // Both checks, for different holes. `Task.isCancelled`: a cancel that lands after
+                // the sweep returned raises no error, and the slot may now be a second gather for
+                // the same person, which `awaits` alone would accept. `awaits`: the slot must still
+                // be waiting for this person at all.
                 guard !Task.isCancelled, PersonScope.awaits(person, in: personScope) else {
-                    // Routine coalescing, so debug — but not silence. The "User asked…" line above
-                    // opens a walk of every surveyed document and the "Gathered N file(s)…" line
-                    // below closes it; with this branch mute, a superseded accept leaves an opened
-                    // sweep that never closes, which reads in the log exactly like the wedged
-                    // gather that line was added to rule out. Says which of the two guards fired,
-                    // because a cancel and a slot that moved on are different stories about the
-                    // same discarded answer.
+                    // Routine coalescing, so debug, but not silence. The "User asked…" line opens a
+                    // walk and the "Gathered N file(s)…" line closes it; a mute branch would leave
+                    // an opened sweep that never closes, which reads in the log like a wedged
+                    // gather. Says which guard fired, because a cancel and a slot that moved on are
+                    // different stories.
                     Logger.shared.debug("People: discarded a finished gather for "
                                         + "\(person.displayName) — "
                                         + (Task.isCancelled ? "it was cancelled"
                                            : "the view is no longer waiting for it"))
                     return
                 }
-                // The sweep's own outcome. The "User asked…" line above opens a walk of every
-                // surveyed document — 10,171 on the real tree — and until now nothing closed it,
-                // so a slow gather and a wedged one read the same in the log. Both branches speak:
-                // nil is the corpus going missing between the guard above and the read.
+                // The sweep's own outcome, closing the walk "User asked…" opened, so a slow gather
+                // and a wedged one read differently in the log. Both branches speak: nil is the
+                // corpus going missing between the guard above and the read.
                 if let files {
-                    // "plus", not a comma: `total` is the CLAIMED rows only — `PersonFileSet`
-                    // deliberately keeps review rows out of it, because they are questions rather
-                    // than answers — so a phrasing that reads as "N of which R" would assert in
-                    // the log the very thing the queue exists to ask.
+                    // "plus", not a comma: `total` is the claimed rows only (`PersonFileSet` keeps
+                    // review rows out of it, because they are questions rather than answers), so "N
+                    // of which R" would assert in the log what the queue exists to ask.
                     Logger.shared.info("Gathered \(files.total) file(s) for \(person.displayName) "
                                        + "across \(files.folderCount) folder(s), plus "
                                        + "\(files.review.count) awaiting review")
@@ -3539,21 +3028,17 @@ struct ContentView: View {
                     person: person,
                     phase: files.map { .ready($0) } ?? .failed(Self.noSurveyToGather))
             } catch is CancellationError {
-                // The canceller owns the slot, so there is nothing to WRITE. There is still
-                // something to say: this is the third way out of a gather, and the other two now
-                // close the walk that "User asked…" opened. Left mute, a ✕ or an Esc during the
-                // sweep — the common case, since the sweep is the slow part — is the one exit that
-                // leaves an opened gather with no ending, which reads in the log exactly like the
-                // wedged gather these lines exist to rule out. Debug, like its sibling above:
-                // cancelling is routine, and the pair is a trace, not an event.
+                // The canceller owns the slot, so there is nothing to write, but there is something
+                // to say: this is the third way out of a gather. A ✕ or Esc during the sweep, the
+                // common case, would otherwise leave an opened gather with no ending in the log.
+                // Debug, like its sibling above: cancelling is routine.
                 Logger.shared.debug("People: the gather for \(person.displayName) was cancelled "
                                     + "while it was reading")
             } catch {
                 // Nothing below throws anything but cancellation today. Swallowing this anyway
-                // would leave the spinner turning **forever** — strictly worse than the silent
-                // slot this feature replaced — so an unexpected failure ends the wait out loud.
-                // Same pair of checks as the success path, for the same two reasons: a dead
-                // gather must not write its failure into a live one's slot either.
+                // would leave the spinner turning forever, so an unexpected failure ends the wait
+                // out loud. Same pair of checks as the success path: a dead gather must not write
+                // its failure into a live one's slot.
                 guard !Task.isCancelled, PersonScope.awaits(person, in: personScope) else { return }
                 Logger.shared.warning("The person gather failed: \(error.localizedDescription)")
                 personScope = PersonScope(person: person, phase: .failed(
@@ -3562,24 +3047,17 @@ struct ContentView: View {
         }
     }
 
-    /// What the slot says when there is no survey to gather from. One string for all of it because
-    /// the causes differ only in which artifact is missing, and the thing to do about them is the
-    /// same: survey the tree.
-    ///
-    /// **"No readable survey", not "has not been read yet"** — which is what the banner this
-    /// replaced said, and it is false for one of the three causes. `FilingSurveyStore.corpus`
-    /// returns nil when the file is *absent* (never surveyed), when the profile never loaded, and
-    /// when the file is present but **fails to decode** — and in that last case the tree has been
-    /// surveyed. A banner flashes past; this sits in the slot until it is dismissed, so a sentence
-    /// that is wrong a third of the time is worth more than it costs to say accurately.
+    /// What the slot says when there is no survey to gather from, one string because the remedy is
+    /// the same: survey the tree. "No readable survey", not "not read yet":
+    /// `FilingSurveyStore.corpus` also returns nil for a corpus that fails to decode, when the tree
+    /// has been surveyed.
     static let noSurveyToGather =
         "No readable survey of this tree was found, so there is nothing to gather."
 
-    /// Reads the corpus and sweeps it, **off the main actor** — `nonisolated`, so awaiting it from
-    /// the main-actor task above hops to the cooperative pool rather than running the sweep
-    /// between the user and their next frame. (Measured: a `nonisolated` async function called
-    /// from a `@MainActor` context does not run on the main thread, and it inherits cancellation
-    /// without a handler — which is why there is no `Task.detached` here.)
+    /// Reads the corpus and sweeps it off the main actor: `nonisolated`, so awaiting it from the
+    /// main-actor task above hops to the cooperative pool. A `nonisolated` async function called
+    /// from a `@MainActor` context does not run on the main thread and inherits cancellation
+    /// without a handler, which is why there is no `Task.detached` here.
     ///
     /// Returns nil when the corpus is absent, which is a state rather than an error: the tree has
     /// not been surveyed. Throws only `CancellationError`.
@@ -3591,7 +3069,7 @@ struct ContentView: View {
         tags: PersonTagIndex = PersonTagIndex(tags: [])
     ) async throws -> PersonFileSet? {
         // Bracketing the read: the decode is a synchronous ~90 ms that cannot be interrupted, so
-        // these are the two points at which a gather cancelled during it can actually stop.
+        // these are the two points where a gather cancelled during it can stop.
         try Task.checkCancellation()
         guard let corpus = FilingSurveyStore.corpus(id: profileId, in: directory) else { return nil }
         try Task.checkCancellation()
@@ -3601,20 +3079,11 @@ struct ContentView: View {
 
     /// Records a verdict on a review row, and takes the row off the screen.
     ///
-    /// **Two halves, and the order matters.** The display is updated *first* and synchronously, so
-    /// the button press has an effect in the same frame; the durable half — deciding the key and
-    /// writing the file — follows on a task, because deciding the key means reading the document.
-    ///
-    /// **The key is the fingerprint where the document has one.** A digest over what a PDF *says*
-    /// identifies it independently of where it sits, which is the durable half of the record and
-    /// the reason it is worth one read to compute. (The gather does not yet *look up* by
-    /// fingerprint — see `PersonTagStore.keyKind` — so a move still re-opens the question today;
-    /// what this buys now is that the verdict written down is not merely a path.) It costs one PDF read of one file, here, at the
-    /// moment of the decision — never for the 10,171 documents a gather walks. Anything that is not
-    /// a fingerprintable PDF (a photo, a `.docx`, a locked or image-only scan) falls back to the
-    /// path, which is the weaker promise honestly made rather than no verdict at all.
-    ///
-    /// Nothing here moves a file. Filing stays Organize's verb.
+    /// The display updates first and synchronously, so the press has an effect in the same frame;
+    /// the durable half follows on a task, because deciding the key reads the document. The key is
+    /// the PDF's content fingerprint where it has one, so the verdict is not merely a path (the
+    /// gather does not yet look up by fingerprint — see `PersonTagStore.keyKind`); anything else
+    /// falls back to the path. One PDF read, at the moment of decision. Nothing here moves a file.
     func recordPersonVerdict(_ person: Person, path: String, isTheirs: Bool) {
         guard let store = syncManager.filingPersonTagStore else {
             Logger.shared.warning("Could not record that “\(path)” is "
@@ -3625,10 +3094,9 @@ struct ContentView: View {
             personScope = PersonScope(person: person,
                                       phase: .ready(files.applying(verdict: isTheirs, to: path)))
         }
-        // **After the display has already moved.** Everything above this line is on screen; if the
-        // profile is gone the row has changed and nothing will be written, so the verdict comes
-        // back as a question next gather. Near-unreachable (the gather that produced this row
-        // required the profile), which is exactly why it must not be silent when it does happen.
+        // After the display has already moved. If the profile is gone, nothing is written and the
+        // verdict comes back as a question next gather. Near-unreachable (the gather that produced
+        // this row needed the profile), which is why it must not be silent when it happens.
         guard let root = syncManager.filingFolderProfile?.root else {
             Logger.shared.warning("Recorded nothing for “\(path)”: the folder profile went away "
                                   + "mid-review, so this verdict will be asked again")
@@ -3647,49 +3115,33 @@ struct ContentView: View {
         }
     }
 
-    /// The one way out of a person gather, from every exit — the ✕, Esc, and leaving the
-    /// workspace. Cancels a sweep still running so it stops walking documents nobody will see.
+    /// The one way out of a person gather, from every exit — the ✕, Esc, and leaving the workspace.
+    /// Cancels a sweep still running so it stops walking documents nobody will see.
     ///
-    /// **The only place `personScope` is set back to nil.** Anything that clears it by hand would
-    /// leave the sweep running, and `PersonScope.awaits` would then throw its answer away silently
-    /// after paying for all of it.
+    /// The only place `personScope` is set back to nil. Clearing it by hand would leave the sweep
+    /// running, and `PersonScope.awaits` would then discard its answer silently after paying for
+    /// it.
     func clearPersonScope() {
         personGatherTask?.cancel()
         personGatherTask = nil
         personScope = nil
     }
 
-    /// Point Organize at one folder: select the filing queue and scan **that** folder.
-    ///
-    /// The whole reason Organize's lenses became permanent rail items rather than chips. A chip
-    /// materialises only after a scan has found something, so there was nowhere for this to land;
-    /// a rail item exists at zero, which is exactly the state a folder you have just pointed at is
-    /// in.
-    ///
-    /// **Sets the scope**, then scans. The scope is the lasting half — the scan is just what makes
-    /// the queue current.
-    ///
-    /// Every other lens narrows to this folder for free, because filing, names and renames all come
-    /// off this one walk and restructure reads the profile. That is the point of scope-filters-does
-    /// -not-rescan: one click here re-aims all six lenses and pays for one scan.
-    ///
-    /// Pointing at the provider root **clears** the scope rather than setting it — see
-    /// ``setOrganizeScope(_:)``.
+    /// Point Organize at one folder: select the filing queue, set the scope, and scan that folder.
+    /// Every other lens narrows to the scope for free. The provider root clears the scope — see
+    /// ``setOrganizeScope(_:providerRoot:)``.
     /// - Parameters:
-    ///   - providerRoot: The row's source root — what the new scope is measured against, and the
-    ///     bound on what may become a scope at all.
-    ///   - providerAnchor: The row's source anchor — the taxonomy the resulting scan files against.
-    ///     A separate argument because the two answers differ now and this one call needs both:
-    ///     passing the root for the taxonomy hands filing the whole account, and passing the anchor
-    ///     for the scope makes every folder above the documents tree un-scopable.
+    ///   - providerRoot: The row's source root — what the scope is measured against and bounded by.
+    ///   - providerAnchor: The row's source anchor — the taxonomy the scan files against. Separate,
+    ///     because the root as taxonomy would hand filing the whole account.
     func organizeFolderAction(_ node: FileNode, providerRoot: String, providerAnchor: String) {
         let folder = (node.id as NSString).expandingTildeInPath
         guard !folder.isEmpty, !providerRoot.isEmpty, !providerAnchor.isEmpty else { return }
         Logger.shared.info("User requested Organize for \(folder)")
         setOrganizeScope(folder, providerRoot: providerRoot)
         show(.toFile)
-        // Files into the row's source's File Into folder (TE287) — its anchor, unless it is a
-        // folder source or the user chose another.
+        // Files into the row's source's File Into folder — its anchor, unless it is a folder source
+        // or the user chose another.
         let into = filingDestinationRoot(forAnchor: providerAnchor)
         syncManager.startFindFilingSuggestions(
             folder: URL(fileURLWithPath: folder), providerRoot: URL(fileURLWithPath: into),
@@ -3697,11 +3149,10 @@ struct ContentView: View {
             nameProvider: lensProviderType, reportsTreeFindings: into == providerAnchor)
     }
 
-    /// §5.10's second deliberate route: the shape question, aimed at one folder — Restructure's
-    /// answer already exists (it is read off the survey), so unlike its sibling above there is no
-    /// scan to start. Arriving on purpose skips the reveal card, the overview's own rule: the
-    /// user asked about this folder, and a card whose button says "Show findings" would charge
-    /// that intent twice.
+    /// The second deliberate route: the shape question, aimed at one folder. Restructure's answer
+    /// already exists (it is read off the survey), so unlike its sibling above there is no scan to
+    /// start. Arriving on purpose skips the reveal card, the overview's own rule: the user asked
+    /// about this folder, and a "Show findings" card would charge that intent twice.
     func checkFolderShapeAction(_ node: FileNode, providerRoot: String) {
         let folder = (node.id as NSString).expandingTildeInPath
         guard !folder.isEmpty, !providerRoot.isEmpty else { return }
@@ -3711,42 +3162,26 @@ struct ContentView: View {
         show(.restructure)
     }
 
-    /// The one write of Organize's scope **from this view**, and the one place its callers — the
-    /// folder context menu, ⌘K, "Organize This Folder…" — reach the stored form.
-    ///
-    /// **`nil`, an empty path, the provider root and a pane with no provider at all mean the same
-    /// thing: the global view.** That collapse is not spelled here, and deliberately so: the same
-    /// key is also written by `LensWorkspaceView.setScope(_:)`, which had its own copy of it under
-    /// a doc claiming to be the only one. ``OrganizeScope/normalizedPath(_:providerRoot:)`` is the
-    /// owner of the rule now; both writers ask it, so `scope = provider root` and `scope = cleared`
-    /// cannot become two encodings of one state.
-    /// **`providerRoot` is required, and that is the fix rather than a signature tidy.** It used to
-    /// read `lensProviderRootExpanded` itself — the FOCUSED pane's root — while two of its three
-    /// callers are row menus, and a SwiftUI context menu does not move focus. Right-clicking a
-    /// folder in the pane that did not have focus therefore normalised it against the other pane's
-    /// root, which for any folder outside that root answers `""`: the scope the user had set AND
-    /// the folder they had just named were both gone, it survived relaunch, and the scan that
-    /// followed got the right pane's folder with the left pane's root.
-    ///
-    /// Naming it at each call site is what makes that unwriteable rather than merely fixed: the
-    /// palette genuinely means the focused pane, the row menus genuinely mean their own pane, and
-    /// the compiler now asks which.
+    /// The one write of Organize's scope from this view.
+    /// ``OrganizeScope/normalizedPath(_:providerRoot:)`` owns the global-view rule (nil, empty or
+    /// the provider root) for both writers, so one state has one encoding. `providerRoot` is
+    /// required because a row menu does not move focus: normalizing against the focused pane's root
+    /// would drop a folder in the other pane.
     func setOrganizeScope(_ path: String?, providerRoot: String) {
         organizeScopePath = OrganizeScope.normalizedPath(path, providerRoot: providerRoot)
     }
 
     /// The subtree Organize is answering about, or nil for the global view.
     ///
-    /// Re-resolved on read rather than stored, exactly as `LensWorkspaceView` does: the provider can change
-    /// under a persisted path, and a scope belonging to a tree that is no longer showing degrades
-    /// to the global view instead of filtering every lens to nothing.
+    /// Re-resolved on read rather than stored, as `LensWorkspaceView` does: the provider can change
+    /// under a persisted path, and a scope belonging to a tree no longer showing degrades to the
+    /// global view instead of filtering every lens to nothing.
     var organizeScope: OrganizeScope? { resolvedOrganizeScope(organizeScopePath) }
 
-    /// The read half of the round trip. It has to agree with the write that a stored provider root
-    /// means "no scope", or the chip and the filter would disagree about the same string — and it
-    /// does by construction rather than by inspection: ``OrganizeScope/normalizedPath(_:providerRoot:)``,
-    /// which the write goes through, is defined as this same resolution with `?.path ?? ""` on the
-    /// end.
+    /// The read half of the round trip. It must agree with the write that a stored provider root
+    /// means "no scope", or the chip and the filter would disagree about the same string, and it
+    /// does by construction: ``OrganizeScope/normalizedPath(_:providerRoot:)``, which the write
+    /// goes through, is this same resolution with `?.path ?? ""` on the end.
     private func resolvedOrganizeScope(_ path: String?) -> OrganizeScope? {
         guard let path, !path.isEmpty else { return nil }
         return OrganizeScope(path: path, providerRoot: lensProviderRootExpanded)
@@ -3755,32 +3190,31 @@ struct ContentView: View {
     /// Navigate to a lens inside Organize — both halves, always.
     ///
     /// The single place programmatic navigation names a rail item, so a caller cannot set the
-    /// workspace and forget the lens and land on the overview having silently dropped the request.
+    /// workspace, forget the lens, and land on the overview having silently dropped the request.
     func show(_ lens: OrganizeLens) {
         selectedWorkspace = .filing
         selectedOrganizeLens = lens
     }
 
     func buildStorageLensAction() {
-        // The scope is the subject (Decision B) — analysing the pane root while a scope chip is up
-        // would put a whole-tree treemap under a narrowed header. One expression, the same fallback
-        // `autoRescanLensIfShowing` uses.
+        // The scope is the subject: analysing the pane root while a scope chip is up would put a
+        // whole-tree treemap under a narrowed header. The same fallback `autoRescanLensIfShowing`
+        // uses.
         let root = organizeScope?.path ?? lensScanRootExpanded
         guard !root.isEmpty else { return }
         Logger.shared.info("Storage: requested for \(root)")
-        // **Both, since the fold.** Setting the workspace alone would land on Organize's overview
-        // and quietly lose the request — the same failure `Workspace.destination(for:)` exists to
-        // prevent for programmatic callers.
+        // Both halves: setting the workspace alone would land on Organize's overview and quietly
+        // lose the request, the failure `Workspace.destination(for:)` exists to prevent for
+        // programmatic callers.
         selectedWorkspace = .filing
         selectedOrganizeLens = .storage
         syncManager.startBuildStorageLens(root: URL(fileURLWithPath: root))
     }
 
-    /// The duplicate-review flow's coordinator — `compareCopies`, the keep-left / trash-right
-    /// banner, and the `CompareReviewReducer` effect execution live there now. Stateless by
-    /// design: it closes over this view's App-owned bindings and live computed context, so a
-    /// fresh value per access is equivalent to the methods it replaced (and the review state's
-    /// window-cycle survival — see `duplicateReview` — is untouched).
+    /// The duplicate-review flow's coordinator: `compareCopies`, the keep-left / trash-right
+    /// banner, and the `CompareReviewReducer` effect execution live there. Stateless by design: it
+    /// closes over this view's App-owned bindings and live computed context, so a fresh value per
+    /// access is fine, and the review state still survives a window cycle (see `duplicateReview`).
     var reviewCoordinator: DuplicateReviewCoordinator {
         DuplicateReviewCoordinator(
             syncManager: syncManager,
@@ -3803,8 +3237,8 @@ struct ContentView: View {
     }
 
     /// Applies a `ProviderPinPlan`'s id writes, left before right. The caller must seed
-    /// `pendingSwapProviderChanges` with `plan.suppressCount` FIRST — the plan contains only
-    /// writes that really change an id, so each one fires exactly one onChange to suppress.
+    /// `pendingSwapProviderChanges` with `plan.suppressCount` first: the plan contains only writes
+    /// that really change an id, so each fires exactly one onChange to suppress.
     private func applyProviderPinAssignments(_ plan: ProviderPinPlan) {
         for assignment in plan.assignments {
             switch assignment.side {
@@ -3820,21 +3254,14 @@ struct ContentView: View {
         providerRootExpanded(forProviderId: lensTargetIsRight ? rightProviderId : leftProviderId)
     }
 
-    /// The same pane's source **anchor**: the folder that everything the user authored as
-    /// "provider-relative" is measured from — an automation's `Invoices/{year}` destination, the
-    /// loose-files inbox, and the taxonomy a filing scan files against.
+    /// The same pane's source anchor: what everything the user authored as "provider-relative" is
+    /// measured from — an automation's `Invoices/{year}`, the loose-files inbox, the filing
+    /// taxonomy.
     ///
-    /// The landing folder, not the root, and that is behaviour preservation rather than a
-    /// preference. Every one of those values was written when a source's only path was its
-    /// documents folder, so "provider-relative" meant relative to *that*. Anchoring them at the
-    /// account root instead would silently repoint them: `TODO` — the inbox default — names a real
-    /// folder at the top of this machine's OneDrive account as well as one inside its Documents,
-    /// so the inbox would quietly change which folder it offered. It would also hand the filing
-    /// taxonomy an account root full of `Teams Recordings` and a Copilot chat cache, which teaches
-    /// it nothing and costs gigabytes of walking to learn.
-    ///
-    /// Since `openAt` is seeded to exactly the folder that used to be the root, this resolves to
-    /// the same absolute path as before for every source — which is the point.
+    /// The landing folder, not the root, because those values were written against the documents
+    /// folder: from the account root, `TODO` could name a different folder, and the taxonomy would
+    /// walk gigabytes of recordings and caches. `openAt` is seeded to the documents folder, so
+    /// existing sources resolve as before.
     var lensProviderAnchorExpanded: String {
         providerAnchorExpanded(forProviderId: lensTargetIsRight ? rightProviderId : leftProviderId)
     }
@@ -3845,38 +3272,30 @@ struct ContentView: View {
         (settings.landingPath(for: id) as NSString).expandingTildeInPath
     }
 
-    /// One provider's root, expanded — the same shape ``lensProviderRootExpanded`` answers, asked
-    /// about a named provider rather than about whichever pane holds focus.
+    /// One provider's root, expanded — the shape ``lensProviderRootExpanded`` answers, asked about
+    /// a named provider rather than whichever pane holds focus.
     ///
-    /// Split out because "the focused pane's root" is the wrong question for anything a ROW menu
-    /// starts: a SwiftUI context menu does not move focus, so a right-click in the pane that is not
-    /// focused was answered with the other pane's root.
+    /// Split out because "the focused pane's root" is the wrong question for anything a row menu
+    /// starts: a SwiftUI context menu does not move focus, so a right-click in the unfocused pane
+    /// would be answered with the other pane's root.
     func providerRootExpanded(forProviderId id: String) -> String {
         (settings.rootPath(for: id) as NSString).expandingTildeInPath
     }
 
-    /// A root-relative path held by one pane, re-expressed for the OTHER — the translation every
-    /// linked action needs now that two panes' roots no longer share an origin.
+    /// A root-relative path held by one pane, re-expressed for the other, whose root may differ.
     ///
-    /// **Named for the pane it answers about, and that is not cosmetic.** `isLeft` is the pane the
-    /// result is *for*; the path comes from its sibling. Written the other way round — "translate
-    /// this pane's path for the sibling" — the call in a tab verb names the pane the verb is NOT
-    /// moving, which is exactly the shape `PaneTabWiringTests` refuses: a verb aims every
-    /// side-taking call it makes at the one pane it moves, and that invariant is what caught the
-    /// `openedFromScope:` transposition. A translation is inherently two-sided, so it is spelled
-    /// once here, where both anchors can be read, rather than inline at each call site where the
-    /// two-sidedness would have to be excepted from the rule.
-    ///
-    /// See `PathBoundary.reanchor` for what it does with a path the destination anchor cannot
-    /// express: it carries it across unchanged rather than guessing.
+    /// Named for the pane it answers about (`isLeft` is the pane the result is for), because
+    /// `PaneTabWiringTests` requires every side-taking call in a tab verb to name the pane it
+    /// moves. A translation is two-sided, so it is spelled once here. See `PathBoundary.reanchor`:
+    /// a path the destination cannot express is carried across unchanged.
     func relativePathForPane(_ relative: String, isLeft: Bool) -> String {
         PathBoundary.reanchor(relative,
                               from: paneOpenAt(isLeft: PaneSideChoice.sibling(isLeft)),
                               to: paneOpenAt(isLeft: isLeft))
     }
 
-    /// A pane's landing folder as a ROOT-RELATIVE path — the origin its positions are quoted
-    /// against once you stop assuming both panes share one.
+    /// A pane's landing folder as a root-relative path — the origin its positions are quoted
+    /// against.
     ///
     /// Read live rather than cached: it is a stored preference that discovery republishes, and a
     /// stale copy would translate a linked move onto the folder the source used to open at.
@@ -3886,9 +3305,9 @@ struct ContentView: View {
 
     /// `paneOpenAt` in the shape `FileSyncManager.paneOpenAt` takes.
     ///
-    /// A named property rather than a closure literal at the assignment: written inline, it pushed
-    /// the `onAppear` chain past the Swift type-checker's budget outright ("unable to type-check
-    /// this expression in reasonable time"), which this file is already close enough to feel.
+    /// A named property rather than a closure literal at the assignment: written inline, it pushes
+    /// the `onAppear` chain past the Swift type-checker's budget ("unable to type-check this
+    /// expression in reasonable time").
     private var paneOpenAtForSyncManager: (Bool) -> String {
         { [settings] isLeft in
             settings.openAtIfReachable(for: isLeft ? self.leftProviderId : self.rightProviderId)
@@ -3896,38 +3315,34 @@ struct ContentView: View {
     }
 
     /// The pane → source id mapping, in the shape `FileSyncManager.paneSourceId` takes. Read live
-    /// for the same reason as `paneOpenAtForSyncManager`, and a named property for the same
-    /// type-checker reason.
+    /// for `paneOpenAtForSyncManager`'s reason, and a named property for the same type-checker
+    /// reason.
     private var paneSourceIdForSyncManager: (Bool) -> String {
         { isLeft in isLeft ? self.leftProviderId : self.rightProviderId }
     }
 
-    /// The provider ruleset the name check runs against — the targeted pane's source (the left
-    /// rail in single-source; the focused pane in compare). See `SettingsManager.nameRuleType(for:)`
-    /// for the two substitutions it makes: OneDrive for an unresolvable id, and the user's
-    /// `folderNameRule` for a folder source.
+    /// The provider ruleset the name check runs against — the targeted pane's source (the left rail
+    /// in single-source; the focused pane in compare). See `SettingsManager.nameRuleType(for:)` for
+    /// its two substitutions: OneDrive for an unresolvable id, and the user's `folderNameRule` for
+    /// a folder source.
     var lensProviderType: CloudProvider.ProviderType {
         settings.nameRuleType(for: lensTargetIsRight ? rightProviderId : leftProviderId)
     }
 
-    /// Toggles the shared Quick Look panel for `url`: opens a preview of that file, or — when the
-    /// panel is already previewing that same file — closes it, so one button both opens and dismisses
-    /// (Space and Esc close it too). Clicking a *different* file re-targets the open panel rather than
-    /// closing it. `.quickLookPreview($quickLookURL)` resets the binding to nil on manual dismissal,
-    /// keeping this toggle in step with the panel's real state.
-    /// - Parameter followsPane: whether this preview is the PANES' — in which case it re-targets as
-    ///   the pane selection moves, and closes when that selection is cleared. False for a preview a
-    ///   Differences row or the Info inspector opened: both surfaces hold selections at the same
-    ///   time, so a pane click is not a statement about what the other one is showing.
+    /// Toggles the shared Quick Look panel for `url`: opens it, or closes it when it already shows
+    /// that file; a different file re-targets it. `.quickLookPreview($quickLookURL)` nils the
+    /// binding on manual dismissal, keeping this in step.
+    /// - Parameter followsPane: whether the preview follows the pane selection (re-targets as it
+    ///   moves, closes when it clears). False for previews from a Differences row or the Info
+    ///   inspector, which hold their own selections.
     func toggleQuickLook(_ url: URL, followsPane: Bool = false) {
         let closing = quickLookURL == url
         quickLookURL = closing ? nil : url
         quickLookFollowsPane = closing ? false : followsPane
     }
 
-    /// The pane selection the open panel follows — the same resolution Space uses to pick a target
-    /// in the first place, so the panel can never come to rest on a file Space would not have
-    /// previewed.
+    /// The pane selection the open panel follows: the resolution Space uses to pick a target, so
+    /// the panel can never rest on a file Space would not have previewed.
     var paneQuickLookTarget: String? {
         CurrentSelection.primaryPanePath(
             left: syncManager.selectedLeftPaths,
@@ -3937,9 +3352,9 @@ struct ContentView: View {
 
     /// Applies `CurrentSelection.previewFollow` to the panel that is open right now.
     ///
-    /// Called from an `onChange` on `paneQuickLookTarget`, which is derived from two `@Published`
-    /// sets — so it fires for a click, a search reveal, a re-root and a background republish alike,
-    /// and the `.stay` arms are what keep all but the first of those free.
+    /// Called from an `onChange` on `paneQuickLookTarget`, derived from two `@Published` sets, so
+    /// it fires for a click, a search reveal, a re-root and a background republish alike; the
+    /// `.stay` arms keep all but the first free.
     func followPaneSelectionWithQuickLook() {
         switch CurrentSelection.previewFollow(showing: quickLookURL?.path,
                                               followsPane: quickLookFollowsPane,
@@ -3950,18 +3365,15 @@ struct ContentView: View {
         }
     }
 
-    /// N2 — dry-runs the enabled automation rules over the focused folder. Preview only: the manager
-    /// walks + evaluates on-device and publishes what *would* happen; no file is moved. Triggered from
-    /// the Automations lens's own button, so the pane is already on that lens when this runs.
+    /// Dry-runs the enabled automation rules over the focused folder. Preview only: the manager
+    /// walks and evaluates on-device and publishes what would happen; no file is moved. Triggered
+    /// from the Automations lens's own button, so the pane is already on that lens when this runs.
     func startAutomationPreviewAction(only: UUID? = nil) {
         let root = lensScanRootExpanded
-        // Destinations anchor at the source's anchor folder, not the focused subfolder — so a
-        // rule's "Home/Utilities/…" template files there even when previewing inside a subfolder,
-        // instead of nesting the tree under whatever folder happened to be focused. The ANCHOR and
-        // not the account root: every existing template was authored against the documents folder.
-        //
-        // File Into's folder rather than the anchor itself (TE287): the same tree To File files
-        // into, so a rule previewed from Home ▸ Downloads lands where its suggestions would.
+        // Destinations anchor at File Into's folder, not the focused subfolder, so a rule's
+        // "Home/Utilities/…" template files there even when previewing inside a subfolder: the same
+        // tree To File files into, so a rule previewed from Home ▸ Downloads lands where its
+        // suggestions would.
         let providerRoot = lensFilingDestinationRoot
         guard !root.isEmpty, !providerRoot.isEmpty else { return }
         Logger.shared.info("User requested Rules preview for \(root)\(only == nil ? "" : " (single rule)")")
@@ -3971,28 +3383,12 @@ struct ContentView: View {
                                           providerName: lensProviderName, only: only)
     }
 
-    /// The folder a Filing scan targets right now — **the focused folder, always.**
+    /// The folder a Filing scan targets right now: the focused folder, always.
     ///
-    /// ## The inbox root-swap is gone
-    ///
-    /// This used to silently retarget the scan to the loose-files inbox (Settings ▸ Organize,
-    /// default `TODO`) whenever the pane happened to be sitting at the provider root. That is a
-    /// *browsing accident deciding a subject*: the user navigated to the top of the tree, and the
-    /// scan quietly answered about one folder three levels down without ever saying so. It is the
-    /// same class of defect as scope-follows-the-last-scan, and the fix is the same — the subject
-    /// is something the user sets, not something the pane's position implies.
-    ///
-    /// The inbox has not been dropped, it has been **promoted**: ``filingInboxFolder`` still
-    /// resolves the path, and Organize's overview offers it as a visible one-click scope shortcut
-    /// ("Inbox (TODO) — N loose files"). Because the scope is sticky across launches, the inbox is
-    /// clicked once and stays, which is what the hidden special case was clumsily approximating.
-    ///
-    /// **Deleted rather than narrowed.** Narrowing it — say, only when no scope is set — would
-    /// leave a rule that fires on a condition the user cannot see, which is the whole complaint.
-    ///
-    /// It is emphatically not the right default either: scoped to `TODO`, Renames falls from 126
-    /// folders to 0 and five of the six lenses go dark on launch. The inbox is the right subject
-    /// for To File and the wrong one for everything else.
+    /// Never silently the loose-files inbox, even at the provider root: the subject is something
+    /// the user sets, not something the pane's position implies. The inbox is a visible one-click
+    /// scope on Organize's overview instead (``filingInboxFolder``), and it would be the wrong
+    /// default for every lens but To File.
     var filingScanTargetFolder: String? {
         let focused = lensScanRootExpanded
         guard !focused.isEmpty, !lensProviderRootExpanded.isEmpty else { return nil }
@@ -4001,15 +3397,13 @@ struct ContentView: View {
 
     /// The loose-files inbox, when it exists — the path only, with no opinion about when to use it.
     ///
-    /// **The one reader of the inbox setting now.** The rail resolver that used to share it — and
-    /// to open Organize on this folder unasked — is gone, so the existence check this kept in step
-    /// with no longer has a twin to disagree with; it stays because a shortcut offering a folder
-    /// that is not there is worse than no shortcut. nil when the setting is blank or the folder is
-    /// missing, and blank is a state the Settings field can now express.
+    /// The one reader of the inbox setting. The existence check stays because a shortcut offering a
+    /// missing folder is worse than no shortcut. nil when the setting is blank or the folder is
+    /// missing.
     var filingInboxFolder: String? {
-        // The ANCHOR — see `lensProviderAnchorExpanded`. `TODO`, this setting's default, names a
+        // The anchor — see `lensProviderAnchorExpanded`. `TODO`, this setting's default, can name a
         // folder at the top of a OneDrive account as well as one inside its Documents, so anchoring
-        // at the root would change which folder the shortcut offers without saying a word.
+        // at the root would silently change which folder the shortcut offers.
         let root = lensProviderAnchorExpanded
         guard !root.isEmpty else { return nil }
         let inbox = (UserDefaults.standard.string(forKey: GeneralSettings.filingInboxRelativePathKey) ?? "TODO")
@@ -4022,21 +3416,20 @@ struct ContentView: View {
         return inboxPath
     }
 
-    /// Kicks off a Filing scan for loose files, with the whole provider as the taxonomy.
+    /// Starts a Filing scan for loose files, with the whole provider as the taxonomy.
     ///
-    /// Aimed at the subject — the scope when set — for the reasons written out on
-    /// ``findDuplicatesAction()``. The shape of the miss here is sharper than Duplicates', because
-    /// the filing pass enumerates the direct children of ONE folder: scoped to `TODO` from a pane
-    /// at the root, the card said "The file pass hasn't run here", the click scanned the root's
-    /// loose files, and To File then reported "Nothing to do in TODO" without TODO ever having been
-    /// enumerated.
+    /// Aimed at the subject (the scope when set) for the reasons on ``findDuplicatesAction()``. The
+    /// miss would be sharper here, because the filing pass enumerates the direct children of one
+    /// folder: scoped to `TODO` from a pane at the root, a pane-targeted click would scan the
+    /// root's loose files, and To File would then report "Nothing to do in TODO" without TODO ever
+    /// being enumerated.
     func findFilingSuggestionsAction(ignoringCache: Bool = false) {
-        // File Into's folder (TE287): the anchor for a cloud source, the folder survey's root for
-        // a folder source, or whatever the user chose.
+        // File Into's folder: the anchor for a cloud source, the folder survey's root for a folder
+        // source, or whatever the user chose.
         let root = lensFilingDestinationRoot
-        // The provider root is the taxonomy the scan files AGAINST, so it is required whichever
-        // folder is being enumerated. `filingScanTargetFolder` folded that check in; the scope
-        // branch needs it stated.
+        // The provider root is the taxonomy the scan files against, so it is required whichever
+        // folder is enumerated. `filingScanTargetFolder` folds that check in; the scope branch
+        // needs it stated.
         guard !root.isEmpty, let folder = organizeScope?.path ?? filingScanTargetFolder else { return }
         Logger.shared.info("User requested Filing suggestions for \(folder)"
             + (ignoringCache ? " (ignoring saved suggestions)" : ""))
@@ -4054,13 +3447,13 @@ struct ContentView: View {
 
     /// Re-derives the folder memory from the provider tree as it stands now.
     ///
-    /// Deliberately its own action rather than a step inside the scan. The scan is what the user
-    /// clicks to get suggestions and it has to stay fast; a re-survey reads documents the scan has
-    /// no interest in — every already-filed one that changed — and its payoff is the *next* scan,
-    /// not this one. Tying it to Rescan would make the common act pay for the occasional one.
+    /// Its own action rather than a step inside the scan: the scan must stay fast, a re-survey
+    /// reads documents the scan has no interest in (every already-filed one that changed), and its
+    /// payoff is the next scan. Tying it to Rescan would make the common act pay for the occasional
+    /// one.
     func updateFolderMemoryAction() {
-        // The survey covers the folder the profile was built from, whatever this pane shows —
-        // `resurveyFilingMemory` decides that, and logs which folder it read. The anchor goes along
+        // The survey covers the folder the profile was built from, whatever this pane shows;
+        // `resurveyFilingMemory` decides that and logs which folder it read. The anchor goes along
         // so that line can say when the pane is somewhere else.
         let root = lensProviderAnchorExpanded
         guard !root.isEmpty else { return }
@@ -4068,9 +3461,9 @@ struct ContentView: View {
         Task { await syncManager.resurveyFilingMemory(root: URL(fileURLWithPath: root)) }
     }
 
-    /// The per-side values a pane is built from, resolved once per render by `paneContext` so
-    /// the header and tree builders don't each repeat the same `isLeft ?` pairs (a copy-paste
-    /// drift hazard when a side-specific argument changes on one side only).
+    /// The per-side values a pane is built from, resolved once per render by `paneContext` so the
+    /// header and tree builders don't each repeat the same `isLeft ?` pairs, which could drift when
+    /// an argument changes on one side only.
     struct PaneContext {
         let isLeft: Bool
         let title: String
@@ -4086,8 +3479,8 @@ struct ContentView: View {
         let diffIndex: DiffStatusIndex
         let otherPaneName: String?
         let hasOnlyHiddenEntries: Bool
-        /// How this pane presents its tree. The comparison panes, the single-source rail and Browse all
-        /// reach Columns, each from its own stored key — see `resolvedViewMode(isLeft:)`.
+        /// How this pane presents its tree. The comparison panes, the single-source rail and Browse
+        /// all reach Columns, each from its own stored key — see `resolvedViewMode(isLeft:)`.
         let viewMode: PaneViewMode
         /// Path → children for the columns presentation, cached per publish by the manager. `nil`
         /// in Tree mode: building it walks the whole tree, and a pane that will never draw a column
@@ -4095,12 +3488,12 @@ struct ContentView: View {
         let childrenIndex: PaneChildrenIndex?
     }
 
-    /// Internal rather than private so `ContentView+PaneSearch.swift` can resolve the pane it is
-    /// searching from the same one place `paneColumn` does — a second copy of "which tree is this
-    /// pane showing" is how a search would end up running against the other side's nodes.
+    /// Internal rather than private so `ContentView+PaneSearch.swift` resolves the pane it searches
+    /// from the same place `paneColumn` does; a second copy of "which tree is this pane showing"
+    /// could run a search against the other side's nodes.
     func paneContext(isLeft: Bool) -> PaneContext {
-        // The rail and Browse each read their OWN key, not the left pane's — same underlying pane
-        // state, different surfaces, and a choice made on one must not restack the others.
+        // The rail and Browse each read their own key, not the left pane's: same pane state,
+        // different surfaces, and a choice made on one must not restack the others.
         let mode: PaneViewMode = resolvedViewMode(isLeft: isLeft)
         return PaneContext(
             isLeft: isLeft,
@@ -4127,20 +3520,12 @@ struct ContentView: View {
         )
     }
 
-    /// **Runs a close aimed at the strip with the pointer, and keeps the strip if it would go**
-    /// (TE214, his call CD, 2026-10-25). Closing the second-to-last tab took the strip away at
-    /// once, so the header and the list jumped up 34pt under the pointer — in Compare both panes,
-    /// whose strips come and go together. Now the strip stays, showing the one tab left, until the
-    /// pointer leaves it, and then slides away (`paneColumn`'s animation is keyed on presence, the
-    /// hold included). Held only while the pointer is on the strip: a press from elsewhere has
-    /// nothing under it to keep still. Here, beside the strip it wires, and not among the tab
-    /// verbs in `ContentView+PaneTabs.swift`: it is not one — the close it runs is, and the focus
-    /// rule (`everyTabVerbTheHostWiresReachesTheFocusDoorUnconditionally`) follows that close.
-    ///
-    /// **A close chosen from the pane header's or a row's menu holds it too**, while the pointer
-    /// stays where the menu stood (`PaneMenuOrigin`): it is still over the header or the rows the
-    /// strip's going would move. The strip slides away once the pointer is out of that area and off
-    /// the strip.
+    /// Runs a close aimed at the strip with the pointer, and keeps the strip if it would go, so the
+    /// header and list do not jump up 34pt under the pointer. The strip shows the one tab left
+    /// until the pointer leaves it, then slides away. A close from the header's or a row's menu
+    /// holds it too while the pointer stays where the menu stood (`PaneMenuOrigin`). Not a tab verb
+    /// itself: the close it runs is, and the focus rule
+    /// (`everyTabVerbTheHostWiresReachesTheFocusDoorUnconditionally`) follows that close.
     private func holdingTabStrip(isLeft: Bool, _ close: () -> Void) {
         let wasShown = paneShowsTabStrip(isLeft: isLeft)
         close()
@@ -4159,19 +3544,18 @@ struct ContentView: View {
     /// One resizable file pane: provider header stacked over its file tree.
     ///
     /// No `@ViewBuilder`: the body computes its locals and then has a single `return`, which
-    /// *disables* the builder outright (the compiler says so). Carrying the attribute anyway
-    /// claimed a multi-statement build that was never happening.
+    /// disables the builder anyway (the compiler says so).
     func paneColumn(isLeft: Bool) -> some View {
         let pane = paneContext(isLeft: isLeft)
-        // Resolve the action-bar selection ONCE per render (a tree walk over ~40k nodes) and reuse
-        // it for both the overlay gate and the layout animation below — reading `activeSelectionNodes`
-        // separately in each spot re-walked the tree several times per render (~100ms each), which
-        // was the comparison panes' selection lag.
+        // Resolve the action-bar selection once per render (a tree walk over tens of thousands of
+        // nodes) and reuse it for the overlay gate and the layout animation below; reading
+        // `activeSelectionNodes` in each spot would re-walk the tree several times per render and
+        // lag the selection.
         let barNodes = barSelectionNodes(isLeft: isLeft)
-        // THIS pane's selection, which is a different question from `barNodes` above: that one is
-        // the ACTIVE pane's, and is empty by construction on every side and workspace the floating
-        // action bar does not appear on. Resolved once here and handed to the header, which needs
-        // both the count (to disable its Delete) and the nodes (to act).
+        // This pane's selection, a different question from `barNodes`: that one is the active
+        // pane's, and empty on every side and workspace the floating action bar does not appear on.
+        // Resolved once and handed to the header, which needs the count (to disable its Delete) and
+        // the nodes (to act).
         let ownNodes = paneSelectionNodes(isLeft: isLeft)
         // Read the scroll-flip trigger so this column re-renders when a scroll crossing flips the
         // edge; the value itself is unused — the edge is resolved fresh below.
@@ -4180,37 +3564,36 @@ struct ContentView: View {
         // Because this runs in `body`, a selection change (which re-renders here) lands the bar at
         // the correct edge in the same pass — no gate, no deferred flip.
         let placement = isLeft ? leftPlacement : rightPlacement
-        // The result message, when this pane is where it shows (Banner Room, CA). It docks in ONE
-        // stack with the bar, so the edge is resolved for both: guarding the bar's selection, or —
-        // with no bar, as in Browse and after a delete — this pane's own, whose last on-screen
-        // position the placement keeps as the anchor once a delete has taken it.
+        // The result message, when this pane is where it shows. It docks in one stack with the bar,
+        // so the edge is resolved for both, guarding the bar's selection or, with no bar (Browse,
+        // after a delete), this pane's own, whose last on-screen position the placement keeps as
+        // the anchor once a delete has taken it.
         let message = paneResultMessage(isLeft: isLeft)
         let barAtTop = placement.resolveAtTop(
             guarding: Set((barNodes.isEmpty ? ownNodes : barNodes).map(\.id)),
             bar: !barNodes.isEmpty, message: message != nil)
         return VStack(spacing: 0) {
-            // The tab strip, and it is a SIBLING of the header and the list — never a wrapper
-            // around them. Two reasons, one of them enforced: re-nesting this VStack fails
+            // The tab strip is a sibling of the header and the list, never a wrapper around them.
+            // Re-nesting this VStack fails
             // `PaneQuickLookScopeTests.testTheHandlerIsAttachedToTheFileList`, which requires the
-            // list's exact indentation, with a message about Quick Look rather than about tabs. And
-            // one insertion point here serves Browse, both Compare panes and the Organize/Storage
-            // rail, because they are all this one function.
+            // list's exact indentation. One insertion point here serves Browse, both Compare panes
+            // and the Organize rail, because they are all this one function.
             if paneShowsTabStrip(isLeft: isLeft) {
                 PaneTabStrip(
                     items: paneTabItems(isLeft: isLeft),
                     // Keep the seam's ⇄ / 🔗 capsule clear. It straddles the pane boundary at this
-                    // exact height, so in Compare it lands on the left pane's ＋ and on the right
-                    // pane's first chip — measured on the shipping app before this existed.
+                    // height, so in Compare it would land on the left pane's ＋ and on the right
+                    // pane's first chip.
                     leadingInset: seamInset(isLeft: isLeft, leading: true),
                     trailingInset: seamInset(isLeft: isLeft, leading: false),
-                    // The hue, because `Color.accentColor` inside the strip would be the SYSTEM
-                    // accent — the strip's rule was blue in a green window until this was passed.
+                    // The hue, because `Color.accentColor` inside the strip would be the system
+                    // accent, not the window's.
                     accent: glassHue.accentColor,
-                    // The same predicate the pane's ROWS wash their selection from, so the live
+                    // The same predicate the pane's rows wash their selection from, so the live
                     // chip and the selected rows under it can never name different panes.
                     isActivePane: paneWearsActiveAccent(isLeft: isLeft),
                     onSelect: { selectTab(id: $0, isLeft: isLeft) },
-                    // Closes aimed with the pointer, so the strip stays under it (TE214).
+                    // Closes aimed with the pointer, so the strip stays under it.
                     onClose: { id in holdingTabStrip(isLeft: isLeft) { closeTab(id: id, isLeft: isLeft) } },
                     onCloseOthers: { id in
                         holdingTabStrip(isLeft: isLeft) { closeOtherTabs(keeping: id, isLeft: isLeft) }
@@ -4220,25 +3603,23 @@ struct ContentView: View {
                     onReorder: { id, index in moveTab(id: id, to: index, isLeft: isLeft) },
                     onSetPinned: { id, pinned in setTabPinned(pinned, id: id, isLeft: isLeft) },
                     onNew: { openNewTabHere(isLeft: isLeft) })
-                    // The same wash the header and the list below it take, so the pane reads as
-                    // one surface. The strip was the only pane-owned surface without it — at a high
-                    // Tint it was a pale stripe cut through the top of the pane. Ordered before the
-                    // card, which clips: `surfaceCard` clip-shapes first, so a wash applied after it
-                    // would square off the rounded corners (`bottomSectionCard` stacks these the
-                    // same way, and for the same reason).
+                    // The same wash the header and the list take, so the pane reads as one surface
+                    // rather than with a pale stripe across its top at a high Tint. Ordered before
+                    // the card, which clips: `surfaceCard` clip-shapes first, so a wash applied
+                    // after it would square off the rounded corners (`bottomSectionCard` stacks
+                    // these the same way).
                     .contentSurface(hue: glassHue, tint: surfaceTint)
                     .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
-                    // Where the pointer is, for the hold above — and leaving lets a held strip go.
+                    // Where the pointer is, for the hold above; leaving lets a held strip go.
                     .onHover { inside in
                         tabStripPointer.setOver(inside, isLeft: isLeft)
                         if !inside, tabStripHold.holds(isLeft: isLeft) { tabStripHold.release(isLeft: isLeft) }
                     }
                     // A strip that goes from under the pointer reports no exit.
                     .onDisappear { tabStripPointer.setOver(false, isLeft: isLeft) }
-                    // **The strip's arrival IS the feedback for ⌘T** (roadmap Fig. 10): the new tab
-                    // opens on the folder you are already in, so both chips say the same thing and
-                    // nothing else on screen changes. Sliding in from the top is what tells you it
-                    // worked.
+                    // The strip's arrival is the feedback for ⌘T: the new tab opens on the folder
+                    // you are already in, so both chips say the same thing and nothing else
+                    // changes. Sliding in from the top is what tells you it worked.
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
             PaneHeader(
@@ -4248,18 +3629,18 @@ struct ContentView: View {
                 relativePath: pane.relativePath,
                 canGoBack: pane.canGoBack,
                 canGoForward: pane.canGoForward,
-                // Same resolved mode the arrows were *enabled* from, so pressing one can never take
-                // the branch its enablement did not count.
+                // The same resolved mode the arrows were enabled from, so pressing one can never
+                // take a branch its enablement did not count.
                 onBack: { syncManager.goBack(isLeft: isLeft, drawsColumns: pane.viewMode == .columns) },
                 onForward: { syncManager.goForward(isLeft: isLeft, drawsColumns: pane.viewMode == .columns) },
-                // `pane.viewMode` and not a fresh read: the crumbs this routes were drawn from the
-                // same context, so a click can never be resolved against a mode the row it came
-                // from was not laid out in.
+                // `pane.viewMode`, not a fresh read: the crumbs this routes were drawn from the
+                // same context, so a click is never resolved against a mode its row was not laid
+                // out in.
                 onNavigate: { syncManager.navigatePane(isLeft: isLeft, toCombinedPath: $0,
                                                        drawsColumns: pane.viewMode == .columns) },
                 // The single-source rail has no visible sibling: nil says so, and the crumbs then
-                // treat ⌥-click (and the 🔗-linked crumb click) as plain navigation — never driving
-                // the hidden right pane — and drop "both panes" from their tooltips.
+                // treat ⌥-click (and the 🔗-linked crumb click) as plain navigation, never driving
+                // the hidden right pane, and drop "both panes" from their tooltips.
                 onNavigateBoth: layoutMode == .singleSource
                     ? nil
                     : { navigateBothPanes(toCombinedPath: $0, from: isLeft) },
@@ -4272,9 +3653,9 @@ struct ContentView: View {
                     if isLeft { leftProviderId = id } else { rightProviderId = id }
                 } },
                 sortOption: $syncManager.sortOption,
-                // The header card's right-click route to tabs — the one that works with no folder
-                // under the pointer and no strip on screen. `nil` for Close Tab at one tab: the
-                // item withholds itself rather than offering to close the window.
+                // The header card's right-click route to tabs, which works with no folder under the
+                // pointer and no strip on screen. `nil` for Close Tab at one tab: the item
+                // withholds itself rather than offering to close the window.
                 onNewTab: { openNewTabHere(isLeft: isLeft) },
                 onCloseTab: syncManager.paneTabs(isLeft: isLeft).count > 1
                     ? { holdingTabStrip(isLeft: isLeft) {
@@ -4282,63 +3663,51 @@ struct ContentView: View {
                     } }
                     : nil,
                 // Edit's pane is one column wide by default: past what fits, the trail keeps the
-                // current folder's name and folds the rest into its ellipsis (asked 2026-10-17).
+                // current folder's name and folds the rest into its ellipsis.
                 compactsBreadcrumbWhenNarrow: selectedWorkspace == .editor,
-                // Only the single-source rail collapses itself (back to the spine); the two
-                // comparison panes never collapse individually, and the full-window workspaces
-                // cannot — the pane IS the window there, so there is no spine to collapse into and
-                // nothing beside it that the space would go to. Asked of the layout, so a new
-                // full-window workspace does not have to remember to exclude itself.
-                // **Not in Edit** (asked 2026-10-17): Edit's strip stays beside the open pane and its
-                // lit cloud folds it, so a ⇤ in the pane's bar would be a second control for one act.
+                // Only the single-source rail collapses itself (back to the spine). The comparison
+                // panes never collapse individually, and in the full-window workspaces the pane is
+                // the window, with no spine to collapse into. Asked of the layout, so a new
+                // full-window workspace need not exclude itself. Not in Edit: Edit's strip stays
+                // beside the open pane and its lit cloud folds it, so a ⇤ in the pane's bar would
+                // be a second control for one act.
                 onCollapse: contentLayout.hasCollapsibleRail && selectedWorkspace != .editor
                     ? { togglePanesForCurrentTab() }
                     : nil,
                 onRefresh: { forceRefreshAction() },
                 isRefreshing: isScanShown,
                 // Turns the rung into Stop for as long as the scan is shown as running — from
-                // `defaultScanShownAfter` in, so a scan too quick to stop does not flash it. Both panes get it —
-                // there is one scan behind the two of them, so stopping from either is the same
-                // act, and the pane the user happens to be looking at is the one they will reach
-                // for.
+                // `defaultScanShownAfter` in, so a scan too quick to stop does not flash it. Both
+                // panes get it: one scan is behind both, so stopping from either is the same act.
                 onCancelScan: { syncManager.cancelScan() },
-                // One switch across both panes — hidden-file visibility is `syncManager`'s, not
-                // per-pane state. (The focused-pane mark is no longer a header parameter; see
-                // `ActivePaneMark` on the card below.)
+                // One switch across both panes: hidden-file visibility is `syncManager`'s, not
+                // per-pane state. The focused-pane mark is `ActivePaneMark` on the card below.
                 showHiddenFiles: $syncManager.showHiddenFiles,
                 // The rail and Browse get the switch too, each bound to its own key.
                 viewMode: resolvedViewModeBinding(isLeft: isLeft),
                 // Targets the pane's current folder, which in Columns is the deepest open column.
                 // One resolution shared with ⇧⌘N — see `beginNewFolder(isLeft:)`.
                 onNewFolder: { beginNewFolder(isLeft: isLeft) },
-                // Trashes THIS pane's selection — `ownNodes`, never `activeSelectionNodes`. In
-                // Compare both panes are on screen with a Delete each, and a button that acted on
-                // "whichever pane is active" would make the two identical rungs mean different
-                // things depending on where you last clicked.
+                // Trashes this pane's selection — `ownNodes`, never `activeSelectionNodes`: in
+                // Compare each pane has a Delete, and both must not mean "whichever pane is
+                // active".
                 //
-                // `alwaysConfirm: true` regardless of Settings ▸ Confirm before deleting: this is
-                // a permanently visible rung between Hidden Files and Search, not a menu item
-                // chosen by name. The row menu and ⌘⌫ still honour the setting; the tooltip says
-                // this one does not, so the prompt cannot read as the setting being broken.
-                // **Resolved at FIRE time, not captured.** `ownNodes` below is a snapshot taken
-                // during this render, and it is the right thing for the COUNT — enabling a button
-                // is a question about the render it is drawn in. It is the wrong thing for the
-                // act: this same closure is what the ⋯ menu's Delete entry runs, and a menu held
-                // open in menu-tracking mode is not re-armed by a republish, so a snapshot could
-                // name rows a background bulk sync has since replaced. `shortcutDeleteSelection`
-                // documents this for ⌘⌫ and resolves at fire for it; so does this.
+                // `alwaysConfirm: true` regardless of Settings ▸ Confirm before deleting: this rung
+                // is always visible, not a menu item chosen by name; the tooltip says so. Resolved
+                // at fire time, not captured: the ⋯ menu's Delete runs this closure too, and a menu
+                // held open is not re-armed by a republish, so a snapshot could name rows a
+                // background sync has replaced (as `shortcutDeleteSelection` does for ⌘⌫).
                 onDelete: { actionHandler?.confirmDelete(paneSelectionNodes(isLeft: isLeft),
                                                          alwaysConfirm: true) },
                 selectionCount: ownNodes.count,
-                // Search inside THIS pane's tree. Every workspace with a pane browser gets it from
-                // here — Compare's two panes and the single-source rail — because they are all this
-                // one header over this one pane component.
+                // Search inside this pane's tree. Every workspace with a pane browser gets it from
+                // here, because they are all this one header over this one pane component.
                 searchText: paneSearchState(isLeft: isLeft).query,
                 searchIsExpanded: paneSearchState(isLeft: isLeft).isExpanded,
                 searchSummary: paneSearchResults(isLeft: isLeft)
                     .summary(at: paneSearchState(isLeft: isLeft).wrappedValue.hitIndex),
-                // What the ▲▼ buttons are enabled by. The same collection `advancePaneSearch` walks,
-                // so a disabled button and a no-op walk can never disagree.
+                // What the ▲▼ buttons are enabled by: the same collection `advancePaneSearch`
+                // walks, so a disabled button and a no-op walk can never disagree.
                 searchMatchCount: paneSearchResults(isLeft: isLeft).hits.count,
                 onSearchAdvance: { reverse in advancePaneSearch(isLeft: isLeft, reverse: reverse) },
                 personOffer: { query in
@@ -4348,66 +3717,41 @@ struct ContentView: View {
                 onAcceptPerson: { person in acceptPersonScope(person) },
                 typeFilter: typeFilterControl(isLeft: isLeft)
             )
-            // Cards gives the provider header its own card, so the chrome reads as a separate
-            // object from the data — the same [toolbar][gap][content] rhythm the bottom workspace
-            // already has. The gap arithmetic needs no new number: each card insets itself by half
-            // a gutter, so header↔list comes to one `cardGutter`, and pane↔pane and pane↔window
-            // edge stay exactly where they were. In Unified `paneCardIfNeeded` is a no-op, so the
-            // pane stays one continuous surface and the two styles read differently — which is the
-            // point of having both.
-            //
-            // Unified marks the header's edge with the hairline every workspace column's header
-            // carries there (`columnHeaderRule`) — Edit's document, the Organize lenses and the
-            // Differences toolbar all draw the same one on the same 83.5 line.
+            // Cards gives the provider header its own card, the [toolbar][gap][content] rhythm the
+            // bottom workspace has; each card insets by half a gutter, so header↔list is one
+            // `cardGutter`. In Unified `paneCardIfNeeded` is a no-op, and `columnHeaderRule` draws
+            // the hairline every workspace column's header carries on the same line.
             .columnHeaderRule(surfaceStyle)
             .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
             treeView(pane)
                 .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
-                // Space → Quick Look, scoped to the FILE LIST — see `paneQuickLook()`.
+                // Space → Quick Look, scoped to the file list — see `paneQuickLook()`.
                 //
-                // Left on the single-key overload deliberately. It takes modified presses and
-                // fires on key-repeat like every other overload does (measured — see
-                // `KeyPress.isPlainKeystroke`), and neither matters here: Quick Look opens a
-                // panel, a repeat re-targets the same panel, and nothing moves on disk.
+                // The single-key overload, deliberately. It takes modified presses and fires on
+                // key-repeat like every overload (see `KeyPress.isPlainKeystroke`), and neither
+                // matters here: Quick Look opens a panel, a repeat re-targets the same panel, and
+                // nothing moves on disk.
                 .onKeyPress(.space) { paneQuickLook() }
-                // ↩ → Rename, scoped the same way and for a stronger reason — see `paneRename()`.
+                // ↩ → Rename, scoped like Space — see `paneRename()`.
                 //
-                // Same shape as the two decision cards, and for two of their three reasons. This
-                // was `.onKeyPress(.return)`, which meant:
+                // `.onKeyPress(keys:phases:)` with `isPlainKeystroke`, because no overload filters
+                // modifiers (a plain `.return` handler would steal ⌘↩, ⌥↩ and the rest), and the
+                // keypad's Enter sends U+0003, not U+000D. `isPlainKeystroke`, not
+                // `modifiers.isEmpty`: the keypad's Enter always carries `.numericPad` +
+                // `.function`, and `.capsLock` rides on every event while engaged. `.down` only.
                 //
-                // - **⌘↩/⇧↩/⌥↩/⌃↩ each opened the rename editor.** No `onKeyPress` overload
-                //   filters modifiers; the single-key one is not the exception it was once
-                //   documented to be. ⌘↩ and ⌥↩ are chords other surfaces own, and a rename
-                //   editor opening under one steals the keystroke from whoever meant it.
-                // - **The keypad's Enter did nothing**, silently, while the File menu's Rename
-                //   item and the pane's own affordances advertise ↩. keyCode 76 sends U+0003, not
-                //   U+000D, and SwiftUI matches on the character delivered.
-                //
-                // The third reason does not apply, which is why this is not the cards' problem:
-                // a held ↩ opening one rename editor and then re-opening the same one moves no
-                // bytes. `.down` only regardless — there is no reason to want the repeats.
-                // `press.isPlainKeystroke` and not `modifiers.isEmpty`: the keypad's Enter always
-                // carries `.numericPad` + `.function`, so the strict spelling would refuse the
-                // keycap this change exists to accept, and `.capsLock` rides on every event while
-                // the lock is engaged.
-                //
-                // No `focused` term, unlike the cards: `paneRename` has no focusable descendants
-                // of its own to be confused with, and the guard it does need — a pending
-                // destination pick or the ⌘K palette owning the keyboard — is `paneChordsSuspended`,
-                // asked inside `paneRename()` where the menu item's twin can be asked the same way.
+                // No `focused` term: the guard it needs (a destination pick or the ⌘K palette
+                // owning the keyboard) is `paneChordsSuspended`, asked inside `paneRename()` as the
+                // menu item's twin asks it.
                 .onKeyPress(keys: [.return, .keypadEnter], phases: .down) { press in
                     guard press.isPlainKeystroke else { return .ignored }
                     return paneRename()
                 }
-                // The file actions (Compare/Copy/Move/Delete) live here now, not in the titlebar: a
-                // contextual bar on whichever pane holds the selection, so the buttons name their
-                // target. (New Folder stays on the right-click menu to keep the bar compact.) The
-                // overlay is scoped to the list — NOT the whole column — so its top position lands
-                // just under the pane header, never over it. It flips to the top when a selected
-                // row is near the list's bottom, keeping the selection visible.
-                //
-                // **The result message shares the stack** (Banner Room, CA): on the bar's edge, on
-                // the list's side of it, so it never covers the bar, the header or the row acted on.
+                // The file actions (Compare/Copy/Move/Delete) on whichever pane holds the
+                // selection, so the buttons name their target. Scoped to the list, not the column,
+                // so at the top it lands under the header; it flips to the top when a selected row
+                // nears the bottom. The result message shares the stack on the list's side, so it
+                // never covers the bar, the header or the row acted on.
                 .overlay(alignment: barAtTop ? .top : .bottom) {
                     VStack(spacing: 0) {
                         if barAtTop { paneBarPiece(isLeft: isLeft, barNodes: barNodes, atTop: barAtTop, placement: placement) }
@@ -4418,47 +3762,33 @@ struct ContentView: View {
                         if !barAtTop { paneBarPiece(isLeft: isLeft, barNodes: barNodes, atTop: barAtTop, placement: placement) }
                     }
                 }
-                // Quick fade on appear/disappear only (keyed on presence, not the edge), so clicking
-                // a file shows the bar at once and clearing the selection fades it out.
+                // Quick fade on appear and disappear only (keyed on presence, not the edge), so
+                // clicking a file shows the bar at once and clearing the selection fades it out.
                 //
-                // Through `designAnimation` because the transition it drives is not only a fade —
-                // it carries `.move(edge:)`, so the bar slides in from the top or bottom. Under
-                // Reduce Motion the whole insertion lands at once rather than travelling.
+                // Through `designAnimation` because the transition is not only a fade: it carries
+                // `.move(edge:)`, so the bar slides in from the top or bottom. Under Reduce Motion
+                // the insertion lands at once.
                 .designAnimation(.easeOut(duration: 0.11), value: barNodes.isEmpty)
                 // The message's own arrival and departure, keyed on its identity: a replacement
-                // slides in for the one it replaces. The old window-top banner's spring.
+                // slides in for the one it replaces.
                 .designAnimation(.spring(response: 0.4, dampingFraction: 0.9), value: message?.id)
         }
-        // **The pane the sidebar opens into, marked on the pane.**
+        // The pane the sidebar opens into, marked on the pane, where the eye is, not only in the
+        // sidebar's `Left | Right` control.
         //
-        // The `Left | Right` control says which pane is armed, and it lives in the sidebar's
-        // header — so confirming meant looking away from the panes to a corner you were not using.
-        // This is the other half: the answer sits on the destination.
-        //
-        // **Decoration, never layout.** Both of `PaneHeader`'s rows are pinned by measurement —
-        // `PaneHeaderHeightTests` holds the header to `LiquidGlass.headerHeight` and
-        // `PaneBarLadderTests` measures the top row overflowing a 250pt pane — so a chip in either
-        // would burst a rung, which is exactly what that file says happened to the search field.
-        // A background wash and a top edge cost nothing and cannot collide with anything.
-        //
-        // **Reads as a destination, not as a selection.** This marks the region's edge, where the
-        // selection wash is per row (`PaneSelectionWash`) and the inactive pane's dimming is a
-        // property of ROWS too — so the two signals never occupy the same surface.
+        // Decoration, never layout: both `PaneHeader` rows are pinned by measurement
+        // (`PaneHeaderHeightTests`, `PaneBarLadderTests`), so a chip would burst a rung. A
+        // background wash and a top edge mark the region, while selection and dimming stay
+        // properties of rows (`PaneSelectionWash`), so the two signals never share a surface.
         .modifier(ActivePaneMark(isFocused: paneIsFocusedPane(isLeft: isLeft),
                                 accent: glassHue.accentColor,
                                 surfaceStyle: surfaceStyle))
-        // **Any click in this column means the user is working here.** Covers what the tab verbs
-        // and the selection write cannot see between them: the empty space under the last row, the
-        // header card's chrome, the breadcrumb, a right-click. Reports and declines every press, so
-        // nothing below it loses a click — see `PaneClickReporter`.
-        //
-        // The focus half is Compare only. The single-source workspaces have one pane, which
-        // `focusedPaneIsLeft` already floors to, so a reporter there would write a value that was
-        // never in question.
-        //
-        // Organize and Edit ask it too, for a different question: whether the reader is working in
-        // their source pane or in the lens or editor beside it, which is where the next result
-        // message shows (`ResultMessageRoute`).
+        // Any click in this column means the user is working here, including what the tab verbs and
+        // selection write cannot see (empty space, the header chrome, the breadcrumb, a
+        // right-click). `PaneClickReporter` reports and declines every press, so nothing loses a
+        // click. In Compare it moves the focus; in Organize and Edit it records whether the reader
+        // is in their source pane, which decides where the next result message shows
+        // (`ResultMessageRoute`).
         .overlay {
             if layoutMode == .compare {
                 PaneClickReporter {
@@ -4468,29 +3798,19 @@ struct ContentView: View {
                 PaneClickReporter { noteResultRegion(inPane: true) }
             }
         }
-        // Keyed on the strip's PRESENCE, not on the tab count: a tab opening or closing while the
-        // strip is already up must not animate the header and list below it.
+        // Keyed on the strip's presence, not the tab count: a tab opening or closing while the
+        // strip is up must not animate the header and list below it.
         .designAnimation(.easeOut(duration: 0.18), value: paneShowsTabStrip(isLeft: isLeft))
-        // Escape clears this pane's selection — the file lists give no deselect gesture, so
-        // without this a folder picked here could never be un-picked. Only swallow the key when
-        // there's actually a selection here; otherwise let it bubble (dialogs, etc.).
-        //
-        // The single-source rail reads its RAW selection rather than `barNodes`: the action bar (and with it
-        // `barSelectionNodes`) is compare-only, so gating on it alone made Escape dead on the one
-        // surface that has neither a bar nor its ✕ to fall back on. Compare's gate is unchanged —
-        // see `PaneLogic.escapeClearsSelection`.
-        //
-        // Single-key overload, kept: like ␣ above it takes modified presses and fires on
-        // key-repeat, and neither costs anything here. Clearing an already-clear selection is a
-        // no-op, and the guard already returns `.ignored` when there is nothing to clear, so a
-        // ⌘esc-shaped press cannot swallow a key someone else wanted. (⌘esc and ⌃esc do not reach
-        // any `onKeyPress` at all — AppKit takes them as `cancelOperation:` ahead of the responder
-        // chain.) Reviewed with ↩ above on 2026-08-21 and deliberately left as-is.
+        // Escape clears this pane's selection, since the file lists give no deselect gesture; it is
+        // swallowed only when there is a selection to clear. The rail reads its raw selection, not
+        // `barNodes`, because the action bar is compare-only (`PaneLogic.escapeClearsSelection`).
+        // The single-key overload is fine here: clearing is idempotent, and ⌘esc and ⌃esc never
+        // reach `onKeyPress` (AppKit takes them as `cancelOperation:`).
         .onKeyPress(.escape) {
             let paneSelection = isLeft ? syncManager.selectedLeftPaths : syncManager.selectedRightPaths
-            // **The pane, not the root view.** An `onKeyPress` scopes to the subtree that has
-            // focus, and the root is not focusable — a handler there would never see the key. The
-            // pick's esc therefore lives with the selection's, ahead of it; the precedence is
+            // The pane, not the root view: an `onKeyPress` scopes to the subtree that has focus,
+            // and the root is not focusable, so a handler there would never see the key. The pick's
+            // esc therefore lives with the selection's, ahead of it; the precedence is
             // `PaneLogic.escapeAction`.
             switch PaneLogic.escapeAction(
                 hasComparePick: comparePick != nil,
@@ -4508,31 +3828,29 @@ struct ContentView: View {
                 return .ignored
             }
         }
-        // The debounce. `.task(id:)` cancels and restarts whenever the key moves, so the sleep below
-        // IS the debounce — no timer to own, and a keystroke landing mid-sleep simply replaces the
-        // pending recomputation rather than queueing a second one.
+        // The debounce. `.task(id:)` cancels and restarts whenever the key moves, so the sleep
+        // below is the debounce: no timer to own, and a keystroke mid-sleep replaces the pending
+        // recomputation rather than queueing a second.
         //
-        // The TREE VERSION is part of the key on purpose: a result set names paths in a tree that
-        // has since been rebuilt, and a scan, a delete or a hidden-files toggle leaves hits pointing
-        // at rows that no longer exist — the walk would then reveal nothing and select a ghost. It
-        // costs nothing when no query is typed: `recomputeSearch` returns before stamping a new
-        // generation, so an idle republish publishes nothing (speed audit item 7).
+        // The tree version is part of the key: a result set names paths in a tree that may since
+        // have been rebuilt (a scan, a delete, a hidden-files toggle), and stale hits would reveal
+        // nothing and select a ghost. It costs nothing when no query is typed: `recomputeSearch`
+        // returns before stamping a new generation, so an idle republish publishes nothing.
         .task(id: PaneSearchRecomputeKey(isLeft: isLeft,
                                          query: paneSearchState(isLeft: isLeft).wrappedValue.query,
                                          treeVersion: pane.tree.version,
                                          otherTreeVersion: pane.otherTree.version)) {
             try? await Task.sleep(for: ContentView.searchDebounce)
             guard !Task.isCancelled else { return }
-            // Where the walk lands afterwards is decided INSIDE, past the staleness guard — see
-            // `recomputeSearch`. It used to be set here, unconditionally, which moved the user's
-            // position even when the results that prompted it were dropped for being stale.
+            // Where the walk lands afterwards is decided inside, past the staleness guard — see
+            // `recomputeSearch` — so results dropped as stale never move the user's position.
             await recomputeSearch(isLeft: isLeft)
         }
     }
 
-    /// The Info inspector — the former Details tab, now a toggleable right-side panel showing metadata
-    /// for the current selection. Available on both Compare (both-sides status) and the single-source
-    /// single-source rail. `DetailsSidebar` handles the no-selection empty state itself.
+    /// The Info inspector: a toggleable right-side panel showing metadata for the current
+    /// selection. Available on Compare (with both-sides status) and on the single-source rail.
+    /// `DetailsSidebar` handles the no-selection empty state itself.
     private var infoInspector: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
@@ -4550,8 +3868,8 @@ struct ContentView: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
             Divider()
-            // Which pane the inspector is describing, in Compare, where it follows the pane you
-            // are working in (TE318·m4). A Get Info target names no pane, so it gets no line.
+            // Which pane the inspector is describing, in Compare, where it follows the pane you are
+            // working in. A Get Info target names no pane, so it gets no line.
             if layoutMode == .compare, infoPath == nil {
                 Text(inspectorFollowsLeft ? "Left pane · \(paneNames.left)" : "Right pane · \(paneNames.right)")
                     .scaledFont(.caption)
@@ -4566,10 +3884,10 @@ struct ContentView: View {
             DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, overridePath: infoPath, singleSource: layoutMode == .singleSource, cloudCoverage: settings.cloudCoverage,
                            // The app answers what the editor opens, because the app is where every
                            // other door asks it: `EditableText.opensInEdit` is the row menu's own
-                           // gate, so the inspector cannot come to disagree with the menu about a file.
+                           // gate, so the inspector cannot disagree with the menu about a file.
                            editorHandOff: EditorHandOff(isOffered: { EditableText.opensInEdit(path: $0) },
                                                        open: { handOffToEditor($0) }),
-                           // The picture over the details, at the height last dragged to (TE318 B).
+                           // The picture over the details, at the height last dragged to.
                            previewFraction: $inspectorPreviewFraction,
                            preview: previewTarget.map { target in
                                AnyView(InspectorFilePreview(
@@ -4584,16 +3902,16 @@ struct ContentView: View {
                            followsRight: !inspectorFollowsLeft)
         }
         .frame(width: inspectorDragWidth ?? inspectorWidth)
-        // A card like every other surface, not a docked `.bar` panel: the opaque bar fill was a
-        // solid band down a window Clear asks to see through, and its zero inset broke the gap
-        // model (2.5pt to the pane card, flush to the window edge the root padding then floated).
+        // A card like every other surface, not a docked `.bar` panel: an opaque bar fill would be a
+        // solid band down a window Clear asks to see through, and its zero inset would break the
+        // gap model.
         .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
     }
 
-    /// Whether the inspector describes the LEFT pane's selection: the pane the user is working in
-    /// (`focusedPane`), or the other one when that holds nothing. `DetailsSidebar` on its own reads
-    /// the left pane first, so in Compare a click in the right pane was described only once the left
-    /// pane's selection was empty — wrong the moment the inspector carries the preview (TE317·5).
+    /// Whether the inspector describes the left pane's selection: the pane the user is working in
+    /// (`focusedPane`), or the other one when that holds nothing. `DetailsSidebar` alone reads the
+    /// left pane first, so in Compare a click in the right pane would be described only once the
+    /// left pane's selection was empty.
     private var inspectorFollowsLeft: Bool {
         PaneLogic.inspectorFollowsLeft(isCompare: layoutMode == .compare,
                                        focusedIsLeft: focusedPane == .left,
@@ -4610,15 +3928,15 @@ struct ContentView: View {
             leftNodes: { syncManager.leftNodes(for: $0) }, rightNodes: { syncManager.rightNodes(for: $0) },
             rightRoot: currentRightPath)
         else { return nil }
-        // **Not the document Edit has open.** Opening a file selects it in the pane, so the
-        // inspector beside the editor previewed the very file being edited — as it was when Quick
-        // Look first read it, not as the editor has it — and parsed a PDF a second time in the
-        // shared lane. Its icon stands in.
+        // Not the document Edit has open. Opening a file selects it in the pane, so the inspector
+        // beside the editor would preview the very file being edited (as Quick Look first read it,
+        // not as the editor has it) and parse a PDF a second time in the shared lane. Its icon
+        // stands in.
         if selectedWorkspace == .editor, target.node.id == editorOpenPath { return nil }
         return target
     }
 
-    /// `inspectorPreviewTarget`'s rule, pure: a Get Info target first, in whichever tree holds it —
+    /// `inspectorPreviewTarget`'s rule, pure: a Get Info target first, in whichever tree holds it,
     /// or as its own node (`infoNode`) when neither does, filed with the right pane only under the
     /// right pane's root; otherwise the one item selected in the pane the inspector follows. Files
     /// only: a folder has no preview.
@@ -4657,18 +3975,12 @@ struct ContentView: View {
         return isLeft || layoutMode == .compare
     }
 
-    /// The draggable seam between the panes and the Info inspector: a 1pt strip in the HStack flow
-    /// with a 10pt-wide hit target straddling it — clear in Cards, where the card gap already draws
-    /// the separation, and the hairline itself in Unified, where the two sit flush in one region.
-    /// `inspectorWidth` is held constant through the gesture (written only on release), so it's
-    /// the stable base for `PaneLogic.inspectorDragWidth`.
+    /// The draggable seam between the panes and the Info inspector: a 1pt strip with a 10pt hit
+    /// target, clear in Cards and the hairline in Unified. `inspectorWidth` holds still until
+    /// release, so it is the stable base for `PaneLogic.inspectorDragWidth`.
     ///
-    /// The drag reads `.global`, NOT the default `.local`, coordinate space: this handle slides left
-    /// as the inspector widens, so in its own moving frame `translation` feeds back on itself and
-    /// collapses to ~0 once layout catches up — the panes' splits dodge the same trap by reading a
-    /// fixed coordinate space (the rule is documented on the shared `ResizeHandle`). Global
-    /// translation is the cursor's real delta, independent of the handle's position, so the resize
-    /// stays smooth instead of stuttering.
+    /// The drag reads `.global`, not `.local`: the handle moves as the inspector widens, so a local
+    /// `translation` feeds back on itself and collapses to ~0 (see `ResizeHandle`).
     private var inspectorResizeHandle: some View {
         // In Cards a clear 1pt strip, not a visible Divider: the inspector is a floating card, so
         // the seam is the gap between cards (2.5 + 1 + 2.5) and only the hit target remains. In
@@ -4704,28 +4016,14 @@ struct ContentView: View {
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
-            // **Unified is one box**: the only outline under the toolbar, round every workspace's
+            // Unified is one box: the only outline under the toolbar, round every workspace's
             // content and the inspector beside it, which meet inside at hairlines. A no-op in
             // Cards, where each area is its own card. See `windowRegionFrame`.
             .windowRegionFrame(surfaceStyle, level: glassLevel)
-            // **The pick-mode bar TAKES SPACE, and it belongs at the BOTTOM.** Two corrections,
-            // both from seeing it run.
-            //
-            // It began as `.overlay(alignment: .top)` on the window root, which floats above
-            // everything — including the panes' own tab strips and both breadcrumb rows. On a real
-            // window it drew straight across them, the prompt and the tab titles and the right
-            // pane's crumbs superimposed and none of them readable. A mode indicator is chrome,
-            // not a badge; chrome drawn over the controls beneath it is worse than no indicator.
-            // So it became a row, which nothing can be drawn over.
-            //
-            // **At the top it was a row nobody looked at.** The gesture that arms it is a click in
-            // the action bar at the FOOT of the pane, and the answer to it appeared at the head of
-            // the window, the full height of the panes away from where the eye already was. Here
-            // it sits directly under the panes, a few points from where the bar floats — the same
-            // corner of the window the reader is already working in.
-            //
-            // Still the one wrapper every workspace's content passes through, so Browse's single
-            // pane and Edit get it on the same terms as Compare's two.
+            // The pick-mode bar is a row at the bottom, not an overlay: an overlay would draw over
+            // the panes' tab strips and breadcrumbs, and at the bottom it sits beside the action
+            // bar whose click armed it. Every workspace's content passes through this wrapper, so
+            // all of them get it.
             if let pick = comparePick {
                 ComparePickStrip(fileName: pick.armedName, onCancel: { comparePick = nil })
                     .padding(.top, 6)
@@ -4734,42 +4032,32 @@ struct ContentView: View {
         }
         .designAnimation(.easeOut(duration: 0.15), value: comparePick)
         // The window-edge half of every gap. Each card insets itself by the other half, so a
-        // card-to-edge gap and a card-to-card gap both come to `cardGutter`. Applied once,
-        // here, and nowhere else — per-container padding is what made the gaps uneven before.
+        // card-to-edge gap and a card-to-card gap both come to `cardGutter`. Applied once, here;
+        // per-container padding would make the gaps uneven.
         .padding(LiquidGlass.cardInset)
-        // **No animation on a workspace switch or a pane collapse** (speed audit 11, 13). Both used
-        // to ease for 0.2 s here, and an animation around a layout swap keeps the outgoing layout
-        // mounted and drawn until the fade ends: leaving Compare kept two panes, the differences
-        // table and the sidebar alive under the next workspace, and a collapse showed both copies
-        // of Organize or Edit at once. The workspace bar slides its own pill; the layout snaps.
-        // The differences pane snaps open/closed instantly with the chevron too, which is what
-        // reads as responsive here.
+        // No animation on a workspace switch or a pane collapse. An animation around a layout swap
+        // keeps the outgoing layout mounted and drawn until the fade ends: leaving Compare would
+        // keep two panes, the differences table and the sidebar alive under the next workspace, and
+        // a collapse would show both copies of Organize or Edit at once. The workspace bar slides
+        // its own pill; the layout snaps. The differences pane snaps open and closed with the
+        // chevron too.
         .animation(nil, value: bottomPaneIsCollapsed)
-        // And the snap is structural, not just the absence of a modifier: a `withAnimation` put
-        // around a switch or a collapse later would animate the swap again (and, with the
-        // `.designAnimation` gone, ignore Reduce Motion). These strip it for the layout below. The
-        // workspace bar's pill is in the window toolbar, outside this subtree, and keeps its slide;
-        // the tab strip's own animations sit nearer their views and still win.
+        // And the snap is structural, not just the absence of a modifier: a `withAnimation` around
+        // a switch or collapse would animate the swap again (and ignore Reduce Motion). These strip
+        // it for the layout below. The workspace bar's pill is in the window toolbar, outside this
+        // subtree, and keeps its slide; the tab strip's own animations sit nearer their views and
+        // still win.
         .animation(nil, value: selectedWorkspace)
         .animation(nil, value: panesHiddenForCurrentTab)
         .designAnimation(.easeInOut(duration: 0.15), value: showInspector)
-        // **No dimming overlay during a long run** (TE208, decision BZ). The progress dialog used
-        // to sit here over a scrim that took every click until the run ended — minutes, for a
-        // duplicate merge. The run's progress is the toolbar capsule's now (`mainToolbar`), the
-        // window stays live for reading, and what would write to disk is greyed with the reason
-        // through `runWriteLock`, set on the window root.
+        // No dimming overlay during a long run: the window stays live for reading, progress is the
+        // toolbar capsule's (`mainToolbar`), and writes are greyed through `runWriteLock`. No
+        // window-top result message either, which would cover the pane header's Delete; each pane's
+        // list docks it (`paneMessagePiece`), and `ResultMessageRoute` says which surface shows it.
         //
-        // **No result message up here any more** (Banner Room, CA). It floated across the window's
-        // top for five seconds, over the pane header's Delete — the next click's target — and in
-        // Compare over the seam's ⇄ and 🔗 as well. Each pane's list docks it now, in one stack with
-        // the action bar (`paneMessagePiece`), and Organize and Edit's other half has its own
-        // (`WorkspaceResultMessageHost`); `ResultMessageRoute` says which shows it.
-        //
-        // A banner already showing when this view appears (the manager owns it; the scheduler
-        // below is view `@State`) gets its auto-dismiss armed here, since the `onChange` never
-        // fires for a value that didn't change. `adoptExistingBanner` no-ops when there's no
-        // banner or this scheduler is already tracking one, so a re-appearance can't restart the
-        // countdown.
+        // A banner already showing when this view appears gets its auto-dismiss armed here, since
+        // `onChange` never fires for an unchanged value. `adoptExistingBanner` no-ops when there's
+        // no banner or it already tracks one, so a re-appearance can't restart the countdown.
         .onAppear {
             bannerDismissScheduler.adoptExistingBanner(syncManager.banner, inCapsule: resultMessageHome == .toolbar,
                                                        shownOn: resultMessageSurfaces) {
@@ -4782,7 +4070,7 @@ struct ContentView: View {
             bannerDismissScheduler.bannerChanged(to: newValue, inCapsule: inCapsule, shownOn: resultMessageSurfaces) {
                 retireResultMessage()
             }
-            // Banners vanish with the window; when the app is in the background, mirror the
+            // Messages vanish with the window; when the app is in the background, mirror the
             // outcome as a system notification (General setting, default off).
             if let banner = newValue {
                 let ended = fileRunEnded(by: banner).map { (title: $0.title, ended: $0.ended) }
@@ -4791,11 +4079,11 @@ struct ContentView: View {
         }
         // The same message moving — a workspace switch — leaves a resting pointer behind it.
         .onChange(of: resultMessageSurfaces) { _, surfaces in bannerDismissScheduler.surfacesChanged(to: surfaces) }
-        // Where a long file operation was started, for its ending's route (Run Room CP).
+        // Where a long file operation was started, for its ending's route.
         .onChange(of: syncManager.activeProgress != nil) { _, running in
             if running { fileOperationOrigin = selectedWorkspace }
         }
-        // Edit ▸ Undo and ⌘Z wait during a run, on the file operations' stack only (CF).
+        // Edit ▸ Undo and ⌘Z wait during a run, on the file operations' stack only.
         .onChange(of: runWriteLockReason, initial: true) { _, reason in
             let gate = RunUndoGate.shared
             gate.reason = reason
@@ -4811,11 +4099,10 @@ struct ContentView: View {
             Logger.shared.info("User toggled hidden files to: \(newValue)")
         }
         // The menu-bar chords, on one contract, bundled into one modifier
-        // (`ShortcutValuePublisher` — inlining the chained publications here broke the
-        // type-checker's time budget): each value recomputes with this body, so a menu item's
-        // enabled-ness tracks the same facts the control it mirrors renders from. ⌘F is in there
-        // too now; it was the last one published on its own, and so the last one the picker's
-        // suspension did not reach.
+        // (`ShortcutValuePublisher`; inlining the publications here breaks the type-checker's time
+        // budget). Each value recomputes with this body, so a menu item's enabled-ness tracks the
+        // same facts the control it mirrors renders from, and the picker's suspension reaches every
+        // chord, ⌘F included.
         .modifier(shortcutValuePublisher)
         .onReceive(editorPDF.view.$hasFocus.removeDuplicates()) { editorPDFReaderFocused = $0 }
         // Feed the pane header's quick-jump "Recent" list: every folder either pane focuses — by
@@ -4824,9 +4111,10 @@ struct ContentView: View {
             FolderJumpStore.shared.recordVisit(root: settings.rootPath(for: leftProviderId),
                                                relativePath: rel, name: (rel as NSString).lastPathComponent)
             noteFolderArrival(pane: "left", root: settings.rootPath(for: leftProviderId), relativePath: rel)
-            // The visit just recorded is a row the sidebar does not have yet. Same handler rather
-            // than a second `onChange` on the same value: two would fire in an order SwiftUI does
-            // not promise, and the wrong one puts the sidebar one folder behind the pane.
+            // The visit just recorded is a row the sidebar does not have yet. The same handler
+            // rather than a second `onChange` on the same value: two would fire in an order SwiftUI
+            // does not promise, and the wrong one would leave the sidebar one folder behind the
+            // pane.
             refreshFolderSidebarRows()
         }
         .onChange(of: syncManager.rightRelativePath) { _, rel in
@@ -4834,97 +4122,85 @@ struct ContentView: View {
                                                relativePath: rel, name: (rel as NSString).lastPathComponent)
             noteFolderArrival(pane: "right", root: settings.rootPath(for: rightProviderId), relativePath: rel)
         }
-        // The other moments the sidebar's answer can change: first appearance, a provider switch
-        // (a different root is a different pair of lists), the set of sources changing, and the
-        // store publishing a favorite made anywhere else — the pane header's jump menu and the
-        // breadcrumb both write to it.
+        // The other moments the sidebar's answer can change: first appearance, a provider switch,
+        // the set of sources changing, and the store publishing a favorite made elsewhere.
         //
-        // `objectWillChange` fires BEFORE the store mutates, so the handler hops a run-loop turn;
-        // reading inline would re-read the lists as they were.
-        //
-        // **The publisher is handed over bare, and the hop is inside the handler.** Writing it as
-        // `objectWillChange.receive(on: RunLoop.main)` builds a NEW `Publishers.ReceiveOn` value on
-        // every evaluation of this body, and `onReceive` has no way to see it as the same one — so
-        // it tears down and re-subscribes on every render, and an event that lands in the gap is
-        // simply lost. `ObservableObjectPublisher` itself is one stable instance.
+        // `objectWillChange` fires before the store mutates, so the handler hops a run-loop turn.
+        // The hop is inside the handler, not `.receive(on:)`: that would build a new publisher on
+        // every body evaluation, re-subscribing on every render and losing events in the gap.
+        // `ObservableObjectPublisher` is one stable instance.
         .onAppear {
-            // **The launch walk**, and it is NOT redundant with the refresh beside it: that one
-            // returns early wherever the column is hidden, and a card already in the reader has to
-            // be recorded before it is ejected whether or not the sidebar is on screen.
-            //
-            // **It is no longer paid twice, though.** It walked the volumes here and the refresh
-            // below walked them again a moment later, on the same unchanged set. This one fills
-            // `knownMountedVolumes`, and the refresh reads it — one walk at launch instead of two.
+            // The launch walk, not redundant with the refresh beside it: that one returns early
+            // wherever the column is hidden, and a card already in the reader must be recorded
+            // before it is ejected whether or not the sidebar is on screen. It fills
+            // `knownMountedVolumes`, which the refresh reads, so launch walks the volumes once.
             Self.rememberMountedVolumes(Self.mountedVolumesAsLastSeen())
             refreshFolderSidebarRows()
         }
         .onChange(of: leftProviderId) { _, _ in refreshFolderSidebarRows() }
-        // **The two the gate makes necessary.** `refreshFolderSidebarRows` now returns early
-        // wherever the column is not on screen — which is right, because it `stat`s a provider root
-        // and the other triggers fire on every workspace. But it also means switching the sidebar
-        // ON, or arriving at Browse, lands on whatever was last resolved: exactly the stale list a
-        // person would read as "my pins are gone". The guard and these two are one change.
+        // The triggers the gate makes necessary. `refreshFolderSidebarRows` returns early wherever
+        // the column is not on screen, which is right, because it `stat`s a provider root and the
+        // other triggers fire in every workspace. But then switching the sidebar on, or arriving at
+        // Browse, would land on whatever was last resolved, which reads as "my pins are gone". The
+        // guard and these triggers are one change.
         .onChange(of: browseSidebarVisible) { _, _ in refreshFolderSidebarRows() }
         .onChange(of: browseSidebarRecentsMode) { _, _ in refreshFolderSidebarRows() }
         .onChange(of: editorSidebarVisible) { _, _ in refreshFolderSidebarRows() }
         .onChange(of: selectedWorkspace) { _, _ in refreshFolderSidebarRows() }
-        // **The third**, added when collapsing the panes joined the gate. The paragraph above got
-        // this exactly right and I still missed it: every input to
-        // `FolderSidebarModel.isShowing` needs a trigger, because the guard drops whatever fires
-        // while the column is hidden and nothing re-runs it on the way back. Expanding the panes
-        // was landing on a list resolved before the collapse. `FolderSidebarWiringTests` now pins
-        // that the set of triggers matches the set of gate inputs, since this is the second time.
+        // Every input to `FolderSidebarModel.isShowing` needs a trigger, because the guard drops
+        // whatever fires while the column is hidden and nothing re-runs it on the way back;
+        // expanding the panes would otherwise land on a list resolved before the collapse.
+        // `FolderSidebarWiringTests` pins that the triggers match the gate's inputs.
         .onChange(of: panesHiddenForCurrentTab) { _, _ in refreshFolderSidebarRows() }
-        // Expand's hold is a gate input too: leaving Expand can bring the column back with no
-        // pane, workspace or preference change to trigger the refresh above.
+        // Expand's hold is a gate input too: leaving Expand can bring the column back with no pane,
+        // workspace or preference change to trigger the refresh above.
         .onChange(of: folderSidebarHeldByExpand) { _, _ in refreshFolderSidebarRows() }
-        // **And the set of sources itself**, which is new in v4.4 because the column now draws one
-        // row per source. Adding a folder source, removing one, or switching one off in Settings
-        // all change what the Sources section should say — and one of those paths is the sidebar's
-        // own promotion, which would otherwise leave the row it just added still reading as a
-        // local shortcut nobody has heard of. Keyed on the ids rather than the array: `CloudProvider`
-        // carries a mutable `path`, so an unrelated Location edit would fire this on every keystroke.
+        // And the set of sources itself, since the column draws one row per source. Adding,
+        // removing or switching off a folder source all change what the Sources section says, and
+        // one of those paths is the sidebar's own promotion, whose new row would otherwise still
+        // read as a local shortcut. Keyed on the ids rather than the array: `CloudProvider` carries
+        // a mutable `path`, so an unrelated Location edit would fire this on every keystroke.
         .onChange(of: settings.enabledProviders.map(\.id)) { _, _ in refreshFolderSidebarRows() }
         .onReceive(FolderJumpStore.shared.objectWillChange) { _ in
             DispatchQueue.main.async { refreshFolderSidebarRows() }
         }
-        // **A card renamed in Finder takes its sources with it.** `didRenameVolumeNotification`
-        // carries both URLs, so this is a fact and not an inference — which is what makes acting on
-        // it silently safe. Nothing here treats a source that has merely gone missing as renamed:
-        // an unplugged card is asleep, and the column's whole dimming rule is that asleep is not
-        // gone. See `SettingsManager.followVolumeRename`.
+        // A card renamed in Finder takes its sources with it. `didRenameVolumeNotification` carries
+        // both URLs, so this is a fact and not an inference, which makes acting on it silently
+        // safe. Nothing here treats a source that has merely gone missing as renamed: an unplugged
+        // card is asleep, and the column's dimming rule is that asleep is not gone. See
+        // `SettingsManager.followVolumeRename`.
         .onReceive(NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.didRenameVolumeNotification)) { note in
                 followVolumeRename(note)
         }
-        // **Ejecting a card removes the sources on it**, so the row goes rather than dimming — and
-        // the three subscriptions are one mechanism, not three features. The unmount notification
-        // cannot say what the volume WAS, so the two before it record that while it is still there:
-        // the launch walk in `onAppear` catches a card already in the reader, `didMount` catches one
-        // inserted while the app runs, and `willUnmount` is the last chance before it goes.
+        // Ejecting a card removes the sources on it, so the row goes rather than dimming. The three
+        // subscriptions are one mechanism: the unmount notification cannot say what the volume was,
+        // so the earlier ones record that while it is still there. The launch walk in `onAppear`
+        // catches a card already in the reader, `didMount` one inserted while the app runs, and
+        // `willUnmount` is the last chance before it goes.
         .onReceive(NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.didMountNotification)) { _ in
-                // A volume arrived, so the cached walk is out of date by definition — dropped
-                // first, then re-taken by the record below and reused by the refresh after it.
+                // A volume arrived, so the cached walk is out of date: dropped first, then re-taken
+                // by the record below and reused by the refresh after it.
                 Self.forgetMountedVolumes()
                 Self.rememberMountedVolumes(Self.mountedVolumesAsLastSeen())
                 refreshFolderSidebarRows()
         }
         .onReceive(NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.willUnmountNotification)) { _ in
-                // **From the cached walk, deliberately.** This is the last chance to record what a
-                // volume WAS, and it arrives while that volume is being torn down — a fresh
-                // `mountedVolumeURLs` plus a `resourceValues` read per volume, run synchronously on
-                // the main thread at exactly that moment, is the walk most likely to block. The
-                // cached answer was taken while the volume was healthy, which is the answer this
-                // handler wants; the cache is NOT dropped here, because the volume has not gone
-                // yet and dropping it would send the next reader back to the wedged filesystem.
+                // From the cached walk, deliberately. This is the last chance to record what a
+                // volume was, and it arrives while that volume is being torn down: a fresh
+                // `mountedVolumeURLs` plus a `resourceValues` read per volume, synchronously on the
+                // main thread at that moment, is the walk most likely to block. The cached answer
+                // was taken while the volume was healthy. The cache is not dropped here, because
+                // the volume has not gone yet and dropping it would send the next reader back to
+                // the wedged filesystem.
                 Self.rememberMountedVolumes(Self.mountedVolumesAsLastSeen())
         }
         .onReceive(NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.didUnmountNotification)) { note in
                 // The volume has gone: the cached walk still lists it, so it is dropped before the
-                // handler's own refresh, which is the thing that re-takes it.
+                // handler's own refresh, which re-takes it.
                 Self.forgetMountedVolumes()
                 forgetFolderSidebarSourcesOnUnmount(note)
         }
@@ -4932,14 +4208,13 @@ struct ContentView: View {
 
     /// Moves everything keyed to a renamed volume's old mount point onto the new one.
     ///
-    /// **Both URLs or nothing.** `DidRenameVolumeMessage` is AppKit's own typed reading of the
-    /// notification's `userInfo`, and it answers nil rather than half a pair — a notification that
-    /// says a volume was renamed without saying from what to what has no safe half to act on, so it
-    /// is logged and dropped rather than guessed at from whichever sources have stopped answering.
+    /// Both URLs or nothing. `DidRenameVolumeMessage` is AppKit's typed reading of the
+    /// notification's `userInfo`, and it answers nil rather than half a pair; a rename that does
+    /// not say from what to what has no safe half to act on, so it is logged and dropped rather
+    /// than guessed at.
     ///
-    /// **A rename can also move nothing.** The notification fires for a name change *and/or* a
-    /// mount-path change, and a volume whose path did not move needs no work — both followers no-op
-    /// on an unchanged path, so that case costs a comparison rather than a special branch here.
+    /// A rename can also move nothing: the notification fires for a name change and/or a mount-path
+    /// change, and both followers no-op on an unchanged path, so that case needs no special branch.
     private func followVolumeRename(_ note: Notification) {
         guard let renamed = NSWorkspace.DidRenameVolumeMessage.makeMessage(note) else {
             Logger.shared.warning("A volume was renamed but the notification did not say from what to what — nothing moved")
@@ -4956,7 +4231,7 @@ struct ContentView: View {
 
     /// What the not-scanned card says. The rule is `PaneLogic.notScannedMessage`, where it can be
     /// tested; this supplies the live facts. `hasScanned` is false whenever this renders, so there
-    /// is no live result for it to contradict — this is the cold-open card and nothing else.
+    /// is no live result to contradict: this is the cold-open card and nothing else.
     private var notScannedMessage: String {
         PaneLogic.notScannedMessage(
             summary: syncManager.lastScanSummary,
@@ -4966,18 +4241,11 @@ struct ContentView: View {
         )
     }
 
-    /// The Compare busy state: the whole placeholder becomes the scan while the first one runs
-    /// (the lens workspace pattern) — livelier than a spinning button glyph.
+    /// The Compare busy state: the whole placeholder becomes the scan while the first one runs.
     ///
-    /// It reports **elapsed time and nothing else**, because elapsed time is the only honest number
-    /// available. A percentage would need a total, and the walk that produces one
-    /// (`FileDiffEngine.getFilesInDirectory`) counts nothing on the way through; instrumenting it
-    /// means a callback in the hottest loop in the app plus a main-actor hop to publish from, in a
-    /// function whose comments already record two rounds of performance work. A running clock costs
-    /// a `TimelineView` and cannot be wrong.
-    ///
-    /// Cancel is the point of the whole card. `stop.circle` and the same wording as the pane rung's
-    /// Stop, which is the other door to `cancelScan()`.
+    /// It reports elapsed time only, the one honest number: a percentage needs a total, and
+    /// counting in `FileDiffEngine.getFilesInDirectory` would put a callback in the app's hottest
+    /// loop. Its Stop matches the pane rung's, the other door to `cancelScan()`.
     @ViewBuilder
     private var scanningPlaceholder: some View {
         VStack(spacing: 14) {
@@ -5009,17 +4277,12 @@ struct ContentView: View {
         }
     }
 
-    /// Selection binding for one pane that enforces the one-pane-selected invariant: setting a
-    /// non-empty selection in one pane clears the other. The clicked pane commits synchronously
-    /// so the click lands on the first try; the OTHER pane's clear is deferred one runloop tick,
-    /// and stands down if a newer click has landed by the time it runs.
-    ///
-    /// Both halves of that, and why each is necessary, live in `PaneLogic.applySelectionWrite` —
-    /// where the ORDERING can be tested rather than only the arithmetic.
-    ///
-    /// Private, because its one caller is the pane it binds (`treeView`) — the app's own selection
-    /// on the user's behalf (TE47) writes through `PaneLogic.payOwedSelection` instead, since this
-    /// setter resolves a Compare-with pick, claims the selection surface and moves the focus.
+    /// Selection binding for one pane that enforces the one-pane-selected invariant: the clicked
+    /// pane commits synchronously so the click lands first time, and the other pane's clear is
+    /// deferred a tick and stands down if a newer click landed. The ordering lives in
+    /// `PaneLogic.applySelectionWrite`, where it is tested. Private: the app's own selection writes
+    /// go through `PaneLogic.payOwedSelection`, since this setter also resolves a pick and moves
+    /// focus.
     private func paneSelectionBinding(isLeft: Bool) -> Binding<Set<String>> {
         Binding(
             get: { isLeft ? syncManager.selectedLeftPaths : syncManager.selectedRightPaths },
@@ -5032,40 +4295,26 @@ struct ContentView: View {
                     schedule: { DispatchQueue.main.async(execute: $0) }
                 )
                 // Picking something in a pane is the mouse saying which pane it is working in, so
-                // it moves the keyboard's focus there too — otherwise ⌃⇥ and the click would be
-                // two independent notions of "the focused pane" that drift apart the moment you
-                // use both. The empty-write case is the one that must NOT move it; that rule lives
-                // in `PaneLogic` where a test can hold it.
+                // it moves the keyboard's focus there too; otherwise ⌃⇥ and the click would be two
+                // notions of "the focused pane" that drift apart. The empty-write case must not
+                // move it; that rule lives in `PaneLogic` where a test can hold it.
                 //
-                // **After `applySelectionWrite`, never before.** That call's first act is the
-                // commit the clicked List is waiting on, and it is written the way it is because
-                // publishing anything else into that window reloaded the List mid-commit and
-                // dropped the click outright (`aa9d407`, the two-clicks-to-select bug). This is
-                // another `@Published` write on the same manager, so it goes after the commit
-                // lands — it changes nothing about what this click selects, only where the
-                // keyboard points next.
+                // After `applySelectionWrite`, never before. That call's first act is the commit
+                // the clicked List is waiting on, and publishing anything else into that window
+                // reloads the List mid-commit and drops the click. This is another `@Published`
+                // write on the same manager, so it goes after the commit lands.
                 let side = PaneLogic.focusedSideAfterSelectionWrite(
                     newSelection, isLeft: isLeft, current: syncManager.focusedPaneSide)
                 // Through the manager's one door, which holds the "changed or nothing" test and
                 // writes the line that says the chords moved. The empty-write case answers with
-                // `current`, so it is a no-op there and stays silent.
+                // `current`, so it is a silent no-op.
                 syncManager.noteFocusedPane(
                     side, because: "a row was picked in the \(isLeft ? "left" : "right") pane")
 
-                // **A pick completes HERE, because this is the one door both view modes go
-                // through.** Tree selects through a `List` binding and Columns through its own tap
-                // gestures, and they meet at exactly this setter — hooking the click anywhere else
-                // would mean hooking it twice and keeping the two in step for ever.
-                //
-                // Deferred for the reason the sibling pane's clear is: opening the overlay writes
-                // `@State` on this view, and publishing into the window this commit is still in
-                // reloaded the clicked List and dropped the click outright (`aa9d407`). One tick
-                // later the commit has landed and the pair opens over a pane that registered the
-                // selection normally.
-                //
-                // Exactly one path, because a click is one row. A ⌘-click extending to two while a
-                // pick is armed is not "the file to compare with" and leaves the mode standing —
-                // the reader can still click one row, or cancel.
+                // A pick completes here, the one door both view modes go through (Tree's `List`
+                // binding and Columns' tap gestures). Deferred a tick for the sibling clear's
+                // reason: writing `@State` mid-commit would reload the clicked List and drop the
+                // click. Exactly one path: a ⌘-click extending to two leaves the mode standing.
                 if let pick = comparePick, newSelection.count == 1, let path = newSelection.first {
                     let nodes = isLeft ? syncManager.leftNodes(for: [path])
                                        : syncManager.rightNodes(for: [path])
@@ -5079,9 +4328,9 @@ struct ContentView: View {
         )
     }
 
-    /// Clears the selection in one pane. The single-pane-selected invariant means at most one
-    /// side is ever populated, so this is what both the Escape key and the action bar's ✕ call to
-    /// dismiss the current selection — the file lists themselves offer no deselect gesture.
+    /// Clears the selection in one pane. The single-pane-selected invariant means at most one side
+    /// is populated, so this is what the Escape key and the action bar's ✕ both call; the file
+    /// lists offer no deselect gesture.
     func clearSelection(isLeft: Bool) {
         if isLeft {
             if !syncManager.selectedLeftPaths.isEmpty { syncManager.selectedLeftPaths = [] }
@@ -5090,14 +4339,10 @@ struct ContentView: View {
         }
     }
 
-    /// Opens the shared file-pair viewer on two files picked in the panes.
-    ///
-    /// **The same `@State` and the same overlay the Differences list already uses** — this is a
-    /// second door onto one surface, not a second surface. Nothing joins the mutually exclusive
-    /// overlay chain, and nothing new is animated.
-    ///
-    /// The ordering rule is ``PaneComparePairMenu/pair(clicked:counterpart:counterpartIsInOtherPane:clickedPaneIsLeft:leftPaneName:rightPaneName:)``,
-    /// which is where it can be tested.
+    /// Opens the shared file-pair viewer on two files picked in the panes: a second door onto the
+    /// Differences list's surface and `@State`, joining no overlay chain. The ordering rule,
+    /// tested, is
+    /// ``PaneComparePairMenu/pair(clicked:counterpart:counterpartIsInOtherPane:clickedPaneIsLeft:leftPaneName:rightPaneName:)``.
     func compareFilePairAction(_ first: FileNode, _ second: FileNode,
                                secondIsInOtherPane: Bool, clickedPaneIsLeft: Bool) {
         compareDifferencePair = PaneComparePairMenu.pair(
@@ -5107,20 +4352,19 @@ struct ContentView: View {
             leftPaneName: paneNames.left, rightPaneName: paneNames.right)
     }
 
-    /// Arms a file for comparison, replacing any pick already standing.
-    ///
-    /// Replacing rather than refusing: a reader who arms the wrong file and then arms another has
-    /// said what they meant, and a mode that had to be cancelled first would be a mode that
-    /// punishes a correction.
+    /// Arms a file for comparison, replacing any pick already standing. Replacing rather than
+    /// refusing: a reader who arms another file has said what they meant, and a mode that had to be
+    /// cancelled first would punish a correction.
     func armComparePick(_ node: FileNode, isLeft: Bool) {
         comparePick = ComparePick(armed: node, armedPaneIsLeft: isLeft)
     }
 
-    /// Resolves a click made while a pick is armed — see ``ComparePick/outcome(clicking:inLeftPane:leftPaneName:rightPaneName:)``.
+    /// Resolves a click made while a pick is armed — see
+    /// ``ComparePick/outcome(clicking:inLeftPane:leftPaneName:rightPaneName:)``.
     ///
-    /// The three outcomes are the three ways the mode can end or not: the pair opens and the mode
-    /// is done, the armed row was clicked again and the mode is cancelled, or a folder was clicked
-    /// and the mode stands while the reader keeps looking.
+    /// The three outcomes: the pair opens and the mode is done, the armed row was clicked again and
+    /// the mode is cancelled, or a folder was clicked and the mode stands while the reader keeps
+    /// looking.
     func resolveComparePick(_ pick: ComparePick, clicked: FileNode, inLeftPane: Bool) {
         switch pick.outcome(clicking: clicked, inLeftPane: inLeftPane,
                             leftPaneName: paneNames.left, rightPaneName: paneNames.right) {
@@ -5134,23 +4378,17 @@ struct ContentView: View {
         }
     }
 
-    /// The row menu's and the file list's delegate for one pane.
-    ///
-    /// Lifted out of the file list's call site, where it used to sit as one 870-character argument.
-    /// That line was load-bearing in an unwanted way: `QuickLookOriginTests` reads a fixed window of
-    /// source after the list's opening paren to check the pane's row menu is routed to the host's
-    /// Quick Look panel, and one more argument on the delegate pushed `onQuickLook:` out of that
-    /// window — a test failing about Quick Look because a tab handler was added three arguments
-    /// earlier. (Naming that view here in prose would break the same scan, since it anchors on the
-    /// literal: this comment deliberately does not.)
-    /// Internal rather than private: File ▸ Organize's verbs build one for the active pane, so the
-    /// menu items and the row menu route through the same delegate. See `shortcutOrganizeVerbs`.
+    /// The row menu's and the file list's delegate for one pane, lifted out of the file list's call
+    /// site so that call stays short. Internal rather than private: File ▸ Organize's verbs build
+    /// one for the active pane, so the menu items and the row menu route through the same delegate.
+    /// See `shortcutOrganizeVerbs`.
     func paneActionDelegate(for pane: PaneContext) -> PaneActionDelegate {
         PaneActionDelegate(
             handler: actionHandler, syncManager: syncManager, settings: settings,
             isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId,
             isSingleSource: layoutMode == .singleSource,
-            // Not `layoutMode == .singleSource`: Browse and Storage answer that too.
+            // Not `layoutMode == .singleSource`: Browse and the other single-source workspaces
+            // answer that too.
             ownsOrganizeScope: selectedWorkspace == .filing,
             servesEditor: selectedWorkspace == .editor,
             forceRefreshAction: forceRefreshAction,
@@ -5173,8 +4411,8 @@ struct ContentView: View {
             onOpenInNewTab: { node in openInNewTab(absolutePath: node.id, isLeft: pane.isLeft) },
             onNewTabHere: { path in openInNewTab(absolutePath: path, isLeft: pane.isLeft) },
             // Resolved at fire time, not captured: a menu held open is not re-armed by a republish,
-            // and the active tab can have moved under it.
-            // Held while the pointer stays where the menu stood (`holdingTabStrip`).
+            // and the active tab can have moved under it. Held while the pointer stays where the
+            // menu stood (`holdingTabStrip`).
             onCloseTab: { holdingTabStrip(isLeft: pane.isLeft) {
                 closeTab(id: syncManager.paneTabs(isLeft: pane.isLeft).active.id, isLeft: pane.isLeft)
             } },
@@ -5196,12 +4434,11 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    /// The pane's file list, with the line that says its cloud app isn't syncing along its top
-    /// (RD68) — inside the list's own card, so in Cards it is part of the pane, not a card of its
-    /// own (TE236).
+    /// The pane's file list, with the line that says its cloud app isn't syncing along its top,
+    /// inside the list's own card, so in Cards it is part of the pane, not a card of its own.
     private func treeView(_ pane: PaneContext) -> some View {
         VStack(spacing: 0) {
-            // Which side of one-way sync this pane shows (RD67).
+            // Which side of one-way sync this pane shows.
             if let role = oneWaySync.role(ofFolder: shownFolder(isLeft: pane.isLeft)) {
                 OneWaySyncRoleLine(role: role)
                 Divider()
@@ -5219,9 +4456,9 @@ struct ContentView: View {
     }
 
     private func fileList(_ pane: PaneContext) -> some View {
-        // The single-source rail is the only pane on screen: it has no sibling to be subordinate to,
-        // so its selection wears the full-strength wash. It shows no action bar, but it does show
-        // the result message, so it takes placement scratch space like a Compare pane.
+        // The single-source rail is the only pane on screen, with no sibling to be subordinate to,
+        // so its selection wears the full-strength wash. It shows no action bar but does show the
+        // result message, so it takes placement scratch space like a Compare pane.
         FileTreeView(
             tree: pane.tree,
             otherTree: pane.otherTree,
@@ -5241,15 +4478,11 @@ struct ContentView: View {
             // The single-source rail has no opposite pane, so its row menu drops the
             // comparison-only items and renames "Compare only this folder" to "Open".
             isSingleSource: layoutMode == .singleSource,
-            // Shared placement scratch space this pane fills from live geometry; `paneColumn` reads
-            // the edge from it synchronously. The flip callback fires only when a SCROLL crossing
-            // changes the edge — it re-renders the column inside `withAnimation` so the bar
-            // cross-fades. Clicking a file needs no callback: it re-renders the column on its own,
-            // which lands the bar at the correct edge instantly.
-            //
-            // The single-source rail measures too, though it has no bar: the result message docks
-            // at its list's edge by the same rule (Banner Room, CA), and after a delete it needs
-            // the deleted row's last position, which only a pane that was measuring has.
+            // Placement scratch space this pane fills from live geometry; `paneColumn` reads the
+            // edge from it synchronously. The flip callback fires only when a scroll crossing
+            // changes the edge, re-rendering the column inside `withAnimation`. The single-source
+            // rail measures too, with no bar, because the result message docks by the same rule and
+            // needs a deleted row's last position.
             placement: pane.isLeft ? leftPlacement : rightPlacement,
             onBarEdgeFlip: paneOverlayFlip(isLeft: pane.isLeft),
             // What matched, and where the walk has got to. The pane draws its emphasis, dimming and
@@ -5258,13 +4491,13 @@ struct ContentView: View {
             search: paneSearchResults(isLeft: pane.isLeft),
             searchHitIndex: paneSearchState(isLeft: pane.isLeft).wrappedValue.hitIndex,
             searchRevealNonce: paneSearchState(isLeft: pane.isLeft).wrappedValue.revealNonce,
-            // The row the app selected on the user's behalf — the open document — brought into
-            // view (TE47). The left pane's alone: it is the only pane Edit reads and moves.
+            // The row the app selected on the user's behalf (the open document), brought into view.
+            // The left pane's alone: it is the only pane Edit reads and moves.
             rowReveal: pane.isLeft ? paneRowReveal : nil,
             // Answered once: the pane says when it has scrolled to the row, and the request is
             // retired, so its next appearance does not scroll back (see `retireAnsweredRowReveal`).
             onRowRevealed: pane.isLeft ? { retireAnsweredRowReveal($0) } : nil,
-            // Which pane the action bar is acting on — the same predicate that decides where the bar
+            // Which pane the action bar is acting on — the predicate that decides where the bar
             // renders, so the strong selection wash and the bar can never point at different panes.
             // The tab strip above takes it too, from the same helper.
             isActivePane: paneWearsActiveAccent(isLeft: pane.isLeft),
@@ -5272,75 +4505,62 @@ struct ContentView: View {
             childrenIndex: pane.childrenIndex,
             browsePath: pane.isLeft ? $syncManager.leftBrowsePath : $syncManager.rightBrowsePath,
             onColumnNavigate: { applyColumnNavigation($0, isLeft: pane.isLeft) },
-            // A column opened past `FileSyncManager.paneNodeBudget` has no rows and never would
-            // have — the walk stopped before reaching it. This is what fills it in, one directory
-            // listing at a time. Without this wiring the budget would trade a hang for a pane that
-            // silently cannot navigate a large tree.
+            // A column opened past `FileSyncManager.paneNodeBudget` has no rows: the walk stopped
+            // before reaching it. This fills it in, one directory listing at a time; without it the
+            // budget would trade a hang for a pane that silently cannot navigate a large tree.
             onNeedChildren: { syncManager.loadColumnChildren(atPath: $0, isLeft: pane.isLeft, passive: $1) },
             // So a column can say "reading this" rather than "can't be read" while it waits.
             graftsInFlight: syncManager.columnGraftsInFlightPaths(isLeft: pane.isLeft),
             // The background menus' Sort By ticks the order the panes are in.
             sortOption: syncManager.sortOption,
             onBackgroundDeselect: { handleBackgroundDeselect(depth: $0, isLeft: pane.isLeft) },
-            // The row menu's preview goes through the HOST's panel, not the pane's own: there is
-            // one Quick Look panel and only the host can keep it pointed at the current file.
+            // The row menu's preview goes through the host's panel, not the pane's own: there is
+            // one Quick Look panel, and only the host can keep it pointed at the current file.
             onQuickLook: { toggleQuickLook($0, followsPane: true) },
-            // **The open folders are held HERE, because this view outlives the switch and the pane
-            // does not.** `paneColumn` is mounted by four structurally different layout arms, so
-            // Browse's pane and Organize's rail are two identities over one folder — and a set of
-            // open folders kept as the pane's own `@State` died on the way between them. Per side
-            // rather than per workspace, deliberately: Browse, the lens rail and Compare's left are
-            // all the LEFT pane, on one tree at one path, and a reader who opens a folder in one
-            // should find it open in the others.
+            // The open folders are held here, because this view outlives the switch and the pane
+            // does not — see `leftTreeExpanded`. Per side rather than per workspace: Browse, the
+            // lens rail and Compare's left are all the left pane, so a folder opened in one is open
+            // in the others.
             hostExpanded: pane.isLeft ? $leftTreeExpanded : $rightTreeExpanded,
             typeFilter: typeFilterDecor(isLeft: pane.isLeft),
             typeFilterEmptied: typeFilterEmptied(isLeft: pane.isLeft),
             typeFilterFolderName: typeFilterFolderName(isLeft: pane.isLeft),
             onClearTypeFilter: { typeFilterBinding(isLeft: pane.isLeft).wrappedValue = nil }
         )
-        // The whole point of `FileTreeView: Equatable`. Without this the conformance is inert —
-        // SwiftUI only consults a view's `==` through `EquatableView` — and this view is built
-        // fresh on every one of `ContentView`'s renders, which any of the manager's ~56 published
-        // properties can trigger. See the note on `FileTreeView`.
+        // The point of `FileTreeView: Equatable`. Without this the conformance is inert (SwiftUI
+        // consults a view's `==` only through `EquatableView`), and this view is rebuilt on every
+        // `ContentView` render, which any of the manager's many published properties can trigger.
+        // See the note on `FileTreeView`.
         .equatable()
-        // After `.equatable()`, which must sit on the pane itself. The type list's counts while this pane has no filter — once per publish, off-main.
+        // After `.equatable()`, which must sit on the pane itself. The type list's counts while
+        // this pane has no filter, once per publish, off-main.
         .task(id: TypeFilterCensusKey(version: pane.tree.version,
                                       filterOn: typeFilterBinding(isLeft: pane.isLeft).wrappedValue != nil)) {
             await typeFilterCensusTask(isLeft: pane.isLeft)
         }
-        // The folders open in this pane, which its type filter keeps in place (GQ).
+        // The folders open in this pane, which its type filter keeps in place.
         .onChange(of: typeFilterOpenFolders(pane), initial: true) { _, folders in
             syncManager.setTypeFilterOpenFolders(folders, isLeft: pane.isLeft)
         }
-        // The pane's scroll offsets, kept across it being rebuilt. The surface is the workspace AND
-        // the side — unlike `hostExpanded` above, which is per side only — because the stack's
-        // sideways offset depends on the pane's width, and Browse's pane is not the width of
-        // Organize's rail. The per-folder vertical offsets inside are shared by every surface and
-        // both sides: a folder's rows are one height everywhere — see `PaneScrollMemory`.
+        // The pane's scroll offsets, kept across it being rebuilt. The surface is the workspace and
+        // the side (unlike `hostExpanded`, per side only), because the stack's sideways offset
+        // depends on the pane's width, and Browse's pane is not the width of Organize's rail. The
+        // per-folder vertical offsets are shared by every surface and side, since a folder's rows
+        // are one height everywhere — see `PaneScrollMemory`.
         .environment(\.paneScrollMemory,
                      PaneScrollMemorySlot(memory: paneScrollMemory,
                                           surface: "\(selectedWorkspace.rawValue).\(pane.isLeft ? "left" : "right")"))
     }
 
-    /// A plain click on a pane's empty space: let the selection go, and — in Columns — close the
-    /// columns to the right of the one clicked in, which is what Finder does.
+    /// A plain click on a pane's empty space: let the selection go and, in Columns, close the
+    /// columns to the right of the one clicked in, as Finder does.
     ///
-    /// **Both panes are cleared, deliberately.** The one-pane-selected invariant means the selection
-    /// usually lives in the pane the user did *not* just click, so clearing only this side would
-    /// leave the click looking dead on the more common path. That is also why this does not go
-    /// through `paneSelectionBinding`: `PaneLogic.applySelectionWrite` treats an empty write as
-    /// enforcing nothing and leaves the other pane alone on purpose, since that is what keeps the
-    /// right-click "Copy N items from other pane" menu working. Right-click cannot reach here —
-    /// `NSClickGestureRecognizer` watches the primary button only — so that menu is untouched.
-    ///
-    /// Both writes are synchronous, and safely so: the recognizer fires on mouse-UP, outside the
-    /// mouse-down tracking loop an `NSTableView` commits its selection from. This is therefore not
-    /// the mid-commit sibling write that dropped clicks in `aa9d407`, and it queues no deferral that
-    /// could go stale the way `94554e9`'s did.
-    ///
-    /// The truncation is routed through `applyColumnNavigation` rather than written straight to the
-    /// browse path so that closing columns obeys the seam link exactly as opening them does — a
-    /// linked pane truncates (pruned) alongside, and the move is logged like any other.
+    /// Both panes are cleared: the selection usually lives in the pane not clicked, so clearing one
+    /// side would look dead. Not through `paneSelectionBinding`, whose empty write leaves the other
+    /// pane alone to keep the right-click "Copy N items from other pane" menu working (right-click
+    /// never reaches here). Synchronous writes are safe: the recognizer fires on mouse-up, outside
+    /// `NSTableView`'s selection-commit loop. The truncation goes through `applyColumnNavigation`
+    /// so it obeys the seam link as opening does.
     func handleBackgroundDeselect(depth: Int?, isLeft: Bool) {
         PaneLogic.clearBothSelections(state: syncManager)
         let browsePath = isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath
@@ -5348,27 +4568,27 @@ struct ContentView: View {
         applyColumnNavigation(path, isLeft: isLeft)
     }
 
-    /// Binding for the workspace bar that, on entering a lens workspace, opens the source rail and
-    /// positions it for that lens. Wrapping the binding (rather than observing `selectedWorkspace`
-    /// globally) confines this to the bar's own control: the programmatic scan actions assign
-    /// `selectedWorkspace` directly and so never trip it, keeping their chosen scan folder intact.
-    /// Internal so the toolbar (ContentView+Toolbar.swift) can drive it.
+    /// Binding for the workspace bar that, on entering a lens workspace, opens the source rail.
+    /// Wrapping the binding (rather than observing `selectedWorkspace` globally) confines this to
+    /// the bar's own control: the programmatic scan actions assign `selectedWorkspace` directly and
+    /// never trip it, keeping their chosen scan folder intact. Internal so the toolbar
+    /// (ContentView+Toolbar.swift) can drive it.
     var workspaceSelection: Binding<Workspace> {
         Binding(
             get: { selectedWorkspace },
             set: { newWorkspace in
                 let previous = selectedWorkspace
                 selectedWorkspace = newWorkspace
-                // All duplicate-review / guided-review teardown & restore decisions go through the
-                // reducer (CompareReviewReducer): an abandoned review — left Compare while inactive,
-                // banner and Done button gone — is torn down like Done (ending the guided review AND
-                // restoring the auto-pinned provider); returning to Compare re-focuses the two copies
-                // (the shared left pane may have been moved on while away).
+                // All duplicate-review and guided-review teardown and restore decisions go through
+                // the reducer (CompareReviewReducer): an abandoned review (left Compare while
+                // inactive, banner and Done button gone) is torn down like Done, ending the guided
+                // review and restoring the auto-pinned provider; returning to Compare re-focuses
+                // the two copies (the shared left pane may have moved while away).
                 reviewCoordinator.dispatchReview(
                     .tabSwitched(toCompare: newWorkspace == .compare, fromCompare: previous == .compare)
                 )
                 // Show the source rail on entry into a lens. The left pane stays where it is — see
-                // `presentLensRail` for why continuity won over a fresh start at the provider root.
+                // `presentLensRail`.
                 if newWorkspace != previous {
                     presentLensRail(for: newWorkspace)
                 }
@@ -5376,54 +4596,39 @@ struct ContentView: View {
         )
     }
 
-    /// True when the Compare bottom pane is showing the actual differences list (not a
-    /// placeholder like scanning / all-in-sync). Collapse only applies here — the header strip it
-    /// leaves behind belongs to `DifferencesView`, which the placeholders don't render. Internal so
-    /// the split-layout extension can gate the collapsed frame on it.
+    /// True when the Compare bottom pane shows the differences list, not a placeholder. Collapse
+    /// applies only then: the header strip belongs to `DifferencesView`. Internal for the
+    /// split-layout extension.
     ///
-    /// **A person gather takes this slot, so it makes this false.** `bottomPaneView`'s chain tries
-    /// `personScope` first, so while a gather owns the pane the differences list is not on screen —
-    /// and this predicate claiming otherwise was believed by two things that then acted on a view
-    /// that was not there. `bottomPaneIsCollapsed` gave `bottomPaneView` a nil (hug-the-strip)
-    /// height while `PersonView` was in it, and `shortcutDifferencesList` stayed armed, so the
-    /// show/hide-the-list command resized the person gather instead. Predates the gather's loading
-    /// state — the slot has always been shared — and is fixed here because it is the same
-    /// mechanism: whatever offers an action has to require everything that action needs.
+    /// False while a person gather owns the slot: `bottomPaneView` tries `personScope` first, and
+    /// the collapse height and `shortcutDifferencesList` must not act on a list that is not there.
     var compareBottomListActive: Bool {
         selectedWorkspace == .compare && personScope == nil
             && (!syncManager.differences.isEmpty || reviewStore.isReviewing)
     }
 
     /// The Compare bottom pane is collapsed to its header strip right now: the user asked for it,
-    /// the differences list (which owns that strip) is the thing on screen, and no guided review is
-    /// running. The review override is NOT restated here — it comes from
-    /// `DifferencesView.isCollapsedToHeaderStrip`, the same function the view itself renders
-    /// against, so the height and the content cannot disagree about whether this pane is a strip
-    /// or a full list.
+    /// the differences list (which owns that strip) is on screen, and no guided review is running.
+    /// The review override is not restated here: it comes from
+    /// `DifferencesView.isCollapsedToHeaderStrip`, the function the view renders against, so the
+    /// height and the content cannot disagree.
     var bottomPaneIsCollapsed: Bool {
         compareBottomListActive && DifferencesView.isCollapsedToHeaderStrip(
             storedCollapse: bottomPaneCollapsed, isReviewing: reviewStore.isReviewing)
     }
 
-    /// The gather's card, as its own member because **two layouts mount it**.
-    ///
-    /// `bottomPaneView` is one of them. The other is Browse, which draws no bottom pane at all —
-    /// and so, while this lived inline here, an offer accepted from Browse's pane search started
-    /// the whole-source sweep and rendered nowhere: no list, no ✕, no Esc target, and switching
-    /// workspace to look for it cleared the scope. The one surface that exists to stop an accept
-    /// from doing nothing visible was doing exactly that. See `browseLayout`.
+    /// The gather's card, as its own member because two layouts mount it: `bottomPaneView`, and
+    /// Browse, which draws no bottom pane. Inline here, an offer accepted from Browse's pane search
+    /// would start the whole-source sweep and render nowhere, with no list, ✕ or Esc target. See
+    /// `browseLayout`.
     @ViewBuilder
     func personGatherSection(_ scope: PersonScope) -> some View {
         PersonView(displayName: scope.person.displayName,
                    phase: scope.phase,
                    accent: glassHue.accentColor,
-                   // **Open opens it here**, which is what the button says and what this
-                   // parameter has always been documented to do ("reveals a folder in the pane").
-                   // It was wired to the identical Finder call as `onReveal` below, so the two
-                   // differently named, differently documented callbacks did one thing — and
-                   // "Open" on a folder selected it in its Finder *parent* without the app's own
-                   // file view moving at all. Falls back to Finder for a folder outside the pane's
-                   // provider, where there is no pane to open it in.
+                   // Open opens it here, as the button says, by moving the pane to the folder.
+                   // Finder's reveal is `onReveal` below; this falls back to Finder only for a
+                   // folder outside the pane's provider, where there is no pane to open it in.
                    onOpenFolder: { relative in
                        guard let root = syncManager.filingFolderProfile?.root else { return }
                        let full = ((root as NSString).expandingTildeInPath as NSString)
@@ -5435,30 +4640,21 @@ struct ContentView: View {
                            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
                            return
                        }
-                       // **Open the rail if it is closed**, or this is a dead click: the lens
-                       // workspaces can collapse the source pane to a spine, `focusOn` only pushes
-                       // history, and the Finder fallback above does not fire for a folder that IS
-                       // under the root. Nothing on screen changed — which is worse than the Finder
-                       // reveal this replaced.
+                       // Open the rail if it is closed, or this is a dead click: `focusOn` only
+                       // pushes history, and the Finder fallback does not fire for a folder under
+                       // the root.
                        //
-                       // Asked as `contentLayout`, not as `panesHiddenForCurrentTab`: that flag is
-                       // only honoured by the single-source layout. Compare and Browse resolve
-                       // their layout before it is consulted, so keying on it would write a
-                       // remembered layout preference — persisted, for the whole workspace — that
-                       // changes nothing anyone can see.
-                       //
-                       // It does discard a deliberate collapse, and permanently: the override is
-                       // `@AppStorage` and nothing restores it when the gather clears. That is the
-                       // same trade `presentLensRail` already makes on entering a lens from the
-                       // bar, and the alternative is a click that does nothing.
+                       // Asked of `contentLayout`, not `panesHiddenForCurrentTab`: only the
+                       // single-source layout honours that flag, so keying on it elsewhere would
+                       // persist a preference that changes nothing visible. It does discard a
+                       // deliberate collapse permanently (`@AppStorage`), as `presentLensRail`
+                       // does; the alternative is a click that does nothing.
                        if contentLayout == .singleCollapsed { togglePanesForCurrentTab() }
                        syncManager.focusOn(relativePath: inPane, isLeft: !lensTargetIsRight)
                    },
-                   // Expanded, like every other reader of `FolderProfile.root` — it is stored
-                   // tilde-form ("~/Documents"), so the unexpanded join produced a path that
-                   // `URL(fileURLWithPath:)` resolved against the process's working directory and
-                   // Finder could not find: Reveal did nothing at all. Missed when its sibling
-                   // above was fixed, which is how the two came to differ in the other direction.
+                   // Expanded, like every other reader of `FolderProfile.root`: it is stored
+                   // tilde-form ("~/Documents"), and an unexpanded join would resolve against the
+                   // process's working directory, leaving Reveal finding nothing.
                    onReveal: { relative in
                        guard let root = syncManager.filingFolderProfile?.root else { return }
                        let full = ((root as NSString).expandingTildeInPath as NSString)
@@ -5469,32 +4665,27 @@ struct ContentView: View {
                    onVerdict: { relative, isTheirs in
                        recordPersonVerdict(scope.person, path: relative, isTheirs: isTheirs)
                    })
-            // **Esc clears it, which the ✕'s own tooltip has been promising.** Nothing was
-            // wired to the key: the help text said "(Esc)" and the only way out was the ✕ —
-            // a control describing a shortcut that does not exist.
+            // Esc clears it, as the ✕'s tooltip promises.
             .onExitCommand { clearPersonScope() }
             .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
     }
 
-    /// The tabbed workspace at the bottom of the file explorer.
-    /// It dynamically switches between `DifferencesView` and `DetailsSidebar`.
     @ViewBuilder
     /// The sentence for an incomplete comparison, or nil when the last scan read both sides in
-    /// full — which is every ordinary scan.
+    /// full, which is every ordinary scan.
     ///
-    /// Named off `lastScanProviders`, the pair the ROWS came from, so navigating a pane after the
-    /// scan cannot make the banner name a source that was never compared. Nil once there is no
-    /// scan to describe: `invalidateDifferencesForPaneRetarget` clears the coverage with the rows.
+    /// Named off `lastScanProviders`, the pair the rows came from, so navigating a pane after the
+    /// scan cannot make the banner name a source never compared. Nil once there is no scan to
+    /// describe: `invalidateDifferencesForPaneRetarget` clears the coverage with the rows.
     var partialComparisonMessage: String? {
         guard syncManager.hasScanned, let pair = syncManager.lastScanProviders else { return nil }
         return syncManager.lastScanCoverage.message(leftName: pair.left.displayName,
                                                     rightName: pair.right.displayName)
     }
 
-    /// **A warning, not an error, and not dismissible.** Nothing failed — the scan ran and the rows
-    /// it produced are correct; what is wrong is the ones it could not know about. A dismiss button
-    /// would let the qualifier be closed while the number it qualifies stays on screen, which is
-    /// the state this exists to prevent.
+    /// A warning, not an error, and not dismissible. Nothing failed: the scan ran and its rows are
+    /// correct; what is missing is the ones it could not know about. A dismiss button would let the
+    /// qualifier close while the number it qualifies stays on screen.
     @ViewBuilder
     func partialComparisonBanner(_ message: String) -> some View {
         HStack(spacing: 12) {
@@ -5512,42 +4703,41 @@ struct ContentView: View {
             Spacer(minLength: 12)
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
-        // No fill or divider of its own — the host mounts it as a `bottomSectionCard`, the same
-        // way `duplicateReviewBanner` is mounted directly above.
+        // No fill or divider of its own: the host mounts it as a `bottomSectionCard`, as
+        // `duplicateReviewBanner` is mounted directly above.
     }
 
     var bottomPaneView: some View {
-        // Stable outer container: keeps this bottom pane's identity constant across tab
-        // switches, so selecting Details doesn't reset the vertical split or collapse the panes.
+        // Stable outer container: keeps this bottom pane's identity constant across tab switches,
+        // so selecting Details doesn't reset the vertical split or collapse the panes.
         VStack(spacing: 0) {
-        // Keep-left / trash-right banner for a duplicate-copy review handed off from the Duplicates lens. Sits
-        // above the diff so it shows even when the two copies are identical (empty diff → the
-        // "Everything is in sync" placeholder). Hidden the moment either pane is navigated away
+        // Keep-left / trash-right banner for a duplicate-copy review handed off from the Duplicates
+        // lens. Above the diff, so it shows even when the two copies are identical (empty diff →
+        // the "Everything is in sync" placeholder). Hidden the moment either pane navigates away
         // from the reviewed copies, so the scoped trash can't fire against the wrong folder.
         if selectedWorkspace == .compare, let review = duplicateReview, reviewCoordinator.duplicateReviewActive(review) {
             reviewCoordinator.duplicateReviewBanner(review)
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
                 .unifiedSeam(surfaceStyle, edge: .bottom)
         }
-        // **A count that is a floor has to say so.** Above the table rather than beside the count,
-        // because the fact is about every row that is NOT there — see `PartialComparison`.
+        // A count that is a floor has to say so. Above the table rather than beside the count,
+        // because the fact is about every row that is not there — see `PartialComparison`.
         if selectedWorkspace == .compare, let message = partialComparisonMessage {
             partialComparisonBanner(message)
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
                 .unifiedSeam(surfaceStyle, edge: .bottom)
         }
-        // **A person gather takes the slot from whatever was in it**, in every workspace. It is
-        // an answer about the whole source rather than about one lens, so showing it beside a lens
-        // would invite reading it as that lens's output; and it is temporary, so it takes the slot
-        // rather than replacing anything. Clearing gives the slot straight back.
+        // A person gather takes the slot from whatever was in it, in every workspace. It answers
+        // about the whole source rather than one lens, so showing it beside a lens would read as
+        // that lens's output; it is temporary, so it takes the slot rather than replacing anything.
+        // Clearing gives it back.
         if let scope = personScope {
             personGatherSection(scope)
         } else if let lens = selectedLens {
-            // The lens workspaces' right-hand slot. ONE construction site for all of them, and
-            // deliberately so: a `switch` with a branch per lens would give each its own view
-            // identity, and LensWorkspaceView's @State — the per-lens parked queries, the expanded search,
-            // the reclaim tally, the filed/dismissed session flags — would reset on every switch.
-            // Storage renders its own read-only surface beneath the shared header card.
+            // The lens workspaces' right-hand slot. One construction site for all of them,
+            // deliberately: a `switch` with a branch per lens would give each its own view
+            // identity, and LensWorkspaceView's @State would reset on every lens switch. Storage
+            // renders its own read-only surface beneath the shared header card.
             LensWorkspaceView(
                 syncManager: syncManager,
                 lens: lens,
@@ -5556,23 +4746,17 @@ struct ContentView: View {
                 onFindDuplicates: findDuplicatesAction,
                 onFindFilingSuggestions: { findFilingSuggestionsAction() },
                 onFindFilingSuggestionsFresh: { findFilingSuggestionsAction(ignoringCache: true) },
-                // Withheld outright when this machine has no filing profile: the re-survey rebuilds
-                // an artifact that does not exist, so offering it would be offering nothing.
+                // Withheld when this machine has no filing profile: the re-survey rebuilds an
+                // artifact that does not exist, so offering it would offer nothing.
                 onUpdateFolderMemory: syncManager.filingMemory == nil && syncManager.filingFolderProfile == nil
                     ? nil : { updateFolderMemoryAction() },
                 // The way in to the paid pass for someone who has never set it up: Organize's
-                // results offer it, and the offer has to land somewhere. Deep-links the tab the
-                // same way the Sources shortcut does, so the user arrives at the cloud toggle
-                // rather than at whichever tab Settings last showed.
-                //
-                // `.intelligence`, not `.filing`: the cloud toggle, the key and the model left the
-                // Organize tab when the engine got one of its own. Pointing this at `.filing`
-                // still compiles and still opens Settings — it just opens the wrong tab, and the
-                // user offered "set up cloud refine" arrives at a page with no cloud anything on
-                // it. `theCloudRefineOfferLandsOnTheTabThatHoldsTheKey` is what fails on that now.
+                // results offer it, and this deep-links the tab so the user lands on the cloud
+                // toggle. `.intelligence`, not `.filing`: that is where the toggle, key and model
+                // live (`theCloudRefineOfferLandsOnTheTabThatHoldsTheKey`).
                 onConfigureCloudRefine: { openSettings(on: .cloudRefineSetup) },
-                // The app's ONE Help front door, opened at a named page — Settings and Help
-                // never stack, and this must not grow a second overlay to sit beside them.
+                // The app's one Help front door, opened at a named page: Settings and Help never
+                // stack, and this must not grow a second overlay beside them.
                 onOpenHelp: { topic in
                     helpTopic = topic
                     showHelp = true
@@ -5582,9 +4766,9 @@ struct ContentView: View {
                 onApplyRenames: { plans in Task { await syncManager.applyRenamePlans(plans) } },
                 onPreviewAutomations: { only in startAutomationPreviewAction(only: only) },
                 // Both, and they are not the same folder. The anchor is the taxonomy every lens
-                // files against and scans; the root is what can bound a scope. Handing the root to
-                // the anchor's consumers made rule destinations resolve one level too deep and made
-                // an unscoped scan never cover its own subject — see `LensWorkspaceView`.
+                // files against and scans; the root is what can bound a scope. The root in the
+                // anchor's place would resolve rule destinations one level too deep and leave an
+                // unscoped scan never covering its own subject — see `LensWorkspaceView`.
                 providerAnchor: lensProviderAnchorExpanded,
                 providerRoot: lensProviderRootExpanded,
                 filingInboxFolder: filingInboxFolder,
@@ -5597,11 +4781,12 @@ struct ContentView: View {
                 onResumeDocumentSurvey: resumeDocumentSurveyAction,
                 onPauseDocumentSurvey: pauseDocumentSurveyAction,
                 onStopDocumentSurvey: stopDocumentSurveyAction,
-                // The single lens source is the left provider; its picker shows in the workspace only
-                // while the rail is collapsed (expanded, the rail header owns the provider dropdown).
+                // The single lens source is the left provider; its picker shows in the workspace
+                // only while the rail is collapsed (expanded, the rail header owns the provider
+                // dropdown).
                 showSourcePicker: panesHiddenForCurrentTab,
-                // The rail's strip, so the lens header stays level with the pane's toolbar card —
-                // the same answer Edit's document column is given, false while the rail is collapsed.
+                // The rail's strip, so the lens header stays level with the pane's toolbar card,
+                // the answer Edit's document column is given; false while the rail is collapsed.
                 paneShowsTabStrip: sourcePaneShowsTabStrip,
                 providers: settings.enabledProviders,
                 currentProviderId: leftProviderId,
@@ -5611,39 +4796,39 @@ struct ContentView: View {
                 onCompareCopies: reviewCoordinator.compareCopies,
                 onCompareFilePair: { compareFilePair = $0 },
                 // A duplicate copy's row menu hands a text copy to Edit through the same act as
-                // every other door — settle, re-root the left pane, switch, open.
+                // every other door: settle, re-root the left pane, switch, open.
                 onOpenInEditor: { handOffToEditor($0) },
                 onRequestDestination: { presentDestination($0) },
                 revealRequest: duplicateRevealRequest,
-                // Retire an ANSWERED request. The lens's own applied-id is @State and dies with
-                // it, so a request left standing here replayed its whole plan — filter reset,
-                // parked query overwritten, the old group re-marked — on every return to a lens
-                // workspace after any trip through Compare. The id check keeps a retirement racing
-                // a newer ask from clearing the newer request.
+                // Retire an answered request. The lens's own applied-id is @State and dies with it,
+                // so a request left standing here would replay its whole plan (filter reset, parked
+                // query overwritten, the old group re-marked) on every return to a lens workspace.
+                // The id check keeps a retirement racing a newer ask from clearing the newer
+                // request.
                 onRevealHandled: { id in
                     if duplicateRevealRequest?.id == id { duplicateRevealRequest = nil }
                 },
                 // The notScanned recovery button: the same door as the context menu, so it scans a
-                // folder that actually CONTAINS the file. `onFindDuplicates` scans the lens's
-                // focused root, which for a handoff from the other pane may still not contain it —
-                // pressing it re-ran the same unanswerable scan forever.
+                // folder that actually contains the file. `onFindDuplicates` scans the lens's
+                // focused root, which for a handoff from the other pane may not contain it, and
+                // would re-run the same unanswerable scan forever.
                 onFindDuplicatesOf: { path in revealCoordinator.findDuplicates(ofPath: path) },
-                // **Held here because this view outlives the switch and that one does not.** The
-                // comment above says one construction site keeps the lens's state across a LENS
-                // change, and it does — but a workspace change tears down the arm this whole call
-                // lives in, and no property of a single call site survives that. Everything the
-                // reader set — the filter, the parked queries, the folds, the tallies, the session
-                // flags — now lives in an object mounted once for the window.
+                // Held here because this view outlives the workspace switch and that one does not.
+                // One construction site keeps the lens's state across a lens change, but a
+                // workspace change tears down this whole arm, so everything the reader set (the
+                // filter, parked queries, folds, tallies, session flags) lives in an object mounted
+                // once for the window.
                 session: lensSession
             )
         } else if compareBottomListActive {
-            // DifferencesView renders its own two cards (toolbar + table); the workspace bar lives in
-            // the window toolbar. Its Open in Edit leaves the left pane where it is (`.staysPut`):
-            // that pane is half of the comparison this list IS, and re-rooting it would re-scope the
-            // comparison, re-run its scan and drop the session's "Ignore in comparison" entries.
+            // DifferencesView renders its own two cards (toolbar and table); the workspace bar
+            // lives in the window toolbar. Its Open in Edit leaves the left pane where it is
+            // (`.staysPut`): that pane is half of the comparison this list is, and re-rooting it
+            // would re-scope the comparison, re-run its scan and drop the session's "Ignore in
+            // comparison" entries.
             DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, paneRules: paneRules, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, onOpenInEditor: { handOffToEditor($0, pane: .staysPut) }, isCollapsed: $bottomPaneCollapsed, shortcutsSuspended: pendingDestination != nil, onCompareFilePair: { compareDifferencePair = $0 }, session: differencesSession,
-                            // One-way sync's pill beside the count (RD67 ED); before setup, only
-                            // for an iCloud pane compared with a Dropbox one.
+                            // One-way sync's pill beside the count; before setup, only for an
+                            // iCloud pane compared with a Dropbox one.
                             accessory: OneWaySyncStatusPill.isShown(controller: oneWaySync, paneTypes: [true, false].map { isLeft in
                                 settings.availableProviders.first { $0.id == (isLeft ? leftProviderId : rightProviderId) }?.type
                             }) ? AnyView(OneWaySyncStatusPill(onSetUp: { openOneWaySyncSetup() })) : nil,
@@ -5664,8 +4849,8 @@ struct ContentView: View {
                                              help: "Scan both panes’ folders again and compare them") { forceRefreshAction() }
                         )
                     } else {
-                        // Same symbol as the toolbar's Compare button — one glyph for
-                        // "compare these two panes"; ⇄ stays reserved for swap (UX 1.2).
+                        // Same symbol as the toolbar's Compare button, one glyph for "compare these
+                        // two panes"; ⇄ stays reserved for swap.
                         EmptyStateView(
                             icon: PaneGlyph.compare,
                             tint: glassHue.accentColor,

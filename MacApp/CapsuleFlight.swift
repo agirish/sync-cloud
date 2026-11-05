@@ -3,13 +3,12 @@ import SwiftUI
 import Design
 import FileExplorer
 
-/// **How a result message leaves when nobody undid or followed it** — its time ran out, or ✕.
+/// How a result message leaves when nobody undid or followed it: its time ran out, or ✕.
 ///
-/// A click's result in a pane or the workspace simply goes: it was where the reader was working,
-/// and they saw it. A message the capsule shows — its own (Run Room CG), or a run's ending it
-/// mirrors from a pane — folds into its ring and flies into the Activity button, where Recent keeps
-/// it; the ✕'s own tooltip already promised "it stays in Activity". Pure, so each refusal is
-/// testable without a toolbar.
+/// A click's result in a pane or the workspace simply goes, since the reader saw it where they
+/// were working. A message the capsule shows, its own or one it mirrors from a pane, folds into its
+/// ring and flies into the Activity button, where Recent keeps it, as the ✕'s tooltip promises.
+/// Pure, so each refusal is testable without a toolbar.
 enum ResultMessageExit: Equatable {
     /// Clear it where it is.
     case clear
@@ -24,9 +23,8 @@ enum ResultMessageExit: Equatable {
     static func exit(home: ResultMessageHome, mirroredInCapsule: Bool = false, reduceMotion: Bool,
                      activityIsOpen: Bool, hasAnchors: Bool) -> ResultMessageExit {
         guard home == .toolbar || mirroredInCapsule else { return .clear }
-        // The popover hangs from the capsule and already lists the message in Recent; a ring flying
-        // out from under it to the button that opened it says nothing the list does not. Its row
-        // flashes instead.
+        // The open popover already lists the message in Recent, so a flight would say nothing the
+        // list doesn't. Its row flashes instead.
         guard !activityIsOpen else { return .flashInActivity }
         guard !reduceMotion, hasAnchors else { return .landInActivity }
         return .fly
@@ -44,17 +42,15 @@ final class CapsuleFlightAnchors {
     weak var capsule: NSView?
     weak var activity: NSView?
 
-    /// Both views' screen frames and the window they are in — or nil unless both are in the SAME
-    /// window, and it is on screen. **`view.window === host` is the overflow guard
-    /// `CommandPaletteHost` measured:** an item folded behind the toolbar's chevron keeps its view
-    /// out of the window, and converting it answers with the window's bottom-left corner at a
-    /// plausible size, which would fly the ring to nowhere.
+    /// Both views' screen frames and their window, or nil unless both are in the same window and
+    /// it is on screen. `view.window === host` is the overflow guard (as in `CommandPaletteHost`):
+    /// an item folded behind the toolbar's chevron is out of the window, and converting it answers
+    /// the window's bottom-left corner at a plausible size, flying the ring to nowhere.
     ///
-    /// **On screen, because ordering a child panel front orders its parent in too** — measured: a
-    /// window ordered out, as a closed one is, reads visible again. A message timing out after its
-    /// window was closed or minimized would bring the window back to fly the ring; off screen, it
-    /// lands in Activity without the flight. (Not `isOnActiveSpace`: a test host reads it false for
-    /// a window plainly on screen.)
+    /// On screen, because ordering a child panel front orders its parent back in: a message timing
+    /// out after its window was closed or minimized would bring the window back. Off screen, it
+    /// lands in Activity without the flight. Not `isOnActiveSpace`, which a test host reads false
+    /// for a window plainly on screen.
     func frames() -> (host: NSWindow, capsule: CGRect, activity: CGRect)? {
         guard let capsule, let activity, let host = capsule.window, activity.window === host,
               host.isVisible else { return nil }
@@ -85,7 +81,7 @@ struct CapsuleFlightAnchor: NSViewRepresentable {
     }
 }
 
-/// **The landing**, as the Activity button sees it: a count it animates on — and the message in the
+/// The landing, as the Activity button sees it: a count it animates on, and the message in the
 /// air, whose problem dot waits for it (`ActivityCenter.dotHeldFor`).
 @MainActor
 final class CapsuleFlightLanding: ObservableObject {
@@ -123,10 +119,9 @@ final class CapsuleFlightLanding: ObservableObject {
 
 /// Draws a flight over the window, in a panel of its own.
 ///
-/// **A panel, because the window cannot draw over its toolbar.** The capsule and the Activity
-/// button are toolbar items, and the window's SwiftUI content sits below the toolbar; a child
-/// window rides above all of it. Inert to the mouse, never key, gone when the ring lands — the
-/// same panel shape the Go-to list uses (`CommandPalettePanelController`).
+/// A panel, because the window's SwiftUI content sits below the toolbar and can't draw over the
+/// capsule or the Activity button; a child window rides above it all. Inert to the mouse, never
+/// key, gone when the ring lands, like the Go-to list's panel (`CommandPalettePanelController`).
 @MainActor
 enum CapsuleFlight {
     static func fly(_ weight: ProgressCapsuleMessage.Weight, from capsule: CGRect, to activity: CGRect,
@@ -144,7 +139,7 @@ enum CapsuleFlight {
         panel.isMovable = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.fullScreenAuxiliary, .moveToActiveSpace]
-        // Its own window, so the main window's root accent does not reach it (DS4).
+        // Its own window, so the main window's root accent doesn't reach it.
         panel.contentView = NSHostingView(rootView: ProgressCapsuleFlightView(
             from: local(capsule), to: local(activity), weight: weight).nativeControlAccent())
         host.addChildWindow(panel, ordered: .above)

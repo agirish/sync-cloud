@@ -2,13 +2,11 @@ import Design
 import SwiftUI
 import Sync
 
-/// The screen the whole redesign exists for: what SyncCloud read, shown back before anything is
-/// written.
+/// What SyncCloud read, shown back before anything is written.
 ///
-/// **A walk that reports only counts cannot be checked.** The form this replaces printed
-/// "2,306 folders" and moved on; here the reading is on screen while going Back still costs
-/// nothing, so a wrong name, a wrong country or the wrong folder is caught before the profile
-/// exists rather than after Organize has been acting on it for a week.
+/// A walk that reports only counts can't be checked. Here the reading is on screen while going
+/// Back still costs nothing, so a wrong name, country or folder is caught before the profile
+/// exists, not after Organize has acted on it.
 struct StructureScreen: View {
     @ObservedObject var model: SetupModel
     let hue: LiquidGlassHue
@@ -26,12 +24,10 @@ struct StructureScreen: View {
     }
 
     @State private var lens: Lens = .folders
-    /// The box is sized in points and everything in it scales, so the box scales too — a fixed
-    /// height at 135% text shows four rows of a tree the user is being asked to check.
-    ///
-    /// It follows the *card*, not the type: on a window too small to give the card its full growth
-    /// the box would otherwise claim room the card never got, and push the switch below it out of
-    /// sight. `theTreeBoxNeverOutgrowsTheCard` is the measurement.
+    /// The tree box is sized in points but its contents scale, so it scales too, or large text
+    /// shows only a few rows. It follows the card, not the type: on a window too small for the
+    /// card's full growth it would claim room the card never got and push the switch below out of
+    /// sight. `SetupSheetFitTests` measures it.
     @Environment(\.setupCardScale) private var cardScale
 
     /// None while a reading runs — see ``SetupModel/structureShownProfile``.
@@ -60,10 +56,8 @@ struct StructureScreen: View {
                 .frame(maxWidth: 320, alignment: .leading)
             }
 
-            // **The tree, the line that explains its grey words and the legend behind them are
-            // one block, at the tighter spacing.** They are three parts of one thing, and spacing
-            // them as three separate blocks both read wrong and cost 18pt — on the only screen of
-            // the ten that has none to spare.
+            // The tree, the line explaining its grey words and the legend are one block at the
+            // tighter spacing: three parts of one thing, on the screen with no height to spare.
             VStack(alignment: .leading, spacing: SetupRhythm.groupSpacing) {
                 if let profile {
                     SetupTreeView(profile: profile,
@@ -79,8 +73,8 @@ struct StructureScreen: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .frame(height: Self.treeHeight * cardScale)
                 } else if model.structureShowsWalkStatus {
-                    // **The reading is still running, or failed, so this says so** — the line
-                    // People and Countries draw for the same states, in the box the tree will fill.
+                    // The reading is running or failed: the same line People and Countries draw,
+                    // in the box the tree will fill.
                     SetupWalkStatus(model: model, foundLabel: "Read from")
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                         .frame(height: Self.treeHeight * cardScale, alignment: .top)
@@ -89,10 +83,9 @@ struct StructureScreen: View {
                         .frame(height: Self.treeHeight * cardScale, alignment: .top)
                 }
 
-                // **A failed Save is said here, in place of the line about grey words**, because
-                // this is the screen the press stays on — and next to the button that will try
-                // again. Said as a write that failed: the folder was read, and the tree is still
-                // above.
+                // A failed Save shows here, in place of the grey-words line, because the press
+                // stays on this screen, next to the button that tries again. Worded as a failed
+                // write: the folder was read, and the tree is still above.
                 if let failure = model.saveFailure {
                     VStack(alignment: .leading, spacing: 3) {
                         Label(Self.saveFailedHeading, systemImage: "exclamationmark.triangle")
@@ -115,11 +108,10 @@ struct StructureScreen: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    // **The legend goes with the line it explains.** A failed Save's heading,
-                    // reason and next step are taller than that line, and on the tightest screen
-                    // of the ten they pushed the reading switch below the fold at three of the four
-                    // named text sizes, by up to 23pt (`structureFitsWithAFailedSaveOnIt`). It
-                    // comes back once the failure clears.
+                    // The legend goes with the line it explains. A failed Save's text is taller
+                    // than that line, and with the legend too it would push the reading switch
+                    // below the fold (`structureFitsWithAFailedSaveOnIt`). It returns once the
+                    // failure clears.
                     legendDisclosure
                 }
             }
@@ -151,12 +143,9 @@ struct StructureScreen: View {
         }
     }
 
-    /// What the readings mean, in the screen's own words.
-    ///
-    /// **Behind a disclosure rather than printed under the tree.** The design draws it open, and it
-    /// does not fit: the tree box is the tallest thing on this card by a wide margin and six
-    /// definitions under it push the reading switch — the control the button below acts on — off
-    /// the bottom of a 610pt card. Closed, it costs one line and says what is inside it.
+    /// What the readings mean, in the screen's own words. Behind a disclosure, because six
+    /// definitions under the tree push the reading switch, which the button below acts on, off
+    /// the bottom of the card. Closed, it costs one line.
     static let legend: [(term: String, meaning: String)] = [
         ("files go here", "holds files; loose files can be filed into it"),
         ("holds folders only", "nothing is filed into it directly"),
@@ -168,13 +157,10 @@ struct StructureScreen: View {
         ("the number", "folders inside, or files where files go"),
     ]
 
-    /// **Fixed, so the reading switch below never moves.** The tree is the one thing on this sheet
-    /// whose length depends on the user's disk; a box that grew with it would put the switch — and
-    /// the button that acts on it — somewhere different on every Mac.
-    ///
-    /// 208 rather than 268: the card's content budget was 38pt larger than the card actually gives
-    /// — it had never been charged for the top bar — and this screen was the one that overflowed
-    /// once it was. The box scrolls, so what the number costs is how many rows are in view.
+    /// Fixed, so the reading switch below never moves: the tree's length depends on the user's
+    /// disk, and a box that grew with it would put the switch somewhere different on every Mac.
+    /// The box scrolls, so the height only sets how many rows are in view; 208 is what fits the
+    /// card.
     static let treeHeight: CGFloat = 208
 
     /// The heading over a failed Save's own reason. The button below it tries again.
@@ -183,9 +169,8 @@ struct StructureScreen: View {
     /// The line after the reason: the two ways on, named as the buttons name them.
     static let saveFailedNextStep = "Try again, or choose Continue Without Saving."
 
-    /// One column per count, so the five of them share a rhythm. Wide enough for the longest label
-    /// the screen has — "loose at the top" — measured rather than guessed; a narrower column makes
-    /// that one collide with the count beside it.
+    /// One column per count, so the five share a rhythm. Measured to fit the longest label, "loose
+    /// at the top"; narrower, it collides with the count beside it.
     static let statColumn: CGFloat = 118
 
     private var blurb: String {
@@ -206,10 +191,8 @@ struct StructureScreen: View {
     // MARK: - The five numbers
 
     private var statsRow: some View {
-        // **Even columns, because the labels are not.** Spaced by a constant, the five numbers land
-        // at 86, 67, 158 and 84pt apart — the gaps are whatever each label happens to be wide, and
-        // "loose at the top" is two words longer than the rest, so the row reads as five unrelated
-        // figures rather than as one strip of counts.
+        // Even columns, because the labels are not. Spaced by a constant, the gaps follow each
+        // label's width and the row reads as five unrelated figures, not one strip of counts.
         let counts = Self.counts(model)
         return HStack(alignment: .top, spacing: 0) {
             stat(counts.folders, "folder", "folders")
@@ -230,12 +213,10 @@ struct StructureScreen: View {
         var countries: Int?
     }
 
-    /// What the stats row says.
-    ///
-    /// **Dashes for what the reading counts, while it runs or after it failed** — 0 folders and
-    /// 0 files, or the last reading's counts after Learn Again, said something no reading had
-    /// found. The people are the roster's, whatever the reading does; the countries are reset from
-    /// what the reading proposes when it lands, so they wait for it too.
+    /// What the stats row says. While a reading runs or after it failed, its counts are dashes:
+    /// zeros, or the last reading's counts, would claim something no reading found. People come
+    /// from the roster regardless; countries are reset from the reading's proposals, so they wait
+    /// for it too.
     static func counts(_ model: SetupModel) -> Counts {
         let people = model.rosterNames.count
         guard !model.structureShowsWalkStatus else {
@@ -278,11 +259,9 @@ struct StructureScreen: View {
 
     // MARK: - The offer
 
-    /// The document-reading offer, on by default.
-    ///
-    /// **The button below says what it will do**, because a button called *Looks right* once hid
-    /// three side effects, one of them three hours long. With the switch on it reads "Save and
-    /// Start Reading"; with it off, "Save".
+    /// The document-reading offer, on by default. The button below names what it will do, so a
+    /// long reading never hides behind a vague label: "Save and Start Reading" with the switch on,
+    /// "Save" with it off.
     private var readingToggle: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Toggle("Read documents", isOn: $model.readDocuments)
@@ -310,10 +289,8 @@ struct StructureScreen: View {
     }
 }
 
-/// The Why panel beside Structure — it has none, and this is the closing line instead.
-///
-/// Structure is its own explanation: the tree, the legend and the counts are the argument. What a
-/// Why panel would have said is the one line under the button.
+/// Structure's closing line, in place of a Why panel: the tree, legend and counts explain
+/// themselves, and this one line under the button says the rest.
 enum StructureClosing {
     static let ifWrong = "If this looks wrong: go back and fix a name, a country or the folder. "
         + "Nothing has moved, and nothing is saved until you press Save."

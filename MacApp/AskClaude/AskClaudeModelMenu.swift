@@ -2,9 +2,9 @@ import SwiftUI
 import Sync
 import Design
 
-/// The model and answer style the next question goes to, in the text box's bottom row (TE292,
-/// decisions HS–HX). A pick carries on in this chat and becomes the default, the same keys
-/// Settings ▸ Intelligence shows; a change there moves this chat too.
+/// The model and answer style the next question goes to, in the text box's bottom row. A pick
+/// carries on in this chat and becomes the default, the same keys Settings ▸ Intelligence shows; a
+/// change there moves this chat too.
 struct AskClaudeModelMenu: View {
     @AppStorage private var modelID: String
     @AppStorage private var detail: String

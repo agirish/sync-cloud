@@ -2,10 +2,10 @@ import Design
 import SwiftUI
 import Sync
 
-/// What an empty chat shows. With no API key saved, setting up first (TE315): what Ask Claude
-/// does, where a key comes from, and the API key card, so the first question isn't the one that
-/// finds out. With a key, the opening note and a few questions that fit the screen (TE299). The
-/// text box stays usable either way.
+/// What an empty chat shows. With no API key saved, setting up first: what Ask Claude does, where
+/// a key comes from, and the API key card, so the first question isn't the one that finds out.
+/// With a key, the opening note and a few questions that fit the screen. The text box stays usable
+/// either way.
 struct AskClaudeEmptyState: View {
     /// Whether a key is saved, asked without reading it; nil until asked.
     let keySaved: Bool?
@@ -105,7 +105,7 @@ struct AskClaudeEmptyState: View {
 }
 
 extension AskClaudePlace {
-    /// What the starters are keyed by (TE299).
+    /// What the starters are keyed by.
     var starterScreen: AskClaudeStarters.Screen {
         AskClaudeStarters.Screen(workspace: workspace, source: source, folder: folder, itemCount: itemCount,
                                  folderHidden: isHidden, openFile: openFile)

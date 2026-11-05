@@ -4,11 +4,11 @@ import Sync
 
 /// Screen 5: which of the short folder names are countries.
 ///
-/// **The likely ones arrive ticked, and "likely" is measured.** A value pre-ticks only when it is a
-/// real ISO region *and* it splits at least ``JurisdictionCandidates/confidentDistinctParents``
-/// different parent folders — the bar the reference tree set. Everything else is proposed and left
-/// for the user, because the mining is 83.2% right and every point of the gap is an invention:
-/// `EMP` is an employer, `IT` a department, `PRD` a product stage.
+/// The likely ones arrive ticked, and "likely" is measured: a value pre-ticks only when it is a
+/// real ISO region and splits at least ``JurisdictionCandidates/confidentDistinctParents``
+/// different parent folders. Everything else is proposed and left to the user, because the mining
+/// is about 83% right and every point of the gap is an invention: `EMP` is an employer, `IT` a
+/// department, `PRD` a product stage.
 struct CountriesScreen: View {
     @ObservedObject var model: SetupModel
     let hue: LiquidGlassHue
@@ -19,11 +19,10 @@ struct CountriesScreen: View {
 
             SetupWalkStatus(model: model, foundLabel: "Found in")
 
-            // **What counts as a country first; what merely might, behind a disclosure.** Every
-            // short folder name the walk saw arrived in one row, ticked and unticked together, so
-            // the two the rule is confident about sat between `EMP`, `IT` and `PRD` with nothing
-            // but a tick to separate them — and the unticked ones outnumber them. The answer is
-            // the screen; the rest is a list to correct it from.
+            // What counts as a country first; what merely might, behind a disclosure. In one row
+            // the confident few would sit among `EMP`, `IT` and `PRD` with only a tick to tell them
+            // apart, outnumbered by the unticked. The answer is the screen; the rest is a list to
+            // correct it from.
             VStack(alignment: .leading, spacing: SetupRhythm.groupSpacing) {
                 Text("Counted as countries").scaledFont(.callout.weight(.semibold))
                 if chosen.isEmpty {
@@ -67,12 +66,10 @@ struct CountriesScreen: View {
 
             Spacer(minLength: 0)
 
-            // **At the foot of the column, not under the chips.** The card is one fixed height for
-            // all ten screens and this is one of the four that does not fill it, so a note tucked
-            // under the controls left the column's bottom third empty while the Why panel beside it
-            // closed on its own footnote — two columns of one card disagreeing about where the
-            // floor is. Workspaces has always closed this way and is the better-composed screen for
-            // it.
+            // At the foot of the column, not under the chips. The card is one fixed height for
+            // every screen and this one doesn't fill it, so a note under the controls would leave
+            // the column's bottom third empty while the Why panel beside it closes on its own
+            // footnote. Workspaces closes the same way.
             Text("Ticked means a real country code that appears under "
                  + "\(SetupFlow.spelled(JurisdictionCandidates.confidentDistinctParents).lowercased()) "
                  + "or more different parent folders. Unticked names are read as ordinary folders. "
@@ -88,7 +85,7 @@ struct CountriesScreen: View {
         model.countryCandidates.map(\.value) + model.addedCountries
     }
 
-    /// The ones that count as countries — the answer this screen exists to show.
+    /// The ones that count as countries: the answer this screen exists to show.
     private var chosen: [String] {
         allValues.filter { model.confirmedCountries.contains($0) }
     }
@@ -117,8 +114,8 @@ struct CountriesScreen: View {
         "\(count) other short name\(count == 1 ? "" : "s")"
     }
 
-    /// Claims a result only once there is one: "ticked the ones it is confident about" over a
-    /// spinner, or after a reading that failed, promised ticks that were not there.
+    /// Claims a result only once there is one, so a spinner or a failed reading never promises
+    /// ticks that aren't there.
     private var blurb: String {
         switch model.walkState {
         case .done:
@@ -131,9 +128,9 @@ struct CountriesScreen: View {
         }
     }
 
-    /// The finished reading's line. "Ticked" only when SyncCloud ticked something: names were
-    /// found but none was certain enough to tick, the screen arrives with nothing ticked, and the
-    /// line invites the picking instead.
+    /// The finished reading's line. "Ticked" only when SyncCloud ticked something: when names were
+    /// found but none was certain enough, the screen arrives with nothing ticked and the line
+    /// invites the picking instead.
     static func foundBlurb(candidates: Int, confident: Int) -> String {
         if candidates == 0 { return "No short folder names looked like countries. Add any by their code." }
         if confident == 0 { return "SyncCloud wasn’t sure of any of these. Tick the ones that are countries." }
@@ -153,8 +150,8 @@ struct CountriesScreen: View {
         .accessibilityLabel("\(value), \(help), \(ticked ? "a country" : "not a country")")
     }
 
-    /// How many folders taking this value would be affected — the number that makes a tick a
-    /// decision rather than a guess.
+    /// How many folders taking this value would affect: the number that makes a tick a decision
+    /// rather than a guess.
     static func blastRadius(_ candidate: JurisdictionCandidate) -> String {
         "· \(candidate.folderCount) folder\(candidate.folderCount == 1 ? "" : "s")"
     }

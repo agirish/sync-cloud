@@ -2,16 +2,14 @@ import Foundation
 import Settings
 import Sync
 
-/// Which change a setting's value came from (TE290 step 4b): a new token every time the value is
-/// seen to have moved, whoever moved it — a card, Settings, the View menu, the toolbar, a reset.
+/// Which change a setting's value came from: a new token every time the value is seen to have
+/// moved, whoever moved it (a card, Settings, the View menu, the toolbar, a reset).
 ///
-/// **Compared when asked, not watched.** Only a card's writes come through the chat; everything
-/// else writes the preferences or a store directly. So the ledger compares the live value each
-/// time it is asked — on every draw of a card, which follows every preferences change — and a
-/// value that differs from the last one it saw gets a fresh token. A card that holds the current
-/// token made the latest change; one that doesn't, didn't, and offers no Undo. A change and a
-/// change back made while no card was drawn look like no change at all. Tokens last for the
-/// session: a card restored after a relaunch holds none, and offers no Undo.
+/// Compared when asked, not watched: only a card's writes come through the chat, so the ledger
+/// compares the live value on every draw of a card, and a value that differs from the last one it
+/// saw gets a fresh token. A card holding the current token made the latest change; one that
+/// doesn't offers no Undo. A change and a change back while no card was drawn look like no change.
+/// Tokens last for the session: a card restored after a relaunch holds none, and offers no Undo.
 @MainActor
 final class AskClaudeSettingsLedger {
     struct Key: Hashable {
@@ -57,17 +55,16 @@ struct AskClaudeSettingsStep {
     /// Undoing it would raise Claude's spending or access, so only the card's own Undo — badged —
     /// takes it back; ⌘Z passes over it and can't quietly turn reading back on.
     let cardOnly: Bool
-    /// Redoing it would raise, so ⇧⌘Z passes over it too (TE290 review): the change came from a
-    /// click, and only a click makes it again.
+    /// Redoing it would raise, so ⇧⌘Z passes over it too: the change came from a click, and only a
+    /// click makes it again.
     var redoRaises = false
 }
 
-/// The chat's own undo and redo of settings changes (TE290 step 4b), separate from typing's.
-///
-/// **Separate, so it survives the panel.** The panel's window — and its undo manager — is torn
-/// down whenever the panel closes or steps aside for Settings; steps kept there went with it. The
-/// chat owns these for as long as it lives; New Chat clears them with the cards they belong to.
-/// The panel window sends Undo here when there is no draft being typed (`AskClaudePanelWindow`).
+/// The chat's own undo and redo of settings changes, separate from typing's so it survives the
+/// panel: the panel's window and its undo manager are torn down whenever the panel closes or steps
+/// aside for Settings. The chat owns these for as long as it lives; New Chat clears them with the
+/// cards they belong to. The panel window sends Undo here when no draft is being typed
+/// (`AskClaudePanelWindow`).
 @MainActor
 final class AskClaudeSettingsUndo {
     private(set) var undoSteps: [AskClaudeSettingsStep] = []
@@ -100,7 +97,7 @@ final class AskClaudeSettingsUndo {
         redoSteps.removeAll()
     }
 
-    /// The changes Claude made itself (TE290 step 4c), once their card is in the chat as `card`:
+    /// The changes Claude made itself, once their card is in the chat as `card`:
     /// a step per row, as a click on it would have made, so Undo and Edit ▸ Undo take them back.
     func recordClaude(_ rows: [AskClaudeSettingCard.Row], card: UUID) {
         for (index, row) in rows.enumerated() where row.byClaude == true {
@@ -114,10 +111,10 @@ final class AskClaudeSettingsUndo {
         }
     }
 
-    /// A setting whose write lands only once something else catches up — a source's name, path
-    /// and Open at take effect when the sources are discovered again (TE290 step 9). An undo of
-    /// one read the old value straight after writing, so its token named that; once the value it
-    /// wrote is there, its steps take that value's token again.
+    /// A setting whose write lands only once something else catches up: a source's name, path
+    /// and Open at take effect when the sources are discovered again. An undo of one reads the old
+    /// value straight after writing, so its token names that; once the value it wrote is there, its
+    /// steps take that value's token again.
     func resettle(_ key: AskClaudeSettingsLedger.Key) {
         let now = read(key)
         for index in undoSteps.indices {

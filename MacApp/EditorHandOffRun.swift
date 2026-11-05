@@ -4,56 +4,38 @@ import FileExplorer
 import Sync
 import Dashboard
 
-/// **The hand-off: "Open in Edit" from any door, anywhere in the app** — as one act a test can run.
+/// The hand-off: "Open in Edit" from any door in the app, as one act a test can run against a
+/// real `FileSyncManager`. `ContentView.handOffToEditor` supplies the window's pieces; this is
+/// their order, and the one place each outcome is logged.
 ///
-/// `ContentView.handOffToEditor` supplies the window's pieces; this is the order they run in, and
-/// the one place each outcome is logged. It is a type of its own for the reason
-/// `EditorDocumentClose` is: `ContentView` cannot be built in a test, so an act written inline there
-/// is an act nothing executes — and the pane half of this one is exactly what has to be measured
-/// against a real `FileSyncManager`.
-///
-/// **The question comes first, and nothing moves until it is answered.** The unsaved-changes prompt
-/// used to run last, inside `openInEditor`, after the pane had been re-rooted and the workspace
-/// switched — so answering *Cancel* to "save your changes?" left the user in the Editor, the pane
-/// moved to a folder they had not asked for, and the old dirty document still on screen. Cancel has
-/// to mean nothing happened.
-///
-/// Then: point the folder before switching workspace, so the rail lists the right folder on its
-/// first render rather than listing the previous one and re-listing a frame later. Open last,
-/// through `load` — the buffer is already settled, so re-asking would be a second prompt to keep in
-/// step with the first.
-///
-/// Editing always *happens* in the editor workspace. This is the ⌘4 move a user could make by hand,
-/// made for them: one writable surface, so dirty state, undo and the save circuit live in exactly
-/// one place.
+/// The unsaved-changes question comes first and nothing moves until it is answered, so Cancel
+/// means nothing happened. Then the folder is pointed before the workspace switch, so the rail's
+/// first render lists the right folder. Open is last, through `load`; the buffer is already
+/// settled, so it doesn't ask again. Editing always happens in Edit, so dirty state, undo and saving
+/// live in one place.
 @MainActor
 enum EditorHandOffRun {
 
     /// What the hand-off does to the left pane — the one thing its doors disagree about.
     enum Pane: Equatable {
-        /// Take the left pane to the file's folder, so the rail and the pane list where the
-        /// document lives — by tab, on whichever source holds it (`EditorTabFollow`). From Browse
-        /// and Edit, and for a launch from Finder.
+        /// Take the left pane to the file's folder, by tab, on whichever source holds it
+        /// (`EditorTabFollow`). From Browse and Edit, and for a launch from Finder.
         case followsTheFile
-        /// **The same, but only on the source the left pane is on** — from Compare's file panes
-        /// and Organize. There the left pane's source is what the comparison, the ignored items and
-        /// Organize's results belong to, and adopting another one resets or clears them; a folder
-        /// on another source opens the file and leaves the pane where it is, as before tabs.
+        /// The same, but only on the left pane's own source: from Compare's file panes and
+        /// Organize, whose comparison, ignored items and results belong to that source and would be
+        /// reset by adopting another. A folder on another source opens the file and leaves the pane.
         case followsOnItsSource
-        /// **Leave the left pane exactly where it is** — Compare's list of differences (TE31's
-        /// fixup), and a file opened from Finder while Compare or a guided review is on screen
-        /// (`ExternalOpen.pane`). There the left pane IS one half of the comparison the list is showing: re-rooting
-        /// it re-scopes the comparison, re-runs its scan and clears the session's "Ignore in
-        /// comparison" entries (`focusOn` → `clearSessionIgnoredPaths`), so the row you acted from
-        /// would vanish under you along with every row you had set aside. The header's location
-        /// ("in <folder>") says where the file lives, and is the door that moves the pane there.
+        /// Leave the left pane where it is: from Compare's list of differences, and for a file
+        /// opened from Finder while Compare or a guided review is on screen (`ExternalOpen.pane`).
+        /// The left pane is half the comparison, and re-rooting it re-runs the scan and clears the
+        /// session's "Ignore in comparison" entries (`focusOn` → `clearSessionIgnoredPaths`), so the
+        /// row acted from would vanish. The header's location ("in <folder>") moves the pane there.
         case staysPut
     }
 
-    /// How a hand-off ended — every one of them writes one line saying so: this act's own for the
-    /// first two, the load's (`loadIntoEditor`: opened, read-only or refused) for the third. A
-    /// `.staysPut` hand-off adds one line before the load naming the decision to leave the pane,
-    /// worded as a decision — the load's line is the one that says whether the file opened.
+    /// How a hand-off ended. Each writes one line: this act's own for the first two, the load's
+    /// (`loadIntoEditor`: opened, read-only or refused) for the third. A `.staysPut` hand-off adds a
+    /// line before the load naming the decision to leave the pane.
     enum Outcome: Equatable {
         /// The file was open already, and readable: Edit is shown, nothing else moves.
         case alreadyOpen
@@ -64,12 +46,9 @@ enum EditorHandOffRun {
     }
 
     /// Whether opening `path` is anything but a no-op: it is not the open document, or the last
-    /// attempt at it was refused. **The one guard both routes ask** — the rail's `openInEditor` and
-    /// every hand-off — so "already open" cannot come to mean two things.
-    ///
-    /// A refused file is let through on purpose: a cloud-only file downloaded in Finder, or one
-    /// that was too large and has since been trimmed, is a second click away from opening, and an
-    /// early return used to swallow it and leave the stale refusal on screen.
+    /// attempt at it was refused. The one guard both the rail's `openInEditor` and every hand-off
+    /// ask, so "already open" means one thing. A refused file is let through so a second click can
+    /// open it once it is downloaded or trimmed, rather than leaving the stale refusal.
     nonisolated static func opens(_ path: String, openDocument: String?, isRefused: Bool) -> Bool {
         path != openDocument || isRefused
     }
@@ -79,25 +58,19 @@ enum EditorHandOffRun {
     /// - Parameters:
     ///   - paneRoot: the left source's root, `~` expanded — what `focusOn`'s relative path is
     ///     relative to.
-    ///   - paneFolder: the folder the left pane will show IN EDIT (`ContentView.leftPaneFolder(in:
-    ///     .editor)`), read only when the answer is needed. **Edit's, not the workspace on screen
-    ///     now:** the hand-off starts in Browse, Compare or Organize, and Browse keeps its own view
-    ///     mode — so a Browse pane drawing Columns at R › A answers `R/A` while the same pane in a
-    ///     Tree-mode Edit shows `R`. Asking the screen's folder took "already there" for `R/A`,
-    ///     skipped the re-root, and landed Edit on `R` with the document's debt dropped
-    ///     (2026-09-25).
-    ///   - settle: `settleEditorDocument()` — a `false` means nothing happens.
-    ///   - endNaming: puts away ⌘N's naming row. **Every hand-off that is not cancelled lands on a
-    ///     document**, so a naming row left open by an earlier ⌘N — the user then left Edit and
-    ///     chose a file elsewhere — must not sit over it with its field taking the keyboard.
-    ///     `openInEditor` does the same for the rail's click.
+    ///   - paneFolder: the folder the left pane will show in Edit (`ContentView.leftPaneFolder(in:
+    ///     .editor)`), read only when needed. Edit's, not the screen's: Browse keeps its own view
+    ///     mode, so a Columns pane at R › A answers `R/A` while Tree-mode Edit shows `R`, and
+    ///     asking the screen would skip a needed re-root.
+    ///   - settle: `settleEditorDocument()`; a `false` means nothing happens.
+    ///   - endNaming: puts away ⌘N's naming row, so one left open by an earlier ⌘N doesn't sit over
+    ///     the document with its field taking the keyboard. `openInEditor` does the same.
     ///   - showEdit: switches to the Edit workspace when it is not already on screen.
     ///   - load: `loadIntoEditor(path:)`, which logs the load's own outcome.
-    ///   - followFolder: how the pane goes to the file's folder when it is not already showing it —
-    ///     the app passes ``EditorTabFollow`` (the tab showing that folder, or a new one, on whichever
-    ///     source holds it). `nil` keeps the in-place re-root ``focusPane(on:root:syncManager:)``
-    ///     does, which is what the tests of this act's order drive. Called after the settle, like
-    ///     every pane move here, so a Cancel still moves nothing.
+    ///   - followFolder: how the pane goes to the file's folder when it isn't showing it; the app
+    ///     passes ``EditorTabFollow``. `nil` uses the in-place re-root of
+    ///     ``focusPane(on:root:syncManager:)``, which the order tests drive. Called after the
+    ///     settle, so a Cancel moves nothing.
     @discardableResult
     static func run(_ path: String, pane: Pane,
                     syncManager: FileSyncManager, paneRoot: String,
@@ -110,12 +83,8 @@ enum EditorHandOffRun {
                     log: (String) -> Void,
                     followFolder: ((String) -> Void)? = nil) -> Outcome {
         guard opens(path, openDocument: openDocument, isRefused: isRefused) else {
-            // Already open and readable: just go there. Nothing to settle, nothing to move.
-            //
-            // **Logged, because every other outcome of a hand-off is.** `loadIntoEditor` writes one
-            // line for opened / read-only / refused, and this exit and the cancelled settle below
-            // were the two that wrote nothing — so a report of "I pressed ⌘O and nothing happened"
-            // had no line to find. Each hand-off leaves exactly one line whichever way it ends.
+            // Already open and readable: just go there, with nothing to settle or move. Logged,
+            // so every hand-off leaves one line whichever way it ends.
             log("Editor hand-off: \(path) is already open — showing Edit")
             endNaming()
             showEdit()
@@ -129,13 +98,9 @@ enum EditorHandOffRun {
         switch pane {
         case .followsTheFile, .followsOnItsSource:
             let folder = (path as NSString).deletingLastPathComponent
-            // **The LEFT pane, whichever pane the row was in.** It took the row's side for a
-            // while, which sounds more careful and is not: `editorFolder` reads the left pane and
-            // only the left pane, so handing off a row from the right pane re-rooted a pane the
-            // editor never shows — resetting its column stack and pushing a history entry in the
-            // user's OTHER source — while the rail went on listing the left pane's folder and ⌘N
-            // went on creating files there. One pane is read, so one pane is moved. Nothing to do
-            // when it is already there: `focusOn` is not free.
+            // The left pane, whichever pane the row was in: `editorFolder` reads only the left
+            // pane, so moving the right one would disturb a pane Edit never shows while the rail
+            // and ⌘N stay on the left. Skipped when already there, since `focusOn` isn't free.
             if !folder.isEmpty, folder != paneFolder() {
                 if let followFolder {
                     followFolder(folder)
@@ -144,10 +109,9 @@ enum EditorHandOffRun {
                 }
             }
         case .staysPut:
-            // Its own line, so a report of "Open in Edit didn't take me to the folder" from Compare
-            // finds the decision rather than a silence. **Worded as the decision, not the result**:
-            // it is written before the load, and a file the editor then refuses must not have a
-            // line saying it "opened" above the line saying it could not be.
+            // Its own line, so "Open in Edit didn't take me to the folder" finds the decision in the
+            // log. Worded as the decision, not the result: it comes before the load, which may yet
+            // refuse the file.
             log("Editor hand-off to \(path) leaves the left pane on \(paneFolder()) — it is half of the comparison, so the hand-off does not move it")
         }
         showEdit()
@@ -155,26 +119,20 @@ enum EditorHandOffRun {
         return .opened
     }
 
-    /// **What an in-app "Open in Edit" does to the left pane, pressed in `workspace`.** From Browse
-    /// and Edit it follows the file by tab, to whichever source holds it. From Compare's file panes
-    /// and the inspector there, from Organize, and during a guided review, it follows only on the
-    /// pane's own source (`Pane.followsOnItsSource`) — the comparison, its ignored items and
-    /// Organize's results all belong to that source, and adopting another resets or clears them.
-    /// Compare's list of differences passes `.staysPut` itself.
+    /// What an in-app "Open in Edit" does to the left pane, pressed in `workspace`. From Browse and
+    /// Edit it follows the file by tab, to any source. From Compare, Organize, or during a guided
+    /// review, it follows only on the pane's own source (`Pane.followsOnItsSource`). Compare's list
+    /// of differences passes `.staysPut` itself.
     nonisolated static func pane(forDoorIn workspace: Workspace, isReviewing: Bool) -> Pane {
         (workspace == .browse || workspace == .editor) && !isReviewing ? .followsTheFile : .followsOnItsSource
     }
 
-    /// Points a pane at an absolute folder, the way the folder sidebar does.
+    /// Points the left pane at an absolute folder, the way the folder sidebar does (see `run` for
+    /// why always the left).
     ///
-    /// **`focusOn` takes a path RELATIVE to whatever root the pane is on**, which is the trap this
-    /// exists to avoid: handing it an absolute path resolves it against the root and lands the pane
-    /// somewhere real and wrong. A folder outside the pane's current root is refused rather than
-    /// guessed at. **Reaching another source is the tab follow's** (`EditorTabFollow`): it opens a
-    /// tab there, which the strip shows, rather than re-pointing this one — and never from Compare
-    /// or Organize (`Pane.followsOnItsSource`).
-    ///
-    /// The LEFT pane, always — see `run`'s note on why one pane is read and one is moved.
+    /// **`focusOn` takes a path relative to the pane's root**; an absolute path would resolve
+    /// against the root and land somewhere real and wrong. A folder outside the root is refused,
+    /// not guessed at. Reaching another source is `EditorTabFollow`'s job, by opening a tab.
     ///
     /// - Returns: `false` when the folder is not under the pane's root.
     @discardableResult
@@ -189,18 +147,13 @@ enum EditorHandOffRun {
     }
 }
 
-/// **Where the file pane goes when Edit opens a file from somewhere else** — the tab already showing
-/// its folder, or a new one, on whichever source holds it.
+/// Where the file pane goes when Edit opens a file from somewhere else: the tab already showing
+/// its folder, or a new one, on whichever source holds it. The tab you were in keeps its place, so
+/// three notes from three folders give three tabs, not one tab that moved twice.
 ///
-/// Asked 2026-10-03: "if it's in same parent, use existing tab. If it's different, open a new tab
-/// (or one of the existing open tabs that may be most relevant)". So the tab you were in keeps its
-/// place, where the hand-off used to re-root it: open three notes from three folders and the pane
-/// holds three tabs, one per folder, rather than one tab that moved twice.
-///
-/// **"The same parent" is asked of the active tab's own location**, scope and column stack joined —
-/// not of the folder Edit happens to draw. The two differ when Browse is in Columns and Edit in
-/// Tree (`EditorHandOffRun.run`'s `paneFolder` note), and there the tab is already at the folder:
-/// only Edit's view of it moves, in place, as every hand-off always did.
+/// "Already showing" is asked of the active tab's own location (scope and column stack joined),
+/// not the folder Edit draws. They differ when Browse is in Columns and Edit in Tree; then the
+/// tab is already there and only Edit's view moves, in place.
 ///
 /// Pure, over plain values, so each answer is a test; `ContentView.followFolderInTabs` acts on it.
 enum EditorTabFollow {
@@ -215,25 +168,25 @@ enum EditorTabFollow {
     }
 
     enum Decision: Equatable {
-        /// The active tab is at this folder; only Edit's view of it differs — re-root that, in place.
+        /// The active tab is at this folder; only Edit's view of it differs, so re-root that.
         case inPlace
         /// Another open tab is already at this folder.
         case switchTo(UUID)
         /// No tab is: open one, at this source and path.
         case open(ExternalOpen.SourceRoute)
-        /// No configured source holds the folder — or, keeping its source, the pane's does not.
+        /// No configured source holds the folder, or, when keeping its source, the pane's doesn't.
         /// The file still opens; the pane stays.
         case nowhere
     }
 
     /// - Parameters:
-    ///   - keepsSource: `Pane.followsOnItsSource` — only tabs on the active tab's source are
+    ///   - keepsSource: `Pane.followsOnItsSource`: only tabs on the active tab's source are
     ///     candidates, and a new tab opens there when the folder is under its root; anywhere else is
-    ///     `.nowhere`, and the pane stays.
-    ///   - relative: the folder under a root, or `nil` when it is not under it —
+    ///     `.nowhere`.
+    ///   - relative: the folder under a root, or `nil` when it isn't under it;
     ///     `PaneLogic.relativePath(of:under:)`, which follows iCloud Drive's linked Desktop and
     ///     Documents, injected so the rule runs without a disk.
-    ///   - route: the source that owns the folder, for a new tab — `ExternalOpen.route`.
+    ///   - route: the source that owns the folder, for a new tab: `ExternalOpen.route`.
     static func decide(folder: String, active: Tab, others: [Tab], keepsSource: Bool = false,
                        relative: (_ folder: String, _ root: String) -> String?,
                        route: (String) -> ExternalOpen.SourceRoute?) -> Decision {
@@ -249,16 +202,14 @@ enum EditorTabFollow {
         return .open(ExternalOpen.SourceRoute(providerId: active.providerId, relativePath: here))
     }
 
-    /// **Whether Edit still has to be re-rooted at `folder` once the pane's tab is there.** Tree
-    /// lists a tab's scope, not its column stack, so a tab at the folder BY its stack — the active
-    /// one, one switched to, or one opened on the same source (which keeps the scope it was opened
-    /// from) — still has Edit listing the scope. Re-rooted in place, as every hand-off did before
-    /// tabs. In Columns Edit shows the stack, so the two already agree and nothing moves.
+    /// Whether Edit still has to be re-rooted at `folder` once the pane's tab is there. Tree lists a
+    /// tab's scope, not its column stack, so a tab at the folder by its stack still has Edit listing
+    /// the scope, and is re-rooted in place. In Columns Edit shows the stack, so nothing moves.
     ///
     /// - Parameters:
-    ///   - editShows: the folder Edit draws now — `ContentView.leftPaneFolder(in: .editor)`.
-    ///   - root: the live tab's source root. A folder not under it means the move did not happen
-    ///     (a refused or abandoned tab verb), and re-rooting there would name a path that is not.
+    ///   - editShows: the folder Edit draws now: `ContentView.leftPaneFolder(in: .editor)`.
+    ///   - root: the live tab's source root. A folder not under it means the move didn't happen (a
+    ///     refused or abandoned tab verb), so there is nothing to re-root.
     static func needsRerootInPlace(folder: String, editShows: String, root: String,
                                    relative: (_ folder: String, _ root: String) -> String?) -> Bool {
         guard !root.isEmpty, let wanted = relative(folder, root) else { return false }
@@ -267,27 +218,20 @@ enum EditorTabFollow {
     }
 }
 
-/// **Reveal in Browse — Edit's way back out**, from the header's file name and from a rail row's
-/// menu, as one act a test can run against a real `FileSyncManager`.
+/// Reveal in Browse, Edit's way back out: from the header's file name, a rail row's menu and
+/// other doors, as one act a test can run against a real `FileSyncManager`.
 ///
-/// **The pane breadcrumb's route, computed for BROWSE's view mode** — `navigatePane`, the route the
-/// header's location doors take (`EditorLocationDoors`) — and nothing at all when Browse already
-/// shows the folder. It used to re-root the pane (`focusOn`) whatever Browse was showing, and that
-/// was wrong both ways a pane can be drawn:
-/// - **Columns drilled to scope › A › B, revealing a file in B**: a re-root at B — the column stack
-///   reset, a history entry pushed, the session's "Ignore in comparison" entries cleared and a
-///   refresh sent, to arrive at the folder the pane was already showing.
-/// - **Edit in Tree, Browse in Columns with its stack parked deeper**: `focusOn` of the scope the
-///   Tree shows is a no-op, so Browse opened on the parked, deeper folder, and the file's owed
-///   selection was dropped — the notes' "lands with the file selected" was false.
-/// Through `navigatePane`, a folder inside the scope is a browse move of the column stack (no
-/// re-scope, no scan), a folder above it or any folder in Tree is a re-root — exactly what the
-/// pane's own breadcrumb does for that folder in that mode.
+/// It takes the pane breadcrumb's route, `navigatePane` (as `EditorLocationDoors` does), computed
+/// for Browse's view mode, and does nothing when Browse already shows the folder. A folder inside
+/// the scope is a move of the column stack (no re-scope, no scan); a folder above it, or any folder
+/// in Tree, is a re-root. A plain `focusOn` re-root would reset the column stack and clear the
+/// session's ignores to arrive where the pane already was, or, with Edit in Tree and Browse in
+/// Columns, leave Browse on a deeper folder without the file selected.
 @MainActor
 enum EditorRevealInBrowse {
 
-    /// Which of the two doors was used — each writes its own line, so a report of "Reveal in
-    /// Browse went somewhere odd" can say which one was pressed.
+    /// Which door was used. Each writes its own line, so "Reveal in Browse went somewhere odd" can
+    /// say which one was pressed.
     enum Door: Equatable {
         /// The header's file name (its right-click menu) — always the open document.
         case header
@@ -311,9 +255,9 @@ enum EditorRevealInBrowse {
         }
     }
 
-    /// **The copies a batch's Reveal selects beside the first** — those in the first copy's folder,
-    /// in the batch's order, each once. The pane is moved to that folder and shows no other, so a
-    /// copy written elsewhere (a batch over files from several folders) cannot be selected with it.
+    /// The copies a batch's Reveal selects beside the first: those in the first copy's folder, in
+    /// the batch's order, each once. The pane shows only that folder, so a copy written elsewhere
+    /// can't be selected with it.
     static func companions(of copies: [String]) -> [String] {
         guard let first = copies.first else { return [] }
         let folder = PaneBrowsePath.normalized((first as NSString).deletingLastPathComponent)
@@ -324,15 +268,13 @@ enum EditorRevealInBrowse {
         }
     }
 
-    /// **The whole act, in its order**: the pane moved as Browse draws it (`movePane`), then the
-    /// switch to Browse, then the owed selection (TE47).
+    /// The whole act, in order: the pane moved as Browse draws it (`movePane`), the switch to
+    /// Browse, then the owed selection.
     ///
-    /// **The order is the point.** A debt records the workspace on screen at the moment it is owed
-    /// (`ContentView.PaneSelectionDebt`), and a debt from another workspace is dropped. Owed
-    /// before the switch it would belong to Edit and be dropped on arrival in Browse — the file not
-    /// selected, and the notes' "Reveal in Browse lands with the file selected too" false. Owed
-    /// after it, the rule reads Browse's pane, where a selection opens nothing, so a rail row's
-    /// file that is not the open document is selected too.
+    /// The order matters. A debt records the workspace on screen when it is owed
+    /// (`ContentView.PaneSelectionDebt`), and a debt from another workspace is dropped, so owing it
+    /// before the switch would leave the file unselected. Owed after, the rule reads Browse's pane,
+    /// where a selection opens nothing.
     static func reveal(_ path: String, from door: Door, syncManager: FileSyncManager,
                        sourceRoot: String, drawsColumns: Bool,
                        links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders,
@@ -343,10 +285,9 @@ enum EditorRevealInBrowse {
         owe(path)
     }
 
-    /// **Why Browse cannot show `path`, or `nil` when it can** (TE116) — the rail row menu's and the
-    /// header's reason for greying Reveal in Browse. Browse shows the left source, so a file outside
-    /// it — one opened from Compare's right side, or from another source — is one the reveal would
-    /// switch to Browse for and then leave unselected (`movePane`'s "Browse stays where it is").
+    /// Why Browse can't show `path`, or `nil` when it can: the rail row menu's and the header's
+    /// reason for greying Reveal in Browse. Browse shows the left source, so a file outside it
+    /// (from Compare's right side, or another source) would be switched to and left unselected.
     static let outsideBrowseReason = "Not in the source Browse shows"
 
     static func refusal(for path: String, sourceRoot: String,
@@ -354,8 +295,8 @@ enum EditorRevealInBrowse {
         browseTarget(for: path, sourceRoot: sourceRoot, links: links) == nil ? outsideBrowseReason : nil
     }
 
-    /// The pane target of `path`'s folder in the left source, or `nil` outside it — the one answer
-    /// both the reveal and its greying read, so the item is never live where the act goes nowhere.
+    /// The pane target of `path`'s folder in the left source, or `nil` outside it. The reveal and
+    /// its greying both read this, so the item is never live where the act goes nowhere.
     static func browseTarget(for path: String, sourceRoot: String,
                              links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> String? {
         let folder = (path as NSString).deletingLastPathComponent
@@ -363,14 +304,14 @@ enum EditorRevealInBrowse {
         return PaneLogic.relativePath(of: folder, under: sourceRoot, links: links)
     }
 
-    /// Moves the left pane, as Browse draws it, to the folder of `path` — or leaves it, when Browse
-    /// already shows that folder or the folder is outside the left source. One `.info` line either
-    /// way, naming the door. The workspace switch and the owed selection are the caller's.
+    /// Moves the left pane, as Browse draws it, to the folder of `path`, or leaves it when Browse
+    /// already shows that folder or it is outside the left source. One `.info` line either way,
+    /// naming the door. The workspace switch and the owed selection are the caller's.
     ///
     /// - Parameters:
     ///   - sourceRoot: the left source's root, `~` expanded.
-    ///   - drawsColumns: whether BROWSE draws the left pane as columns (`browseViewMode`), which is
-    ///     not necessarily what the pane on screen in Edit draws.
+    ///   - drawsColumns: whether Browse draws the left pane as columns (`browseViewMode`), which
+    ///     may differ from what Edit's pane draws.
     static func movePane(to path: String, from door: Door, syncManager: FileSyncManager,
                          sourceRoot: String, drawsColumns: Bool,
                          links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders,

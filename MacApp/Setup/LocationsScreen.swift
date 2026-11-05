@@ -5,9 +5,9 @@ import Sync
 
 /// Screen 1: the cloud folders SyncCloud found, and which of them to use.
 ///
-/// **A confirmation, not a question with a wrong answer.** Everything discovered arrives switched
-/// on, so a user who changes nothing has answered correctly — which is why this screen has no Skip:
-/// it would be a second spelling of Continue.
+/// A confirmation, not a question with a wrong answer. Everything discovered arrives switched on,
+/// so a user who changes nothing has answered correctly, which is why this screen has no Skip: it
+/// would be a second spelling of Continue.
 struct LocationsScreen: View {
     @ObservedObject var model: SetupModel
     @ObservedObject var settings: SettingsManager
@@ -58,9 +58,9 @@ struct LocationsScreen: View {
                 .foregroundStyle(.tertiary)
 
             SetupMoreOptions(subtitle: "Display name · starting folder · folder-name rule") {
-                // **Each location says which one it is.** The rows are identical from the outside —
-                // a name field and a folder — so nine of them in a row is nine chances to edit the
-                // wrong account's settings.
+                // Each location says which one it is. The rows look identical from outside (a name
+                // field and a folder), so a run of them is a run of chances to edit the wrong
+                // account's settings.
                 ForEach(settings.enabledProviders) { provider in
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
@@ -95,7 +95,7 @@ struct LocationsScreen: View {
                         .scaledFont(.callout.weight(.medium))
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    // **The badge appears only when something is wrong.** A list where every row is
+                    // The badge appears only when something is wrong: a list where every row is
                     // decorated has no way left to point at a row.
                     if !isValid {
                         Text("Can’t be found")
@@ -134,8 +134,8 @@ struct LocationsScreen: View {
 
     /// The provider's name without the account in it.
     ///
-    /// **The account is what makes these truncate**, and the clipped half is the only part that
-    /// tells two Drive accounts apart. The name goes on the first line and the account leads the
+    /// The account is what makes these truncate, and the clipped half is the only part that tells
+    /// two Drive accounts apart, so the name goes on the first line and the account leads the
     /// second, where it has the width.
     static func name(_ provider: CloudProvider) -> String {
         guard let open = provider.displayName.firstIndex(of: "("),
@@ -143,7 +143,7 @@ struct LocationsScreen: View {
         return String(provider.displayName[..<open]).trimmingCharacters(in: .whitespaces)
     }
 
-    /// What identifies this location at a glance — the account for a cloud one, the path for a
+    /// What identifies this location at a glance: the account for a cloud one, the path for a
     /// folder, whose id is a UUID that says nothing to anyone.
     static func detail(_ provider: CloudProvider) -> String {
         if provider.isLocalFolder { return shortPath(provider.rootPath) }
@@ -167,21 +167,18 @@ struct LocationsWhy: View {
     /// One kind of location, as the panel draws it.
     struct Mark: Hashable, Identifiable {
         let name: String
-        /// The asset or SF Symbol the location wears — `CloudProvider.imageName`, the same field
-        /// every row on this screen draws from.
+        /// The asset or SF Symbol the location wears: `CloudProvider.imageName`, the field every
+        /// row on this screen draws from.
         let imageName: String
         var id: String { imageName }
     }
 
     /// The kinds among a set of locations, in the order they appear, at most `limit` of them.
     ///
-    /// **By kind, not by account, and that is the whole reason this is a function.** The panel is a
-    /// picture of the idea — *these are your providers' own folders, and SyncCloud reads them where
-    /// they are* — while the list of accounts is the column to its left. On this Mac that
-    /// distinction is ten locations against four marks: one iCloud, one Dropbox, one OneDrive and
-    /// several Google Drive accounts, which wear one mark between them. Drawing the first three
-    /// *accounts* instead showed iCloud, Dropbox and OneDrive and silently dropped Google Drive —
-    /// the provider whose folder is open in the other pane.
+    /// By kind, not by account, which is why this is a function. The panel pictures the idea (these
+    /// are your providers' own folders, read where they are) while the account list is the column
+    /// to its left. Several Google Drive accounts wear one mark between them, so drawing the first
+    /// few accounts could fill the row with others and silently drop a kind the user has.
     static func marks(for providers: [CloudProvider], limit: Int = 4) -> [Mark] {
         var seen: Set<String> = []
         var out: [Mark] = []
@@ -194,37 +191,29 @@ struct LocationsWhy: View {
 
     /// The marks in one row, each with its name under it.
     ///
-    /// **One row, because four kinds is the common case and the fourth was falling off.** Wrapped,
-    /// the strip put iCloud, Dropbox and OneDrive on the first line and left Google Drive alone on
-    /// the second — a ragged orphan under a heading, on the provider this Mac uses most.
+    /// The marks in one row, each with its name under it. One row, because four kinds is the common
+    /// case, and wrapped, the fourth would sit alone on a second line.
     ///
-    /// **Then the row itself broke, and the reason was not in this view.** With four names sharing
-    /// the panel, a name too wide for its cell wraps — and SwiftUI wraps *inside a word* when the
-    /// cell is narrower than the word. At 135% the strip read "iCloud", "OneDri/ve",
-    /// "Google/Drive", "Dropb/ox": two of the four split mid-word. Nothing here could have fixed
-    /// that, because the cause was `SetupWhyMetrics.width` — a constant 250 in a card that grows
-    /// with the text, so raising the size put 35% more type in the same column. The column is a
-    /// share of the card now, and the cells have room for their words at every size;
-    /// `noProviderNameHasToShrinkToFit` is what keeps it that way as providers are added.
+    /// With four names sharing the panel, a name too wide for its cell wraps, and SwiftUI wraps
+    /// inside a word when the cell is narrower than the word ("OneDri/ve"). The Why column grows
+    /// with the card (`SetupWhyMetrics.width(scale:)`), so the cells have room for their words at
+    /// every size; `noProviderNameHasToShrinkToFit` keeps it so as providers are added. Not
+    /// `minimumScaleFactor`: it shrinks a name and can still truncate it ("Google Dr…"), while a
+    /// name that wraps at its own space stays the name.
     ///
-    /// `minimumScaleFactor` was tried instead and was worse than the wrap it replaced: at the old
-    /// width "Google Drive" shrank and *still* truncated, so the row carried three names at one
-    /// size and a fourth, smaller, reading "Google Dr…". A name that wraps at its own space stays
-    /// the name.
-    ///
-    /// Its own view so `theMarkStripStaysOnOneRow` can lay it out and measure it, which is the only
-    /// way to know whether it wrapped.
+    /// Its own view so `theMarkStripStaysOnOneRow` can lay it out and measure it, the only way to
+    /// know whether it wrapped.
     struct MarkStrip: View {
         let marks: [Mark]
 
         @Environment(\.appFontScale) private var fontScale
 
-        /// The marks and their gaps follow the card's geometry, not the text scale — the card does
-        /// not shrink when the type does, and neither should they.
+        /// The marks and their gaps follow the card's geometry, not the text scale: the card
+        /// doesn't shrink when the type does, and neither should they.
         private var scale: CGFloat { SetupSheetMetrics.chromeScale(fontScale) }
 
-        /// The mark's cap height at the default text size — smaller than the list's 20, because
-        /// this is an illustration beside prose rather than a row's leading element.
+        /// The mark's cap height at the default text size, smaller than the list's 20 because this
+        /// is an illustration beside prose, not a row's leading element.
         static let baseCapHeight: CGFloat = 18
 
         /// The gap between the mark and its name, and between one cell and the next.
@@ -269,11 +258,9 @@ struct LocationsWhy: View {
                       footnote: "every location stays on.",
                       hue: hue) {
             VStack(alignment: .leading, spacing: 8) {
-                // **The brand mark, not a tinted `cloud.fill`.** Every row on this screen draws
-                // `ProviderLogo(provider.imageName)`, and the panel drew one SF Symbol for all of
-                // them in whatever tint `ProviderHue` gave the name — so Dropbox's folded box and
-                // OneDrive's twin lobes both came out as the same cloud, two inches from their own
-                // logos.
+                // The brand mark, not a tinted `cloud.fill`: every row on this screen draws
+                // `ProviderLogo(provider.imageName)`, and one SF Symbol for all of them would draw
+                // Dropbox and OneDrive as the same cloud beside their own logos.
                 MarkStrip(marks: marks)
                 .accessibilityHidden(true)
                 Text("Each provider’s own app keeps these folders in sync. SyncCloud reads them in "

@@ -4,17 +4,16 @@ import Settings
 import Sync
 import Events
 
-/// The chat in Ask Claude’s panel (RD69, v7.0): what the thread shows, and the one question running.
+/// The chat in Ask Claude’s panel: what the thread shows, and the one question running.
 ///
-/// **One chat for the window** (decision DU, revised: the app has one main window). It follows the
-/// person across workspaces and tabs, starts fresh after an hour away, and New chat starts fresh
-/// any time. The transcript itself lives in `AskClaudeEngine`; this holds only what is drawn.
-/// Keeps one chat alive for a view that must not redraw when it changes: it publishes nothing.
+/// One chat for the window, since the app has one main window. It follows the person across
+/// workspaces and tabs, starts fresh after an hour away, and New chat starts fresh any time. The
+/// transcript itself lives in `AskClaudeEngine`; this holds only what is drawn. Keeps one chat
+/// alive for a view that must not redraw when it changes: it publishes nothing.
 ///
 /// Whether the panel is open is its own object, apart from the chat and from window state: the
-/// window doesn't observe either, so opening and closing redraw only the panel's layer and the
-/// toolbar button (2026-10-30: Close took about a second), and a streamed word redraws only the
-/// thread, not the layer that builds the panel.
+/// window observes neither, so opening and closing redraw only the panel's layer and the toolbar
+/// button, and a streamed word redraws only the thread, not the layer that builds the panel.
 @MainActor
 final class AskClaudeChatHolder: ObservableObject {
     let chat = AskClaudeChat(storeURL: AskClaudeChat.defaultStore, historyURL: AskClaudeChat.defaultHistoryStore)
@@ -24,7 +23,7 @@ final class AskClaudeChatHolder: ObservableObject {
 @MainActor
 final class AskClaudeVisibility: ObservableObject {
     @Published var isOpen = false
-    /// Bumped to bring an open panel's text box the keyboard (TE263: a row's Ask Claude About This).
+    /// Bumped to bring an open panel's text box the keyboard (a row's Ask Claude About This).
     @Published var focusRequests = 0
 }
 
@@ -40,34 +39,34 @@ final class AskClaudeChat: ObservableObject {
             case receipt(Receipt)
             case problem(AskClaudeProblem)
             case note(String)
-            /// A passage the on-device read found, which the person may send to Claude (DS).
+            /// A passage the on-device read found, which the person may send to Claude.
             case offer(AskClaudePassage, sent: Bool)
-            /// A cloud-only file Claude wanted, offered for download (TE258).
+            /// A cloud-only file Claude wanted, offered for download.
             case download(AskClaudeDownload, state: DownloadState)
-            /// Filing help's answer (TE255): folders with Go to Folder.
+            /// Filing help's answer: folders with Go to Folder.
             case filing(AskClaudeFilingCard)
-            /// A card of changes to review (TE285): rows ticked, sent elsewhere, untouched.
+            /// A card of changes to review: rows ticked, sent elsewhere, untouched.
             case plan(AskClaudePlan)
-            /// Buttons answering Claude's question (decision GB); used once one is clicked.
+            /// Buttons answering Claude's question; used once one is clicked.
             case choices([AskClaudeChoice], used: Bool)
-            /// A rule offered from a correction (TE286): Save or Not Now.
+            /// A rule offered from a correction: Save or Not Now.
             case rule(AskClaudeRuleCard)
-            /// Settings with their real controls (TE290); a click changes one.
+            /// Settings with their real controls; a click changes one.
             case settings(AskClaudeSettingCard)
-            /// One of the PDF tools, run on their click (TE294).
+            /// One of the PDF tools, run on their click.
             case pdf(AskClaudePDFCard)
-            /// Names a content search found, held for their click (decision IV, TE320).
+            /// Names a content search found, held for their click.
             case found(AskClaudeFoundNames)
-            /// Every file one question read, on one card (his call on TE322).
+            /// Every file one question read, on one card.
             case reads(AskClaudeReadGroup)
         }
         var id = UUID()
         var kind: Kind
-        /// A question that was spoken (TE311), for the mic in its bubble. Optional: a field a
+        /// A question that was spoken, for the mic in its bubble. Optional: a field a
         /// saved chat lacks must not fail its decode.
         var spoken: Bool?
-        /// A question as it was asked, for Copy, Edit and Retry (TE296). Nil in a chat saved
-        /// before them, whose questions offer none of the three.
+        /// A question as it was asked, for Copy, Edit and Retry. Nil in an older saved chat, whose
+        /// questions offer none of the three.
         var asked: Asked?
         /// The question's place in Claude's transcript (`AskClaudeEngine.turns`), once it joined.
         var turn: Int?
@@ -76,7 +75,7 @@ final class AskClaudeChat: ObservableObject {
         var told: [String]?
     }
 
-    /// A question as asked (TE296): its own words, what it was about, and whether it came from
+    /// A question as asked: its own words, what it was about, and whether it came from
     /// the box, so Edit can put it back there. A passage sent or a question asked again after a
     /// download didn't, and only Retry re-asks those.
     struct Asked: Equatable, Codable {
@@ -85,7 +84,7 @@ final class AskClaudeChat: ObservableObject {
         var editable: Bool
     }
 
-    /// Where a download card is (TE258).
+    /// Where a download card is.
     enum DownloadState: Equatable, Codable {
         case offered
         case downloading
@@ -112,8 +111,7 @@ final class AskClaudeChat: ObservableObject {
         var rounds = 0
         /// The model that answered (the last round's; a fallback's when one stepped in).
         var model = ""
-        /// The model asked for (TE292). Optional, like `showsModel`, so a chat saved before they
-        /// existed still loads.
+        /// The model asked for. Optional, like `showsModel`, so an older saved chat still loads.
         var requested: String?
         /// Whether the line under the answer names the model: when a fallback answered any round,
         /// when the model asked for differs from the last kept answer's, and on a chat's first
@@ -133,7 +131,7 @@ final class AskClaudeChat: ObservableObject {
     @Published private(set) var items: [Item] = []
     @Published private(set) var isRunning = false
     @Published private(set) var isThinking = false
-    /// Names in answers that can be clicked to reveal the file (TE245): name → path, only for
+    /// Names in answers that can be clicked to reveal the file: name → path, only for
     /// names this chat has seen, five characters or longer, and unique.
     @Published private(set) var linkTargets: [String: String] = [:]
 
@@ -143,9 +141,9 @@ final class AskClaudeChat: ObservableObject {
     /// The question running, or last run: what a download card offered during it was wanted for.
     private var askedQuestion: String?
     private var streamingItem: UUID?
-    /// The question running, as the thread shows it: where a switch's note goes (TE292).
+    /// The question running, as the thread shows it: where a model switch's note goes.
     private var askedItem: UUID?
-    /// The card this question's file reads gather on (TE322): the first read's, until it is sent.
+    /// The card this question's file reads gather on: the first read's, until it is sent.
     private var turnReads: UUID?
     /// What the question running tells Claude about the cards, for its item once it joins.
     private var askedTold: [String] = []
@@ -153,8 +151,8 @@ final class AskClaudeChat: ObservableObject {
     private var warnedNearLimit = false
     /// What was typed and not sent when the panel closed; Esc or ✕ doesn't throw it away.
     var draft = ""
-    /// Apple Intelligence's answers go without a card for the rest of this chat (his call on
-    /// TE321, the held-answer card's tick). A new chat starts asking again.
+    /// Apple Intelligence's answers go without a card for the rest of this chat (the held-answer
+    /// card's tick). A new chat starts asking again.
     @Published private(set) var sharesAnswers = false
 
     func setSharesAnswers(_ on: Bool) {
@@ -163,7 +161,7 @@ final class AskClaudeChat: ObservableObject {
     }
 
     /// Lookups beyond the folder on screen go without a card for the rest of this chat (the
-    /// lookup card's tick, TE323). A new chat starts asking again.
+    /// lookup card's tick). A new chat starts asking again.
     @Published private(set) var sharesNames = false
 
     func setSharesNames(_ on: Bool) {
@@ -171,7 +169,7 @@ final class AskClaudeChat: ObservableObject {
         if !isRunning { save() }
     }
 
-    /// A row attached from its menu (TE263), shown as a chip above the text box until sent.
+    /// A row attached from its menu, shown as a chip above the text box until sent.
     struct Attachment: Equatable, Identifiable, Codable {
         let path: String
         let name: String
@@ -182,21 +180,21 @@ final class AskClaudeChat: ObservableObject {
     /// What the next question is about, in the order attached. Kept through New Chat: it belongs
     /// to the question not yet asked, not to the chat.
     @Published private(set) var attachments: [Attachment] = []
-    /// Small pictures of the pages each PDF card acts on, by card and page — drawn for the card,
-    /// never saved (TE294).
+    /// Small pictures of the pages each PDF card acts on, by card and page: drawn for the card,
+    /// never saved.
     @Published var pdfThumbnails: [UUID: [Int: CGImage]] = [:]
     /// Each PDF card's Edit ▸ Undo step, by card: the target it was registered against and the
     /// undo manager that holds it. Kept alive here — an undo manager doesn't retain its targets —
     /// for as long as the chat; a relaunch or New Chat drops them, and the card's Undo with them.
     var pdfUndoSteps: [UUID: (target: AnyObject, manager: UndoManager)] = [:]
     /// How far a PDF card's run has got — "File 7 of 20 · Mar.pdf" — read from the window's own
-    /// run when a question is sent while it goes (TE294).
+    /// run when a question is sent while it goes.
     var pdfProgress: ((UUID) -> String?)?
     /// The form `pdf` with fill opened, while this chat lasts: only its filled copies are told to
-    /// Claude (TE294).
+    /// Claude.
     var fillOpened: String?
     /// Called with each PDF card as it joins the chat, and with each open one restored, so the
-    /// window reads its files for it (TE294).
+    /// window reads its files for it.
     var pdfCardOffered: ((UUID) -> Void)? {
         didSet {
             // After the draw that installed it: reading a card publishes, and a view's body must not.
@@ -223,7 +221,7 @@ final class AskClaudeChat: ObservableObject {
         return attachments
     }
 
-    /// A question typed while Claude answers (TE297), sent when the answer ends. It holds its own
+    /// A question typed while Claude answers, sent when the answer ends. It holds its own
     /// text and chips: the chat may start over before it runs (an hour away, a folder hidden, an
     /// update), and a new chat has neither.
     struct Queued: Equatable {
@@ -279,21 +277,20 @@ final class AskClaudeChat: ObservableObject {
     /// would resend, so the next question starts a new one.
     private var hiddenSinceStart = false
     /// What has been hidden for all of this chat, so Claude has seen none of it. Hiding something
-    /// more restarts it at the next question; hiding and then un-hiding it before then does not
-    /// (TE290 step 3). Narrowed at each question and during each answer: a folder shown to Claude
-    /// for one, and hidden again after, restarts it too (v7.0 review).
+    /// more restarts it at the next question; hiding and then un-hiding it before then does not.
+    /// Narrowed at each question and during each answer: a folder shown to Claude for one, and
+    /// hidden again after, restarts it too.
     private var hiddenAtStart: Set<String>
     /// Counts questions and new chats, so a run that New Chat replaced is ignored as it unwinds.
     private var run = 0
     private let defaults: UserDefaults
     private let makeEngine: @MainActor () -> AskClaudeEngine
     private let readKey: @Sendable () -> String?
-    /// The key, read once per chat. Reading it is a Keychain decrypt through securityd, which on
-    /// 2026-10-30 held the main thread 4.1 s on the first question; it now happens off the main
-    /// thread, and only once.
+    /// The key, read once per chat, off the main thread: it is a Keychain decrypt through
+    /// securityd, which can hold the main thread for seconds.
     private var cachedKey: String?
     private let now: () -> Date
-    /// Where the chat is kept between launches (TE247); nil keeps it in memory only.
+    /// Where the chat is kept between launches; nil keeps it in memory only.
     private let storeURL: URL?
 
     static let defaultStore: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
@@ -313,11 +310,11 @@ final class AskClaudeChat: ObservableObject {
         /// Lines for Claude not yet sent; absent in a chat saved before they existed.
         var sinceLastAnswer: [String]?
         /// What was hidden from Claude when the chat began, so a folder hidden just before a quit
-        /// still starts a new chat after the relaunch (TE290 review); absent in older chats.
+        /// still starts a new chat after the relaunch; absent in older chats.
         var hiddenAtStart: [String]?
-        /// The card's tick for the rest of the chat (TE321); absent in older chats.
+        /// The card's tick for the rest of the chat; absent in older chats.
         var sharesAnswers: Bool?
-        /// The lookup card's tick for the rest of the chat (TE323); absent in older chats.
+        /// The lookup card's tick for the rest of the chat; absent in older chats.
         var sharesNames: Bool?
         /// Each share's question and the files it carries, so Retry after a relaunch still
         /// refuses one hidden since; absent in older chats.
@@ -335,9 +332,9 @@ final class AskClaudeChat: ObservableObject {
             self.carried = carried
         }
 
-        /// Items one at a time, so one that won't decode costs a note rather than the whole chat
-        /// (TE290 step 0b). A card kind this build doesn't know, from a newer build or a later
-        /// change to its fields, used to fail the decode of everything, and he lost the chat over it.
+        /// Items one at a time, so one that won't decode costs a note rather than the whole chat: a
+        /// card kind this build doesn't know, from a newer build or a later change to its fields,
+        /// would otherwise fail the decode of everything.
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             items = try container.decode(TolerantItems.self, forKey: .items).items
@@ -390,17 +387,17 @@ final class AskClaudeChat: ObservableObject {
     /// offered the card.
     private(set) var sinceLastAnswer: [String] = []
 
-    /// The settings cards' undo and redo (TE290 step 4b): the chat's, so they outlive the panel.
+    /// The settings cards' undo and redo: the chat's, so they outlive the panel.
     let settingsUndo = AskClaudeSettingsUndo()
 
-    /// Messages held back because they held an API key (TE290 step 7), and their keys, by card.
+    /// Messages held back because they held an API key, and their keys, by card.
     /// In memory only: never saved with the chat, gone with New Chat and a relaunch.
     private var caughtMessages: [UUID: (message: String, key: String)] = [:]
     /// A message for the text box to take back: Edit Message on a caught-key card.
     @Published var draftToRestore: String?
 
     /// The question last asked, as shown and with what it was about, for an at-limit card's Ask
-    /// Again (TE290 review); and that, per card. In memory only.
+    /// Again; and that, per card. In memory only.
     var lastAsked: (shown: String?, attached: [Attachment]) = (nil, [])
     private var askAgainContexts: [UUID: (shown: String?, attached: [Attachment])] = [:]
 
@@ -444,7 +441,7 @@ final class AskClaudeChat: ObservableObject {
     }
 
     /// A line that replaces an unsent one about the same setting: five clicks through a setting
-    /// reach Claude as one line, first value to last (TE290). Only "`prefix`to …" and "`prefix`back
+    /// reach Claude as one line, first value to last. Only "`prefix`to …" and "`prefix`back
     /// …" are its own lines; "They set Theme " must not take "They set Theme for Dropbox (Work) …".
     func tellClaude(_ line: String, replacing prefix: String) {
         sinceLastAnswer.removeAll { $0.hasPrefix(prefix + "to ") || $0.hasPrefix(prefix + "back ") }
@@ -469,7 +466,7 @@ final class AskClaudeChat: ObservableObject {
             + "; what it makes is reported when it ends."
     }
 
-    /// **A file a line for Claude names, marked to get its handle when the line is sent** (TE294):
+    /// A file a line for Claude names, marked to get its handle when the line is sent:
     /// "“Lease.pdf” ⟦/abs/Lease.pdf⟧" goes as "“Lease.pdf” (r52)". Kept as the path until then, so
     /// a line written while Claude answers never takes a handle the answer's own tools could give
     /// out again, and a restart mints it afresh in the new chat.
@@ -502,8 +499,8 @@ final class AskClaudeChat: ObservableObject {
          makeEngine: @escaping @MainActor () -> AskClaudeEngine = { AskClaudeEngine() },
          readKey: @escaping @Sendable () -> String? = { AnthropicKeychain.read() },
          now: @escaping () -> Date = Date.init,
-         // Nil by default: only the app's own chat passes the real file, so a test host (which IS
-         // SyncCloud, with his home folder) can never write over his chat. It did once, 2026-10-30.
+         // Nil by default: only the app's own chat passes the real file, so a test host (which is
+         // SyncCloud, with his home folder) can never write over his chat.
          storeURL: URL? = nil,
          historyURL: URL? = nil,
          // Where a changed key is announced; tests pass their own, since a post to the shared
@@ -525,7 +522,7 @@ final class AskClaudeChat: ObservableObject {
         hiddenObserver = keyChanges.addObserver(forName: AskClaudePrivacy.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.noteHiddenListChanged() }
         }
-        // A Revert in Activity (TE290 step 5) reaches an open chat with its next question.
+        // A Revert in Activity reaches an open chat with its next question.
         revertObserver = keyChanges.addObserver(forName: SettingsRevert.didRevert, object: nil, queue: .main) { [weak self] note in
             let line = note.userInfo?["line"] as? String
             MainActor.assumeIsolated {
@@ -588,7 +585,7 @@ final class AskClaudeChat: ObservableObject {
         lastActivity = stored.lastActivity
         // Judged against what was hidden when the chat began, not at this launch: a folder hidden
         // and then a quit must still keep what Claude saw of it out of the next question. A chat
-        // saved before this was kept can't be judged, so it starts over once if anything is hidden.
+        // saved without it can't be judged, so it starts over once if anything is hidden.
         let hiddenNow = Set(AskClaudePrivacy.hiddenFolders(in: defaults))
         if let atStart = stored.hiddenAtStart {
             hiddenAtStart = Set(atStart)
@@ -636,7 +633,7 @@ final class AskClaudeChat: ObservableObject {
         return item
     }
 
-    /// A card turned into another, in its place (Move Here on filing help's card, decision FE).
+    /// A card turned into another, in its place (Move Here on filing help's card).
     func replace(_ id: UUID, with kind: Item.Kind) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].kind = kind
@@ -721,16 +718,16 @@ final class AskClaudeChat: ObservableObject {
         text.replacingOccurrences(of: "</file", with: "<\u{200B}/file", options: .caseInsensitive)
     }
 
-    /// What a click on an offer card sends: the on-device answer it holds (decision IU), the
-    /// passage (DS), or all the text read (Share All Content, his call on TE319).
+    /// What a click on an offer card sends: the on-device answer it holds, the passage, or all the
+    /// text read (Share All Content).
     enum OfferPart {
         case answer, passage, whole
-        /// A found-names card's Share Details, or Customize's share (TE323): `takeFound`, not
+        /// A found-names card's Share Details, or Customize's share: `takeFound`, not
         /// `takeOffer`. Customize with every detail unticked sends the names alone.
         case names
     }
 
-    /// What Customize changes on a found-names card (his call on TE323).
+    /// What Customize changes on a found-names card.
     enum FoundEdit: Equatable {
         /// Opens Customize, or Cancel: closes it and forgets its ticks.
         case customize(Bool)
@@ -766,11 +763,11 @@ final class AskClaudeChat: ObservableObject {
 
     /// The question that sends part of an offered card, and what the thread shows for it; marks
     /// that part sent. Nil when that offer is gone or that part already sent, or its file is hidden
-    /// from Claude now: then the card goes, with its text, and a note says why (v7.0 review).
-    /// **A share goes only into the chat it was offered in, and is remembered by the files it
-    /// carries** (review of TE319–TE323): a share the next question would carry into a new chat
-    /// (an hour away, or a folder hidden since) is refused with a note, and Retry or Ask Again of
-    /// a share refuses once one of its files is hidden.
+    /// from Claude now: then the card goes, with its text, and a note says why.
+    /// A share goes only into the chat it was offered in, and is remembered by the files it
+    /// carries: a share the next question would carry into a new chat (an hour away, or a folder
+    /// hidden since) is refused with a note, and Retry or Ask Again of a share refuses once one of
+    /// its files is hidden.
     func takeOffer(_ id: UUID, _ part: OfferPart = .passage) -> (question: String, shown: String)? {
         carry(id) { takeOfferPart(id, part) }
     }
@@ -795,7 +792,7 @@ final class AskClaudeChat: ObservableObject {
         return out
     }
 
-    /// The files a share sends: the ticked ones (review 2 of 11-04), so a file left out and hidden
+    /// The files a share sends: the ticked ones, so a file left out and hidden
     /// since neither stops the share nor a later Retry of it.
     private static func carriedPaths(_ kind: Item.Kind) -> [String] {
         switch kind {
@@ -807,7 +804,7 @@ final class AskClaudeChat: ObservableObject {
     }
 
     /// Why the next question will start a new chat, or nil when it carries on in this one.
-    /// Every case `startsOverAtNextQuestion` counts, an app update's included (review 2 of 11-04):
+    /// Every case `startsOverAtNextQuestion` counts, an app update's included:
     /// a share's handles are minted in this chat's table, and a new chat's counts from r1 again.
     private var startsOverNext: String? {
         guard startsOverAtNextQuestion else { return nil }
@@ -849,18 +846,18 @@ final class AskClaudeChat: ObservableObject {
         }
     }
 
-    /// Share Details or Customize's share (decision IV, TE320; TE323): the rows a search or lookup
-    /// found, as Claude would have had them, and what the thread shows; marks the card shared. Nil when it's gone or
-    /// already shared, or one of its files is hidden from Claude now: then the card goes, with its
-    /// names, and a note says why.
+    /// Share Details or Customize's share: the rows a search or lookup found, as Claude would have
+    /// had them, and what the thread shows; marks the card shared. Nil when it's gone or already
+    /// shared, or one of its files is hidden from Claude now: then the card goes, with its names,
+    /// and a note says why.
     private func takeFoundPart(_ id: UUID) -> (question: String, shown: String)? {
         guard !isRunning, let index = items.firstIndex(where: { $0.id == id }),
               case .found(var found) = items[index].kind, found.sent != true else { return nil }
-        // Customize with every detail unticked sends the names alone (TE323). Ticks are set only
-        // under Customize, so Share Details sends every file; a card saved with the old on-card
-        // ticks opens in Customize and keeps them (review of TE319–TE323).
+        // Customize with every detail unticked sends the names alone. Ticks are set only under
+        // Customize, so Share Details sends every file; a saved card with on-card ticks opens in
+        // Customize and keeps them.
         let namesOnly = found.customized && found.chosenDetails.isEmpty
-        // Only what's ticked goes (his call on TE320); a card saved before ticks sends all it held.
+        // Only what's ticked goes; a saved card without ticks sends all it held.
         let going = found.files == nil ? found.paths : found.ticked.map(\.path)
         // A search that found nothing still waits for its share: "none" says what the files hold.
         if found.count == 0, found.files?.isEmpty == true {
@@ -878,7 +875,7 @@ final class AskClaudeChat: ObservableObject {
         found.sent = true
         found.namesOnly = namesOnly
         items[index].kind = .found(found)
-        // Handles only now, and only with every detail (TE323): with one, Claude can read any
+        // Handles only now, and only with every detail: with one, Claude can read any
         // detail of the file through file_details, so a share that leaves details out has none.
         var handles: [String: String] = [:]
         if !namesOnly, !found.customized || found.chosenDetails.count == AskClaudeFoundNames.detailKeys.count {
@@ -891,7 +888,7 @@ final class AskClaudeChat: ObservableObject {
         return (namesOnly ? Self.foundNamesQuestion(found) : Self.foundQuestion(found, handles: handles), shown)
     }
 
-    /// **A read joins this question's card** (his call on TE322): the first makes an offer card,
+    /// A read joins this question's card: the first makes an offer card,
     /// the next turns it into a group, later ones join it, and the card moves to the foot of the
     /// thread as it grows, under the latest step. Once anything on it is sent, or a read goes
     /// differently (shared without asking, say), a new card starts.
@@ -902,7 +899,7 @@ final class AskClaudeChat: ObservableObject {
             case .offer(let first, let sent) where !sent && first.answerSent == (first.autoShared != nil ? true : nil)
                 && first.wholeSent == nil && first.autoShared == passage.autoShared:
                 // The same file read again (another question of it) stays one row: its tick, and
-                // its text once in Share All Content (review of TE319–TE323).
+                // its text once in Share All Content.
                 if first.path != nil, first.path == passage.path {
                     let item = items.remove(at: index)
                     items.append(Item(id: item.id, kind: .offer(Self.merged(first, passage), sent: false)))
@@ -952,7 +949,7 @@ final class AskClaudeChat: ObservableObject {
                                 whole: whole.whole, wholeWhere: whole.wholeWhere, wholeIsAll: whole.wholeIsAll, autoShared: first.autoShared)
     }
 
-    /// The shares of a group card (TE322): the ticked files' answers, the passages they came from,
+    /// The shares of a group card: the ticked files' answers, the passages they came from,
     /// or all their text; each once, refused when a ticked file is hidden from Claude now.
     private func takeReads(_ id: UUID, _ index: Int, _ part: OfferPart) -> (question: String, shown: String)? {
         guard case .reads(var group) = items[index].kind else { return nil }
@@ -1012,8 +1009,8 @@ final class AskClaudeChat: ObservableObject {
             + AskClaudeChat.fenced(AskClaudeKeyCatch.masked(AskClaudeReadGroup.allText(passage), joiningLines: false)) + "\n</file>"
     }
 
-    /// A tick on a found-names card (his call on TE320), or on a group of reads (TE322, by the
-    /// file's path): in or out of what its shares send.
+    /// A tick on a found-names card, or on a group of reads (by the file's path): in or out of
+    /// what its shares send.
     func tickFound(_ id: UUID, _ path: String) {
         if let index = items.firstIndex(where: { $0.id == id }), case .reads(var group) = items[index].kind {
             guard group.answersSent == nil || group.autoShared != nil, group.textSent == nil || group.autoShared == .answerAndText,
@@ -1036,7 +1033,7 @@ final class AskClaudeChat: ObservableObject {
 
     /// What Share N Files sends: the ticked files' rows, as data, said as the part of the matches
     /// they are when some were unticked.
-    /// Under Customize (TE323) only the details still ticked go with each name.
+    /// Under Customize only the details still ticked go with each name.
     static func foundQuestion(_ found: AskClaudeFoundNames, handles: [String: String] = [:]) -> String {
         let noun = found.noun
         guard let files = found.files, let header = found.header else {
@@ -1047,7 +1044,7 @@ final class AskClaudeChat: ObservableObject {
         }
         let ticked = found.ticked
         let all = ticked.count == files.count
-        // The card holds at most a page of them (review of TE319–TE323): say so, or the share
+        // The card holds at most a page of them: say so, or the share
         // reads as the whole set.
         let partial = found.count > files.count
         let of: String
@@ -1059,7 +1056,7 @@ final class AskClaudeChat: ObservableObject {
         let columns = some ? (["rows: name"] + details.map { $0 == "date" ? "modified" : $0 }).joined(separator: "|")
             : header.split(separator: "\n").dropFirst().joined(separator: "\n")
         let only = some ? ", with only their \(Self.listed(details)), and no handles, so you can’t show or open them; if they want that, they can ask again and use Share Details" : ""
-        // A row held since TE323 starts at its name's pipe; one saved before has its handle.
+        // A held row starts at its name's pipe; one in an older saved card has its handle.
         let rows = ticked.map { file in some ? file.row(with: details) : file.row.hasPrefix("|") ? (handles[file.path] ?? "") + file.row : file.row }
         // The tool's own lines after its rows: how many more, and how to see them; and, with
         // handles, that the best row can be revealed. No line of them holds a pipe; every row does.
@@ -1089,7 +1086,7 @@ final class AskClaudeChat: ObservableObject {
             + "\(AskClaudeChat.fenced(AskClaudeKeyCatch.masked(passage.whole ?? "", joiningLines: false)))\n</file>"
     }
 
-    /// What a held on-device answer is sent as (decision IU): the answer and the question it
+    /// What a held on-device answer is sent as: the answer and the question it
     /// answers, as data, never the file's text.
     static func answerQuestion(_ passage: AskClaudePassage) -> String {
         "Here is what the on-device model read in \(passage.fileName), asked “\(passage.asked ?? "What does it say?")”, as data. Answer my last question from it.\n"
@@ -1097,8 +1094,8 @@ final class AskClaudeChat: ObservableObject {
             + "\(AskClaudeChat.fenced(AskClaudeKeyCatch.masked(passage.answer ?? "", joiningLines: false)))\n</file>"
     }
 
-    /// What an offered passage is sent as. Masked again: a passage saved before passages were
-    /// masked may hold a key.
+    /// What an offered passage is sent as. Masked again: a passage in an older saved chat may
+    /// hold a key.
     static func offerQuestion(_ passage: AskClaudePassage) -> String {
         "Here is \(passage.whereInFile) of \(passage.fileName), as data. Answer my last question from it.\n"
             + "<file name=\"\(AskClaudeScreenCard.escape(passage.fileName))\">\n"
@@ -1118,10 +1115,10 @@ final class AskClaudeChat: ObservableObject {
     }
 
     /// Counts each card's waits, so Stop Waiting, or a second click, makes an earlier wait's end
-    /// change nothing (TE258).
+    /// change nothing.
     private var downloadWaits: [UUID: Int] = [:]
 
-    /// Download on a card (TE258): `refusal` is checked first, at the click (hidden since the card
+    /// Download on a card: `refusal` is checked first, at the click (hidden since the card
     /// appeared, gone, not enough room); then the wait, and `landed` once the file is here.
     func download(_ id: UUID, refusal: (AskClaudeDownload) -> String?,
                   fetch: @escaping (AskClaudeDownload) async -> Fetched,
@@ -1206,7 +1203,7 @@ final class AskClaudeChat: ObservableObject {
         if !isRunning { save() }
     }
 
-    /// The PDF card `id` (TE294).
+    /// The PDF card `id`.
     func pdfCard(_ id: UUID) -> AskClaudePDFCard? {
         guard let item = items.first(where: { $0.id == id }), case .pdf(let card) = item.kind else { return nil }
         return card
@@ -1220,7 +1217,7 @@ final class AskClaudeChat: ObservableObject {
         if !isRunning { save() }
     }
 
-    /// The settings card `id` (TE290).
+    /// The settings card `id`.
     func settingCard(_ id: UUID) -> AskClaudeSettingCard? {
         guard let item = items.first(where: { $0.id == id }), case .settings(let card) = item.kind else { return nil }
         return card
@@ -1268,7 +1265,7 @@ final class AskClaudeChat: ObservableObject {
     }
 
     /// Where the model and style are kept: the composer's menu reads and writes these, so a test's
-    /// chat never touches the app's own (TE292).
+    /// chat never touches the app's own.
     var settingsDefaults: UserDefaults { defaults }
 
     /// Whether the next question starts a new chat rather than carrying this one on: an hour
@@ -1326,7 +1323,7 @@ final class AskClaudeChat: ObservableObject {
         }
         // This question may look in anything not hidden now.
         hiddenAtStart.formIntersection(AskClaudePrivacy.hiddenFolders(in: defaults))
-        // A change of model or style, from the menu or Settings, carries on in this chat (TE292):
+        // A change of model or style, from the menu or Settings, carries on in this chat:
         // each question says which in its own block. Only an update that changed the system text
         // or the tools can't: replayed thinking is bound to both.
         let model = self.model
@@ -1341,8 +1338,8 @@ final class AskClaudeChat: ObservableObject {
         // request, an empty answer): Claude didn't get them, so they go with the next one.
         let pending = sinceLastAnswer
         sinceLastAnswer = []
-        // A file a line names gets its handle now, between runs — never mid-run, where the
-        // engine's own handle table would write over it (TE294).
+        // A file a line names gets its handle now, between runs, never mid-run, where the
+        // engine's own handle table would write over it.
         var minting = engine.handles
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: defaults))
         // A card's run still going is said every time, so Claude never answers as if it had ended.
@@ -1424,7 +1421,7 @@ final class AskClaudeChat: ObservableObject {
     var askAgain: ((_ asked: Asked, _ shown: String, _ spoken: Bool) -> Void)?
 
     /// Whether the chat can be taken back to just before the question `id`: none runs, and every
-    /// question from it on says whether it joined Claude's transcript. One saved before TE296
+    /// question from it on says whether it joined Claude's transcript. An older saved question
     /// can't say, and a rewind that guessed would cut the transcript in the wrong place.
     func canRewind(from id: UUID) -> Bool {
         guard !isRunning, let index = items.firstIndex(where: { $0.id == id }), case .user = items[index].kind else { return false }
@@ -1487,11 +1484,11 @@ final class AskClaudeChat: ObservableObject {
         askAgain(asked, shown, item.spoken == true)
     }
 
-    /// **The question `id` and everything after it leave the chat** (Edit's send, Retry), and
+    /// The question `id` and everything after it leave the chat (Edit's send, Retry), and
     /// Claude's transcript goes back to just before the first of them that reached it.
     ///
     /// Cards from that part they applied, or that are still running, stay in the thread where
-    /// they were, with their Undo (decision IT, 2026-11-03); everything else goes. Claude no longer
+    /// they were, with their Undo; everything else goes. Claude no longer
     /// sees those cards, so it is told again what was done on them — the lines the questions that
     /// went carried, and the changes it made itself there — ahead of anything still to tell.
     @discardableResult
@@ -1529,7 +1526,7 @@ final class AskClaudeChat: ObservableObject {
     }
 
     /// Cards whose work outlives the turns they came in: applied, being applied, running, or a
-    /// setting changed (decision IT). An offer nobody took goes with its turn.
+    /// setting changed. An offer nobody took goes with its turn.
     static func lasts(_ kind: Item.Kind) -> Bool {
         switch kind {
         case .plan(let plan): return [.applying, .applied, .partlyApplied].contains(plan.state)
@@ -1541,7 +1538,7 @@ final class AskClaudeChat: ObservableObject {
         }
     }
 
-    /// What Claude changed itself on a card it no longer sees (`set`, TE290 step 4c): what they did
+    /// What Claude changed itself on a card it no longer sees (`set`): what they did
     /// on cards it was told with their next question, but this was only in its own tool result.
     static func claudesOwnChanges(_ kind: Item.Kind) -> [String] {
         guard case .settings(let card) = kind else { return [] }
@@ -1624,7 +1621,7 @@ final class AskClaudeChat: ObservableObject {
             items.append(Item(kind: .step(label, isError: isError)))
         case .offer(let passage):
             streamingItem = nil
-            // The card names the file it read (his call on TE322), so the read's step line goes.
+            // The card names the file it read, so the read's step line goes.
             if case .step(let label, isError: false)? = items.last?.kind, label.hasPrefix("Read \(passage.fileName) on this Mac") {
                 items.removeLast()
             }
@@ -1666,11 +1663,11 @@ final class AskClaudeChat: ObservableObject {
             items.append(item)
             pdfCardOffered?(item.id)
         case .kept(let previous, let now):
-            // A switch is noted once it reached Claude, at the question that made it (TE292). A
+            // A switch is noted once it reached Claude, at the question that made it. A
             // question that failed, was declined or stopped before joining the chat notes nothing,
             // and the next one that joins makes the note instead.
             guard let at = askedItem.flatMap({ id in items.firstIndex { $0.id == id } }) else { break }
-            // Where it joined, for Edit and Retry (TE296).
+            // Where it joined, for Edit and Retry.
             items[at].turn = engine.turns.count - 1
             items[at].told = askedTold.isEmpty ? nil : askedTold
             guard let previous else { break }
@@ -1683,8 +1680,8 @@ final class AskClaudeChat: ObservableObject {
             }
             if !notes.isEmpty { items.insert(Item(kind: .note(notes.joined(separator: " "))), at: at) }
         case .movedView(let note):
-            // The move says what the step said ("Opened Help" twice, 2026-10-30): it takes the
-            // step's place rather than repeating it.
+            // The move says what the step said, so it takes the step's place rather than
+            // repeating it.
             if let last = items.last, case .step(_, isError: false) = last.kind { items.removeLast() }
             items.append(Item(kind: .moved(note)))
         case .round(let usage, let cost, let model):
@@ -1706,7 +1703,7 @@ final class AskClaudeChat: ObservableObject {
             problemThisRun = true
             // A key that failed is read again next time: it may have just been fixed in Settings.
             if problem.kind == .keyRejected || problem.kind == .noKey { cachedKey = nil }
-            // At the limit, the panel shows the limit itself (TE290 step 6): raising it there
+            // At the limit, the panel shows the limit itself: raising it there
             // offers Ask Again with the question.
             if problem.kind == .limitReached, case .overLimit(let spent, let limit) = AskClaudeSpend.state(in: defaults, now: now()) {
                 let item = Item(kind: .settings(.atLimit(spent: spent, limit: limit,
@@ -1722,8 +1719,8 @@ final class AskClaudeChat: ObservableObject {
     private func finishRun(joined: Bool = false) {
         if var receipt, receipt.rounds > 0 {
             receipt.kept = joined
-            // Compared with the last answer Claude kept, by the model asked for (a receipt saved
-            // before TE292 has only the one that answered).
+            // Compared with the last answer Claude kept, by the model asked for (an older saved
+            // receipt has only the one that answered).
             let lastKept = items.reversed().lazy.compactMap { item -> Receipt? in
                 if case .receipt(let r) = item.kind, r.kept != false { r } else { nil }
             }.first
@@ -1732,7 +1729,7 @@ final class AskClaudeChat: ObservableObject {
             receipt.showsModel = receipt.fallbackModel != nil || changed
             items.append(Item(kind: .receipt(receipt)))
         }
-        // The 80% warning (decision DZ), once per chat: the limit itself stops the next question.
+        // The 80% warning, once per chat: the limit itself stops the next question.
         if !warnedNearLimit, case .nearLimit(let spent, let limit) = AskClaudeSpend.state(in: defaults, now: now()) {
             warnedNearLimit = true
             items.append(Item(kind: .note("Ask Claude has used \(AskClaudeSpend.format(spent)) of its \(AskClaudeSpend.format(limit)) limit this month.")))

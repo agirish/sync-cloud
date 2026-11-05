@@ -3,10 +3,10 @@ import Dashboard
 import FileExplorer
 import Sync
 
-/// **The window sidebar's lists, handed to the Move picker** — Favorites, Locations and Recents,
-/// in the sidebar's own section order and from the very rows it draws (`folderSidebarRows`,
-/// `folderSidebarShortcutRows`, `folderSidebarLocationRows`), so the picker never offers a
-/// different list from the one beside it. FileExplorer cannot read Dashboard's stores itself.
+/// The window sidebar's lists, handed to the Move picker: Favorites, Locations and Recents, in the
+/// sidebar's order and from the rows it draws (`folderSidebarRows`, `folderSidebarShortcutRows`,
+/// `folderSidebarLocationRows`), so the picker never offers a different list from the one beside
+/// it. FileExplorer cannot read Dashboard's stores itself.
 extension ContentView {
     func destinationPlaceSections() -> [DestinationPlaceSection] {
         let sources = destinationPlaceSources()
@@ -55,9 +55,9 @@ extension ContentView {
                                 detail: nil, symbol: row.symbol)
     }
 
-    /// The source a move's destination belongs to, for its Recent Moves: the picker now reaches
-    /// every source, and recording a Dropbox destination under the iCloud item's provider was
-    /// refused outright (`DestinationRecents.record` keeps only folders inside the root it is given).
+    /// The source a move's destination belongs to, for its Recent Moves. The picker reaches every
+    /// source, and `DestinationRecents.record` keeps only folders inside the root it is given, so a
+    /// Dropbox destination filed under the iCloud item's root would be dropped.
     func destinationRecentsRoot(for destination: String, requestRoot: String) -> String {
         DestinationPlace.closestOwner(of: PaneBrowsePath.normalized(destination), among: destinationPlaceSources())?.root
             ?? requestRoot

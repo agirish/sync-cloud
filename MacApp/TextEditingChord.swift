@@ -3,22 +3,13 @@ import PDFKit
 
 /// The one rule for a menu chord that is also a text-editing key.
 ///
-/// **A menu key equivalent outranks the field editor.** AppKit offers the keystroke to the menu
-/// before the responder chain sees it, so registering ⌘A, ⌘X, ⌘C, ⌘V or ⌘⌫ on a menu item takes
-/// that key away from every text field in the app — the pane search, a rename field, the
-/// differences search, the ⌘K field. With files selected, which is the normal state, ⌘C over a
-/// caret would copy *files* and leave the typist wondering why nothing was on the pasteboard.
+/// A menu key equivalent outranks the field editor: AppKit offers the keystroke to the menu before
+/// the responder chain, so ⌘A, ⌘X, ⌘C, ⌘V or ⌘⌫ on a menu item would take that key from every text
+/// field in the app. With files selected, ⌘C over a caret would copy files. Every such chord routes
+/// through here, `DeleteSelectionCommand`'s ⌘⌫ included.
 ///
-/// This is not hypothetical and not new: `DeleteSelectionCommand` has carried exactly this routing
-/// for ⌘⌫ since it was registered, because ⌘⌫ is also NSText's delete-to-beginning-of-line and
-/// Finder ships that wart. What is new is that four more chords need it at once, so the rule moves
-/// here rather than being copied five times — and it moves *before* §3's ⌘↑ / ⌘↓ arrive, which
-/// need it too. That ordering is why the menu bar is order step 5 and the chords are step 6.
-///
-/// **The test is the first responder, not the focused SwiftUI view.** Whenever any text field holds
-/// the caret, AppKit's first responder is the shared field editor — an `NSTextView` — regardless of
-/// which SwiftUI view owns the field. `@FocusState` cannot see that, which is the whole reason this
-/// reads the responder directly.
+/// The test is the first responder, not the focused SwiftUI view: while any field holds the caret,
+/// the first responder is the shared field editor, an `NSTextView`, which `@FocusState` cannot see.
 enum TextEditingChord {
 
     /// Whether the keystroke belongs to text being edited rather than to a file action.
@@ -29,28 +20,18 @@ enum TextEditingChord {
         responder is NSTextView
     }
 
-    /// Runs `fileAction`, unless the caret owns the keystroke — in which case `editorAction` hands
-    /// it back to the field editor it was taken from.
+    /// Runs `fileAction`, unless the caret owns the keystroke, in which case `editorAction` hands it
+    /// back to the field editor. Handing it back is not optional: swallowing it would leave ⌘C in a
+    /// text field doing nothing at all.
     ///
-    /// **Handing it back is not optional.** Swallowing the keystroke would be worse than the
-    /// collision it avoids: ⌘C in a text field would silently do nothing at all, which reads as the
-    /// app being broken rather than as a chord being busy.
+    /// Decides through ``belongsToTextEditor(_:)`` so the tests pin the rule the app runs. If that
+    /// predicate ever widens past `NSTextView`, the failed downcast falls through to `fileAction`,
+    /// the safe side.
     ///
-    /// Decides through ``belongsToTextEditor(_:)`` rather than an inline cast: the predicate used
-    /// to be a parallel copy nothing shipped called, so the tests naming it pinned a rule the app
-    /// did not run. If the predicate ever widens past "is an NSTextView", the failed downcast falls
-    /// through to `fileAction` — the safe side, since only a real text view can take the hand-back.
-    ///
-    /// **`readerAction` is the PDF reader's half**, for the two chords a read-only page answers:
-    /// ⌘C copies the text selected on it and ⌘A selects all of it. The reader is a `PDFView`, not an
-    /// `NSTextView`, so without it those two went to the FILE action — the pane's selected rows,
-    /// which in Edit is usually the open PDF itself.
-    ///
-    /// **A reader never runs the file action, half or no half.** With `nil` (Cut, Paste, ⌘⌫, the
-    /// transfers, ⌘↑ / ⌘↓) the keystroke is refused with `readerRefusal` — a beep, AppKit's answer to
-    /// a command that does not apply. It used to fall through to the file side, so ⌘X over a page cut
-    /// the open PDF onto the file clipboard, ⌘V pasted files into its folder and ⌘⌫ offered to
-    /// delete it: verbs about the pane's rows, fired from a page that was showing none of them.
+    /// `readerAction` is the PDF reader's half, for the two chords a read-only page answers: ⌘C
+    /// copies its selected text and ⌘A selects all of it. A reader never runs the file action: with
+    /// `nil` (Cut, Paste, ⌘⌫, the transfers, ⌘↑ / ⌘↓) the keystroke gets `readerRefusal`, a beep.
+    /// Otherwise ⌘X over a page would cut the open PDF itself, and ⌘⌫ would offer to delete it.
     static func route(responder: NSResponder?,
                       editorAction: (NSTextView) -> Void,
                       readerAction: ((PDFView) -> Void)? = nil,
@@ -65,10 +46,10 @@ enum TextEditingChord {
         }
     }
 
-    /// The reader `responder` is, or is inside — **Fill & Sign's overlay holds the keyboard over
-    /// the pages while its toolbar is up**, and is a view inside the reader, not one; matched only
-    /// as itself, ⌘C there copied the pane's selected file again. A field editor never reaches
-    /// this: the caret's branch above takes it first.
+    /// The reader `responder` is, or is inside. Fill & Sign's overlay holds the keyboard while its
+    /// toolbar is up and is a view inside the reader, so matching only the reader itself would send
+    /// ⌘C there to the pane's selected file. A field editor never reaches this; the caret's branch
+    /// takes it first.
     static func enclosingReader(of responder: NSResponder?) -> PDFView? {
         var view = responder as? NSView
         while let current = view {
@@ -78,14 +59,12 @@ enum TextEditingChord {
         return nil
     }
 
-    /// The view holding the keyboard, when it has a selection of its own to copy — **Edit's
-    /// Preview**, whose words are SwiftUI's selectable text. That is neither an `NSTextView` nor a
-    /// reader, so ⌘C there used to fall through to the file half and copy the open file with the
-    /// words still highlighted (TE153).
+    /// The view holding the keyboard, when it has a selection of its own to copy: Edit's Preview,
+    /// whose words are SwiftUI selectable text, neither an `NSTextView` nor a reader. Without this,
+    /// ⌘C there would copy the open file instead of the highlighted words.
     ///
-    /// Asked of the responder itself, through its own `validateMenuItem(_:)`: it answers yes only
-    /// while something is selected. A view that can copy but cannot say whether it would is left to
-    /// the file half, as before.
+    /// Asked through the responder's own `validateMenuItem(_:)`, which says yes only while something
+    /// is selected. A view that can copy but cannot say whether it would is left to the file half.
     static func selectionCopier(of responder: NSResponder?) -> NSView? {
         guard let view = responder as? NSView, view.responds(to: copyAction) else { return nil }
         let item = NSMenuItem(title: "Copy", action: copyAction, keyEquivalent: "c")

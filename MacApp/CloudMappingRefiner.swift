@@ -2,10 +2,9 @@ import Events
 import Foundation
 import Sync
 
-/// §5.6's transport — the mapping refine's network half, on ``CloudFilingClassifier``'s exact
-/// pattern: the request/response shaping is pure and tested in `Sync`
-/// (`MappingRefineProtocol`); this type does the key gate, the budget caps, the call and the
-/// spend record, and nothing else.
+/// The mapping refine's network half, on ``CloudFilingClassifier``'s pattern: the request and
+/// response shaping is pure and tested in `Sync` (`MappingRefineProtocol`); this type does the key
+/// gate, the budget caps, the call and the spend record, and nothing else.
 enum CloudMappingRefiner {
 
     /// Refines `request`'s mapping. nil on a hard failure (no key, caps reached, network,

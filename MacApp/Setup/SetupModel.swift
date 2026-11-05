@@ -8,37 +8,36 @@ import Sync
 
 /// Everything the guided setup sheet knows, and every rule it follows.
 ///
-/// **The screens are views; this is the sheet.** The form this replaces kept its state in
-/// `@State` on one 1,978-line view, which meant no rule in it could be tested — the version of
-/// "put the caret in the first field" that lived in `onAppear` fired on the re-run path and never
-/// on a first launch, and nothing could ask. A model can be built in a test; a `SetupSheet` cannot.
+/// The screens are views; this is the sheet. A model can be built in a test and a `SetupSheet`
+/// can't, so every rule lives here where a test can ask it (one in `onAppear` could fire on the
+/// re-run path and never on a first launch, and nothing would notice).
 ///
 /// It owns four things the screens read and none of them owns:
 ///
-/// - **One walk.** ``walkState`` holds the tree from Learn until the sheet closes, and People,
-///   Countries, Structure and the loose-file routing are all pure functions over it. Nothing walks
-///   the disk again until Save.
-/// - **A profile that is not on disk.** ``preview`` is built in memory whenever the answers change,
-///   so Back from Structure costs a rebuild rather than a written directory.
-/// - **The draft.** You and People land in `setup-draft.json` on a machine with no profile, and in
+/// - One walk. ``walkState`` holds the tree from Learn until the sheet closes, and People,
+///   Countries, Structure and the loose-file routing are pure functions over it. Nothing walks the
+///   disk again until Save.
+/// - A profile that isn't on disk. ``preview`` is built in memory whenever the answers change, so
+///   Back from Structure costs a rebuild rather than a written directory.
+/// - The draft. You and People land in `setup-draft.json` on a machine with no profile, and in
 ///   `people.json` the moment there is one.
-/// - **Where the user is**, and which screens are in the flow at all given what the walk did.
+/// - Where the user is, and which screens are in the flow at all given what the walk did.
 @MainActor
 final class SetupModel: ObservableObject {
 
     // MARK: - What it was built with
 
     let settings: SettingsManager
-    /// The roster this view was built with. **Nil is the ordinary state on the machine setup is
-    /// for** — no profile means no `profiles/<id>/` to write `people.json` into, which is why
-    /// ``SetupDraft`` exists. Read ``roster`` instead of this, always.
+    /// The roster this view was built with. Nil is the ordinary state on the machine setup is for:
+    /// no profile means no `profiles/<id>/` to write `people.json` into, which is why
+    /// ``SetupDraft`` exists. Always read ``roster`` instead.
     private let initialPeopleStore: PeopleStore?
     /// The engine. Nil in a layout test, which never walks.
     let syncManager: FileSyncManager?
     /// Re-reads the filing artifacts after a profile lands, so it takes effect without a relaunch.
     let onProfileWritten: () -> Void
-    /// Starts the document survey on the folder just learned. Handed in because the survey's
-    /// verbs live on `ContentView`, which owns the scope the card reads.
+    /// Starts the document survey on the folder just learned. Handed in because the survey's verbs
+    /// live on `ContentView`, which owns the scope the card reads.
     let onStartSurvey: (URL) -> Void
     private let defaults: UserDefaults
 
@@ -52,15 +51,15 @@ final class SetupModel: ObservableObject {
     /// The name field's two halves. The surname builds the forms and is never stored on its own.
     @Published var firstName = ""
     @Published var surname = ""
-    /// Forms the user typed rather than picked — a nickname, a spelling the rules cannot derive.
+    /// Forms the user typed rather than picked: a nickname, a spelling the rules can't derive.
     @Published private(set) var customForms: [String] = []
     /// Where the user disagreed with a suggestion's default, keyed by the form itself.
     @Published private(set) var formOverrides: [String: Bool] = [:]
     @Published var newPersonField = ""
     @Published var newFormField = ""
     @Published var newCountryField = ""
-    /// The countries the user confirmed. **Nothing is ticked that the rule is not confident of** —
-    /// see ``JurisdictionCandidates/isConfident(_:)``.
+    /// The countries the user confirmed. Nothing is ticked that the rule isn't confident of; see
+    /// ``JurisdictionCandidates/isConfident(_:)``.
     @Published var confirmedCountries: Set<String> = []
     /// Whether Save also starts reading documents. On by default; the button says which it is.
     @Published var readDocuments = true
@@ -93,26 +92,23 @@ final class SetupModel: ObservableObject {
     @Published var walkState: WalkState = .idle
     /// The folder the walk reads. Seeded from the primary location, changeable.
     @Published var walkRoot: URL?
-    /// Set once the user picks a root themselves — an explicit choice outranks a default that
+    /// Set once the user picks a root themselves: an explicit choice outranks a default that
     /// arrives later.
     @Published private(set) var rootChosenByHand = false
     @Published var isRefreshingProviders = false
-    /// True from the moment Save is pressed until the profile is on disk.
-    ///
-    /// **A second press wrote a second profile.** `writeWalkProfile` mints a fresh id every time
-    /// and never overwrites, so two presses inside one second produced `walk-…` and `walk-…-2`,
-    /// the first of them immediately superseded and left on disk for `retireSupersededProfiles`
-    /// to find later.
+    /// True from the moment Save is pressed until the profile is on disk, so a second press can't
+    /// write a second profile: `writeWalkProfile` mints a fresh id every time and never overwrites,
+    /// so two presses would leave `walk-…` and `walk-…-2`, the first superseded at once.
     @Published private(set) var isSaving = false
     /// Why the last Save wrote nothing, while Structure is still on screen to say it.
     @Published private(set) var saveFailure: String?
     /// Awaited once a Save is in flight, before it asks the engine anything. A no-op in the app; a
-    /// test parks a press here to act mid-write. Watching `isSaving` instead was a race: on a 3-vCPU
-    /// hosted VM a whole press could run between two of the test's turns, never seen in flight.
+    /// test parks a press here to act mid-write. Watching `isSaving` instead would race: on a slow
+    /// machine a whole press can run between two of the test's turns.
     var saveInFlight: @MainActor () async -> Void = {}
 
-    /// Whether Learn has a folder to read. The button is disabled without one — the alternative is
-    /// a press that silently does nothing and a sheet that then cannot reach Structure.
+    /// Whether Learn has a folder to read. The button is disabled without one; otherwise a press
+    /// would silently do nothing and the sheet couldn't reach Structure.
     var canLearn: Bool { walkRoot != nil && syncManager != nil }
 
     // MARK: - What Structure shows, and what Save wrote
@@ -122,17 +118,13 @@ final class SetupModel: ObservableObject {
     /// Where the loose files would go, by name alone.
     @Published private(set) var looseRoutes: [SetupLooseFileRouting.LooseFileRoute] = []
     /// The sibling map and the shape findings the Structure tree reads, derived once with the
-    /// profile they describe.
-    ///
-    /// **They were computed properties on the view, and one of them ran a detector.**
-    /// `FolderReading.shapeFindings` is `StructureDivergence.findings(in:)`, a whole pass over the
-    /// profile — and the tree asked for it inside the body of every row it drew. On this Mac's
-    /// 5,020-folder profile that is the detector re-run a hundred times per frame, for a lookup
-    /// whose answer cannot change while the row is on screen.
+    /// profile they describe. `FolderReading.shapeFindings` is `StructureDivergence.findings(in:)`,
+    /// a whole pass over the profile, so asked per row inside the view it would re-run the detector
+    /// many times per frame for an answer that can't change while the row is on screen.
     @Published private(set) var previewReadings = FolderProfileReadings()
     /// The report from Save, once there is one.
     @Published private(set) var writtenReport: FileSyncManager.FolderWalkReport?
-    /// Set when Save wrote a profile this Mac will not use — see ``SetupFlow/walkNotInUse``.
+    /// Set when Save wrote a profile this Mac won't use; see ``SetupFlow/walkNotInUse``.
     @Published private(set) var walkNotInUse = false
 
     // MARK: - Live settings
@@ -140,8 +132,8 @@ final class SetupModel: ObservableObject {
     var primarySourceId: String {
         get { defaults.string(forKey: SetupFlow.primarySourceDefaultsKey) ?? "" }
         set {
-            // Before the write, not after: `objectWillChange` is a promise about what is *about*
-            // to change, and SwiftUI is entitled to read the value the moment it is told.
+            // Before the write, not after: `objectWillChange` is a promise about what is about to
+            // change, and SwiftUI may read the value the moment it is told.
             objectWillChange.send()
             defaults.set(newValue, forKey: SetupFlow.primarySourceDefaultsKey)
         }
@@ -152,16 +144,14 @@ final class SetupModel: ObservableObject {
          syncManager: FileSyncManager?,
          hasFilingProfile: Bool,
          defaults: UserDefaults = .standard,
-         // **Injectable, and the reason is a measurement.** Three screens grow with what the walk
-         // found — People's chips, Countries' chips, Structure's whole tree — and a fixture that
-         // cannot walk shows none of them. A fit test built that way measures the empty state and
-         // passes at any card height, which is exactly how the retired form's Sources step came to
-         // scroll on a real Mac with every one of its tests green.
+         // Injectable because three screens grow with what the walk found (People's chips,
+         // Countries' chips, Structure's whole tree), and a fixture that can't walk shows none of
+         // them: a fit test built that way measures the empty state and passes at any card height.
          walk: SetupWalk? = nil,
-         /// A screen to open on instead of the one the defaults imply. **For a harness that has to
-         /// photograph or measure one screen**: `initialScreen` reads `hasCompletedSetup`, so a
-         /// fixture built on the standard defaults opens wherever *this* Mac would open, and every
-         /// picture it takes is of the same screen.
+         /// A screen to open on instead of the one the defaults imply, for a harness that
+         /// photographs or measures one screen: `initialScreen` reads `hasCompletedSetup`, so a
+         /// fixture on the standard defaults would open wherever this Mac would, and every picture
+         /// would be of the same screen.
          startScreen: SetupFlow.Screen? = nil,
          draftURL: URL? = SetupDraftStore.defaultURL(),
          onProfileWritten: @escaping () -> Void = {},
@@ -173,7 +163,7 @@ final class SetupModel: ObservableObject {
         self.defaults = defaults
         self.onProfileWritten = onProfileWritten
         self.onStartSurvey = onStartSurvey
-        // **Resolved here rather than in `onAppear`**, which fires after the first layout: a re-run
+        // Resolved here rather than in `onAppear`, which fires after the first layout: a re-run
         // would render the welcome card for a frame before replacing it.
         let opensOn = startScreen ?? SetupFlow.initialScreen(
             hasCompletedSetup: defaults.bool(forKey: SetupFlow.hasCompletedDefaultsKey),
@@ -198,7 +188,7 @@ final class SetupModel: ObservableObject {
 
     private let hasFilingProfileAtLaunch: Bool
 
-    /// Where the draft lives. One file, one place that names it — handed in only by a test, which
+    /// Where the draft lives. One file, one place that names it; handed in only by a test, which
     /// must never write the real one.
     private let draftURL: URL?
 
@@ -206,13 +196,13 @@ final class SetupModel: ObservableObject {
 
     /// The roster to read and write, preferring the engine's own over the one this was built with.
     ///
-    /// **The captured property goes stale the moment a walk succeeds, and nothing tells the view.**
+    /// The captured property goes stale the moment a walk succeeds, and nothing tells the view:
     /// `FileSyncManager`'s filing artifacts are plain `var`s, so `FilingArtifacts.attach(to:)` sets
-    /// a roster and triggers no SwiftUI invalidation at all. Reading through the manager fixes it
+    /// a roster and triggers no SwiftUI invalidation. Reading through the manager fixes that
     /// without making six properties `@Published` and paying a re-render on every scan.
     var roster: PeopleStore? { syncManager?.filingPeopleStore ?? initialPeopleStore }
 
-    /// Whether this machine has a surveyed tree **now**, not when the sheet was built.
+    /// Whether this machine has a surveyed tree now, not when the sheet was built.
     var hasProfile: Bool {
         syncManager?.filingFolderProfile != nil || hasFilingProfileAtLaunch
     }
@@ -225,11 +215,10 @@ final class SetupModel: ObservableObject {
 
     /// The household to hand the walk, whether or not there is a roster on disk yet.
     ///
-    /// **This is why People comes before Structure.** Passing `roster?.registry` is nil on the
-    /// machine setup exists for, so the profile would be built with no person axis and no
-    /// `person-bucket` roles at all, from a sheet that had just finished asking who the household
-    /// is. The roster wins where there is one: it carries full names and aliases the draft's bare
-    /// first names do not.
+    /// This is why People comes before Structure. `roster?.registry` is nil on the machine setup
+    /// exists for, so passing it alone would build the profile with no person axis and no
+    /// `person-bucket` roles, right after the sheet asked who the household is. The roster wins
+    /// where there is one: it carries full names and aliases the draft's bare first names don't.
     var walkRegistry: PersonRegistry? {
         roster?.registry ?? draft.registry
     }
@@ -250,8 +239,8 @@ final class SetupModel: ObservableObject {
         SetupFlow.crumbs(walk: walkOutcome, hasProfile: hasProfile)
     }
 
-    /// Whether Back is offered. **Not while Save writes**: the press moves the sheet on when it
-    /// lands, so Back mid-write left Structure only to be carried one screen past wherever it went.
+    /// Whether Back is offered. Not while Save writes: the press moves the sheet on when it lands,
+    /// so Back mid-write would leave Structure only to be carried one screen past wherever it went.
     var canGoBack: Bool {
         !isSaving && SetupFlow.previous(before: screen, walk: walkOutcome, hasProfile: hasProfile,
                                         welcomeIsInThisRun: welcomeIsInThisRun) != nil
@@ -259,20 +248,19 @@ final class SetupModel: ObservableObject {
 
     /// Whether the welcome card belongs to the run in progress.
     ///
-    /// **The run opened on it, or it did not.** A first launch resolves to `.welcome` through
-    /// `SetupFlow.initialScreen`; asking for setup by name — Help ▸ Set Up SyncCloud…, or
-    /// Settings ▸ General ▸ Run Setup Again… — opens on it too, because somebody who asked for
-    /// setup asked for setup, not for its second screen. Either way the card is in this run and
-    /// Back reaches it. Only the automatic re-presentation on a Mac that is already set up skips
-    /// it, which is the case it was written for.
+    /// The run opened on it, or it didn't. A first launch resolves to `.welcome` through
+    /// `SetupFlow.initialScreen`; asking for setup by name (Help ▸ Set Up SyncCloud…, or Settings ▸
+    /// General ▸ Run Setup Again…) opens on it too, because someone who asked for setup asked for
+    /// all of it. Either way Back reaches it. Only the automatic re-presentation on a Mac already
+    /// set up skips it.
     let welcomeIsInThisRun: Bool
 
     /// Steps forward, committing what this screen collected first.
     ///
-    /// **Each screen commits as you leave it**, which is what makes quitting mid-setup survivable:
-    /// preferences and the location list are live settings the moment they are touched, and the two
-    /// answers that need a profile go to the draft. Nothing waits for a button the user may never
-    /// press. The profile is the one exception, and it waits for Save on purpose.
+    /// Each screen commits as you leave it, so quitting mid-setup is survivable: preferences and
+    /// the location list are live settings the moment they are touched, and the two answers that
+    /// need a profile go to the draft. Nothing waits for a button the user may never press, except
+    /// the profile, which waits for Save on purpose.
     func advance() -> Bool {
         commitCurrentScreen()
         guard let next = SetupFlow.next(after: screen, walk: walkOutcome, hasProfile: hasProfile) else {
@@ -293,13 +281,12 @@ final class SetupModel: ObservableObject {
 
     // MARK: - Learn's buttons
 
-    /// Learn's primary button: Learn, or — once a reading is in hand — Continue.
+    /// Learn's primary button: Learn, or Continue once a reading is in hand.
     ///
-    /// **A finished reading needs a way forward that keeps it.** The primary used to read "Learn
-    /// again" once the walk was done, so Back to Learn left two ways on: read the folder again,
-    /// which resets the Countries ticks to the rule's picks, or Skip, which throws the reading away
-    /// and drops Countries and Structure. Continue is the third, and the one a person who only went
-    /// back to look wants.
+    /// A finished reading needs a way forward that keeps it. Back on Learn the other two ways reset
+    /// it: read the folder again (which resets the Countries ticks to the rule's picks) or Skip
+    /// (which throws the reading away and drops Countries and Structure). Continue is what someone
+    /// who only went back to look wants.
     var learnPrimaryTitle: String { hasReadingOfChosenFolder ? "Continue" : "Learn" }
 
     /// The secondary button beside Learn's primary: "Learn Again" once there is a reading to
@@ -308,20 +295,18 @@ final class SetupModel: ObservableObject {
 
     /// Whether the reading in hand is of the folder now chosen.
     ///
-    /// **A finished reading is always of the folder now chosen**, because every way the folder
-    /// changes either adopts a reading of the new one (``adopt(_:)``) or drops the old one
-    /// (``changeWalkRoot(to:thenLearn:)`` and ``seedWalkRoot()`` through
-    /// ``invalidateProposals()``), and a reading that lands for a folder no longer chosen is
-    /// dropped in ``startWalk()``. So asking `walkState.isDone` is the whole answer.
+    /// Always true of a finished reading: every way the folder changes either adopts a reading of
+    /// the new one (``adopt(_:)``) or drops the old one (``changeWalkRoot(to:thenLearn:)`` and
+    /// ``seedWalkRoot()`` through ``invalidateProposals()``), and a reading that lands for a folder
+    /// no longer chosen is dropped in ``startWalk()``. So `walkState.isDone` is the whole answer.
     var hasReadingOfChosenFolder: Bool { walkState.isDone }
 
     /// Learn's primary press. Reads the folder unless a reading of it is already in hand or under
-    /// way, and moves on either way — **Continue never waits** (see ``startWalk()``).
+    /// way, and moves on either way: Continue never waits (see ``startWalk()``).
     ///
-    /// **A reading under way is the folder's reading.** Back to Learn mid-reading still says Learn,
-    /// and its press started a second full walk of the same tree beside the first, which nothing
-    /// cancels — on a big tree, minutes of disk read twice for one answer. Every way the folder
-    /// changes drops the reading (``invalidateProposals()``), so a running one is of this folder.
+    /// A reading under way is the folder's reading, since every folder change drops the reading
+    /// (``invalidateProposals()``). Starting another would run a second full walk of the same tree
+    /// beside the first, which nothing cancels: on a big tree, minutes of disk read twice.
     func pressLearnPrimary() {
         if !hasReadingOfChosenFolder, !walkState.isRunning { startWalk() }
         _ = advance()
@@ -333,11 +318,8 @@ final class SetupModel: ObservableObject {
         _ = advance()
     }
 
-    /// Summary's Learn and Learn Again: back to the Learn screen, with the sheet still open.
-    ///
-    /// **It used to close setup on Settings ▸ Organize**, a tab with no control that learns a
-    /// folder — and the Countries row, which has no Change link of its own, says this button is
-    /// how to change them.
+    /// Summary's Learn and Learn Again: back to the Learn screen, with the sheet still open. The
+    /// Countries row, which has no Change link of its own, says this button is how to change them.
     func returnToLearn() {
         commitCurrentScreen()
         go(to: .learn)
@@ -357,15 +339,14 @@ final class SetupModel: ObservableObject {
         return true
     }
 
-    /// What closing the sheet keeps — Esc, ✕, a click outside, or Not Now, and every teardown
-    /// without one: Settings, Help or a destination pick opening over it, the window closing, and
-    /// quitting (`SetupSheet`'s `onDisappear` and its termination observer).
+    /// What closing the sheet keeps: Esc, ✕, a click outside or Not Now, and every teardown without
+    /// one (Settings, Help or a destination pick opening over it, the window closing, quitting; see
+    /// `SetupSheet`'s `onDisappear` and its termination observer).
     ///
-    /// **The open screen's answers, exactly as a screen change keeps them.** Closing used to commit
-    /// nothing, so a name typed on You and closed with Esc was gone, while the same name with
-    /// Continue pressed first was in the draft. Two things still are not kept: a reading that was
-    /// never saved, which lives only in this model, and the finished flag — closing is not
-    /// finishing, so setup still offers itself next launch.
+    /// The open screen's answers, as a screen change keeps them, so a name typed on You and closed
+    /// with Esc is in the draft as if Continue were pressed. Two things aren't kept: a reading
+    /// never saved, which lives only in this model, and the finished flag (closing isn't finishing,
+    /// so setup still offers itself next launch).
     func commitBeforeClosing() {
         commitCurrentScreen()
     }
@@ -390,8 +371,8 @@ final class SetupModel: ObservableObject {
             applyDraftIfPossible()
         default:
             // Countries commits nothing: what it collected is read when Structure is built, and
-            // `go(to:)` does that on the way in — rebuilding here as well paid for the preview
-            // twice going forward, and once going backwards to a screen that never shows it.
+            // `go(to:)` does that on the way in. Rebuilding here too would pay for the preview
+            // twice going forward, and once going back to a screen that never shows it.
             break
         }
     }
@@ -437,32 +418,28 @@ final class SetupModel: ObservableObject {
 
     /// Starts the walk root at the primary location, which is what the user just confirmed.
     ///
-    /// A *folder*, and the location's LANDING folder is the honest default: on this Mac the iCloud
-    /// source lands at `~/Documents`, which is exactly the tree the hand-built profile describes.
-    /// Landing rather than root, deliberately — an account's root also holds `Teams Recordings` and
-    /// a Copilot chat cache, which teach the profile nothing and cost a walk over gigabytes to say
-    /// so.
+    /// A folder, and the location's landing folder is the honest default: on this Mac the iCloud
+    /// source lands at `~/Documents`, the tree the hand-built profile describes. Landing rather
+    /// than root on purpose: an account's root also holds things like `Teams Recordings` and a
+    /// Copilot chat cache, which teach the profile nothing and cost a walk over gigabytes.
     ///
     /// Through the manager, not `primary.landingPath`: the value type joins root and `openAt`
-    /// unconditionally, and the manager's spelling degrades to the root when the landing folder is
-    /// not there. Seeding at a URL that does not exist starts a walk over nothing.
+    /// unconditionally, while the manager's spelling degrades to the root when the landing folder
+    /// isn't there. Seeding at a URL that doesn't exist starts a walk over nothing.
     ///
-    /// **Seeds, never walks.** The seed is driven by the primary location, which moves on every
-    /// toggle, so a seed that walked would fire a full read of a three-thousand-folder tree per
-    /// click on the Locations screen.
+    /// Seeds, never walks. The seed follows the primary location, which moves on every toggle, so a
+    /// seed that walked would fire a full read of a large tree per click on the Locations screen.
     func seedWalkRoot() {
-        // **A finished reading is a decision about a folder, exactly as picking one by hand is.**
-        // Without `!walkState.isDone` this runs on every change to the provider list — the sheet
-        // watches it — and if `reconcilePrimary` has just moved the primary, the seeded path
-        // differs and `invalidateProposals()` throws away a completed walk with nothing said. It
-        // is reachable in a few clicks: learn a folder, Back to Locations, switch that location
-        // off. Structure then reads "Nothing has been learned yet" and Save has nothing to write,
-        // and no screen ever says why.
+        // A finished reading is a decision about a folder, as picking one by hand is. Without
+        // `!walkState.isDone` this runs on every change to the provider list (the sheet watches
+        // it), and if `reconcilePrimary` just moved the primary, the seeded path differs and
+        // `invalidateProposals()` silently throws away a completed walk: learn a folder, Back to
+        // Locations, switch that location off, and Structure reads "Nothing has been learned yet"
+        // with nothing to save and no screen saying why.
         //
-        // Keeping the root is also the honest answer to what the user did: they turned a location
-        // off, they did not ask for the folder they had just read to be forgotten. If the folder
-        // really is no longer in use, ``SetupFlow/walkNotInUse`` says so on the summary — which is
-        // a sentence, where this was silence.
+        // Keeping the root is also the honest answer: the user turned a location off, not asked for
+        // the folder just read to be forgotten. If that folder is no longer in use,
+        // ``SetupFlow/walkNotInUse`` says so on the summary.
         guard !rootChosenByHand, !walkState.isDone, let primary = primaryProvider else { return }
         let seeded = URL(fileURLWithPath: settings.landingPath(for: primary.id))
         guard seeded != walkRoot else { return }
@@ -478,13 +455,12 @@ final class SetupModel: ObservableObject {
         looseRoutes = []
     }
 
-    /// Asks for a folder, and — from any screen but Learn — reads it straight away.
+    /// Asks for a folder and, from any screen but Learn, reads it straight away.
     ///
-    /// **`thenLearn` is not a convenience.** Learn has a button that says what it will do, so it
-    /// picks and waits. Every later screen offers a bare *Change…* beside the found items, and
-    /// changing the folder there discards those items: without a re-read the screen would sit on
-    /// "Reading names…" with nothing reading, forever, and the only way out would be to walk back
-    /// to Learn and press it.
+    /// `thenLearn` isn't a convenience. Learn has a button that says what it will do, so it picks
+    /// and waits. Every later screen offers a bare Change… beside the found items, and changing the
+    /// folder there discards them: without a re-read the screen would sit on "Reading names…" with
+    /// nothing reading, and the only way out would be back to Learn.
     func chooseWalkRoot(thenLearn: Bool = false) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -497,7 +473,7 @@ final class SetupModel: ObservableObject {
         changeWalkRoot(to: url, thenLearn: thenLearn)
     }
 
-    /// What a folder picked by hand does, without the panel — so a test can pick one.
+    /// What a folder picked by hand does, without the panel, so a test can pick one.
     func changeWalkRoot(to url: URL, thenLearn: Bool = false) {
         walkRoot = url
         rootChosenByHand = true
@@ -511,13 +487,12 @@ final class SetupModel: ObservableObject {
         return root.path.hasPrefix(home) ? "~" + root.path.dropFirst(home.count) : root.path
     }
 
-    /// Where the folder is — "in Google Drive", "on this Mac" — the line Learn's card draws under
+    /// Where the folder is ("in Google Drive", "on this Mac"): the line Learn's card draws under
     /// the folder name.
     ///
-    /// **Measured from the folder, not from the primary location.** It was the primary's name
-    /// whatever was picked, so Change… to a folder outside every location still read
-    /// "in iCloud Drive". The primary is asked first, so a folder two locations both hold is
-    /// named as the one just confirmed; a folder no enabled location holds is on this Mac.
+    /// Measured from the folder, not the primary location, so Change… to a folder outside every
+    /// location reads "on this Mac". The primary is asked first, so a folder two locations both
+    /// hold is named as the one just confirmed.
     var walkRootLocationLine: String {
         guard let root = walkRoot?.path else { return "on this Mac" }
         let candidates = (primaryProvider.map { [$0] } ?? []) + settings.enabledProviders
@@ -528,20 +503,21 @@ final class SetupModel: ObservableObject {
         return holder.map { "in " + LocationsScreen.name($0) } ?? "on this Mac"
     }
 
-    /// The name of the folder itself — what the screens call it in a sentence.
+    /// The name of the folder itself, as the screens call it in a sentence.
     var walkRootName: String {
         walkRoot.map { $0.lastPathComponent } ?? "your folder"
     }
 
     /// Reads the tree, once, and advances at the same moment.
     ///
-    /// **Continue never waits.** The screens after this one each work without the walk and fill in
-    /// when it lands, so the user is never held in front of a spinner for a tree they have already
-    /// told the app to read.
+    /// Continue never waits. The screens after this one each work without the walk and fill in when
+    /// it lands, so the user is never held in front of a spinner for a tree they already told the
+    /// app to read.
     ///
-    /// **A reading that lands after the folder changed is dropped.** Change… does not wait for the
-    /// reading it supersedes, so without the check a late result for the old folder landed as the
-    /// reading of the new one — and Learn's Continue kept that tree under the new folder's name.
+    /// A reading that lands after the folder changed is dropped. Change… doesn't wait for the
+    /// reading it supersedes, so without the check a late result for the old folder would land as
+    /// the new one's reading, and Learn's Continue would keep that tree under the new folder's
+    /// name.
     func startWalk() {
         guard let root = walkRoot, let manager = syncManager else { return }
         walkState = .running
@@ -552,10 +528,9 @@ final class SetupModel: ObservableObject {
         lastWalk = Task { [weak self] in
             let result = await manager.walkForSetup(root: root, known: known)
             guard let self else { return }
-            // **Only the latest walk, and only while it is still awaited.** A folder change, a
-            // Skip, or a second Learn each supersede the walk in flight; checking the folder alone
-            // let a Skip be overridden when the walk landed, and let two walks of one folder both
-            // land.
+            // Only the latest walk, and only while it is still awaited. A folder change, a Skip or
+            // a second Learn each supersede the walk in flight; checking the folder alone would let
+            // a late walk override a Skip, or two walks of one folder both land.
             guard generation == self.walkGeneration, self.walkState.isRunning else {
                 Logger.shared.info("Setup walk of \(root.path) landed after it was superseded "
                                    + "(\(self.walkState.isRunning ? "a newer walk is running" : "no longer awaited")) — dropped")
@@ -568,11 +543,12 @@ final class SetupModel: ObservableObject {
                 self.confirmedCountries = Set(walk.places.filter(JurisdictionCandidates.isConfident)
                     .map(\.value))
                 self.seedNameSuggestion()
-                // **Here as well as on arrival at Structure**, because Continue never waits: a
-                // reading that lands while Structure is on screen otherwise left its button saying
+                // Here as well as on arrival at Structure, because Continue never waits: a reading
+                // that lands while Structure is on screen would otherwise leave its button saying
                 // "Save and Start Reading" over "Nothing has been learned yet." Only on the screens
                 // that read the preview, though: it is heavy main-actor work, and on You or People
-                // it would land under the user's typing for a tree arrival at Structure rebuilds.
+                // it would land under the user's typing for a tree arriving at Structure rebuilds
+                // anyway.
                 if Self.screensThatReadThePreview.contains(self.screen) { self.rebuildPreview() }
             case .failure(let failure):
                 self.walkState = .failed(failure.description)
@@ -588,12 +564,11 @@ final class SetupModel: ObservableObject {
 
     /// The screens a reading that lands rebuilds the preview for.
     ///
-    /// **Structure and every screen after it**, not Structure alone: Continue never waits, so a
-    /// reading can land after Structure was passed, and Workspaces and Summary read the loose-file
-    /// routes the rebuild derives — without it Workspaces would say "No loose files" over a
-    /// folder full of them. Appearance reads nothing, but it is the way to Summary, and arriving
-    /// there rebuilds nothing. The screens before Structure are left alone: arriving at Structure
-    /// rebuilds.
+    /// Structure and every screen after it, not Structure alone: Continue never waits, so a reading
+    /// can land after Structure was passed, and Workspaces and Summary read the loose-file routes
+    /// the rebuild derives (without it Workspaces would say "No loose files" over a folder full of
+    /// them). Appearance reads nothing but is the way to Summary, and arriving there rebuilds
+    /// nothing. The screens before Structure are left alone: arriving at Structure rebuilds.
     static let screensThatReadThePreview: Set<SetupFlow.Screen> =
         [.structure, .workspaces, .appearance, .summary]
 
@@ -622,15 +597,13 @@ final class SetupModel: ObservableObject {
         surname = suggestion.surname ?? ""
     }
 
-    /// The folder in the learned tree whose name is the user's first name — the corroboration that
-    /// lets the You screen say *"your Mac account says X, and Documents has a folder named X"*
-    /// rather than asserting.
+    /// The folder in the learned tree named for the user's first name: the corroboration that lets
+    /// the You screen say "your Mac account says X, and Documents has a folder named X" rather than
+    /// asserting.
     ///
-    /// **Computed, and that is a fix.** It was stored, and set inside `seedNameSuggestion`, which
-    /// guards on the fields being empty — so on every real path it ran once at open, before the
-    /// walk existed, found nothing, and never ran again. The sentence it exists for could not
-    /// appear on the machine setup is for. Asking the tree each time also makes it follow the name
-    /// the user actually typed, which a value captured at open never could.
+    /// Computed, not stored: a value set in `seedNameSuggestion`, which runs only while the fields
+    /// are empty, would be captured at open before the walk exists and never appear. Asking the
+    /// tree each time also follows the name the user actually typed.
     var matchedFolder: String? {
         let first = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !first.isEmpty else { return nil }
@@ -642,15 +615,14 @@ final class SetupModel: ObservableObject {
         (walkState.walk?.tree ?? []).filter(\.isDirectory).map(\.name)
     }
 
-    /// Every form on offer, ticked state included — the suggestions for the name as it stands now,
-    /// then anything the user typed.
+    /// Every form on offer, ticked state included: the suggestions for the name as it stands, then
+    /// anything the user typed.
     ///
-    /// **Derived from the fields every time, never accumulated.** Holding the ticked set as the
-    /// answer meant editing the name left the old name's forms ticked *and* still on screen: they
-    /// were no longer suggestions, so they fell through to the "typed by hand" list and the screen
-    /// offered `Abhishek Girish` under a name now reading `Abhi`. What is remembered instead is the
-    /// user's *decisions* — which suggestions they overrode, and which forms they typed — and both
-    /// survive an edit without outliving the name they were about.
+    /// Derived from the fields every time, never accumulated. Holding the ticked set as the answer
+    /// would leave an edited name's old forms ticked and on screen, fallen through to the "typed by
+    /// hand" list (`Abhishek Girish` under a name now reading `Abhi`). What is remembered is the
+    /// user's decisions (which suggestions they overrode, which forms they typed), and both survive
+    /// an edit without outliving the name they were about.
     var offeredNameForms: [(form: String, ticked: Bool)] {
         var out: [(form: String, ticked: Bool)] = []
         var seen: Set<String> = []
@@ -682,8 +654,8 @@ final class SetupModel: ObservableObject {
         formOverrides[form] = true
     }
 
-    /// Writes the name answers into the draft. **The surname is not stored on its own** — it exists
-    /// to build the forms, and a bare surname is not a name any document prints.
+    /// Writes the name answers into the draft. The surname isn't stored on its own: it exists to
+    /// build the forms, and a bare surname is not a name any document prints.
     func commitNameIfTyped() {
         let first = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !first.isEmpty else { return }
@@ -697,10 +669,10 @@ final class SetupModel: ObservableObject {
         if let store = roster {
             let mine = draft.yourName.trimmingCharacters(in: .whitespacesAndNewlines)
             return store.people
-                // **Two ways to be you, and the second is not redundant.** A roster seeded from a
-                // survey's person axis carries no relationships at all, so nothing answers to "me"
-                // — and matching on the draft name alone then listed the user among everyone else,
-                // with a Remove button beside them.
+                // Two ways to be you, and the second isn't redundant: a roster seeded from a
+                // survey's person axis carries no relationships, so nothing answers to "me", and
+                // the draft name alone would list the user among everyone else, with a Remove
+                // button beside them.
                 .filter { $0.relationship?.lowercased() != "me" }
                 .map(\.displayName)
                 .filter {
@@ -711,7 +683,7 @@ final class SetupModel: ObservableObject {
         return draft.others.map(\.displayName)
     }
 
-    /// The proposals still worth showing — capped, because a chip row is a glance and the rule
+    /// The proposals still worth showing, capped because a chip row is a glance and the rule
     /// over-proposes on purpose.
     var visiblePeopleCandidates: [PersonCandidate] {
         let already = Set(rosterNames.map { $0.lowercased() }
@@ -758,13 +730,13 @@ final class SetupModel: ObservableObject {
 
     /// What a chip's ✕ does.
     ///
-    /// **A roster person is asked about first, as Settings asks.** On a re-run the chips are the
-    /// real `people.json`, and one click on a 10pt ✕ deleted a person along with the full names
-    /// and aliases curated for them in Settings, with no undo. Two kinds of name carry nothing yet
-    /// and go at once: one this screen added to the roster in this run, and one still only in the
-    /// draft on a Mac with no roster. **Draft names stop being the second kind at Save**, which
-    /// lands them in the new roster: from then on they ask like any other roster person, because
-    /// ``namesAddedThisRun`` holds only what `addPerson` put there.
+    /// A roster person is asked about first, as Settings asks: on a re-run the chips are the real
+    /// `people.json`, and one click on a small ✕ would delete a person with the full names and
+    /// aliases curated for them in Settings, with no undo. Two kinds of name carry nothing yet and
+    /// go at once: one this screen added to the roster in this run, and one still only in the draft
+    /// on a Mac with no roster. Draft names stop being the second kind at Save, which lands them in
+    /// the new roster; from then on they ask like any roster person, because ``namesAddedThisRun``
+    /// holds only what `addPerson` put there.
     func requestRemovePerson(named name: String) {
         // People draws no ✕ here; this is the same refusal for any other caller.
         guard !rosterIsReadOnly else { return }
@@ -777,10 +749,10 @@ final class SetupModel: ObservableObject {
 
     /// Takes a person off the roster where there is one, and out of the draft always.
     ///
-    /// **The draft too, even with a roster.** Save lands the draft in the roster it creates, but
-    /// the draft in memory still names everyone it held — so a person removed on People after a
-    /// first-run Save came straight back: leaving the screen applies the draft again, and so does
-    /// finishing. `saveDraft` writes nothing once there is a roster, as before.
+    /// The draft too, even with a roster. Save lands the draft in the roster it creates, but the
+    /// draft in memory still names everyone it held, so a person removed on People after a
+    /// first-run Save would come straight back: leaving the screen applies the draft again, and so
+    /// does finishing. `saveDraft` writes nothing once there is a roster.
     func removePerson(named name: String) {
         if let store = roster,
            let person = store.people.first(where: { $0.displayName == name }) {
@@ -836,9 +808,9 @@ final class SetupModel: ObservableObject {
 
     /// Rebuilds the in-memory profile from the retained tree and the answers as they stand.
     ///
-    /// Sub-second on a few thousand folders, and it writes nothing — which is what makes Back from
-    /// Structure free. Writing a profile per preview would mint a directory per press, refuse over
-    /// its own id inside one second, and churn the fingerprint cached verdicts hang off.
+    /// Sub-second on a few thousand folders, and it writes nothing, which makes Back from Structure
+    /// free. Writing a profile per preview would mint a directory per press, refuse over its own id
+    /// inside one second, and churn the fingerprint cached verdicts hang off.
     func rebuildPreview() {
         guard let walk = walkState.walk else { return }
         let built = FileSyncManager.previewProfile(walk: walk, registry: walkRegistry,
@@ -849,8 +821,8 @@ final class SetupModel: ObservableObject {
                                                   registry: walkRegistry)
     }
 
-    /// What Structure reads: the preview's derivations, or — on a re-run with no walk — the ones
-    /// for the profile this Mac already has, computed on first use and kept.
+    /// What Structure reads: the preview's derivations, or, on a re-run with no walk, the ones for
+    /// the profile this Mac already has, computed on first use and kept.
     func readings(for profile: FolderProfile) -> FolderProfileReadings {
         if preview != nil { return previewReadings }
         if let cached = activeReadings, cached.profileId == profile.profileId { return cached }
@@ -861,63 +833,61 @@ final class SetupModel: ObservableObject {
 
     private var activeReadings: FolderProfileReadings?
 
-    /// The profile Structure is reading — the preview, or on a re-run without a walk, the one this
+    /// The profile Structure is reading: the preview, or on a re-run without a walk, the one this
     /// Mac already has.
     var structureProfile: FolderProfile? {
         preview ?? syncManager?.filingFolderProfile
     }
 
-    /// Whether Structure is showing a profile it cannot write to — a re-run where Learn was
-    /// skipped. Its Save writes nothing, and the loose-file view is hidden.
+    /// Whether Structure is showing a profile it can't write to: a re-run where Learn was skipped.
+    /// Its Save writes nothing, and the loose-file view is hidden.
     ///
-    /// **Not while a reading runs, nor after it failed**: then Structure says so
-    /// (``structureShowsWalkStatus``) rather than offering the profile this Mac already has as the
+    /// Not while a reading runs, nor after it failed: then Structure says so
+    /// (``structureShowsWalkStatus``) rather than offering this Mac's existing profile as the
     /// answer.
     var structureIsReadOnly: Bool {
         !structureShowsWalkStatus && preview == nil && structureProfile != nil
     }
 
-    /// Whether Structure is open on a reading that is still running (SR5).
+    /// Whether Structure is open on a reading that is still running.
     ///
-    /// **Continue never waits**, so on a big tree Structure opens before the reading lands. It said
-    /// "Nothing has been learned yet" over a reading in progress, beside a Continue that silently
-    /// dropped it. Now it says it is reading, and its button says what a press does — Skip Saving
-    /// — until the reading lands and the button becomes Save.
+    /// Continue never waits, so on a big tree Structure opens before the reading lands. It says it
+    /// is reading, and its button says what a press does (Skip Saving) until the reading lands and
+    /// the button becomes Save.
     var structureAwaitsReading: Bool { walkState.isRunning }
 
     /// Whether Structure draws the reading's status in place of the tree: while it runs, and once
     /// it has failed.
     ///
-    /// **A failed reading is said, not drawn over.** It used to leave "Nothing has been learned
-    /// yet", this Mac's old profile read-only, or — after Learn Again — the last reading's tree
-    /// under "SyncCloud read this from …", none of which said the reading had failed. The line
-    /// People and Countries draw for it carries the reason and Try Another Folder….
+    /// A failed reading is said, not drawn over with "Nothing has been learned yet", this Mac's old
+    /// profile, or the last reading's tree under "SyncCloud read this from …". The line People and
+    /// Countries draw for it carries the reason and Try Another Folder….
     var structureShowsWalkStatus: Bool { structureAwaitsReading || walkFailureReason != nil }
 
-    /// The profile Structure draws its tree and counts from — none while a reading runs or after
-    /// it failed, so the screen says so rather than describing a profile the reading was to
-    /// replace. After Learn Again the preview still holds the last reading's tree until the new one
-    /// lands; this is what keeps it off screen.
+    /// The profile Structure draws its tree and counts from: none while a reading runs or after it
+    /// failed, so the screen says so rather than describing a profile the reading was to replace.
+    /// After Learn Again the preview still holds the last reading's tree until the new one lands;
+    /// this keeps it off screen.
     var structureShownProfile: FolderProfile? {
         structureShowsWalkStatus ? nil : structureProfile
     }
 
     /// Whether Structure's "Read documents" switch can be flipped.
     ///
-    /// **Not while the reading runs or after it failed**: there is nothing to save, and the switch
-    /// promises a reading "after you save". Nor over a read-only profile, whose Save writes nothing.
+    /// Not while the reading runs or after it failed: there is nothing to save, and the switch
+    /// promises a reading "after you save". Nor over a read-only profile, whose Save writes
+    /// nothing.
     var structureReadingSwitchIsEnabled: Bool { !structureIsReadOnly && !structureShowsWalkStatus }
 
     /// Whether Structure's button has a profile to write.
     ///
     /// False in two states that look different and behave the same: a re-run showing the profile
-    /// this Mac already has, and a folder that was changed and not re-read. Both used to offer a
-    /// Save that returned at its first guard.
+    /// this Mac already has, and a folder changed and not re-read; a Save there would do nothing.
     ///
-    /// **And false once Save has written the reading in hand, with the answers as they stand.**
-    /// Summary's Learn leads back through Structure, where a second "Save and Start Reading" wrote a
-    /// second profile from the same tree and asked for a second reading of the documents. A changed
-    /// answer is a different profile, though, so it is offered again — see
+    /// And false once Save has written the reading in hand with the answers as they stand:
+    /// Summary's Learn leads back through Structure, where a second "Save and Start Reading" would
+    /// write a second profile from the same tree and ask for a second reading of the documents. A
+    /// changed answer is a different profile, so it is offered again; see
     /// ``currentReadingIsWritten``.
     var canWriteProfile: Bool {
         walkState.walk != nil && syncManager != nil && !currentReadingIsWritten
@@ -925,15 +895,15 @@ final class SetupModel: ObservableObject {
 
     /// Structure's primary button.
     ///
-    /// "Save and Start Reading" only while the press would start one: a folder whose documents
-    /// this run already started reading is not read twice, so a second Save just saves.
+    /// "Save and Start Reading" only while the press would start one: a folder whose documents this
+    /// run already started reading isn't read twice, so a second Save just saves.
     ///
-    /// **"Skip Saving" while the reading is still running** (SR5): the press moves on without
-    /// waiting, as Continue always has, and nothing is written — so the button says that, rather
-    /// than a Continue that reads as if the reading went with it.
+    /// "Skip Saving" while the reading is still running: the press moves on without waiting, as
+    /// Continue does, and writes nothing, so the button says so rather than a Continue that reads
+    /// as if the reading went with it.
     ///
-    /// **"Continue" over a reading that failed**: there is nothing to save and nothing pending to
-    /// skip, so the press only moves on — what Continue means everywhere else on this screen.
+    /// "Continue" over a reading that failed: nothing to save and nothing pending to skip, so the
+    /// press only moves on, what Continue means everywhere else on this screen.
     var structurePrimaryTitle: String {
         if structureAwaitsReading { return Self.skipSavingTitle }
         guard canWriteProfile else { return "Continue" }
@@ -943,13 +913,12 @@ final class SetupModel: ObservableObject {
     static let skipSavingTitle = "Skip Saving"
 
     /// Structure's primary press: Save when there is a reading to write, otherwise on without
-    /// writing — Skip Saving over a reading still running, Continue over nothing to write.
+    /// writing (Skip Saving over a reading still running, Continue over nothing to write).
     ///
-    /// - Parameter shownSkipSaving: whether the button pressed said Skip Saving — read when the
-    ///   button was drawn, not when this runs. **A press under Skip Saving never saves** (SR5): the
-    ///   sheet runs this in a `Task`, and a reading that landed on the main actor between the
-    ///   render and the press turned it into Save — with the switch on, Save and Start Reading,
-    ///   hours of reading under a button that said it would skip.
+    /// - Parameter shownSkipSaving: whether the button pressed said Skip Saving, read when it was
+    ///   drawn, not when this runs. A press under Skip Saving never saves: the sheet runs this in a
+    ///   `Task`, and a reading landing on the main actor between render and press would turn it
+    ///   into Save, or with the switch on, hours of reading under a button that said it would skip.
     func pressStructurePrimary(shownSkipSaving: Bool) async {
         if shownSkipSaving {
             Logger.shared.info("Setup: Skip Saving on Structure while the folder was still being "
@@ -975,28 +944,26 @@ final class SetupModel: ObservableObject {
     private var writtenReadingNumber: Int?
     /// The countries the last successful Save wrote.
     private(set) var writtenCountries: Set<String>?
-    /// The household the last successful Save left on the roster — see ``currentReadingIsWritten``.
+    /// The household the last successful Save left on the roster; see ``currentReadingIsWritten``.
     private var writtenHousehold: [Person]?
     /// The folder whose documents this run's Save started reading.
     private var surveyStartedRoot: URL?
 
     /// Whether the reading in hand, with the countries now ticked, is what Save already wrote.
     ///
-    /// **The countries are part of it.** Going back after a Save to change a tick left Structure
-    /// on Continue — the reading was written — while Summary listed the new countries and the
-    /// profile on disk still held the old ones. A changed answer offers Save again, and that Save
-    /// writes a profile that supersedes the first.
+    /// The countries are part of it: after a Save, changing a tick must offer Save again, or
+    /// Summary would list the new countries while the profile on disk holds the old ones. That Save
+    /// writes a profile superseding the first.
     ///
-    /// **So is the household** (review M6). The profile's person axis is built from it, and a person
-    /// added or removed after a Save rebuilt Structure's preview from the new household beside a
-    /// Continue — the profile on disk kept the old one.
+    /// So is the household: the profile's person axis is built from it, so a person added or
+    /// removed after a Save must offer Save again too.
     var currentReadingIsWritten: Bool {
         walkState.isDone && writtenReadingNumber == readingNumber
             && writtenCountries == confirmedCountries
             && writtenHousehold == Self.household(walkRegistry)
     }
 
-    /// The people a profile is built from, in an order that does not depend on how they were added.
+    /// The people a profile is built from, in an order that doesn't depend on how they were added.
     private static func household(_ registry: PersonRegistry?) -> [Person] {
         (registry?.people ?? []).sorted { $0.id < $1.id }
     }
@@ -1009,8 +976,8 @@ final class SetupModel: ObservableObject {
 
     /// Structure's secondary button: offered only once a Save has failed.
     ///
-    /// **A Save that keeps failing left Structure with no way on** — the primary stays Save, so the
-    /// person can retry, and this is the way past that is chosen rather than taken for them.
+    /// A Save that keeps failing must leave a way on: the primary stays Save so the person can
+    /// retry, and this is the way past, chosen rather than taken for them.
     var structureSecondaryTitle: String? { saveFailure == nil ? nil : "Continue Without Saving" }
 
     /// "Continue Without Saving": moves on and writes nothing.
@@ -1021,20 +988,18 @@ final class SetupModel: ObservableObject {
 
     /// Structure's Save: writes, and moves on only once the profile is on disk.
     ///
-    /// **A failed write stays on Structure and says so there.** It used to move on regardless:
-    /// the failure was recorded as a failed *walk*, which threw the tree away, so Summary said no
-    /// folder had been learned and the only words about it sat on People and Countries — screens
-    /// already left behind — under the heading "Couldn't read that folder", for a folder that had
-    /// been read perfectly well.
+    /// A failed write stays on Structure and says so there. Moving on would leave the only words
+    /// about it on screens already passed, and a failed write must not be recorded as a failed
+    /// walk, which would throw the tree away and have Summary say no folder was learned.
     func saveAndContinue() async {
         guard await save() else { return }
-        // Only from Structure: a sheet that left it while the write ran is not moved on again.
+        // Only from Structure: a sheet that left it while the write ran isn't moved on again.
         guard screen == .structure else { return }
         _ = advance()
     }
 
     /// Writes the profile, attaches it, lands the draft, and starts the reading if it was asked
-    /// for — in that order, which is the order today's walk already depends on.
+    /// for, in that order, which the walk depends on.
     /// - Returns: Whether this press wrote a profile. False for a press refused because one is
     ///   already writing, which must not move the sheet on as well.
     @discardableResult
@@ -1042,31 +1007,30 @@ final class SetupModel: ObservableObject {
         guard !isSaving, !currentReadingIsWritten, let walk = walkState.walk,
               let manager = syncManager else { return false }
         isSaving = true
-        // **The last failure stays up until a press succeeds.** Cleared here, before the write,
-        // a retry made Structure jump — the failure line went, then came back — and dropped
-        // "Continue Without Saving" for the length of the write, so its disabled state never showed.
+        // The last failure stays up until a press succeeds: clearing it before the write would make
+        // Structure jump on a retry (the line going, then coming back) and drop "Continue Without
+        // Saving" for the length of the write, so its disabled state would never show.
         defer { isSaving = false }
         await saveInFlight()
         let reading = readingNumber
         let countries = confirmedCountries
-        // **A reading under way is stopped before the write, and started again after it** (review
-        // M4, his call 2026-10-27). It reads into the profile it was planned for, so a second Save
-        // after a changed answer left it to land hours later in the profile just replaced. Stopped
-        // first, its progress is on disk for the write to carry across, and the restart reads only
-        // what is left.
+        // A reading under way is stopped before the write and started again after it. It reads into
+        // the profile it was planned for, so left running after a changed answer it would land
+        // hours later in the profile just replaced. Stopped first, its progress is on disk for the
+        // write to carry across, and the restart reads only what is left.
         let interrupted: URL?
         switch await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: walk.root) {
         case .nothingStopped: interrupted = nil
         case .stopped(let folder): interrupted = folder
         case .stillReading:
-            // The reading reads on, and nothing is written over it: a press a moment later finds it
-            // between documents.
+            // The reading reads on, and nothing is written over it: a press a moment later finds
+            // it between documents.
             saveFailure = "SyncCloud is still reading one of your documents — save again in a moment."
             Logger.shared.warning("Setup did not save: the document reading did not stop in time")
             return false
         }
         // Carried on into the new profile only when it is of the same folder: a reading of another
-        // one is not this Save's to start, and with Read Documents off nobody asked for it.
+        // one isn't this Save's to start, and with Read Documents off nobody asked for it.
         let carriesOn = interrupted.map { Self.sameFolder($0, walk.root) } ?? false
         let result = await manager.writeWalkProfile(tree: walk.tree, root: walk.root,
                                                     jurisdictionValues: countries,
@@ -1078,20 +1042,18 @@ final class SetupModel: ObservableObject {
             writtenCountries = countries
             writtenReport = report
             walkNotInUse = !report.becameActive
-            // Attach first, so `roster` resolves to the store the write just created; then land
-            // the draft in it. Reading a captured store here is what made this a no-op for two
-            // stages.
+            // Attach first, so `roster` resolves to the store the write just created; then land the
+            // draft in it. Reading a captured store here would make this a no-op.
             onProfileWritten()
             applyDraftIfPossible()
-            // Taken from the roster the draft has just landed in, which is what the next
-            // comparison reads: the draft's own registry carries different ids for the same people.
+            // Taken from the roster the draft just landed in, which the next comparison reads: the
+            // draft's own registry carries different ids for the same people.
             writtenHousehold = Self.household(walkRegistry)
             Logger.shared.info("Setup saved profile '\(report.profileId)' — \(report.summary)")
-            // **Only a profile in use is read.** A reading covers the profile this Mac uses, and
-            // beside a hand-built one the walk's is saved unused — the summary says so — so reading
-            // would spend hours on a folder this setup never pointed at. **And once per folder**:
-            // a second Save after a changed answer does not start one over — it carries on the one
-            // it stopped.
+            // Only a profile in use is read. Beside a hand-built profile the walk's is saved unused
+            // (the summary says so), so reading would spend hours on a folder this setup never
+            // pointed at. And once per folder: a second Save after a changed answer carries on the
+            // reading it stopped rather than starting one over.
             if savesStartReading || carriesOn, report.becameActive {
                 surveyStartedRoot = walk.root
                 onStartSurvey(walk.root)
@@ -1103,9 +1065,8 @@ final class SetupModel: ObservableObject {
         case .failure(let failure):
             // Nothing was replaced, so the reading carries on where it was.
             if let interrupted { onStartSurvey(interrupted) }
-            // The reading stays: it was the write that failed, and the tree is what a second
-            // press needs.
-            // The plain sentence on screen; the log keeps the store's own words.
+            // The reading stays: it was the write that failed, and the tree is what a second press
+            // needs. The plain sentence goes on screen; the log keeps the store's own words.
             saveFailure = failure.plainReason
             Logger.shared.warning("Setup could not write its profile: \(failure.description)")
             return false
@@ -1125,9 +1086,8 @@ final class SetupModel: ObservableObject {
 
     /// Fills the sheet in from a roster that already exists, so a re-run opens on current state.
     ///
-    /// **"You" is read by relationship, not by the literal `me`.** `PeopleOrder.tier(of:)` maps a
-    /// six-word vocabulary onto the same tier, and a roster written by hand may say `self` or
-    /// `owner`.
+    /// "You" is read by relationship, not the literal `me`: `PeopleOrder.tier(of:)` maps a six-word
+    /// vocabulary onto that tier, and a hand-written roster may say `self` or `owner`.
     private func seedDraftFromRoster() {
         guard let store = roster else { return }
         if let me = store.people.first(where: { PeopleOrder.tier(of: $0.relationship) == .yourself }) {
@@ -1136,11 +1096,11 @@ final class SetupModel: ObservableObject {
         }
     }
 
-    /// Writes the draft — but only on a machine that has nowhere better to put the answers.
+    /// Writes the draft, but only on a machine that has nowhere better to put the answers.
     ///
-    /// **With a roster the draft is not a backup, it is a second copy that goes stale.** Those
-    /// answers land in `people.json` the moment the screen is left, so writing them here too would
-    /// leave a file `loadDraft` prefers over the roster on the next open.
+    /// With a roster the draft isn't a backup but a second copy that goes stale: the answers land
+    /// in `people.json` the moment the screen is left, so writing them here too would leave a file
+    /// `loadDraft` prefers over the roster on the next open.
     func saveDraft() {
         guard roster == nil, let url = draftURL else { return }
         SetupDraftStore.write(draft, to: url)
@@ -1150,17 +1110,17 @@ final class SetupModel: ObservableObject {
     func applyDraftIfPossible() {
         guard !draft.isEmpty else { return }
         guard let store = roster else {
-            // Said once, where it can be read back: there is no profile on this machine, so there
-            // is no `people.json` to write into and the answers wait in `setup-draft.json`.
+            // Said once, where it can be read back: with no profile on this machine there is no
+            // `people.json` to write into, so the answers wait in `setup-draft.json`.
             Logger.shared.info("Setup: no filing profile yet, so \(draft.everyone.count) roster "
                                + "answer(s) stay in the setup draft until a walk creates one")
             return
         }
         let result = SetupDraft.apply(draft, to: store)
         if result.added > 0 || result.updated > 0, let url = draftURL {
-            // **Cleared only when it actually landed.** `apply` is idempotent, so a no-op result on
-            // a re-run is not evidence the draft reached the roster — and clearing on that would
-            // delete the only copy of answers a failed apply never wrote.
+            // Cleared only when it actually landed. `apply` is idempotent, so a no-op result on a
+            // re-run isn't evidence the draft reached the roster, and clearing then would delete
+            // the only copy of answers a failed apply never wrote.
             SetupDraftStore.clear(at: url)
         }
     }
@@ -1180,8 +1140,8 @@ final class SetupModel: ObservableObject {
 
 /// A profile's sibling map and shape findings, derived once.
 ///
-/// One value rather than two properties, so a caller cannot end up holding a map from one profile
-/// and findings from another.
+/// One value rather than two properties, so a caller can't hold a map from one profile and
+/// findings from another.
 struct FolderProfileReadings {
     let profileId: String
     let children: [String: [String]]

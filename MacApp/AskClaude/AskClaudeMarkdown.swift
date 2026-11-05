@@ -2,8 +2,8 @@ import AppKit
 import Design
 import SwiftUI
 
-/// An answer's markdown as the blocks the panel draws (TE298): paragraphs, headings, list items,
-/// code blocks, tables and rules. Foundation's own parser reads it; this only regroups its runs.
+/// An answer's markdown as the blocks the panel draws: paragraphs, headings, list items, code
+/// blocks, tables and rules. Foundation's own parser reads it; this only regroups its runs.
 enum AskClaudeMarkdown {
     struct Block: Equatable, Identifiable {
         enum Kind: Equatable {
@@ -42,7 +42,7 @@ enum AskClaudeMarkdown {
             let intent = run.presentationIntent
             let key = tableIntent(intent)?.identity ?? intent?.components.first?.identity ?? -1
             var piece = AttributedString(parsed[run.range])
-            // A single newline in the answer stays a line break, as it was before blocks.
+            // A single newline in the answer stays a line break.
             if run.inlinePresentationIntent?.contains(.softBreak) == true { piece = AttributedString("\n") }
             piece.presentationIntent = nil
             if key == lastKey, !groups.isEmpty {
@@ -182,8 +182,8 @@ enum AskClaudeMarkdown {
     }
 }
 
-/// An answer drawn as its blocks (TE298). Selectable a block at a time; VoiceOver reads the blocks
-/// in order, list markers and table cells included.
+/// An answer drawn as its blocks. Selectable a block at a time; VoiceOver reads the blocks in
+/// order, list markers and table cells included.
 struct AskClaudeAnswerView: View {
     let blocks: [AskClaudeMarkdown.Block]
 
@@ -240,8 +240,8 @@ struct AskClaudeAnswerView: View {
     }
 }
 
-/// A rule one point high in the separator colour. A `Divider` drew next to nothing at 1× (10
-/// pixels across a 340-point rule, offscreen), where this draws the whole line at any scale.
+/// A rule one point high in the separator colour. A `Divider` draws next to nothing at 1×
+/// offscreen; this draws the whole line at any scale.
 struct AskClaudeHairline: View {
     var body: some View {
         Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1).frame(maxWidth: .infinity)
@@ -283,8 +283,8 @@ struct AskClaudeCodeBlock: View {
     }
 }
 
-/// A table on its own card, as the mockup drew it (M1): a muted bold header, a rule under each
-/// row, and each column aligned as the answer set it. Cells wrap in a narrow panel.
+/// A table on its own card: a muted bold header, a rule under each row, and each column aligned as
+/// the answer set it. Cells wrap in a narrow panel.
 struct AskClaudeTableView: View {
     let table: AskClaudeMarkdown.Table
 

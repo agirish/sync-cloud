@@ -5,23 +5,13 @@ import FileExplorer
 
 /// Whether the workspace bar can afford to spell its segments out.
 ///
-/// The bar carries **four** segments, and the count has moved three times: it gained Browse, then
-/// Edit, then lost Storage to Organize's rail. Each move shifted where the icon-only rung is
-/// reached rather than changing any of this arithmetic. The toolbar also has to seat the traffic
-/// lights and the trailing utility pill. Measured through `styles` beside a compact ⌘K pill, the
-/// four labels need **683.8pt** of content width at the default text size (Small 666.8, Large
-/// 725.1, Largest 741.6) — all of them under the window's **760** floor, so the bar keeps its
-/// labels at every text size at the narrowest window the app allows.
+/// Measured through `styles` beside a compact ⌘K pill, the four labels need 683.8pt of content
+/// width at the default text size (741.6 at Largest), under the window's 804pt minimum width
+/// (`ContentView`), so the bar keeps its labels at every text size at the narrowest window. The
+/// margin to watch is Largest's; a fifth segment would have to fit inside it.
 ///
-/// **The floor has followed that count: 600 → 760 → 810 → 760.** At a floor under the threshold the
-/// bar is icon-only at every text size the moment the window sits at its minimum, which is what 600
-/// was; 810 was the price of a fifth label (781 at Default, 833 and 853 at the two largest sizes,
-/// so those two shed even at 810). Four labels need none of that. The margin to watch is Largest —
-/// 741.6 against 760 is 18.4pt, and `ROADMAP.md` §1b is where a fifth segment argues for spending
-/// it. A
-/// toolbar that does not fit does not wrap or truncate — macOS silently folds the overflow behind
-/// a chevron, which is how the *only* control for switching workspace disappears. The two-level
-/// picker avoided this by keeping the lens tabs out of the toolbar entirely; a flat bar cannot.
+/// A toolbar that does not fit does not wrap or truncate: macOS folds the overflow behind a
+/// chevron, and the only control for switching workspace disappears.
 enum WorkspaceBarStyle: Equatable {
     /// Glyph and label.
     case full
@@ -32,67 +22,30 @@ enum WorkspaceBarStyle: Equatable {
 /// The bar's width arithmetic, kept pure so the shedding rule can be asserted without laying out
 /// a toolbar.
 ///
-/// **Computed, not laddered.** The obvious SwiftUI answer is `ViewThatFits` over a full rung and
-/// an icon-only rung, and that is wrong twice over here. It builds every rung on every layout
-/// pass — the pane bar's ten-rung ladder cost 831ms a click for exactly that reason (`772b6ca`
-/// replaced it with arithmetic) — and, worse, a toolbar item is proposed its own ideal width
-/// rather than the window's, so `ViewThatFits` would never see the constraint and would pick the
-/// full rung at every size. Measuring the content width and doing the sum is both cheaper and the
-/// only version that actually responds.
+/// Computed, not `ViewThatFits`: that builds every rung on every layout pass, and a toolbar item is
+/// proposed its own ideal width rather than the window's, so it would pick the full rung at every
+/// size. Measuring the content width and doing the sum is cheaper and actually responds.
 enum WorkspaceBarMetrics {
 
-    /// The square every workspace glyph is drawn into, and the reason the two constants below are
-    /// true rather than approximately true.
+    /// The square every workspace glyph is drawn into, so the two constants below are exact.
     ///
-    /// **The symbols are all different sizes, which is not visible from any padding literal.**
-    /// Measured at `.system(size: 12, weight: .medium)`, laid out exactly as `workspaceSegment`
-    /// composes them:
+    /// The symbols differ in size at `.system(size: 12, weight: .medium)`:
     ///
     /// | symbol | | glyph |
     /// |---|---|---|
     /// | `folder` | Browse | 16 × 13 |
     /// | `arrow.left.arrow.right` | Compare | 14 × 17 |
     /// | `folder.badge.gearshape` | Organize | 16 × 14 |
-    /// | `chart.pie` | Storage | 15 × 15 |
     /// | `square.and.pencil` | Editor | 15 × 15 |
     ///
-    /// Three things followed from that, and all three go away by framing:
+    /// Unframed, the selected pill (a `Capsule` in a `matchedGeometryEffect`) would change height as
+    /// it slides, nest concentrically for only some segments, and the width sum would under-measure
+    /// the bar, the dangerous direction. 17 is the tallest glyph and a point clear of the widest, so
+    /// it clips nothing and over-reserves slightly, the safe side.
     ///
-    /// - **The selected pill changed height as it travelled.** The marker is a `Capsule` sized to
-    ///   its own segment inside a `matchedGeometryEffect`, so a selection moving between Compare
-    ///   (25pt) and anything else (23pt) interpolated between two frames and the pill grew or shrank
-    ///   mid-slide. Icon-only was worse — the four came out 21, 25, 22 and 23.
-    /// - **It nested concentrically for exactly one workspace.** A capsule in a capsule is
-    ///   concentric only at a uniform inset; the horizontal one is `containerPadding / 2` = 3, while
-    ///   the vertical one was whatever the segment's height left — 4pt for three of the four.
-    /// - **The width arithmetic under-measured the drawn bar by 5pt**, both rungs, by assuming 14
-    ///   everywhere against real widths of 16, 14, 16 and 15. That is the dangerous direction: it
-    ///   claims the labels fit when they do not, and an overflowing toolbar folds behind a chevron
-    ///   rather than truncating — see this file's header for why that is the failure worth being
-    ///   generous about.
-    ///
-    /// **17 is the tallest glyph, and one point clear of the widest.** `arrow.left.arrow.right`
-    /// sets the height at 17; the widest are `folder` and `folder.badge.gearshape` at 16. So a
-    /// square 17 clips nothing and over-reserves width by a point per segment — the safe direction
-    /// by this file's own rule. The point of headroom it was holding for a further workspace's
-    /// glyph has now been spent: `square.and.pencil` is 15 × 15 and fits with room. (`chart.pie`
-    /// fitted it too, and left the bar with Storage — the frame is what made both free.) A 16×17 frame
-    /// would be the exact maxima and save 4pt across the bar; it was not taken because it spends
-    /// the headroom to buy 4pt that changes no threshold.
-    ///
-    /// **A symbol wider than this frame is clipped, not scaled**, and nothing else in the app would
-    /// say so — which is why a new workspace's glyph is measured before it is chosen rather than
-    /// after it looks wrong.
-    ///
-    /// It leaves the bar's height exactly where it was — Compare had already forced 25pt segments
-    /// and a 31pt bar — so this changes no other row in the toolbar.
-    ///
-    /// **The drawn bar grows 5pt and the computed width grows 12.** Both are real and they are not
-    /// the same number: correcting the constant recovers the 5pt the sum was missing, and framing
-    /// pads the three narrower glyphs out to 17 on top of that. The thresholds in this file's
-    /// header moved by the 12.
-    ///
-    /// `theBarDrawsEverySegmentAtOneHeight` is what keeps the frame and this constant together.
+    /// A symbol wider than this frame is clipped, not scaled, and nothing else would say so:
+    /// measure a new workspace's glyph before choosing it. `theBarDrawsEverySegmentAtOneHeight`
+    /// keeps the frame and this constant together.
     static let glyphSide: CGFloat = 17
 
     /// What a segment adds around its label: the glyph, the 6pt gap after it, and 2×12pt of
@@ -106,45 +59,32 @@ enum WorkspaceBarMetrics {
     /// The container capsule's own inset, both edges.
     static let containerPadding: CGFloat = 6
 
-    // **There is no separator term any more, and its absence is the design.** The bar used to draw
-    // a 1pt rule (inside 2×4pt of padding, plus one more `segmentGap` for being a child of the same
-    // `HStack` — 13pt in all) between the tree-lookers and the tree-actors. Editor is neither: it
-    // is the only workspace that changes a file's contents, so it belonged on neither side of that
-    // line, and a grouping that cannot place a new member is a grouping that has stopped being
-    // true. Five equal segments, and the 13pt goes back into the width budget — which is most of
-    // what keeps the five labels under a floor that would otherwise have had to rise further.
+    // No separator term: the bar is equal segments with no rule between groups, since Edit, the
+    // one workspace that changes a file's contents, belongs to no group.
 
     /// Toolbar width the bar can never have: the traffic lights and their margin, the minimum gap
     /// before the trailing group, the utility pill (Settings, Activity Log, Info), and Ask Claude's
-    /// button (RD69, v7.0) — a glass circle of its own plus the gap before the pill, charged at 44,
-    /// an estimate on the generous side rather than a measurement. Deliberately
-    /// generous — being one segment too cautious costs a label, being one too optimistic costs the
-    /// entire control behind an overflow chevron.
+    /// button and its gap (44, a generous estimate). Generous on purpose: too cautious costs a
+    /// label, too optimistic costs the whole control behind an overflow chevron.
     ///
-    /// **The ⌘K search pill is NOT in here**, and that is deliberate rather than an omission: its
-    /// width depends on which rung *it* is showing, so charging it as a constant would mean either
-    /// over-reserving whenever it is compact or under-reserving whenever it is full. It is charged
-    /// per-rung in ``styles(contentWidth:labelWidths:searchLabelWidth:searchKeycapWidth:openField:)``,
-    /// which is the one place the two controls' widths are added together.
+    /// The ⌘K pill is not in here: its width depends on its own rung, so it is charged per rung in
+    /// ``styles(contentWidth:labelWidths:searchLabelWidth:searchKeycapWidth:openField:)``.
     static let reservedChrome: CGFloat = 78 + 24 + 132 + 44
 
     /// Width of the bar with every label spelled out.
     ///
     /// - Parameters:
-    ///   - labelWidths: each segment's rendered label width, in order. Measured rather than
-    ///     estimated because the app scales its own type (Settings ▸ Text size), so a constant
-    ///     here would be right at exactly one setting.
+    ///   - labelWidths: each segment's rendered label width, in order. Measured, because the app
+    ///     scales its own type (Settings ▸ Text size).
     static func fullWidth(labelWidths: [CGFloat]) -> CGFloat {
         guard !labelWidths.isEmpty else { return 0 }
         let segments = labelWidths.reduce(0) { $0 + $1 + segmentChrome }
         return segments + gapWidth(children: labelWidths.count) + containerPadding
     }
 
-    /// The `HStack`'s spacing total. Counted over CHILDREN rather than over segments — which is the
-    /// same number now that the bar's only children are its segments, and is kept phrased this way
-    /// because it was *not* the same number when a rule was in there and getting it wrong
-    /// under-measured the bar. That is the dangerous direction: it claims the labels fit when they
-    /// are a couple of points too wide to.
+    /// The `HStack`'s spacing total, counted over its children. Today those are exactly the
+    /// segments; counting the wrong number would under-measure the bar and claim labels fit when
+    /// they do not.
     static func gapWidth(children: Int) -> CGFloat {
         CGFloat(max(0, children - 1)) * segmentGap
     }
@@ -156,33 +96,22 @@ enum WorkspaceBarMetrics {
         return segments + gapWidth(children: segmentCount) + containerPadding
     }
 
-    /// What a window of this content width can seat — **both toolbar controls, decided together.**
+    /// What a window of this content width can seat: every control on the row, decided together.
+    /// Given separate thresholds, each would size itself against width the other is spending, both
+    /// would fit on paper, and the toolbar would overflow.
     ///
-    /// One function rather than two, because they compete for one row. The search pill was added
-    /// after this arithmetic existed, and the tempting shape — leave `style` alone and give the
-    /// pill its own threshold — is the one that breaks: each control would size itself against a
-    /// width the other is also spending, both would conclude they fit, and the toolbar would go
-    /// behind the overflow chevron with two green tests. Whatever is on this row is added up here.
+    /// The ladder, in priority order:
     ///
-    /// The ladder, in order, and the order is the priority:
+    /// 1. Both spelled out.
+    /// 2. The pill drops its word; the magnifier and ⌘K key still say what it is.
+    /// 3. The workspace bar drops its labels too. Last, because it is the primary navigation. There
+    ///    is no rung dropping the ⌘K key; see ``CommandPaletteBarStyle``.
     ///
-    /// 1. **Both spelled out.**
-    /// 2. **The pill drops its word.** The magnifier and the ⌘K key still say what it is and how to
-    ///    open it, so the word is the cheapest thing on the row.
-    /// 3. **The workspace bar drops its labels too.** Last, because it is the primary navigation:
-    ///    shedding the words a user navigates by while keeping a decorative one beside them would
-    ///    be backwards. There is deliberately no fourth rung dropping the ⌘K key — see
-    ///    ``CommandPaletteBarStyle``.
+    /// The bar is all-or-nothing: a mix of words and glyphs would read as two different controls.
     ///
-    /// The workspace bar stays all-or-nothing within its own rung: shedding labels one segment at a
-    /// time would leave a bar where some workspaces are words and others are glyphs, which reads as
-    /// two different controls rather than one row of peers.
-    ///
-    /// **With a run going, the progress capsule is on the row too** (TE205/TE206), and it is
-    /// charged here like the other two — the reason this function exists. Its two rungs slot in
-    /// ahead of the bar's labels: the full capsule while it fits, then the ring, and only then do
-    /// the labels go. The ring is never dropped: it carries the run's only stop button, and a
-    /// capsule folded behind the chevron would leave a run nobody can see or stop.
+    /// With a run going, the progress capsule is on the row too. Its rungs come before the bar's
+    /// labels: the full capsule while it fits, then the ring, then the labels go. The ring is never
+    /// dropped: it carries the run's only stop button.
     static func styles(contentWidth: CGFloat, labelWidths: [CGFloat],
                        searchLabelWidth: CGFloat, searchKeycapWidth: CGFloat,
                        openField: OpenFieldRequest? = nil, runShowing: Bool = false) -> ToolbarBarStyles {
@@ -216,14 +145,10 @@ enum WorkspaceBarMetrics {
         return ToolbarBarStyles(workspace: .iconOnly, search: .compact, run: .ring)
     }
 
-    /// What the capsule costs the row: its fixed frame, and the toolbar's own spacing around an
-    /// item of its own. Generous for the reason ``reservedChrome`` is.
-    ///
-    /// Measured 2026-10-25 on a probe window carrying this toolbar's shape (navigation items, a
-    /// flexible spacer, a `.principal` item, the trailing pill and group): a principal item `w`
-    /// wide moved the width at which nothing overflowed by `w − 30`, so `w + 16` over-reserves by
-    /// about 46pt. And when the row did overflow, AppKit folded the TRAILING items, never the
-    /// principal one — so an under-charge here would hide Settings and Info, not the stop button.
+    /// What the capsule costs the row: its fixed frame plus the toolbar's spacing around an item.
+    /// Generous for the reason ``reservedChrome`` is: measured on a probe window of this toolbar's
+    /// shape, a principal item `w` wide costs about `w − 30`, so `w + 16` over-reserves. On
+    /// overflow AppKit folds the trailing items, so an under-charge would hide Settings and Info.
     static func capsuleWidth(_ style: ProgressCapsuleStyle) -> CGFloat {
         let item: CGFloat = 16
         switch style {
@@ -232,15 +157,11 @@ enum WorkspaceBarMetrics {
         }
     }
 
-    /// **Both answers, resolved together and cached together.** The row has to know what it looks
-    /// like with the field open AND with it closed, because the field opens on a keystroke rather
-    /// than on a resize — and re-deriving one of them inside a geometry callback that only fires on
-    /// resize is how the toolbar comes to be laid out for the state it was in a moment ago.
-    ///
-    /// Resolving both here also keeps the state write coarse: the caller stores this value, and it
-    /// changes only when one of the two answers does, not on every pixel of a window drag.
-    ///
-    /// With and without a run, for the same reason: a run starts on a click rather than a resize.
+    /// Every answer, resolved and cached together: field open and closed, with and without a run.
+    /// The field opens on a keystroke and a run starts on a click, not on a resize, so an answer
+    /// derived in a resize-only geometry callback would describe the state of a moment ago. The
+    /// caller stores this value, which changes only when an answer does, not on every pixel of a
+    /// drag.
     static func styleSet(contentWidth: CGFloat, labelWidths: [CGFloat],
                          searchLabelWidth: CGFloat, searchKeycapWidth: CGFloat,
                          fieldKeycapWidth: CGFloat, scale: CGFloat) -> ToolbarBarStyleSet {
@@ -256,26 +177,19 @@ enum WorkspaceBarMetrics {
                                   openWithRun: resolve(open: true, run: true))
     }
 
-    /// The open field's share of the row. **The field takes the spare; the labels shed only when
-    /// that leaves it under its floor.**
+    /// The open field's share of the row. The field takes the spare; the labels shed only when that
+    /// leaves it under its floor.
     ///
-    /// Not a fourth rung on the ladder above, because the priority inverts while the field is open:
-    /// closed, the pill's word is the cheapest thing on the row and the workspace labels are the
-    /// last to go; open, the field is the control being *used*, and a user typing a folder name
-    /// into 200pt while five labels sit beside them would be watching the row spend its width on
-    /// the wrong control. So the bar sheds *for* the field — and only as far as it must, which is
-    /// why this asks the labelled bar first and re-asks with glyphs rather than starting there.
-    ///
-    /// The result is a shed-on-open band and not a general rule: above roughly 1045pt of content
-    /// width the field reaches its ceiling with the labels untouched, and below roughly 781 the bar
-    /// is already icon-only at rest, so nothing appears to move at either end. (Both edges moved up
-    /// with the fifth label — they were 950 and 710 with four.)
+    /// Not a rung on the ladder above, because the priority inverts while the field is open: it is
+    /// the control being used, so the bar sheds for it, and only as far as it must. Wide windows
+    /// reach the field's ceiling with the labels untouched, and narrow ones are icon-only at rest,
+    /// so labels move on open only in the band between.
     private static func openStyles(available: CGFloat, bar: CGFloat, labelWidths: [CGFloat],
                                    request: OpenFieldRequest,
                                    run: ProgressCapsuleStyle? = nil) -> ToolbarBarStyles {
         func layout(spare: CGFloat) -> GoToFieldLayout {
-            // `max(0,)` rather than a fallback width: a negative spare means the row cannot seat
-            // the field at all, and a field drawn wider than its share is the overflow chevron.
+            // Clamped at zero, not given a fallback width: a field drawn wider than its share
+            // would push the row into the overflow chevron.
             let width = min(max(spare, 0), request.ceiling)
             return GoToFieldLayout(width: width,
                                    placeholder: GoToFieldMetrics.placeholder(
@@ -288,8 +202,7 @@ enum WorkspaceBarMetrics {
                                     field: layout(spare: spareWithLabels), run: run)
         }
         // Shedding buys the difference between the two bar widths. Below the floor even then, the
-        // field opens as wide as it can — §7's narrow case, where the short placeholder is what
-        // absorbs the rest.
+        // field opens as wide as it can and the short placeholder absorbs the rest.
         let shed = available - iconOnlyWidth(segmentCount: labelWidths.count)
         return ToolbarBarStyles(workspace: .iconOnly, search: .compact, field: layout(spare: shed), run: run)
     }
@@ -297,15 +210,13 @@ enum WorkspaceBarMetrics {
 
 /// What the toolbar's two width-sensitive controls are showing right now.
 ///
-/// One value, resolved in one place, for the reason `FilteredRows` is one value: two controls
-/// sizing themselves against the same row from two separate decisions is how they come to disagree
-/// about how much room there is.
+/// One value, resolved in one place, so controls sharing the row cannot disagree about how much
+/// room there is.
 struct ToolbarBarStyles: Equatable {
     var workspace: WorkspaceBarStyle
     var search: CommandPaletteBarStyle
-    /// The open Go-to field's share of the row, or `nil` when the field is closed and the pill is
-    /// what the toolbar draws. Resolved here rather than by the field, for the same reason the
-    /// other two are: it is spending the same width they are.
+    /// The open Go-to field's share of the row, or `nil` when it is closed and the pill is drawn.
+    /// Resolved here because it spends the same width as the others.
     var field: GoToFieldLayout?
     /// The progress capsule's rung while a run is going, `nil` otherwise — charged on the same row.
     var run: ProgressCapsuleStyle?
@@ -339,13 +250,9 @@ struct ToolbarBarStyleSet: Equatable {
 
     /// The row the toolbar wears for this state.
     ///
-    /// **A message wears the run's row** (the owner's call, 2026-10-29, replacing TE230): the full
-    /// capsule wherever the run's would be full, shedding ⌘K's word and then the workspace names
-    /// for it, and the ring only where even a run gets the ring. TE230 gave a message only the room
-    /// already free, so it would not fold the labels for five seconds — and a run's ending, mirrored
-    /// in the capsule, then dropped from the run's full capsule to a bare ✓ the instant the run
-    /// ended, which read as a tick mark with nothing to say. Now a run's ending keeps the capsule
-    /// exactly as the run left it.
+    /// A message wears the run's row: the full capsule wherever a run's would be full, shedding
+    /// ⌘K's word and then the workspace names for it. So a run's ending keeps the capsule exactly
+    /// as the run left it, instead of shrinking to a bare ✓.
     func resolved(fieldOpen: Bool, runShowing: Bool, messageShowing: Bool = false) -> ToolbarBarStyles {
         guard runShowing || messageShowing else { return fieldOpen ? open : closed }
         return fieldOpen ? openWithRun : closedWithRun

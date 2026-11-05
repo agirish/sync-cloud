@@ -15,12 +15,10 @@ struct SyncOperationAlerts {
         (path as NSString).abbreviatingWithTildeInPath
     }
 
-    /// Builds the alert's informative text. Names both locations — the item being copied and
-    /// the item it would replace — because the message line's "this location" is otherwise
-    /// ambiguous in a two-pane app. For a folder collision it adds Finder's
-    /// wholesale-replacement warning, since Replace trashes the entire existing folder —
-    /// including items that exist only there — not just the same-named file.
-    /// Pure (no AppKit) so it can be unit-tested and so file vs. folder wording can't drift.
+    /// Builds the alert's informative text. Names both locations, because "this location" is
+    /// ambiguous in a two-pane app. A folder collision adds Finder's warning that Replace trashes
+    /// the whole existing folder, items that exist only there included. Pure, so the file and
+    /// folder wording can be unit-tested.
     nonisolated static func collisionInformativeText(_ collision: FileCollision, policy: ConflictPolicy = .ask) -> String {
         if collision.mergeOnly { return mergeOnlyCollisionInformativeText(collision) }
         if collision.offersMerge { return mergeCollisionInformativeText(collision, policy: policy) }
@@ -36,13 +34,12 @@ struct SyncOperationAlerts {
         return text
     }
 
-    /// The folder-onto-folder body when Merge is on offer (RD23): what Replace would send to the
-    /// Trash and what Merge would ask about, COUNTED when the engine could count them before the
-    /// alert opened (`FolderMergePreview`), and said without numbers when it could not.
+    /// The folder-onto-folder body when Merge is on offer: what Replace would send to the Trash and
+    /// what Merge would ask about, counted when the engine could count them first
+    /// (`FolderMergePreview`), said without numbers when it could not.
     ///
-    /// `policy` is the standing Settings answer. Merge's children are file collisions, which that
-    /// policy answers without a prompt, so "asks about each" is only true under `.ask` — otherwise
-    /// the sentence names the setting that will answer instead.
+    /// `policy` is the standing Settings answer, which answers Merge's file collisions without a
+    /// prompt, so "asks about each" is said only under `.ask`; otherwise it names the setting.
     nonisolated static func mergeCollisionInformativeText(_ collision: FileCollision, policy: ConflictPolicy) -> String {
         let verb = collision.isMove ? "moving" : "copying"
         var text = "Do you want to merge it with the one you’re \(verb), or replace it?"
@@ -71,8 +68,8 @@ struct SyncOperationAlerts {
         return text
     }
 
-    /// The body for the folder a pane opens at, carried to the folder the other pane opens at (B5):
-    /// only Merge is on offer, because Replace or Keep Both would put it over, or beside, everything
+    /// The body for the folder a pane opens at, carried to the folder the other pane opens at: only
+    /// Merge is on offer, because Replace or Keep Both would put it over, or beside, everything
     /// that pane shows.
     nonisolated static func mergeOnlyCollisionInformativeText(_ collision: FileCollision) -> String {
         let verb = collision.isMove ? "moving" : "copying"
@@ -83,7 +80,7 @@ struct SyncOperationAlerts {
         return text
     }
 
-    /// The titles for a merge-only collision (B5), in `addButton` order: Merge is the default.
+    /// The titles for a merge-only collision, in `addButton` order: Merge is the default.
     nonisolated static let mergeOnlyCollisionButtonTitles = ["Merge", "Skip"]
 
     /// The Merge variant of `collisionButtonTitles`, same `addButton` order: Merge is first, so it
@@ -111,11 +108,9 @@ struct SyncOperationAlerts {
         NSApplication.ModalResponse(rawValue: NSApplication.ModalResponse.alertFirstButtonReturn.rawValue + index)
     }
 
-    /// Maps the collision alert's modal response to the resolution it stands for. Extracted from
-    /// the `runModal()` call so the button-order → resolution mapping is unit-testable: swapping
-    /// two arms here silently turns a "Skip" click into a replace, which destroys the user's file
-    /// and is invisible until it does. Any unexpected response (a programmatic dismissal) falls
-    /// back to the safe answer, `.skip`.
+    /// Maps the collision alert's modal response to its resolution. Separate from `runModal()` so
+    /// the mapping is unit-testable: swapping two arms would silently turn a Skip click into a
+    /// Replace that destroys the user's file. Any unexpected response falls back to `.skip`.
     nonisolated static func collisionResolution(for response: NSApplication.ModalResponse) -> CollisionResolution {
         switch response {
         case .alertFirstButtonReturn:
@@ -129,9 +124,8 @@ struct SyncOperationAlerts {
         }
     }
 
-    /// The collision alert shared by both prompts below: identical text, buttons, and
-    /// response mapping — the only variation between them is the optional accessory view,
-    /// so the two can't drift apart.
+    /// The collision alert shared by both prompts below, which differ only in the optional
+    /// accessory view, so they can't drift apart.
     private static func runCollisionAlert(_ collision: FileCollision, accessoryView: NSView?) -> CollisionResolution {
         let alert = NSAlert()
         alert.messageText = "An item named “\(collision.fileName)” already exists in this location."
@@ -208,10 +202,9 @@ struct SyncOperationAlerts {
             + "Destination: \(displayPath(prompt.destinationPath))"
     }
 
-    /// Asks how to handle a destination name the provider forbids: use the sanitized name
-    /// (Return key default — if an item already exists there, the normal collision prompt
-    /// follows), skip the item (Escape via "Cancel" semantics is deliberately absent; Skip is
-    /// an explicit button), or insist on the original name.
+    /// Asks how to handle a destination name the provider forbids: use the sanitized name (the
+    /// Return default; a collision there gets the normal collision prompt), skip the item (an
+    /// explicit button, with no Cancel), or keep the original name.
     static func promptForInvalidName(_ prompt: NameViolationPrompt) -> InvalidNameResolution {
         let alert = NSAlert()
         alert.messageText = invalidNameMessage(prompt)
@@ -231,9 +224,9 @@ struct SyncOperationAlerts {
         ["Use “\(prompt.sanitizedName)”", "Skip", "Keep Invalid Name"]
     }
 
-    /// Maps the invalid-name alert's modal response to the resolution it stands for. Extracted
-    /// for the same reason as `collisionResolution(for:)`: a swapped arm here answers "Skip"
-    /// with "Keep Invalid Name", writing an item the provider will never upload.
+    /// Maps the invalid-name alert's modal response to its resolution, testable for the same
+    /// reason as `collisionResolution(for:)`: a swapped arm would answer Skip with Keep Invalid
+    /// Name, writing an item the provider never uploads.
     nonisolated static func invalidNameResolution(for response: NSApplication.ModalResponse) -> InvalidNameResolution {
         switch response {
         case .alertFirstButtonReturn:
@@ -247,11 +240,9 @@ struct SyncOperationAlerts {
         }
     }
 
-    /// Whether a two-button confirmation's response means "yes, proceed". Every Bool-answering
-    /// prompt here puts its affirmative action first (rightmost, Return-key default) and Cancel
-    /// second (Escape), so the single rule is "only the first button confirms" — and any other
-    /// response (a programmatic dismissal) declines. Shared so no confirmation can drift into
-    /// treating Cancel as consent.
+    /// Whether a two-button confirmation's response means "proceed". Every Bool prompt here puts
+    /// its affirmative first (rightmost, Return) and Cancel second (Escape), so only the first
+    /// button confirms and any other response declines. Shared so none can treat Cancel as consent.
     nonisolated static func isConfirmed(_ response: NSApplication.ModalResponse) -> Bool {
         response == .alertFirstButtonReturn
     }
@@ -266,21 +257,20 @@ struct SyncOperationAlerts {
         return "\(verb) \(what) to “\(destinationName)”?"
     }
 
-    /// Full From/To body of the transfer confirmation, naming both folders in
-    /// home-abbreviated (`~/…`) form — the message line only carries the destination's
-    /// last component, so this is where the full locations live. A move also states its
-    /// destructive half: copy and move dialogs otherwise differ by a single verb, and a
-    /// drag-move is one modifier-key slip away from a copy.
+    /// Full From/To body of the transfer confirmation, both folders in `~/…` form, since the
+    /// message line names only the destination's last component. A move also states its
+    /// destructive half: the dialogs otherwise differ by one verb, and a drag-move is one
+    /// modifier-key slip from a copy.
     nonisolated static func transferConfirmationInformativeText(_ summary: TransferSummary) -> String {
         var body = "From: \(displayPath(summary.sourceDirectory))\nTo: \(displayPath(summary.destinationDirectory))"
-        // A copy against the suggestion overwrites the newer file (review E4).
+        // A copy against the suggestion overwrites the newer file.
         if let note = summary.newerDestinationNote { body += "\n\n" + note }
         guard summary.isMove else { return body }
         return body + "\n\nThe \(summary.itemCount == 1 ? "item" : "items") will be removed from the original location."
     }
 
-    /// Asks the user to confirm a copy/move before it starts. Return confirms (the operation
-    /// is recoverable — replaces prompt separately and everything is undoable); Escape cancels.
+    /// Asks the user to confirm a copy/move before it starts. Return confirms, since it is
+    /// recoverable (replaces prompt separately, and everything is undoable); Escape cancels.
     /// - Returns: True to proceed with the transfer.
     static func confirmTransfer(_ summary: TransferSummary) -> Bool {
         let alert = NSAlert()
@@ -327,9 +317,8 @@ struct SyncOperationAlerts {
         }
         if p.wouldExceedCap {
             let which = p.wouldExceedTotalCap && !p.wouldExceedMonthlyCap ? "total" : "monthly"
-            // The fallback sentence is only true of the filing refine — the mapping refine has
-            // no on-device model, so promising "free on-device suggestions" over its blocked
-            // dialog would be a fallback the click cannot deliver.
+            // The on-device fallback is only true of the filing refine; the mapping refine has no
+            // on-device model, so its blocked dialog promises nothing.
             text += " Running this would exceed the \(which) cap, so it’s blocked — "
                 + (p.unit == "file"
                    ? "Organize will use its free on-device suggestions instead. "
@@ -339,18 +328,17 @@ struct SyncOperationAlerts {
         return text
     }
 
-    /// Asks the user to confirm a cloud (Claude) Filing classify, showing the pre-flight cost
-    /// estimate and (if set) the monthly budget. When the call would exceed the cap the proceed
-    /// button is withheld — the only choice is to fall back on-device — so the cap is honored from the
-    /// dialog too. Otherwise "Classify" proceeds and "Cancel" (Escape) falls back on-device.
+    /// Asks the user to confirm a cloud (Claude) Filing classify, showing the cost estimate and any
+    /// budget. Over the cap the proceed button is withheld, so the dialog honours the cap too.
+    /// Otherwise "Classify" proceeds and "Cancel" (Escape) falls back on-device.
     /// - Returns: True only when the user chose to proceed with the cloud call.
     static func promptForFilingSpend(_ p: FilingSpendPreflight) -> Bool {
         let alert = NSAlert()
         alert.messageText = filingSpendMessage(p)
         alert.informativeText = filingSpendInformativeText(p)
         if p.wouldExceedCap {
-            // Over budget: no proceed path. The button says what actually happens next — the
-            // filing refine falls back on-device; the mapping refine simply does not run.
+            // Over budget: no proceed path. The button says what happens next: the filing refine
+            // falls back on-device; the mapping refine does not run.
             alert.addButton(withTitle: p.unit == "file" ? "Use On-Device Instead" : "OK")
             _ = alert.runModal()
             return false
@@ -362,13 +350,11 @@ struct SyncOperationAlerts {
 
     /// Confirms a whole-tree pass whose probe found the folder too large to analyse quickly.
     ///
-    /// **The message says "more than", never a total**, and that is not hedging: the probe stopped,
-    /// so it genuinely does not know how much of the tree it did not see. A figure here would be a
-    /// number the app invented.
+    /// The message says "more than", never a total: the probe stopped, so it does not know how much
+    /// it did not see.
     ///
-    /// Return proceeds, Escape cancels. Not `.critical` — nothing is destroyed either way, the
-    /// pass is cancellable once started, and a red badge on "this will be slow" is the kind of
-    /// alarm that trains people to dismiss alarms.
+    /// Return proceeds, Escape cancels. Not `.critical`: nothing is destroyed, the pass can be
+    /// cancelled, and a red badge on "this will be slow" trains people to dismiss alarms.
     static func confirmLargeWalk(_ p: LargeWalkPreflight) -> Bool {
         let alert = NSAlert()
         alert.messageText = largeWalkMessage(p)
@@ -378,27 +364,25 @@ struct SyncOperationAlerts {
         return isConfirmed(alert.runModal())
     }
 
-    /// Split out, `nonisolated` and pure so the wording can be asserted without running a modal —
-    /// an NSAlert in a test suite is a hang, not a test.
+    /// `nonisolated` and pure so the wording can be asserted without running a modal, which in a
+    /// test suite is a hang.
     nonisolated static func largeWalkMessage(_ p: LargeWalkPreflight) -> String {
         "“\(p.rootName)” is a very large folder"
     }
 
     nonisolated static func largeWalkInformativeText(_ p: LargeWalkPreflight) -> String {
         let counted = p.probeLimit.formatted(.number.grouping(.automatic))
-        // Asked of the pass rather than tested against one case: `readsFileContents` is the
-        // property that decides, and four passes go through here now. `p.pass == .duplicates`
-        // silently gave Filing the cheaper sentence when Filing joined.
+        // Asked of the pass, not compared with one case: `readsFileContents` decides, so every
+        // pass that reads contents gets the longer sentence.
         let what = p.pass.readsFileContents
             ? "\(p.pass.title) also reads the contents of files it cannot judge by name, so this can take several minutes."
             : "\(p.pass.title) has to walk all of it, which can take several minutes."
         return "It holds more than \(counted) items. \(what) You can cancel once it starts."
     }
 
-    /// Confirms reversing the most recent sync run before it touches any files, itemizing exactly
-    /// what will be undone (from `preview`, which the manager only produces when that run is still
-    /// the top of the undo stack). Reversal reuses the app's existing undo stack (safeMove-back,
-    /// Trash-restore) — recoverable, and itself redoable — so Return proceeds and Escape cancels.
+    /// Confirms reversing the most recent sync run before it touches any files, listing what will
+    /// be undone (`preview` exists only while that run tops the undo stack). Reversal uses the undo
+    /// stack, so it is recoverable and redoable: Return proceeds, Escape cancels.
     /// - Returns: True to reverse the last run.
     static func confirmUndoLastSyncRun(_ preview: SyncRunUndoPreview) -> Bool {
         let alert = NSAlert()
@@ -418,19 +402,12 @@ struct SyncOperationAlerts {
         return "Are you sure you want to permanently delete these \(itemPaths.count) items?"
     }
 
-    /// Body of the permanent-delete confirmation: **what is about to be destroyed, by path**, then
-    /// the warning.
+    /// Body of the permanent-delete confirmation: what is about to be destroyed, by path, then the
+    /// warning. The app's only unrecoverable action must name what it destroys, and by path, not
+    /// basename: duplicates are usually same-named, which is why they grouped.
     ///
-    /// This is the app's only unrecoverable action and it used to name nothing. The `count > 1`
-    /// branch rendered "…permanently delete these N items?" and discarded the list outright, so
-    /// after the duplicates batch redesign made ONE dialog cover every group, a 12-group batch
-    /// asked about "these 37 items" with no way to see what they were. The `count == 1` branch
-    /// named a basename only, which for the duplicates flows is the one thing that cannot
-    /// disambiguate: two copies in a group are usually same-named — that is *why* they grouped.
-    ///
-    /// Paths are home-abbreviated and capped the way `SyncRunUndoPreview.confirmationDetail` caps
-    /// its itemization, with the same bullet and "and N more" spellings, because both are alert
-    /// bodies listing files the user is about to let the app act on.
+    /// Paths are home-abbreviated and capped like `SyncRunUndoPreview.confirmationDetail`, with the
+    /// same bullet and "and N more" spellings.
     nonisolated static func permanentDeleteInformativeText(itemPaths: [String], maxLines: Int = 8) -> String {
         var lines = itemPaths.prefix(max(0, maxLines)).map { "  •  \(displayPath($0))" }
         if itemPaths.count > maxLines { lines.append("  …  and \(itemPaths.count - maxLines) more") }
@@ -442,9 +419,8 @@ struct SyncOperationAlerts {
     }
 
     /// Presents a fallback permanent deletion confirmation if moving to Trash fails (e.g., on network drives).
-    /// - Parameter itemPaths: The ABSOLUTE paths of the files/folders about to be destroyed. Paths,
-    ///   not names: the alert has to be able to tell two same-named copies apart, and the callers
-    ///   (the duplicates flows above all) routinely ask about exactly that.
+    /// - Parameter itemPaths: The absolute paths of the items about to be destroyed. Paths, not
+    ///   names, so the alert can tell two same-named copies apart, as the duplicates flows need.
     /// - Returns: True if confirmed for immediate permanent deletion.
     static func confirmPermanentDelete(itemPaths: [String]) -> Bool {
         guard !itemPaths.isEmpty else { return false }
@@ -457,11 +433,10 @@ struct SyncOperationAlerts {
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
 
-        // This is the app's only unrecoverable action, so no keypress may confirm it — the user
-        // reaches this alert mid-delete-flow, primed to hit Return. Clearing Delete's key
-        // equivalent leaves Return unbound (it does nothing; the user must click Delete
-        // deliberately). Cancel is left untouched so it keeps the Escape key NSAlert assigns it
-        // automatically — do NOT set Cancel's keyEquivalent to Return, which would displace Escape.
+        // The app's only unrecoverable action, so no keypress may confirm it: the user arrives
+        // mid-delete, primed to hit Return. Clearing Delete's key equivalent leaves Return unbound,
+        // so Delete must be clicked. Cancel keeps the Escape NSAlert gives it; do NOT set its
+        // keyEquivalent to Return, which would displace Escape.
         if let deleteButton = alert.buttons.first {
             deleteButton.hasDestructiveAction = true
             deleteButton.keyEquivalent = ""

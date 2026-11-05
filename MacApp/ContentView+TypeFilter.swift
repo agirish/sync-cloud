@@ -2,10 +2,9 @@ import FileExplorer
 import SwiftUI
 import Sync
 
-/// Filter by Type (RD70): the host's half — what each pane's Filter button, rows, empty state and
-/// status bar are handed. The filter itself is `FileSyncManager.leftTypeFilter`/`rightTypeFilter`,
-/// applied inside the manager's filter pass, so everything that reads a pane's tree already agrees
-/// with what the pane shows.
+/// Filter by Type, the host's half: what each pane's Filter button, rows, empty state and status
+/// bar are handed. The filter itself is `FileSyncManager.leftTypeFilter`/`rightTypeFilter`, applied
+/// inside the manager's filter pass, so everything that reads a pane's tree agrees with the pane.
 extension ContentView {
 
     /// The pane's filter as a binding, for the type list, the menus and the status chip.
@@ -39,7 +38,7 @@ extension ContentView {
             facts: typeFilterFacts(isLeft: isLeft),
             folderName: typeFilterFolderName(isLeft: isLeft),
             isListing: isLeft ? syncManager.isLoadingLeftTree : syncManager.isLoadingRightTree,
-            // Compare only: each pane keeps its own filter, and this copies one across (FI).
+            // Compare only: each pane keeps its own filter, and this copies one across.
             onUseOnBothPanes: layoutMode != .compare ? nil : {
                 let value = isLeft ? syncManager.leftTypeFilter : syncManager.rightTypeFilter
                 if isLeft { syncManager.rightTypeFilter = value } else { syncManager.leftTypeFilter = value }
@@ -56,14 +55,14 @@ extension ContentView {
                                    emptyFolders: facts.keptEmptyFolders)
     }
 
-    /// The filter that left this pane showing nothing, for its empty state (TE274).
+    /// The filter that left this pane showing nothing, for its empty state.
     func typeFilterEmptied(isLeft: Bool) -> PaneTypeFilter? {
         guard isLeft ? syncManager.leftTreeIsEmptiedByTypeFilter : syncManager.rightTreeIsEmptiedByTypeFilter
         else { return nil }
         return isLeft ? syncManager.leftTypeFilter : syncManager.rightTypeFilter
     }
 
-    /// Browse's status bar: "28 of 52 items" and its chip (TE271).
+    /// Browse's status bar: "28 of 52 items" and its chip.
     func typeFilterStatus(isLeft: Bool) -> PaneStatusFacts.TypeFilter? {
         guard let filter = isLeft ? syncManager.leftTypeFilter : syncManager.rightTypeFilter,
               let facts = isLeft ? syncManager.leftTypeFilterFacts : syncManager.rightTypeFilterFacts
@@ -71,11 +70,10 @@ extension ContentView {
         return PaneStatusFacts.TypeFilter(totalCount: facts.itemCountBeforeFilter, summary: filter.summary)
     }
 
-    /// The folders open in a pane, for its type filter to keep in place while they are open (his
-    /// call GQ): the column stack in Columns, the expanded folders in Tree. Reported with no filter
-    /// on too — the manager only stores them then, and runs no pass — because a filter turned on
-    /// from none runs its first pass at once: reported only once the filter was on, that pass did
-    /// not know the stack, hid an open folder with no match, and the stack closed past it.
+    /// The folders open in a pane, which its type filter keeps in place while open: the column
+    /// stack in Columns, the expanded folders in Tree. Reported with no filter on too (the manager
+    /// only stores them then), because a filter turned on runs its first pass at once; without the
+    /// stack, that pass would hide an open folder with no match and close the stack past it.
     func typeFilterOpenFolders(_ pane: PaneContext) -> Set<String> {
         if pane.viewMode == .columns {
             let path = pane.isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath

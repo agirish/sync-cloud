@@ -5,9 +5,9 @@ import Sync
 
 /// Screen 4: who else the folders name.
 ///
-/// **Nobody is added when you arrive.** The proposer over-proposes on purpose — `Taxes` sits
-/// under `Family` too, and only the user knows which of these names are people — so every chip
-/// carries the folder that vouches for it and adding one is a click.
+/// Nobody is added when you arrive. The proposer over-proposes on purpose (`Taxes` sits under
+/// `Family` too, and only the user knows which names are people), so every chip carries the folder
+/// that vouches for it and adding one is a click.
 struct PeopleScreen: View {
     @ObservedObject var model: SetupModel
     let hue: LiquidGlassHue
@@ -18,12 +18,10 @@ struct PeopleScreen: View {
 
             SetupWalkStatus(model: model, foundLabel: "Found in")
 
-            // **The list first, the suggestions behind it.** The proposer over-proposes on purpose
-            // — `Taxes` sits under `Family` too — so the candidates are the longest row on the
-            // screen and the least settled thing on it, and putting them at the top made the
-            // screen's answer, the roster, look like a footnote to a pile of guesses. The
-            // disclosure opens itself while the list is empty, which is the run where the
-            // candidates *are* the screen.
+            // The list first, the suggestions behind it. The candidates are the longest row on the
+            // screen and the least settled thing on it, so on top they would make the screen's
+            // answer, the roster, look like a footnote to a pile of guesses. The disclosure opens
+            // itself while the list is empty, when the candidates are the screen.
             VStack(alignment: .leading, spacing: SetupRhythm.groupSpacing) {
                 Text("On the list").scaledFont(.callout.weight(.semibold))
                 if model.rosterNames.isEmpty {
@@ -35,8 +33,8 @@ struct PeopleScreen: View {
                 }
                 FlowChips(items: model.rosterNames,
                           subtitle: { model.relationship(of: $0).map { "· \($0)" } },
-                          // No ✕ on a roster this sheet cannot write: the chip went, the store
-                          // refused, and the person was back at the next launch (review L1).
+                          // No ✕ on a roster this sheet can't write: the chip would go, the store
+                          // would refuse, and the person would be back at the next launch.
                           onRemove: model.rosterIsReadOnly
                               ? nil : { model.requestRemovePerson(named: $0) })
                 HStack(spacing: 6) {
@@ -66,7 +64,7 @@ struct PeopleScreen: View {
                 }
             }
 
-            // Both of the store's refusals, in its own terms — the sheet must not offer edits that
+            // Both of the store's refusals, in its own terms: the sheet must not offer edits that
             // would silently do nothing.
             if model.rosterIsReadOnly {
                 SetupNote(text: SetupFlow.peopleSummary(otherCount: model.rosterNames.count,
@@ -91,13 +89,13 @@ struct PeopleScreen: View {
         }
     }
 
-    /// The disclosure's name, which is a count and therefore has to be built rather than written.
+    /// The disclosure's name, a count, so it is built rather than written.
     static func suggestionsTitle(_ count: Int) -> String {
         "\(count) name\(count == 1 ? "" : "s") SyncCloud found"
     }
 
     private var blurb: String {
-        // "Found some names" only once it has: the line used to sit above "Reading names…".
+        // "Found some names" only once it has, never above "Reading names…".
         switch model.walkState {
         case .done:
             return Self.foundBlurb(found: model.walkState.walk?.people.count ?? 0,
@@ -109,8 +107,8 @@ struct PeopleScreen: View {
         }
     }
 
-    /// The finished reading's line. Names found and all added already is not "found none": the
-    /// line used to say "No folder names looked like people" the moment the last chip was taken.
+    /// The finished reading's line. Names found and all added already isn't "found none", so taking
+    /// the last chip doesn't flip the line to "No folder names looked like people".
     static func foundBlurb(found: Int, offered: Int) -> String {
         if offered > 0 { return "Anyone whose documents you keep. SyncCloud found some names to offer." }
         if found > 0 { return "Everyone SyncCloud found is added. Add anyone else by hand." }
@@ -130,8 +128,8 @@ struct PeopleScreen: View {
         .accessibilityLabel("Add \(candidate.name), \(Self.evidence(candidate))")
     }
 
-    /// The folder that vouches for a candidate, or nothing when the proposer had no parent to
-    /// name — an empty detail draws nothing rather than an empty gap.
+    /// The folder that vouches for a candidate, or nothing when the proposer had no parent to name,
+    /// so an empty detail draws nothing rather than a gap.
     private func parentDetail(_ candidate: PersonCandidate) -> String? {
         guard let parent = candidate.parents.first, !parent.isEmpty else { return nil }
         return "in \(parent)"
@@ -146,9 +144,8 @@ struct PeopleScreen: View {
 
 /// The line that stands where found items go while the walk is running, failed or skipped.
 ///
-/// **Every screen after Learn has three states and none of them blocks.** Continue never waits, so
-/// You, People and Countries can all be reached before the walk is done — and any of them can be
-/// reached after it has failed.
+/// Every screen after Learn has these states, and none blocks: Continue never waits, so You,
+/// People and Countries can be reached before the walk is done, or after it failed.
 struct SetupWalkStatus: View {
     @ObservedObject var model: SetupModel
     var foundLabel: String
@@ -173,10 +170,9 @@ struct SetupWalkStatus: View {
                     .help("Choose another folder and read it right away")
             }
         case .idle, .skipped:
-            // **`.idle` is not `.running`.** Nothing is reading, so nothing claims to be: the
-            // screen is simply the roster and the field, which is what it is on a skipped walk
-            // too. Drawing a spinner here made a folder changed and not re-read look like a read
-            // that never finished.
+            // `.idle` isn't `.running`: nothing is reading, so nothing claims to be. The screen is
+            // the roster and the field, as on a skipped walk; a spinner here would make a folder
+            // changed and not re-read look like a read that never finished.
             EmptyView()
         case .failed(let why):
             VStack(alignment: .leading, spacing: 5) {
@@ -187,8 +183,8 @@ struct SetupWalkStatus: View {
                     .scaledFont(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
-                // Opens the picker and reads what is chosen, as Change… does — the ellipsis
-                // promised a dialog, and this only switched back to Learn.
+                // Opens the picker and reads what is chosen, as Change… does; the ellipsis promises
+                // a dialog.
                 Button("Try Another Folder…") { model.chooseWalkRoot(thenLearn: true) }
                     .controlSize(.small)
             }

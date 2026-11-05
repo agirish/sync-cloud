@@ -5,10 +5,10 @@ import Sync
 
 /// Screen 3: your name, and the forms of it a document might print.
 ///
-/// **The forms are the answer, not the name.** Organize reads the names printed on a page to tell
-/// whose a document is, and the matcher is positional — `Girish Abhishek` and `Abhishek Girish` are
-/// two different strings and both appear on real statements. The surname exists to build those
-/// forms and is never stored on its own.
+/// The forms are the answer, not the name. Organize reads the names printed on a page to tell
+/// whose a document is, and the matcher is positional: `Girish Abhishek` and `Abhishek Girish` are
+/// different strings, and both appear on real statements. The surname only builds those forms and
+/// is never stored on its own.
 struct YouScreen: View {
     @ObservedObject var model: SetupModel
     let hue: LiquidGlassHue
@@ -69,11 +69,9 @@ struct YouScreen: View {
         }
     }
 
-    /// What the screen says it knows, and where from — never an assertion.
-    ///
-    /// The Mac account name is a real name in the overwhelming case and `admin` in the rest, so it
-    /// is offered as evidence rather than as an answer. A folder in the learned tree that matches
-    /// is the corroboration, and it is only mentioned when there is one.
+    /// What the screen knows, and where from, never as an assertion. The Mac account name is
+    /// usually a real name but sometimes `admin`, so it is offered as evidence. A matching folder
+    /// in the learned tree corroborates it, and is mentioned only when there is one.
     private var blurb: String {
         let account = NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
         switch (account.isEmpty, model.matchedFolder) {

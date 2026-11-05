@@ -30,24 +30,24 @@ struct AskClaudeSettingsBridge {
     var change: @MainActor (_ item: UUID, _ row: Int, _ value: SettingValue) -> Void = { _, _, _ in }
     var openSettings: @MainActor (_ entry: SettingEntry) -> Void = { _ in }
     /// Whether this card's row made the latest change to its setting, so its Undo can't overwrite
-    /// a newer one (TE290 step 4b).
+    /// a newer one.
     var offersUndo: @MainActor (_ item: UUID, _ row: Int) -> Bool = { _, _ in false }
     var undo: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
-    /// The at-limit card's Ask Again (TE290 step 6): offered once the limit no longer stops a
+    /// The at-limit card's Ask Again: offered once the limit no longer stops a
     /// question, and sends the one it stopped.
     var canAskAgain: @MainActor () -> Bool = { false }
     var askAgain: @MainActor (_ item: UUID) -> Void = { _ in }
-    /// The API key card (TE290 step 7). Whether a key is saved, asked without reading it; a key
+    /// The API key card. Whether a key is saved, asked without reading it; a key
     /// typed in the card's field, saved; and a caught message's key, still held, saved or put back.
     var keyIsSaved: @MainActor () -> Bool = { false }
     var saveKey: @MainActor (_ item: UUID, _ row: Int, _ key: String) -> Void = { _, _, _ in }
     var hasCaughtKey: @MainActor (_ item: UUID) -> Bool = { _ in false }
     var saveCaughtKey: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
     var editCaught: @MainActor (_ item: UUID) -> Void = { _ in }
-    /// A key typed in the empty panel's setup (TE315), which isn't a chat item: why it wasn't
+    /// A key typed in the empty panel's setup, which isn't a chat item: why it wasn't
     /// saved, or nil when it was.
     var saveSetupKey: @MainActor (_ key: String) -> String? = { _ in nil }
-    /// A list's rows (TE290 step 8): what is in it now, an item put in or taken out, Hidden from
+    /// A list's rows: what is in it now, an item put in or taken out, Hidden from
     /// Claude's Add… (a folder chooser), and whether an item would be hidden from Claude.
     var listItems: @MainActor (_ entry: SettingEntry) -> [String]? = { _ in nil }
     var listContains: @MainActor (_ entry: SettingEntry, _ scoped: String) -> Bool? = { _, _ in nil }
@@ -56,17 +56,17 @@ struct AskClaudeSettingsBridge {
     var putBack: @MainActor (_ item: UUID, _ row: Int, _ scoped: String) -> Void = { _, _, _ in }
     var chooseHidden: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
     var isHiddenItem: @MainActor (_ value: String) -> Bool = { _ in false }
-    /// A folder setting's Choose… (TE290 step 9): the panel opens; Claude never fills a path in.
+    /// A folder setting's Choose…: the panel opens; Claude never fills a path in.
     var chooseFolder: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
     var resetOpenAt: @MainActor (_ item: UUID, _ row: Int) -> Void = { _, _ in }
-    /// People (TE290 step 9, part 2): why they can't be changed, if they can't; a person by id; and
+    /// People: why they can't be changed, if they can't; a person by id; and
     /// a person's fields saved, moved, or added from the card.
     var peopleRefusal: @MainActor () -> String? = { nil }
     var person: @MainActor (_ id: String) -> Person? = { _ in nil }
     var savePerson: @MainActor (_ item: UUID, _ row: Int, _ person: Person) -> Void = { _, _, _ in }
     var movePerson: @MainActor (_ item: UUID, _ row: Int, _ up: Bool) -> Void = { _, _, _ in }
     var addPerson: @MainActor (_ item: UUID, _ row: Int, _ person: Person) -> Void = { _, _, _ in }
-    /// A button (TE290 step 10): Settings' question, for one that asks twice, and the press.
+    /// A button: Settings' question, for one that asks twice, and the press.
     var actionPrompt: @MainActor (_ entry: SettingEntry, _ target: String?) -> RemovalPrompt? = { _, _ in nil }
     /// What a question is about when it opens (the pair whose ignored items Clear All empties).
     var actionScope: @MainActor (_ entry: SettingEntry) -> String? = { _ in nil }
@@ -77,7 +77,7 @@ struct AskClaudeSettingsBridge {
     var refreshLoginItem: @MainActor () async -> Void = {}
 }
 
-/// What a change does beyond its value, shown beside it on a card (TE290 step 6): judged from the
+/// What a change does beyond its value, shown beside it on a card: judged from the
 /// old value to the new, so the same table badges a click, a suggestion and an Undo.
 enum AskClaudeSettingBadge: String, CaseIterable {
     case raises = "↑ Raises"
@@ -120,7 +120,7 @@ enum AskClaudeSettingBadge: String, CaseIterable {
     }
 }
 
-/// A card of settings (TE290 step 4a): each row is the setting's real control at its live value,
+/// A card of settings: each row is the setting's real control at its live value,
 /// and a click changes the setting. Designed for 240 pt: a switch or a stepper sits beside the
 /// name, anything wider goes below it, and every line wraps. Accent color's swatches are
 /// Settings' own discs in rows of six (`AccentSwatchGrid`).
@@ -377,7 +377,7 @@ struct AskClaudeSettingCardView: View {
 
     // MARK: Buttons
 
-    /// A button (TE290 step 10). One that asks twice opens its question here, in Settings' words,
+    /// A button. One that asks twice opens its question here, in Settings' words,
     /// with Cancel — which Escape presses — and only the red button runs it; nothing on the card
     /// can undo it. A button the card can't run opens Settings at it.
     @ViewBuilder
@@ -588,7 +588,7 @@ struct AskClaudeSettingCardView: View {
     /// How many of a list's items a card shows; the rest are in Settings.
     static let listShown = 8
 
-    /// A list's rows (TE290 step 8): each item with its remove, an item this card took out struck
+    /// A list's rows: each item with its remove, an item this card took out struck
     /// through with a way back, Claude's suggested pattern as a switch, and a field to add one.
     /// Hidden from Claude adds only through Add…, a folder chooser.
     @ViewBuilder
@@ -606,7 +606,7 @@ struct AskClaudeSettingCardView: View {
             }
             ForEach(Array(items.prefix(Self.listShown)), id: \.self) { item in
                 if confirmingShow[index] == item {
-                    // Settings asks before showing a folder to Claude again (decision IP); so does the card.
+                    // Settings asks before showing a folder to Claude again; so does the card.
                     confirmation(.showToClaude(named: (item as NSString).lastPathComponent, isFolder: true),
                                  cancel: { confirmingShow[index] = nil }) {
                         confirmingShow[index] = nil
@@ -863,7 +863,7 @@ private struct SettingsCardSlider: View {
     }
 }
 
-/// Settings' question, inside a card (TE290 step 10): Cancel first — Escape presses it — and the
+/// Settings' question, inside a card: Cancel first (Escape presses it), and the
 /// red button takes no key, as Settings' own alerts are built.
 struct AskClaudeSettingConfirmation: View {
     let prompt: RemovalPrompt

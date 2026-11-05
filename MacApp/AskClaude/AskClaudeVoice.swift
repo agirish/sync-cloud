@@ -11,17 +11,14 @@ import Events
 // turned into text on this Mac by SpeechAnalyzer's dictation model, go into the text box, and send
 // as typed text does. No audio leaves the Mac, and nothing Claude is sent changes.
 //
-// Measured in the voice spike (2026-11-02, this Mac; memory `voice-spike-2026-11-02`):
-// - **DictationTranscriber, given the words of the names on screen.** SpeechTranscriber ignores
-//   contextual strings; this one heard 88% of the name words in his reading with them, 83%
-//   without. A whole name as a hint does nothing (`AskClaudeVoiceHints`).
-// - **A second tap finalizes in about 0.06 s.** Without one, silence ends the turn: 1.8 s of
-//   quiet input once words have settled (`ending`). The transcriber's settling alone is not the
-//   end: `say` clips settled only ~2 s after the last word, but his own voice settled at a
-//   one-second pause and sent half a question. Without `.frequentFinalization` nothing settles
-//   until a finalize, so it stays on.
-// - **The microphone is the only prompt.** Dictation asked for nothing, even unauthorized.
-// - **The speech model's status says `.supported` while it works**, so it isn't gated on; only a
+// - DictationTranscriber, given the words of the names on screen: SpeechTranscriber ignores
+//   contextual strings, and with them this one hears more of the name words (88% against 83%).
+//   A whole name as a hint does nothing (`AskClaudeVoiceHints`).
+// - A second tap finalizes at once. Without one, silence ends the turn (`ending`), not the
+//   transcriber's own settling, which can come at a one-second pause mid-question. Without
+//   `.frequentFinalization` nothing settles until a finalize, so it stays on.
+// - The microphone is the only permission prompt; dictation asks for nothing.
+// - The speech model's status says `.supported` while it works, so it isn't gated on; only a
 //   non-nil installation request means there is something to download.
 
 /// Where the voice comes from: the microphone, or a file in tests, which must never open the mic
@@ -108,15 +105,14 @@ final class AskClaudeVoice: ObservableObject {
     static let heardNothing = "Didn’t hear anything."
 
     /// How long the input must be quiet, after words have settled, for the turn to end by itself.
-    /// **Not the transcriber's own settling.** With his voice it settles words at a one-second
-    /// pause mid-question, and a turn that ended there sent half of it (hand check, 2026-11-02);
-    /// `say` clips never settled before about 2 s, so the tests hadn't seen it.
+    /// Not the transcriber's own settling, which can come at a one-second pause mid-question and
+    /// would send half of it.
     var endSilence: Duration = .milliseconds(1800)
     /// In a room too loud ever to count as quiet, a settled turn ends this long after the last
     /// words came in, so it can't listen for good.
     var settledLimit: Duration = .seconds(3)
     /// Words left tentative that nothing new has changed for this long end the turn too, so a
-    /// transcriber that stalls mid-word can't keep the microphone open for good (v7.0 review).
+    /// transcriber that stalls mid-word can't keep the microphone open for good.
     var tentativeLimit: Duration = .seconds(10)
     /// How long listening waits for a first word, counted from the last time the input was loud:
     /// a transcriber behind on a busy Mac mustn't end the turn while they are still talking.
@@ -409,7 +405,7 @@ struct AskClaudeLevelMeter: View {
     }
 }
 
-/// Gives the panel's window its talk keys and its going-away call (TE311), from a view behind
+/// Gives the panel's window its talk keys and its going-away call, from a view behind
 /// the panel that finds the window it is in.
 struct AskClaudeTalkKeys: NSViewRepresentable {
     let onKey: (AskClaudeTalkKey) -> Bool

@@ -6,9 +6,9 @@ import FileExplorer
 import Design
 import Events
 
-/// Ask Claude’s wiring into the window (RD69, v7.0): the panel, the screen it describes, and the
-/// window state its tools read and move. An extension because the tools need ContentView’s own
-/// state — the workspace, the Browse pane’s location, the overlays that make the window busy.
+/// Ask Claude’s wiring into the window: the panel, the screen it describes, and the window state
+/// its tools read and move. An extension because the tools need ContentView’s own state: the
+/// workspace, the Browse pane’s location, the overlays that make the window busy.
 extension ContentView {
 
     var askClaudeChat: AskClaudeChat { askClaudeHolder.chat }
@@ -21,13 +21,13 @@ extension ContentView {
 
     /// The panel, hanging from the toolbar over the content’s right edge.
     func askClaudeOverlay(in container: CGSize, onPlace: @escaping (CGRect) -> Void) -> some View {
-        // Once: a question typed while Claude answers is sent from here when the answer ends
-        // (TE297), with the panel open or not.
+        // Once: a question typed while Claude answers is sent from here when the answer ends,
+        // with the panel open or not.
         if askClaudeChat.sendQueued == nil {
             askClaudeChat.sendQueued = { waiting in askClaudeSend(waiting.text, attached: waiting.attachments, spoken: waiting.spoken) }
         }
-        // Retry (TE296): a question from the box goes as the box sends; any other as it went, with
-        // a chip hidden since dropped.
+        // Retry: a question from the box goes as the box sends; any other as it went, minus any
+        // chip hidden since.
         if askClaudeChat.askAgain == nil {
             askClaudeChat.askAgain = { asked, shown, spoken in
                 if asked.editable {
@@ -85,7 +85,8 @@ extension ContentView {
                       onPrivacyChange: { askClaudePrivacyChanges += 1 })
     }
 
-    /// ⌘J’s binding: nil while a destination pick is up, as the toolbar button is disabled then.
+    /// ⌘J’s binding: nil while the window is busy (a destination pick, Settings, Help, setup, an
+    /// error), as the toolbar button is disabled then.
     var askClaudeChordBinding: Binding<Bool>? {
         // Not under a sheet or overlay the panel would open beneath, out of sight, taking the keys.
         guard askClaudeStateBusy == nil else { return nil }
@@ -103,8 +104,8 @@ extension ContentView {
         askClaudeChat.lastAsked = (shown, attached)
         let tools = askClaudeTools()
         let attachedRows = askClaudeAttachedRows(attached)
-        // TE241: a folder the pane hasn't loaded is read from disk first, so the screen is never
-        // sent empty while the person is looking at files.
+        // A folder the pane hasn't loaded is read from disk first, so the screen is never sent
+        // empty while the person is looking at files.
         let folder = AskClaudeBrowseTools.absolute(askClaudeFolder, root: askClaudeRoot)
         guard askClaudeItems(folder) == nil else {
             var screen = askClaudeScreen()
@@ -120,14 +121,14 @@ extension ContentView {
         }, tools: tools)
     }
 
-    /// The text box's Send: the question, about the chips above it (TE263). A chip hidden from
-    /// Claude since it was attached is dropped, never sent.
+    /// The text box's Send: the question, about the chips above it. A chip hidden from Claude
+    /// since it was attached is dropped, never sent.
     func askClaudeSend(_ question: String, spoken: Bool = false) {
         guard !askClaudeChat.isRunning else { return }
         askClaudeSend(question, attached: askClaudeChat.takeAttachments(), spoken: spoken)
     }
 
-    /// A question with the chips it was asked about: the box's, or a queued question's own (TE297).
+    /// A question with the chips it was asked about: the box's, or a queued question's own.
     func askClaudeSend(_ question: String, attached chips: [AskClaudeChat.Attachment], spoken: Bool) {
         guard !askClaudeChat.isRunning else { return }
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
@@ -136,8 +137,8 @@ extension ContentView {
         askClaudeAsk(question, shown: shown, attached: attached, spoken: spoken, editable: true)
     }
 
-    /// The words a spoken question is listened for (TE311): from what the screen card would show
-    /// Claude, and the chips it would send, so nothing hidden from Claude is ever one.
+    /// The words a spoken question is listened for: from what the screen card would show Claude,
+    /// and the chips it would send, so nothing hidden from Claude is ever one.
     func askClaudeVoiceHints() -> [String] {
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
         let attached = askClaudeChat.attachments.filter { !hidden.isHidden($0.path) }.map { ($0.name, $0.isDirectory) }
@@ -159,8 +160,8 @@ extension ContentView {
         }
     }
 
-    /// A row's Ask Claude About This (TE263): the panel opens, or comes forward, with these attached
-    /// above its text box and the caret in it.
+    /// A row's Ask Claude About This: the panel opens, or comes forward, with these attached above
+    /// its text box and the caret in it.
     func askClaudeAttach(_ paths: [String]) {
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
         let kept = paths.filter { !hidden.isHidden($0) }
@@ -183,7 +184,7 @@ extension ContentView {
         askClaudeHolder.visibility.focusRequests += 1
     }
 
-    /// Why a row's Ask Claude About This can't take these, for its tooltip, or nil (TE263).
+    /// Why a row's Ask Claude About This can't take these, for its tooltip, or nil.
     func askClaudeRowRefusal(_ paths: [String]) -> String? {
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
         let hiddenCount = paths.filter { hidden.isHidden($0) }.count
@@ -197,8 +198,8 @@ extension ContentView {
         AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard)).isHidden(path)
     }
 
-    /// A download card's buttons (TE258). Download checks again at the click, waits, and then
-    /// asks the question again (a read) or opens the file (an open), with no Claude round for that.
+    /// A download card's buttons. Download checks again at the click, waits, and then asks the
+    /// question again (a read) or opens the file (an open), with no Claude round for that.
     func askClaudeDownloadCard(_ id: UUID, _ action: AskClaudeDownloadAction) {
         let chat = askClaudeChat
         switch action {
@@ -217,9 +218,8 @@ extension ContentView {
         }
     }
 
-    /// A card of changes (TE285): ticks, and a folder for a row from its menu or a folder picker.
-    /// TE286: Save stores the rule only now, on his click; Not Now stores nothing. Claude is told
-    /// either way, with the next question.
+    /// A rule card's answer: Save stores the rule only now, on his click; Not Now stores nothing.
+    /// Claude is told either way, with the next question.
     func askClaudeRuleCard(_ id: UUID, save: Bool) {
         guard !askClaudeChat.isRunning, let card = askClaudeChat.offeredRule(id) else { return }
         if save {
@@ -227,8 +227,8 @@ extension ContentView {
             SettingsChangeLog.shared.record(SettingsChange(setting: "organize.rules", name: "Rule “\(card.rule.name)”",
                                                            from: nil, to: nil, fromLabel: nil, toLabel: nil, how: .rule))
             askClaudeChat.answerRule(id, .saved)
-            // A card Claude wasn't told of says no more when answered (review 2 of 11-04): its
-            // words matched the file's first page, which is the very thing kept from Claude.
+            // A held card (one Claude wasn't told of) says no more when answered: its words
+            // matched the file's first page, which is the very thing kept from Claude.
             askClaudeChat.tellClaude(card.held == true ? "They saved a rule from a card." : "They saved your rule “\(card.rule.name)”.")
         } else {
             askClaudeChat.answerRule(id, .declined)
@@ -312,7 +312,7 @@ extension ContentView {
         }
     }
 
-    /// Apply on a card (TE262): its ticked rows, each checked again now, as one undo step.
+    /// Apply on a plan card: its ticked rows, each checked again now, as one undo step.
     private func askClaudeApplyPlan(_ id: UUID) {
         guard !askClaudeChat.isRunning, let plan = askClaudeChat.plan(id), plan.state == .proposed else { return }
         let rows = plan.runnable.map { (id: $0.id, change: $0.change) }
@@ -332,7 +332,7 @@ extension ContentView {
         }
     }
 
-    /// Filing help's card buttons (TE255).
+    /// Filing help's card buttons.
     func askClaudeFilingCard(_ action: AskClaudeFilingAction) {
         switch action {
         case .goTo(let folder):
@@ -350,7 +350,7 @@ extension ContentView {
             }
             showSetup = true
         case .moveHere(let item, let file, let folder, let label):
-            // Decision FE: the card becomes a plan card with this one move, checked now.
+            // The card becomes a plan card with this one move, checked now.
             let change = AskClaudePlan.Change.move(from: file, toFolder: folder)
             let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
             let refusal = syncManager.planRefusal(change, isHidden: { hidden.isHidden($0) }, protected: Set(askClaudeSources.map(\.root)))
@@ -363,8 +363,8 @@ extension ContentView {
         }
     }
 
-    /// Refine with Claude from filing help's card (decision EY): Organize scans the file's folder,
-    /// then refines this one file there, with its own price check first. The answer is Organize's.
+    /// Refine with Claude from filing help's card: Organize scans the file's folder, then refines
+    /// this one file there, with its own price check first. The answer is Organize's.
     private func askClaudeRefineFiling(_ file: String) {
         if let busy = askClaudeStateBusy {
             askClaudeChat.addNote("Couldn’t open Organize: \(busy).")
@@ -409,10 +409,8 @@ extension ContentView {
         }
     }
 
-    /// TE246: puts the folder on screen on the Never show Claude list, or takes it off, and says so
-    /// in the thread. Taken off by whichever entry covers it: the folder itself, or one above it.
-    /// The shield's choice for the folder Claude sees (TE321): ask each time, share without asking,
-    /// or hide. Said in the thread, as hiding is.
+    /// The shield's choice for the folder Claude sees: ask each time, share without asking, or
+    /// hide. Said in the thread.
     func askClaudeSetCurrentFolderAccess(_ access: AskClaudeFolderAccess) {
         let folder = AskClaudeBrowseTools.absolute(askClaudeFolder, root: askClaudeRoot)
         let name = askClaudeFolder.isEmpty ? askClaudeSourceName : (askClaudeFolder as NSString).lastPathComponent
@@ -428,11 +426,11 @@ extension ContentView {
             if wasHidden {
                 askClaudeSetHidden(folder, name: name, false)
             } else {
-                // Whichever entry covers it: itself, or a folder above it.
-                // By where it really is, as the tools judge it (review 2 of 11-04).
+                // Whichever entry covers it, itself or a folder above it, judged by where it
+                // really is, as the tools judge it.
                 let shared = AskClaudePrivacy.sharedFolders(in: .standard).filter { AskClaudePrivacy.Matcher([$0]).holds(folder) }
                 shared.forEach { AskClaudePrivacy.stopSharing($0, in: .standard) }
-                // A folder above it shared is taken off whole, so say which (review of TE319–TE323).
+                // A shared folder above it is taken off whole, so say which.
                 let above = shared.filter { ($0 as NSString).standardizingPath != (folder as NSString).standardizingPath }
                     .map { ($0 as NSString).lastPathComponent }
                 askClaudeChat.addNote(above.isEmpty ? "Claude asks before anything from \(name) goes again."
@@ -442,8 +440,7 @@ extension ContentView {
     }
 
     /// Puts a folder or file on the Never show Claude list, or takes it off, and says so in the
-    /// thread (TE246; files too, TE263). Taken off by whichever entry covers it: itself, or a
-    /// folder above it.
+    /// thread. Taken off by whichever entry covers it: itself, or a folder above it.
     func askClaudeSetHidden(_ folder: String, name: String, _ hidden: Bool) {
         if hidden {
             AskClaudePrivacy.hide(folder, in: .standard)
@@ -470,14 +467,14 @@ extension ContentView {
     }
 
     /// The folder above a row whose entry hides it, by name, or nil when only its own entry
-    /// hides it, or none: Show to Claude on that row takes the whole folder off (TE263).
+    /// hides it, or none: Show to Claude on that row takes the whole folder off.
     func askClaudeHiddenCover(_ path: String) -> String? {
         let above = askClaudeHiddenEntries(covering: path).filter { !AskClaudePaths.same($0, path) }
         return above.isEmpty ? nil : above.map(askClaudeHiddenName).joined(separator: ", ")
     }
 
-    /// Go to This Folder (TE260): the folder Claude sees is always the one the source pane is at,
-    /// so this only has work where the workspace has folded that pane away (Edit, Organize).
+    /// Go to This Folder: the folder Claude sees is always the one the source pane is at, so this
+    /// only has work where the workspace has folded that pane away (Edit, Organize).
     func askClaudeShowFolderPane() {
         guard panesHiddenForCurrentTab else { return }
         togglePanesForCurrentTab()
@@ -487,8 +484,8 @@ extension ContentView {
 
     private var askClaudeInBrowse: Bool { selectedWorkspace == .browse }
 
-    /// The type filter, as Claude's view of the screen states it (FN): the rows it is given are the
-    /// whole folder, so it is told which of them the pane is showing — "these" means those.
+    /// The type filter, as Claude's view of the screen states it: the rows it is given are the
+    /// whole folder, so it is told which of them the pane is showing ("these" means those).
     private var askClaudeTypeFilterNote: String {
         guard let filter = syncManager.leftTypeFilter else { return "" }
         let total = syncManager.leftTypeFilterFacts?.itemCountBeforeFilter ?? syncManager.leftItemCount
@@ -514,7 +511,7 @@ extension ContentView {
         syncManager.paneLocation(isLeft: true, drawsColumns: paneDrawsColumns(isLeft: true))
     }
 
-    /// The folder Claude sees, for the panel's header and shield (TE260).
+    /// The folder Claude sees, for the panel's header and shield.
     var askClaudePlace: AskClaudePlace {
         let absolute = AskClaudeBrowseTools.absolute(askClaudeFolder, root: askClaudeRoot)
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
@@ -558,8 +555,8 @@ extension ContentView {
         return screen
     }
 
-    /// TE241: the parent columns on screen, from the pane's scope down to the folder before the
-    /// one on screen, at most three, each as the pane has it loaded.
+    /// The parent columns on screen, from the pane's scope down to the folder before the one on
+    /// screen, at most three, each as the pane has it loaded.
     private func askClaudeColumns(hidden: AskClaudePrivacy.Matcher) -> [AskClaudeScreen.Column] {
         let scope = syncManager.leftRelativePath
         let location = askClaudeFolder
@@ -616,7 +613,7 @@ extension ContentView {
         }
     }
 
-    /// Compare's two sides and how fresh their comparison is (TE261); nil without two sources.
+    /// Compare's two sides and how fresh their comparison is; nil without two sources.
     var askClaudeComparison: AskClaudeDifferences.Comparison? {
         guard !leftProviderId.isEmpty, !rightProviderId.isEmpty else { return nil }
         let left = askClaudeSpokenName(leftProviderId), right = askClaudeSpokenName(rightProviderId)
@@ -648,14 +645,14 @@ extension ContentView {
         let target = AskClaudePaths.canonical(absoluteFolder)
         let scope = AskClaudePaths.canonical(AskClaudeBrowseTools.absolute(syncManager.leftRelativePath, root: askClaudeRoot))
         // The whole folder, past any type filter: Claude is told the filter is on (`screen.view`),
-        // and answers "what's in Downloads?" from everything in it (FN).
+        // and answers "what's in Downloads?" from everything in it.
         if target == scope { return syncManager.leftTreeBeforeTypeFilter }
         guard let node = askClaudeNode(target) ?? askClaudeNode(absoluteFolder),
               node.isDirectory, node.isUnexplored != true else { return nil }
         return node.children ?? []
     }
 
-    /// A node of the left pane's folder, filtered or not — the published index while the pane has
+    /// A node of the left pane's folder, filtered or not: the published index while the pane has
     /// no type filter, and the tree before the filter while it does.
     private func askClaudeNode(_ path: String) -> FileNode? {
         guard syncManager.leftTypeFilter != nil else { return syncManager.leftNodes(for: [path]).first }
@@ -663,8 +660,8 @@ extension ContentView {
             ?? syncManager.leftTreeBeforeTypeFilter.findNodes(at: [path]).first
     }
 
-    /// Why Claude can’t move the view right now (decision EB): it never moves under a sheet, a
-    /// destination pick, or a question the window is waiting on.
+    /// Why Claude can’t move the view right now: it never moves under a sheet, a destination
+    /// pick, or a question the window is waiting on.
     var askClaudeBusyReason: String? {
         if let reason = askClaudeStateBusy { return reason }
         // A sheet on the main window (a PDF tool, a Save panel), read live when a tool runs.
@@ -706,8 +703,8 @@ extension ContentView {
             // Compare can be the right one.
             goTo: { movePane(isLeft: true, providerId: nil, absolutePath: AskClaudePaths.spelled($0, root: askClaudeRoot)) },
             select: { paths in
-                // Selecting a row the type filter hides clears the filter first (FM), or the
-                // selection prune would take it straight back off.
+                // Selecting a row the type filter hides clears the filter first, or the selection
+                // prune would take it straight back off.
                 for path in paths { syncManager.clearTypeFilterHiding(path, isLeft: true) }
                 syncManager.selectedLeftPaths = paths
                 if !syncManager.selectedRightPaths.isEmpty { syncManager.selectedRightPaths = [] }
@@ -783,10 +780,9 @@ extension ContentView {
             // and scrolled to minutes later, unasked.
             differencesHeldBy: { reviewStore.isReviewing ? "a review is open in Compare" : nil },
             whereToFile: { path, place in
-                // Page 1 read on this Mac (decision EW) by To File's reader, which leaves a file
-                // only in the cloud unread rather than fetch it (`FilingSurvey.isAvailable`), so
-                // that one is placed by its name, as To File places it. A large one isn't even
-                // offered to it.
+                // Page 1 read on this Mac by To File's reader, which leaves a cloud-only file
+                // unread rather than fetch it (`FilingSurvey.isAvailable`), so that one is placed
+                // by its name, as To File places it. A large one isn't even offered to it.
                 let size = AskClaudeDisk.node(atPath: path)?.fileSize
                 let fetches = MaterializationStatus.isCloudOnlyIfKnown(atPath: MaterializationStatus.linkTarget(of: path)) == true
                     && (size ?? .max) > AskClaudeBrowseTools.autoDownloadBytes
@@ -874,7 +870,7 @@ extension ContentView {
             })
     }
 
-    /// Changed from Chat's line for a change made from the chat (TE290 step 5), written at once.
+    /// Changed from Chat's line for a change made from the chat, written at once.
     func askClaudeRecordChange(_ entry: SettingEntry, target: String?, from: SettingValue?, to: SettingValue,
                                how: SettingsChange.How) {
         SettingsChangeLog.shared.record(SettingsChange(
@@ -901,7 +897,7 @@ extension ContentView {
         return askClaudeIsHidden((provider.rootPath as NSString).expandingTildeInPath)
     }
 
-    /// The settings tool's reads (TE290), over this window's SettingsManager.
+    /// The settings tool's reads, over this window's SettingsManager.
     var askClaudeSettingsLookup: SettingsLookup {
         SettingsLookup(
             defaults: .standard, settings: settings,
@@ -920,15 +916,15 @@ extension ContentView {
             }, people: { syncManager.filingPeopleStore?.people ?? [] })
     }
 
-    /// What a settings card reads and does (TE290 step 4a), and the chat's undo of it (4b).
+    /// What a settings card reads and does, and the chat's undo of it.
     var askClaudeSettingsBridge: AskClaudeSettingsBridge {
         let lookup = askClaudeSettingsLookup
         let undo = askClaudeChat.settingsUndo
         let chat = askClaudeChat
         let lists = askClaudeLists
         let people = askClaudePeople
-        // A list's step is one item in or out (TE290 step 8): its target is the item. A person's
-        // is the whole person, and the order's every id in order (step 9).
+        // A list's step is one item in or out: its target is the item. A person's is the whole
+        // person, and the order's is every id in order.
         undo.read = { key in
             if key.id.hasPrefix("people.") { return people.value(key.id, target: key.target) }
             if SettingsLists.ids.contains(key.id) { return lists.contains(key.id, scoped: key.target ?? "").map(SettingValue.bool) }
@@ -1006,8 +1002,8 @@ extension ContentView {
             refreshLoginItem: { await LoginItemController.shared.refresh().value })
     }
 
-    /// The buttons a card presses (TE290 step 10), with the app's own flows for setup and the
-    /// resets — the ones Settings' buttons call.
+    /// The buttons a card presses, with the app's own flows for setup and the resets: the ones
+    /// Settings' buttons call.
     var askClaudeActions: SettingsActions {
         var actions = SettingsActions(settings: settings, sync: syncManager, lookup: askClaudeSettingsLookup)
         actions.runSetup = {
@@ -1019,7 +1015,7 @@ extension ContentView {
         return actions
     }
 
-    /// A button pressed on a card — after the card's own question, for one that asks twice. It
+    /// A button pressed on a card, after the card's own question for one that asks twice. It
     /// can't be undone, so it says what it did, in the record and to Claude, and goes on no stack.
     func askClaudeRunAction(_ id: UUID, _ index: Int, scope: String? = nil) {
         guard let row = askClaudeChat.settingCard(id)?.rows, row.indices.contains(index),
@@ -1065,8 +1061,8 @@ extension ContentView {
     }
 
     /// A value in words for Claude: a folder setting's path is left out when it names something
-    /// hidden from Claude (TE290 step 9), and so is any name or path set on a source whose own
-    /// folder is hidden — renaming it would otherwise say what it was called.
+    /// hidden from Claude, and so is any name or path set on a source whose own folder is hidden
+    /// (renaming it would otherwise say what it was called).
     func askClaudeWords(_ value: SettingValue?, _ entry: SettingEntry, target: String?) -> String {
         guard let value else { return "unknown" }
         if case .string(let text) = value {
@@ -1078,8 +1074,8 @@ extension ContentView {
         return SettingsLookup.label(value, entry)
     }
 
-    /// A folder setting's Choose… (TE290 step 9): the macOS panel, which doesn't move the chat.
-    /// Claude never fills a path in; what the panel gives is written as Settings writes it.
+    /// A folder setting's Choose…: the macOS panel, which doesn't move the chat. Claude never
+    /// fills a path in; what the panel gives is written as Settings writes it.
     func askClaudeChooseFolder(_ id: UUID, _ index: Int) {
         guard let rows = askClaudeChat.settingCard(id)?.rows, rows.indices.contains(index),
               let entry = SettingsCatalog.entry(rows[index].id) else { return }
@@ -1121,7 +1117,7 @@ extension ContentView {
         askClaudeChat.tellClaude(hidden ? "They added a folder hidden from you as a source." : "They added \(name) as a folder source.")
     }
 
-    /// People, through the store Settings edits (TE290 step 9).
+    /// People, through the store Settings edits.
     var askClaudePeople: SettingsPeople { SettingsPeople(store: syncManager.filingPeopleStore) }
 
     /// A person's fields saved, or a move, from a card: the step holds the person (or the order)
@@ -1180,7 +1176,7 @@ extension ContentView {
         askClaudeChat.tellClaude("They added \(SettingsPeople.words(now.stored)) in People on your card.")
     }
 
-    /// The four lists a card edits (TE290 step 8), through Settings' owners.
+    /// The four lists a card edits, through Settings' owners.
     var askClaudeLists: SettingsLists {
         SettingsLists(settings: settings, sync: syncManager, defaults: .standard)
     }
@@ -1192,8 +1188,8 @@ extension ContentView {
         return { item in item.split(separator: "/").contains { names.contains(String($0)) } }
     }
 
-    /// One item put in a list or taken out from a card (TE290 step 8): written through its owner,
-    /// remembered on the card, undoable, recorded, and told to Claude without a hidden name.
+    /// One item put in a list or taken out from a card: written through its owner, remembered on
+    /// the card, undoable, recorded, and told to Claude without a hidden name.
     func askClaudeListEdit(_ id: UUID, _ index: Int, _ item: String, present: Bool, scoped given: Bool = false) {
         guard let card = askClaudeChat.settingCard(id), card.rows.indices.contains(index),
               let entry = SettingsCatalog.entry(card.rows[index].id), SettingsLists.ids.contains(entry.id) else { return }
@@ -1251,8 +1247,8 @@ extension ContentView {
         askClaudeListEdit(id, index, url.path, present: true)
     }
 
-    /// An API key from a card (TE290 step 7), to the Keychain as Settings saves it. The card,
-    /// the record and Claude hear that it was saved, never what it is.
+    /// An API key from a card, to the Keychain as Settings saves it. The card, the record and
+    /// Claude hear that it was saved, never what it is.
     /// - Returns: Whether it was saved.
     @discardableResult
     func askClaudeSaveKey(_ id: UUID, _ index: Int, _ key: String) -> Bool {
@@ -1270,7 +1266,7 @@ extension ContentView {
         return true
     }
 
-    /// An API key from the empty panel's setup (TE315). No chat yet, so Claude isn't told.
+    /// An API key from the empty panel's setup. No chat yet, so Claude isn't told.
     /// - Returns: Why it wasn't saved, or nil when it was.
     func askClaudeSaveSetupKey(_ key: String) -> String? {
         let why = askClaudeStoreKey(key, replacing: AnthropicKeychain.isConfigured)
@@ -1288,8 +1284,8 @@ extension ContentView {
         return nil
     }
 
-    /// The at-limit card's Ask Again (TE290 step 6): the question the limit stopped, once, now
-    /// that the limit lets it through.
+    /// The at-limit card's Ask Again: the question the limit stopped, once, now that the limit
+    /// lets it through.
     func askClaudeAskAgain(_ id: UUID) {
         guard !askClaudeChat.isRunning, let question = askClaudeChat.settingCard(id)?.askAgain else { return }
         if case .overLimit = AskClaudeSpend.state(in: .standard) { return }
@@ -1301,7 +1297,7 @@ extension ContentView {
     }
 
     /// A settings step undone or redone, from a card or Edit ▸ Undo: told to Claude in the line
-    /// the card's own change would have used (TE290 step 4b).
+    /// the card's own change would have used.
     func askClaudeSettingsStepped(_ step: AskClaudeSettingsStep, undone: Bool) {
         for change in step.changes {
             guard let entry = SettingsCatalog.entry(change.key.id) else { continue }
@@ -1350,10 +1346,10 @@ extension ContentView {
     }
 
     /// A click on a settings card: written through the setting's owner, remembered on the card as
-    /// "was", and told to Claude as one line per setting (TE290 step 4a).
-    /// `value` nil with a `write` of its own: an action that sets a value, such as Open at's
-    /// Reset, whose result is read back. `confirmed`: the card's own question was answered yes —
-    /// Column widths' All columns, which releases columns sized on their own.
+    /// "was", and told to Claude as one line per setting. `value` nil with a `write` of its own:
+    /// an action that sets a value, such as Open at's Reset, whose result is read back.
+    /// `confirmed`: the card's own question was answered yes (Column widths' All columns, which
+    /// releases columns sized on their own).
     func askClaudeSettingChange(_ id: UUID, _ index: Int, _ value: SettingValue?, confirmed: Bool = false,
                                 write: (() -> SettingsWriter.Outcome)? = nil) {
         guard let card = askClaudeChat.settingCard(id), card.rows.indices.contains(index),
@@ -1454,7 +1450,7 @@ struct AskClaudeHost: ViewModifier {
     let isBusy: Bool
     let panel: (CGSize, @escaping (CGRect) -> Void) -> AnyView
     let toggle: Binding<Bool>?
-    /// The Never show Claude list changed (TE263: the row menus' labels follow it).
+    /// The Never show Claude list changed; the row menus' labels follow it.
     var onPrivacyChange: () -> Void = {}
 
     func body(content: Content) -> some View {
@@ -1479,7 +1475,7 @@ private struct AskClaudeOverlay: View {
     @State private var privacyChanges = 0
 
     var body: some View {
-        // The space the panel may move in (TE248).
+        // The space the panel may move in.
         GeometryReader { geo in
             let controller = controller
             let _ = privacyChanges
@@ -1491,7 +1487,7 @@ private struct AskClaudeOverlay: View {
                 .frame(width: geo.size.width, height: geo.size.height)
         }
         .onReceive(NotificationCenter.default.publisher(for: AskClaudePrivacy.didChange)) { _ in privacyChanges += 1 }
-        // A row's Ask Claude About This brings an open panel's text box the keyboard (TE263).
+        // A row's Ask Claude About This brings an open panel's text box the keyboard.
         .onChange(of: visibility.focusRequests) { controller.focus() }
     }
 }

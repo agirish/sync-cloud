@@ -3,18 +3,12 @@ import FileExplorer
 import SwiftUI
 import Sync
 
-/// RD11's card, wired: what to show, and the four verbs behind it.
+/// The document survey card, wired: what it shows, and the four verbs behind it. In the app, not
+/// `LensWorkspaceView`, because `DocumentSurveyCardState` is plain values (counts, seconds, one
+/// sentence), so the translating happens where `Sync` and `FileExplorer` are both visible.
 ///
-/// **Here rather than in `LensWorkspaceView` because this is where `Sync` and `FileExplorer` meet.**
-/// `DocumentSurveyCardState` is deliberately made of plain values — counts, seconds, one worded
-/// sentence — the same rule `OrganizeOverview` follows for `reclaimable`, so the translating has to
-/// happen somewhere that can see both, and that is the app.
-/// What the last plan found, and which tree it found it in.
-///
-/// **The root is the whole point.** These two numbers were plain `@State` with no idea what they
-/// described, so after surveying one folder the offer card over a *different* folder quoted the
-/// first one's document count — a specific, confident, wrong number in the sentence a person
-/// decides on.
+/// `DocumentSurveyPlanFacts`: what the last plan found, and which tree it found it in. The root
+/// keeps the offer card over another folder from quoting this folder's document count.
 struct DocumentSurveyPlanFacts: Equatable {
     let rootPath: String
     let count: Int
@@ -34,18 +28,16 @@ struct DocumentSurveyPlanFacts: Equatable {
 extension ContentView {
 
     /// The folder a survey covers: the profile's own, whatever the pane shows or Organize is scoped
-    /// to — nil when the profile records none, which the survey refuses.
+    /// to; nil when the profile records none, which the survey refuses.
     ///
-    /// **The card's receipt, resume offer and count all describe this folder**, because it is the
-    /// only one a survey reads: what it learns is keyed by paths relative to the folder it walks,
-    /// and read back by the profile's. This used to be the scope, else the pane's current folder,
-    /// so a first reading set off with the pane on another source, or inside one subfolder, read
-    /// that instead and recorded it under the profile's name.
+    /// The card's receipt, resume offer and count all describe this folder, because it is the only
+    /// one a survey reads: what it learns is keyed by paths relative to the folder it walks, and
+    /// read back by the profile's.
     var documentSurveyRoot: URL? { syncManager.documentSurveyFolder }
 
-    /// Where a survey is asked from: the scope when one is set, otherwise the lens's own root —
-    /// the expression `buildStorageLensAction` uses. **It decides nothing about what is read**; the
-    /// plan walks ``documentSurveyRoot`` and names this in the log when it is somewhere else.
+    /// Where a survey is asked from: the scope when one is set, otherwise the lens's root, as in
+    /// `buildStorageLensAction`. It decides nothing about what is read: the plan walks
+    /// ``documentSurveyRoot`` and logs this when it is somewhere else.
     private var documentSurveyAskedFrom: URL? {
         let path = organizeScope?.path ?? lensScanRootExpanded
         return path.isEmpty ? nil : URL(fileURLWithPath: path)
@@ -53,78 +45,65 @@ extension ContentView {
 
     /// What the card shows, or nil to hide it.
     ///
-    /// **Order matters, and running wins.** A survey in flight is the only state where the card is
-    /// reporting something live; everything below it is a standing fact that will still be true a
-    /// second from now.
+    /// Order matters, and running wins: a survey in flight is the only live state; everything
+    /// below it is a standing fact.
     var documentSurveyCardState: DocumentSurveyCardState? {
-        // 1. Running, or paused mid-run.
-        // Shared with Activity's Running row (TE228), so the two say the same — `finishing` is its
-        // own state, not a pause: rendered as one it read "paused at 7,558 of 7,558 … Resumes on its
-        // own" over a survey that was not paused and could not be resumed.
-        // A source's own reading (Google Drive's) is shown on To File's strip, not on this card,
-        // which is the primary survey's.
+        // 1. Running, or paused mid-run. Shared with Activity's Running row, so the two say the
+        // same; `finishing` is its own state, not a pause. A source's own reading (Google
+        // Drive's) shows on To File's strip, not on this card, which is the primary survey's.
         if let progress = syncManager.documentSurveyProgress, syncManager.documentSurveySourceRoot == nil {
             return .live(progress)
         }
-        // 2. Just finished — the receipt, **for the tree it actually describes.**
-        //    The report outlives the run and Organize's scope moves under it, so without the root
-        //    check a completed survey's summary sat over whatever folder was selected next: a real
-        //    answer about the wrong tree, which is worse than no answer at all.
+        // 2. Just finished: the receipt, only for the tree it describes. The report outlives
+        //    the run and Organize's scope moves under it; a real answer about the wrong tree is
+        //    worse than none.
         if let report = syncManager.documentSurveyReport, report.isComplete,
            report.rootPath == documentSurveyRoot?.path {
             return .finished(summary: report.summary,
                              unreadableTypes: documentSurveyPlan?.unreadableTypes(for: report.rootPath) ?? 0)
         }
-        // 3. Unfinished progress on disk. **Offered, never resumed by itself** — RD11 decision 3.
+        // 3. Unfinished progress on disk. Offered, never resumed by itself.
         if let root = documentSurveyRoot,
            let resumable = syncManager.resumableDocumentSurvey(root: root) {
             return .interrupted(done: resumable.done, total: resumable.total)
         }
-        // 4. Nothing to survey against at all — no profile, so no card.
+        // 4. No profile, so nothing to survey against and no card.
         guard syncManager.filingFolderProfile != nil else { return nil }
 
-        // 5. Already read: the settled receipt.
-        //
-        //    **Derived from what is on disk, not from this session's report.** The report exists
-        //    only after a run in THIS launch, so a tree read last week — or read by the offline
-        //    builder — had no receipt at all. That is how the card came to disappear completely
-        //    once a memory existed, leaving Organize's overview silent about the reading while the
-        //    "surveyed 3 days ago" line sat on Restructure's card and the refresh sat in a dropdown
-        //    inside To File. `filingMemory` and `filingSurveyedAt` are both restored at launch,
-        //    which is exactly how Storage's receipt survives one.
+        // 5. Already read: the settled receipt, derived from what is on disk, not from this
+        //    session's report, which exists only after a run in this launch. `filingMemory` and
+        //    `filingSurveyedAt` are both restored at launch, so a tree read last week or by the
+        //    offline builder still gets its receipt.
         //
         //    Cheap on purpose: the folder count and the stamp are already in memory. The document
-        //    count is not — drawing it would mean parsing a 9,500-entry corpus for one line — so
-        //    the card states what it knows and leaves out what it would have to pay for.
+        //    count is not (it would mean parsing the whole corpus for one line), so it is left out.
         if let folders = syncManager.filingMemory?.folders.count, folders > 0 {
             return .settled(folders: folders, lastRead: syncManager.filingSurveyedAt)
         }
 
-        // 6. A profile, and nothing read yet. The count only where it belongs to THIS tree —
-        //    see `DocumentSurveyPlanFacts`.
+        // 6. A profile, and nothing read yet. The count only where it belongs to this tree
+        //    (see `DocumentSurveyPlanFacts`).
         return .offered(documents: documentSurveyPlan?.documents(for: documentSurveyRoot?.path))
     }
 
     /// Starts the survey on a folder setup has just learned.
     ///
-    /// **It moves the Organize scope to that folder first**, so the lenses answer about the tree
-    /// setup just learned. The reading itself covers the profile's folder whatever the scope says,
-    /// and setup only calls this when the profile it wrote is the one in use — which makes that
-    /// folder this one.
+    /// Moves the Organize scope to that folder first, so the lenses answer about it. The reading
+    /// covers the profile's folder whatever the scope says, and setup calls this only when the
+    /// profile it wrote is the one in use, which makes that folder this one.
     func startDocumentSurvey(learnedRoot: URL) {
         organizeScopePath = learnedRoot.path
         startDocumentSurvey(.read)
     }
 
-    /// The card's primary verb while it offers to read: *Read My Documents*, or — over a count of
-    /// nothing readable — *Look Again*, which only counts (``DocumentSurveyStarter/mode(for:)``).
+    /// The card's primary verb while it offers to read: *Read My Documents*, or, over a count of
+    /// nothing readable, *Look Again*, which only counts (``DocumentSurveyStarter/mode(for:)``).
     func startDocumentSurveyAction() {
         startDocumentSurvey(DocumentSurveyStarter.mode(for: documentSurveyCardState))
     }
 
-    /// The interrupted card's *Start over*, once the card has asked: the progress on disk is
-    /// discarded and every document is read again. Through the same walk as a first start, so the
-    /// plan, the count and the refusals are one path.
+    /// The interrupted card's *Start over*, once the card has asked: discards the progress on disk
+    /// and reads every document again, through the same walk as a first start.
     func startDocumentSurveyOverAction() {
         startDocumentSurvey(.startOver)
     }
@@ -140,11 +119,9 @@ extension ContentView {
         }
     }
 
-    /// Carries on an interrupted survey, resumes one the user paused, or — *Resume now* — reads
-    /// through a pause the machine asked for.
-    ///
-    /// One verb on purpose: from the card's side "Resume" means the same thing every way, and
-    /// which machinery answers it is not the reader's problem.
+    /// Carries on an interrupted survey, resumes one the user paused, or (*Resume now*) reads
+    /// through a pause the machine asked for. One verb, because to the reader "Resume" means the
+    /// same thing every way.
     func resumeDocumentSurveyAction() {
         if syncManager.documentSurveyProgress != nil, syncManager.documentSurveySourceRoot == nil {
             Task { await syncManager.resumeDocumentSurvey() }
@@ -162,11 +139,9 @@ extension ContentView {
     }
 }
 
-/// Starting a survey — the walk, then the read — apart from the view, so a test can run it.
-///
-/// **The walk is what produces the count the offer card could not know**, so it runs first and its
-/// answer reaches the card before a single document is opened — which is exactly what the uncounted
-/// offer promises.
+/// Starting a survey (the walk, then the read) apart from the view, so a test can run it. The walk
+/// produces the count the offer card lacks, so it runs first and reaches the card before any
+/// document is opened.
 @MainActor
 enum DocumentSurveyStarter {
 
@@ -181,10 +156,9 @@ enum DocumentSurveyStarter {
 
     /// What a press of the card's primary does from `state`.
     ///
-    /// **Look Again only counts** (review L2, his call 2026-10-27). It promised "Count the documents
-    /// here again" and ran the whole reading straight after the count, hours of it with no cost
-    /// shown. A count that now finds documents puts the card back on Read My Documents, with its
-    /// estimate.
+    /// Look Again only counts, as its label promises; the reading can take hours and the card
+    /// shows its cost first. A count that finds documents puts the card back on Read My Documents,
+    /// with its estimate.
     static func mode(for state: DocumentSurveyCardState?) -> Mode {
         state == .offered(documents: 0) ? .recountOnly : .read
     }
@@ -215,13 +189,10 @@ enum DocumentSurveyStarter {
 
     /// Plans, hands `planned` the count, and reads unless `mode` only counts.
     ///
-    /// **A plan made for a profile Setup has since replaced is made again** (review M4): the walk
-    /// takes a while, a Save beside it writes a new profile, and the run refuses a plan for the old
-    /// one rather than read into it. Once, because the second plan is of the profile in use.
-    ///
-    /// **And only for the same folder** (review, 2026-10-27). A plan always walks the profile's own
-    /// folder, so after a Save of another folder — Read Documents off — planning again read that
-    /// folder instead: hours on documents nobody asked to have read.
+    /// A plan made for a profile Setup has since replaced is made again, once: a Save during the
+    /// walk writes a new profile, and the run refuses a plan for the old one. Only for the same
+    /// folder: a plan walks the profile's own folder, so after a Save of another folder, planning
+    /// again would spend hours reading documents nobody asked to have read.
     static func start(manager: FileSyncManager, askedFrom: URL, mode: Mode,
                       planned: (DocumentSurveyPlanFacts) -> Void) async -> Outcome {
         var overtaken: URL?

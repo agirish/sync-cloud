@@ -1,20 +1,16 @@
 import Foundation
 import Sync
 
-/// What Ask Claude’s Look tools read when the Browse pane hasn’t loaded a folder (RD69, v7.0).
+/// What Ask Claude’s Look tools read when the Browse pane hasn’t loaded a folder. `go_to`
+/// re-roots the pane, so its loaded tree can't answer for anything above or beside it.
 ///
-/// **Names and metadata only, the same data the pane shows.** A folder is listed with
-/// `contentsOfDirectory` and its resource values: no file is opened, and a cloud-only file is not
-/// downloaded, because nothing here reads contents. Hidden files are skipped, as the pane skips
-/// them by default.
-///
-/// **Why it exists:** the first version read only the pane’s loaded tree, and `go_to` re-roots the
-/// pane, so after one move everything above and beside it read as “not loaded”. On 2026-10-30
-/// that cost 7 of 16 tool calls across two questions, each one re-sending the whole chat.
+/// Names and metadata only, the same data the pane shows: a folder is listed with
+/// `contentsOfDirectory` and its resource values, so no file is opened and a cloud-only file is
+/// not downloaded. Hidden files are skipped, as the pane skips them by default.
 enum AskClaudeDisk {
 
     /// How long a read may take before the tool answers without it. An iCloud folder can stall in
-    /// `open()` for minutes (the [load] walk has seen 208 s), and a question must not wait on that.
+    /// `open()` for minutes, and a question must not wait on that.
     static let timeout: Duration = .seconds(5)
     /// Spotlight paths stat’ed per search: more than enough for the 50 listed and an honest count.
     static let maxExamined = 500
@@ -43,9 +39,8 @@ enum AskClaudeDisk {
     }
 
     /// A folder’s direct items, in name order, or nil when it can’t be read within `timeout`.
-    /// A test passes its own bound: under a full suite on CI's three cores, a two-item listing
-    /// has waited longer than 5 s for a thread (2026-10-31; flaky-tests.md, “Tests racing a
-    /// real-time window”).
+    /// A test passes its own bound, since under load even a two-item listing can wait past 5 s
+    /// for a thread (`docs/flaky-tests.md`, “Tests racing a real-time window”).
     nonisolated static func list(_ folder: String, timeout: Duration = timeout) async -> [FileNode]? {
         await bounded(timeout: timeout) {
             let url = URL(fileURLWithPath: folder, isDirectory: true)
@@ -63,7 +58,7 @@ enum AskClaudeDisk {
         await SpotlightNameQuery(query: queryString(words), folder: folder).run()
     }
 
-    /// Paths under `folder` whose text holds every word (TE239), from Spotlight’s index.
+    /// Paths under `folder` whose text holds every word, from Spotlight’s index.
     @MainActor
     static func findContents(_ words: [String], under folder: String) async -> [String]? {
         await SpotlightNameQuery(query: AskClaudeReading.contentQuery(words), folder: folder).run()
@@ -105,11 +100,11 @@ enum AskClaudeDisk {
     /// common word across a whole drive can't hold the main thread reading tens of thousands.
     static let maxResultsRead = 5_000
 
-    /// Runs `work` off the main thread and gives up on it after `timeout`. The work itself can’t be
-    /// cancelled — a stalled `open()` holds its thread until it returns — so it is left to finish
-    /// and its answer is dropped. **On a Dispatch thread, not a task**: a blocked read parked on
-    /// Swift's shared task threads holds one of only a few, and a handful of stalled iCloud folders
-    /// would starve every async task in the app.
+    /// Runs `work` off the main thread and gives up on it after `timeout`. The work can’t be
+    /// cancelled (a stalled `open()` holds its thread until it returns), so it is left to finish
+    /// and its answer dropped. On a Dispatch thread, not a task: a blocked read holds one of Swift's
+    /// few shared task threads, and a handful of stalled iCloud folders would starve every async
+    /// task in the app.
     nonisolated static func bounded<T: Sendable>(timeout: Duration = timeout, _ work: @escaping @Sendable () -> T?) async -> T? {
         // Stop answers at once too: the read is left to finish, as at the timeout.
         let once = OnceFlag()

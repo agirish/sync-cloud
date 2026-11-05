@@ -1,12 +1,11 @@
 import Foundation
 
-/// The two spellings of one folder, made one (RD69 v7.0).
+/// The two spellings of one folder, made one.
 ///
 /// iCloud Drive’s Desktop and Documents are links: `…/com~apple~CloudDocs/Documents` points at
 /// `~/Documents`. The pane’s tree holds the real spelling (a listing below a link resolves it),
-/// while a path built from the source’s root holds the link spelling. Mixing them made lookups
-/// miss (“0 rows” on screen), and opening a file in Edit by the link spelling made Edit treat it
-/// as another source and open a new tab, whose Files list starts folded (2026-10-30).
+/// while a path built from the source’s root holds the link spelling. Mixing them makes lookups
+/// miss, and a file opened in Edit by the link spelling reads as another source and opens a new tab.
 ///
 /// So: look things up by the real path, navigate by the root’s spelling, tell Claude the path
 /// relative to the source either way, and hand Edit the real path.
@@ -19,9 +18,9 @@ enum AskClaudePaths {
 
     /// Links directly inside `root` to folders elsewhere: real target → the link’s own path.
     ///
-    /// **Read once a minute per root, not per call.** A search can spell thousands of paths, each
-    /// asking this; listing the root and reading every entry's link each time was a hundred
-    /// thousand file-system calls on the main thread for one question.
+    /// Read once a minute per root, not per call: a search can spell thousands of paths, each
+    /// asking this, and relisting the root every time costs a hundred thousand file-system calls on
+    /// the main thread for one question.
     nonisolated static func aliases(of root: String) -> [(real: String, spelled: String)] {
         if let cached = aliasCache.lookup(root) { return cached }
         let fm = FileManager.default

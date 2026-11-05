@@ -1,36 +1,27 @@
 import SwiftUI
 import AppKit
 
-/// **Reports that a click landed anywhere in a pane, without taking the click.**
+/// Reports that a click landed anywhere in a pane, without taking the click.
 ///
-/// `focusedPaneSide` is what every pane-scoped surface reads — ⌘F, ⌘[, ⌘], ⇧⌘N, the file
-/// action bar, the lens scans and the folder sidebar — and until now it moved on only three things:
-/// ⌃⇥, a row selection, and the tab verbs. Everything else a person does inside a pane left it
-/// pointing at the other one: clicking the empty space under the last row, the header card's
-/// breadcrumb or its refresh button, the column background, a right-click for the context menu.
+/// `focusedPaneSide` is what every pane-scoped surface reads (⌘F, ⌘[, ⌘], ⇧⌘N, the file action
+/// bar, the lens scans, the folder sidebar), so any click in a pane must move it: empty space under
+/// the last row, the header's breadcrumb or refresh button, the column background, a right-click.
+/// Listing those one at a time goes stale with every new control, so this asks once, at the one
+/// place that sees every click whatever AppKit view is beneath it.
 ///
-/// **Chasing those one at a time is the wrong shape and was tried first.** `noteWorkingIn` already
-/// carries seven call sites added exactly that way, each from a bug report, and its own comment
-/// enumerates the four gaps that had been found by then. An enumeration of the ways to click a pane
-/// is stale the moment a control is added — so this asks the question once, at the only place that
-/// sees every click regardless of which AppKit view is beneath it.
+/// `hitTest` runs while an event is routed, and a view that answers `nil` is passed over, so this
+/// reports the click and then declines it, every time. It is never a responder, never in the key
+/// loop, and can't swallow a press on a button it covers.
 ///
-/// **How it sees them without stealing them.** `hitTest` is called on the view hierarchy while an
-/// event is being routed, and a view that answers `nil` is passed over — the search continues to
-/// whatever lies below. So this reports the click and then declines it, every time. It is never a
-/// responder, never in the key loop, and cannot swallow a press on a button it happens to cover.
-///
-/// Do NOT reach for `.allowsHitTesting(false)` to make that guarantee: it removes the view from hit
-/// testing altogether, which is also how it would stop being asked.
+/// **Don't** use `.allowsHitTesting(false)` for that guarantee: it removes the view from hit
+/// testing altogether, so it would stop being asked.
 struct PaneClickReporter: NSViewRepresentable {
     let onClick: () -> Void
 
-    /// **Which events count as working in a pane.** Pulled out because `hitTest` is called for far
-    /// more than presses — hover tracking and layout ask too — and a focus move on hover would
-    /// re-aim ⌘W and Delete at whatever pane the pointer crossed last.
-    ///
-    /// Right-click counts: opening a pane's context menu is working in that pane, and the menu's
-    /// own items act on it.
+    /// Which events count as working in a pane. `hitTest` is asked for far more than presses (hover
+    /// tracking and layout ask too), and a focus move on hover would re-aim ⌘W and Delete at
+    /// whatever pane the pointer crossed last. Right-click counts: the context menu's items act on
+    /// that pane.
     static func shouldReport(_ type: NSEvent.EventType?) -> Bool {
         switch type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown: return true
@@ -49,39 +40,33 @@ struct PaneClickReporter: NSViewRepresentable {
     final class ClickReportingView: NSView {
         var onClick: (() -> Void)?
 
-        /// **The event in flight, behind a seam.** `NSApp.currentEvent` is nil in a test process —
-        /// nothing is being routed — so a test that calls `hitTest` directly takes the guard's
-        /// early exit and never reaches the line that declines the click. The first version of
-        /// `itNeverTakesTheClick` was written that way and passed with `return self` in place: it
-        /// asserted the safety property over the one input that could not exercise it.
+        /// The event in flight, behind a seam. `NSApp.currentEvent` is nil in a test process, so a
+        /// test calling `hitTest` directly would take the guard's early exit and never reach the
+        /// line that declines the click; `itNeverTakesTheClick` sets this to exercise it.
         var currentEventType: () -> NSEvent.EventType? = { NSApp.currentEvent?.type }
 
-        /// **How the report leaves the click's own routing window.** `hitTest` runs while the
-        /// event is still being routed — before the clicked control has seen its mouseDown — and
-        /// the report is a `@Published` write the clicked List is itself bound to. Publishing
-        /// there is the `aa9d407` ordering mistake with an earlier timestamp: the pending
-        /// invalidation can flush inside the table's mouse-down tracking loop and reload the List
-        /// mid-commit, dropping the click — the two-clicks-to-select bug this codebase has had
-        /// once already. `paneSelectionBinding` orders its own focus write *after* the selection
-        /// commit for exactly this reason; the reporter, firing earliest of all, defers instead.
+        /// How the report leaves the click's own routing. `hitTest` runs before the clicked control
+        /// sees its mouseDown, and the report is a `@Published` write the clicked List is bound to.
+        /// Publishing there can flush inside the table's mouse-down tracking loop and reload the
+        /// List mid-commit, dropping the click, so it takes two clicks to select.
+        /// `paneSelectionBinding` orders its own focus write after the selection commit for this
+        /// reason; the reporter, firing earliest, defers.
         ///
-        /// `.default` runloop mode, NOT `DispatchQueue.main.async`: the main queue drains in the
-        /// common modes, which include event tracking, so an async hop can still land inside the
-        /// very loop it is trying to stay out of. Nothing reads the focus synchronously out of
-        /// the same click — the context menu is keyed to the row's pane by design, and the
-        /// selection path writes focus itself after its commit — so arriving a turn later changes
-        /// no answer, only the ordering.
+        /// `.default` runloop mode, not `DispatchQueue.main.async`: the main queue drains in the
+        /// common modes, which include event tracking, so an async hop can still land inside that
+        /// loop. Nothing reads the focus synchronously in the same click (the context menu is keyed
+        /// to the row's pane, and the selection path writes focus after its commit), so a turn
+        /// later changes only the order.
         var deliver: (@escaping () -> Void) -> Void = { block in
             RunLoop.main.perform(inModes: [.default], block: block)
         }
 
-        /// Always returns nil — see the type's doc. One exit, so "declines the click" is a property
-        /// of the member rather than of whichever branch a reader happens to check.
+        /// Always returns nil (see the type's doc), with one exit so declining the click is a
+        /// property of the member, not of one branch.
         ///
-        /// The point arrives in the SUPERVIEW's coordinates, which is why it is converted before
-        /// being tested against `bounds`; reading it as local makes the report fire for clicks
-        /// outside the pane whenever the view is not at its superview's origin, and Compare's right
-        /// pane never is.
+        /// The point arrives in the superview's coordinates, so it is converted before the `bounds`
+        /// test; read as local, the report would fire for clicks outside the pane whenever the view
+        /// isn't at its superview's origin, as Compare's right pane never is.
         override func hitTest(_ point: NSPoint) -> NSView? {
             if PaneClickReporter.shouldReport(currentEventType()),
                let superview,

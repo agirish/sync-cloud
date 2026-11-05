@@ -5,13 +5,13 @@ import Sync
 import UniformTypeIdentifiers
 import Events
 
-/// Ask Claude’s tools in Browse (RD69, v7.0 first slice): Look and Steer only. Nothing here touches
-/// a file on disk.
+/// Ask Claude’s tools: they look, move the view and offer cards. Nothing here changes a file on
+/// disk; a card changes one only on the person's click.
 ///
-/// **Reads the pane first, then the disk.** A folder the Browse pane has loaded is read from its
-/// tree, which is what the person sees. One it hasn’t is listed from disk, names and metadata
-/// only (`AskClaudeDisk`), and names are searched through Spotlight’s index. Reading only the
-/// pane cost a wasted round per unloaded folder in the first version.
+/// Reads the pane first, then the disk. A folder the Browse pane has loaded is read from its tree,
+/// which is what the person sees. One it hasn’t is listed from disk, names and metadata only
+/// (`AskClaudeDisk`), so an unloaded folder doesn't cost a wasted round; names are searched
+/// through Spotlight’s index.
 @MainActor
 final class AskClaudeBrowseTools: AskClaudeToolRunning {
 
@@ -30,7 +30,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         /// A node by absolute path, if the pane has it.
         let node: (_ absolutePath: String) -> FileNode?
         let selection: Set<String>
-        /// Why the view can’t be moved right now, or nil when it can (decision EB).
+        /// Why the view can’t be moved right now, or nil when it can.
         let busyReason: String?
         let goTo: (_ absoluteFolder: String) -> Void
         let select: (_ absolutePaths: Set<String>) -> Void
@@ -43,17 +43,17 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var switchWorkspace: (_ name: String) -> Bool = { _ in false }
         /// Opens a file in the Edit workspace.
         var openInEdit: (_ absolutePath: String) -> EditOutcome = { _ in .notNow }
-        /// Opens a PDF form in Edit with Fill & Sign on, once it has loaded (TE294).
+        /// Opens a PDF form in Edit with Fill & Sign on, once it has loaded.
         var openForFill: (_ absolutePath: String) async -> FillOutcome = { _ in .notNow }
-        /// The Never show Claude list, absolute (TE246).
+        /// The Never show Claude list, absolute.
         var hidden: [String] = []
         /// Built from `hidden` at first use and kept with this context, so a folder's rows share
         /// their parent's resolved spelling.
         var hiddenMatcher = MatcherBox()
         func isHidden(_ path: String) -> Bool { hiddenMatcher.matcher(for: hidden).isHidden(path) }
-        /// Whether passages may go to Claude without the Send button (decision DQ).
+        /// Whether passages may go to Claude without the Send button.
         var readsFiles = false
-        /// The folders shared without asking (TE321), absolute; hidden wins over them.
+        /// The folders shared without asking, absolute; hidden wins over them.
         var shared: [String] = []
         var sharedMatcher = MatcherBox()
         /// Whether what's in `path` goes without a card: Let Claude read files, or a folder shared
@@ -61,16 +61,16 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         func sharesFreely(_ path: String) -> Bool {
             !isHidden(path) && (readsFiles || sharedMatcher.matcher(for: shared).holds(path))
         }
-        /// Apple Intelligence's answers go without a card for the rest of this chat (his call on
-        /// TE321, the card's tick); page text and whole documents still ask.
+        /// Apple Intelligence's answers go without a card for the rest of this chat (the card's
+        /// tick); page text and whole documents still ask.
         var sharesAnswers = false
         /// Lookups beyond the folder on screen go without a card for the rest of this chat (the
-        /// lookup card's tick, TE323).
+        /// lookup card's tick).
         var sharesNames = false
-        /// Whether a folder is the one on screen or inside it (his call on TE323): its names are
-        /// there to see, so a lookup in it goes as before. Any other waits on a card.
-        /// By where it really is (review 2 of 11-04): a link inside the folder on screen to a folder
-        /// elsewhere is not on screen, as a shared folder's link is not shared.
+        /// Whether a folder is the one on screen or inside it: its names are there to see, so a
+        /// lookup in it goes without a card. Any other waits on one. By where it really is: a link
+        /// inside the folder on screen to a folder elsewhere is not on screen, as a shared folder's
+        /// link is not shared.
         func isOnScreen(_ absolute: String) -> Bool {
             onScreenMatcher.matcher(for: [folder.isEmpty ? root : (root as NSString).appendingPathComponent(folder)]).holds(absolute)
         }
@@ -79,7 +79,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         func lookupGoes(_ folder: (absolute: String, relative: String, label: String)) -> Bool {
             !isHidden(folder.absolute) && (isOnScreen(folder.absolute) || sharesNames || sharesFreely(folder.absolute))
         }
-        /// The pane's tabs, the one on screen first, and how to switch or open one (TE242).
+        /// The pane's tabs, the one on screen first, and how to switch or open one.
         var tabs: [Tab] = []
         var switchTab: (_ id: UUID) -> Void = { _ in }
         var addTab: (_ absoluteFolder: String) -> Void = { _ in }
@@ -90,7 +90,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var pane: (_ isLeft: Bool) -> Pane = { _ in Pane(sourceID: "", root: "", folder: "") }
         var movePane: (_ isLeft: Bool, _ sourceID: String?, _ absoluteFolder: String?) -> Void = { _, _, _ in }
         /// Compare's differences as the list shows them, and the comparison they come from; nil
-        /// when Compare has no two sides (TE261).
+        /// when Compare has no two sides.
         var differences: () -> [FileDifference] = { [] }
         var comparison: () -> AskClaudeDifferences.Comparison? = { nil }
         /// Scan Again; false when it can't start.
@@ -98,30 +98,30 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         /// Narrows Compare's differences list to a kind and selects rows there; false when it can't.
         var showDifferences: (_ kind: AskClaudeDifferences.Kind, _ ids: Set<UUID>) -> Bool = { _, _ in false }
         /// Why Compare's list can't show rows right now, though nothing else is busy — a guided
-        /// review holds it (TE295); nil when it can. Asked before Compare is switched to.
+        /// review holds it; nil when it can. Asked before Compare is switched to.
         var differencesHeldBy: () -> String? = { nil }
         /// Clock, for how old a comparison is.
         var now: () -> Date = Date.init
         /// How long a Scan Again asked for is given to land before the list read before it is
         /// answered from; a test shortens it.
         var scanStartWait: Duration = .seconds(5)
-        /// Where a file belongs by the Filing profile (TE255), preferring a place they named,
-        /// absolute (TE284); nil when filing help can't run.
+        /// Where a file belongs by the Filing profile, preferring a place they named, absolute;
+        /// nil when filing help can't run.
         var whereToFile: (_ path: String, _ place: String?) async -> FilingHelpAnswer? = { _, _ in nil }
-        /// The rule a correction teaches (TE286), from page 1; nil when the folder isn't in a survey.
+        /// The rule a correction teaches, from page 1; nil when the folder isn't in a survey.
         var ruleFromCorrection: (_ path: String, _ folder: String, _ name: String, _ words: [String], _ also: [String],
                                  _ page: String?) -> Result<AutomationRuleProposer.Correction, AutomationRuleProposer.CorrectionRefusal>? = { _, _, _, _, _, _ in nil }
         /// A folder of the survey by what they called it ("Travel"), absolute; nil when it has none.
         var surveyFolder: (_ name: String) -> String? = { _ in nil }
         /// The folder the survey covers, absolute; nil with no survey.
         var surveyRoot: String?
-        /// The root of the survey filing help answers from for a path (GM: it follows the source —
-        /// Google Drive's own survey for a place in Google Drive); nil uses ``surveyRoot``.
+        /// The root of the survey filing help answers from for a path: it follows the source, so a
+        /// place in Google Drive gets Google Drive's own survey. Nil uses ``surveyRoot``.
         var surveyRootFor: ((_ path: String) -> String?)?
 
         /// The survey that answers for `path`, absolute; nil with no survey.
         func survey(for path: String) -> String? { surveyRootFor.map { $0(path) } ?? surveyRoot }
-        /// Why a change can't run (TE262): hidden, gone, taken, another disk…; nil when it can.
+        /// Why a change can't run: hidden, gone, taken, another disk…; nil when it can.
         /// `creating` are folders the same card makes.
         var planRefusal: (_ change: AskClaudePlan.Change, _ creating: Set<String>) -> String? = { _, _ in nil }
         /// The items on this chat's cards so far, absolute: a filing card's Next shows the files
@@ -129,23 +129,23 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var shownOnCards: Set<String> = []
         /// Whether a file is only in the cloud, for the already-filed check, which never reads one.
         var isCloudOnly: (_ path: String) -> Bool = { MaterializationStatus.isCloudOnlyIfKnown(atPath: $0) == true }
-        /// Organize's Refine with Claude is set up, so the card may offer it (decision EY).
+        /// Organize's Refine with Claude is set up, so the card may offer it.
         var canRefineFiling = false
         /// The pane's Back (false) and Forward (true); false when there was nowhere to go.
         var history: (_ forward: Bool) -> Bool = { _ in false }
-        /// Quick Look on a file (TE243).
+        /// Quick Look on a file.
         var preview: (_ url: URL) -> Void = { _ in }
-        /// View changes (TE244); each false when the value isn't one.
+        /// View changes; each false when the value isn't one.
         var setSort: (_ name: String) -> Bool = { _ in false }
         var setHiddenFiles: (_ shown: Bool) -> Void = { _ in }
         var setMode: (_ name: String) -> Bool = { _ in false }
         /// Opens settings (and a tab), activity, help or the Trash; false for a place that isn't one.
         var showPlace: (_ place: String, _ tab: String?, _ visible: Bool) -> Bool = { _, _, _ in false }
-        /// The settings tool's answers (TE290); nil where there is no app to read.
+        /// The settings tool's answers; nil where there is no app to read.
         var settingsLookup: SettingsLookup?
         /// Whether the chat panel is on screen; Claude changes nothing itself while it isn't.
         var chatIsOpen = true
-        /// Writes a setting Claude may change itself, through its owner (TE290 step 4c).
+        /// Writes a setting Claude may change itself, through its owner.
         var setSetting: (_ id: String, _ value: SettingValue, _ target: String?) -> SettingsWriter.Outcome = { _, _, _ in
             .refused("Settings can’t be changed here.")
         }
@@ -331,7 +331,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                     return AskClaudeToolOutcome(result: "\(node.name) is an app, script, installer or shortcut, and Ask Claude doesn’t open those. Reveal it, and they can open it themselves.",
                                                 isError: true, step: "Didn’t open \(node.name): it would run something")
                 }
-                // A card, not a trip to Browse: nothing opens until they download it (TE258).
+                // A card, not a trip to Browse: nothing opens until they download it.
                 if let size = largeCloudOnly(node, path), let handle = call.string("handle") {
                     let mode = call.string("in")?.lowercased()
                     return offerDownload(node, path, handle: handle, size: size, purpose: .open(in: mode == "preview" ? mode : nil), ctx)
@@ -358,8 +358,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
     }
 
-    /// SyncCloud's own settings (TE290): find, get and changed read them (step 2); show puts a
-    /// card in the chat (4a); set is Claude's own change, for the few it may make (4c).
+    /// SyncCloud's own settings: find, get and changed read them; show puts a card in the chat;
+    /// set is Claude's own change, for the few it may make.
     private func settings(_ call: AskClaudeToolCall, _ ctx: Context) async -> AskClaudeToolOutcome {
         guard let lookup = ctx.settingsLookup else {
             return AskClaudeToolOutcome(result: "Settings can’t be looked up here.", isError: true, step: "Couldn’t look up settings")
@@ -383,7 +383,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
     }
 
-    /// The controls a card can hold in this version (TE290 step 4a); the rest open Settings.
+    /// The controls a card can hold in this version; the rest open Settings.
     static func cardHolds(_ control: SettingControl) -> Bool {
         switch control {
         case .toggle, .segmented, .menu, .stepper, .slider, .swatches, .secret, .text, .folder, .button: true
@@ -392,7 +392,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     }
 
     /// Whether `entry` can be a card in this version: its control can, it is one of the lists, or
-    /// it is a person or Add Person, which bring their own fields (TE290 step 9).
+    /// it is a person or Add Person, which bring their own fields.
     static func cardHolds(_ entry: SettingEntry) -> Bool {
         if entry.id.hasPrefix("people.") { return entry.id == "people.edit" || entry.id == "people.add" || SettingsActions.ids.contains(entry.id) }
         if SettingsLists.ids.contains(entry.id) { return true }
@@ -400,7 +400,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .button, .secret: return true
         case .folder where entry.id == "sources.addFolder": return true
         default:
-            // A control whose click the writer always refuses is never offered (TE290 review).
+            // A control whose click the writer always refuses is never offered.
             return cardHolds(entry.control) && SettingsWriter.canWrite(entry)
         }
     }
@@ -456,7 +456,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 }
                 pick = .string(pattern)
             } else if item["pick"]?.stringValue != nil, entry.control == .folder {
-                // A path comes from their Choose…, never from Claude (TE290 step 9).
+                // A path comes from their Choose…, never from Claude.
                 return AskClaudeToolOutcome(result: "Claude never fills in a folder; show \(entry.label) without a pick, and they choose it.",
                                             isError: true, step: "Not a pick for \(entry.label)")
             } else if let text = item["pick"]?.stringValue, entry.control == .text {
@@ -518,9 +518,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         return .success(source.id)
     }
 
-    /// Claude's own change to a setting (TE290 step 4c): only one get says it may make — a Direct
-    /// setting, or one that lowers its own reach — and only while the chat is on screen, so the
-    /// card showing it, with Undo, is in front of them.
+    /// Claude's own change to a setting: only one `get` says it may make (a Direct setting, or one
+    /// that lowers its own reach), and only while the chat is on screen, so the card showing it,
+    /// with Undo, is in front of them.
     private func setSetting(_ call: AskClaudeToolCall, _ ctx: Context, _ lookup: SettingsLookup) -> AskClaudeToolOutcome {
         guard let id = call.string("id"), let entry = SettingsCatalog.entry(id) else {
             return AskClaudeToolOutcome(result: "\(call.string("id") ?? "That") isn’t a setting id. Use find.", isError: true,
@@ -581,7 +581,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     }
 
     private func dispatch(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
-        // The Never show Claude list (TE246): a hidden item can't be named into any tool.
+        // The Never show Claude list: a hidden item can't be named into any tool.
         let named = ([call.string("handle")].compactMap { $0 } + (call.strings("handles") ?? [])).compactMap { handles.path(for: $0) }
         if named.contains(where: { ctx.isHidden($0) }) {
             return AskClaudeToolOutcome(result: "That item is on their Hidden from Claude list. Don’t ask about it or guess what it holds.",
@@ -658,8 +658,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         if everything.count > items.count { lines.append("\(everything.count - items.count) more hidden from Claude by them.") }
         let step = "Listed \(folder.label) · \(items.count) item\(items.count == 1 ? "" : "s")"
         guard goes || page.isEmpty else {
-            // TE323: a folder they aren't looking at says what's in it by its names alone, so they
-            // wait on a card, as a search inside files does (decision IV).
+            // A folder they aren't looking at says what's in it by its names alone, so they wait on
+            // a card, as a search inside files does.
             let found = AskClaudeFoundNames(words: "", folderLabel: folder.label, names: page.map(\.name), count: items.count,
                                             rows: lines.joined(separator: "\n"), paths: page.map(\.id), files: files,
                                             header: header, source: .listing)
@@ -669,7 +669,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: step)
     }
 
-    /// A file held on a card (TE320, TE323): its row with its folder, as Share Details sends it,
+    /// A file held on a card: its row with its folder, as Share Details sends it,
     /// but no handle yet. Handles run r1, r2, r3, so one minted now could be guessed and asked
     /// about before they share; `AskClaudeChat.takeFound` mints it with the share.
     private func foundFile(_ node: FileNode, _ ctx: Context) -> AskClaudeFoundNames.File {
@@ -776,7 +776,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         lines.append("If they asked to find or show something, reveal the best row now, without asking.")
         let step = "Found \(total) for “\(label)”"
         guard goes else {
-            // TE323: names found beyond the folder on screen wait on a card for their click.
+            // Names found beyond the folder on screen wait on a card for their click.
             let found = AskClaudeFoundNames(words: label, folderLabel: folder.label, names: hits.map(\.name), count: total,
                                             rows: lines.joined(separator: "\n"), paths: hits.map(\.id), files: files, header: header,
                                             source: .names, fromIndex: searchedIndex, allFiles: !hits.contains(where: \.isDirectory))
@@ -829,7 +829,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
     }
 
-    /// Reveals a file named in an answer (TE245): its folder in the pane, the file selected.
+    /// Reveals a file named in an answer: its folder in the pane, the file selected.
     func reveal(path: String) async {
         var ctx = context()
         let name = (path as NSString).lastPathComponent
@@ -931,8 +931,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         if let busy = ctx.busyReason {
             return AskClaudeToolOutcome(result: "Can’t open it right now: \(busy).", isError: true, step: "Didn’t open: \(busy)")
         }
-        // Opening a cloud-only file downloads it. Up to 25 MB that happens on its own (decision EJ);
-        // above it, they get a card and it opens when they download it (TE258).
+        // Opening a cloud-only file downloads it. Up to 25 MB that happens on its own; above it,
+        // they get a card and it opens when they download it.
         if let size = largeCloudOnly(node, path) {
             let mode = call.string("in")?.lowercased()
             return offerDownload(node, path, handle: handle, size: size, purpose: .open(in: mode == "edit" || mode == "preview" ? mode : nil), ctx)
@@ -978,7 +978,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                     step: "Opened \(node.name)", movedView: moved)
     }
 
-    /// The most a read or open downloads on its own (decision EJ); over it, a card asks (TE258).
+    /// The most a read or open downloads on its own; over it, a card asks.
     static let autoDownloadBytes = 25_000_000
 
     /// When reading or opening `path` would download more than `autoDownloadBytes`: the size, nil
@@ -992,7 +992,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         return size > Self.autoDownloadBytes ? .some(size) : nil
     }
 
-    /// The tool's answer when a card is offered instead (TE258): nothing is downloaded yet.
+    /// The tool's answer when a card is offered instead: nothing is downloaded yet.
     private func offerDownload(_ node: FileNode, _ path: String, handle: String, size: Int?,
                                purpose: AskClaudeDownload.Purpose, _ ctx: Context) -> AskClaudeToolOutcome {
         let source = Self.closestSource(containing: path, in: ctx.sources)?.name ?? ctx.sourceName
@@ -1003,7 +1003,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                     step: "Offered to download \(node.name) to \(verb) it", download: download)
     }
 
-    /// Why a card's Download is refused at the click (TE258), or nil: hidden since the card
+    /// Why a card's Download is refused at the click, or nil: hidden since the card
     /// appeared, gone, or less free space than twice its size on its volume.
     static func downloadRefusal(_ download: AskClaudeDownload, isHidden: (String) -> Bool,
                                 exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
@@ -1039,7 +1039,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         return ContinuousClock.now - started >= timeout - .seconds(1) ? .timedOut : .failed
     }
 
-    /// Opens a file a card just downloaded, as the open that offered the card asked (TE258). Run
+    /// Opens a file a card just downloaded, as the open that offered the card asked. Run
     /// as that call again, so every check it made is made again now.
     func openDownloaded(_ download: AskClaudeDownload) async -> AskClaudeToolOutcome {
         guard case .open(let mode) = download.purpose else {
@@ -1081,7 +1081,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let folderArg = call.string("folder")
         let sourceArg = call.string("source")?.trimmingCharacters(in: .whitespaces).nonEmpty
         let workspaceArg = call.string("workspace")?.trimmingCharacters(in: .whitespaces).nonEmpty
-        // Every move waits for the window: never under a sheet or a question (decision EB).
+        // Every move waits for the window: never under a sheet or a question.
         if let busy = ctx.busyReason {
             return AskClaudeToolOutcome(result: "Can’t move the view right now: \(busy). Tell them where it is instead.",
                                         isError: true, step: "Didn’t move the view: \(busy)")
@@ -1391,9 +1391,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var local = AskClaudeReading.passage(from: pages, question: question, limit: limit, paged: paged)
         let forClaude = AskClaudeReading.claudePassage(from: pages, question: question, paged: paged)
         var answer = await answerOnDevice(question, local.text, node.name)
-        // Chinese or Japanese runs near a token a character: 16,000 characters of it were 12,522
-        // tokens, past the model's 8,192 (2026-11-02). So a passage that doesn't fit halves, twice
-        // at most; 4,000 characters fit any script measured.
+        // Chinese or Japanese runs near a token a character: 16,000 characters of it are about
+        // 12,500 tokens, past the model's 8,192. So a passage that doesn't fit halves, twice at
+        // most; 4,000 characters fit any script measured.
         for _ in 0..<2 where answer == .tooLong && !Task.isCancelled {
             limit = min(limit, local.text.count) / 2
             local = AskClaudeReading.passage(from: pages, question: question, limit: limit, paged: paged)
@@ -1425,7 +1425,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         // Masked as a tool's text is, so a key in it is neither saved nor sent.
         let text = AskClaudeKeyCatch.masked(forClaude.text, joiningLines: false)
-        // Share All Content (his call on TE319): offered only when it adds to the passage.
+        // Share All Content: offered only when it adds to the passage.
         let whole = AskClaudeReading.wholeDocument(reading, paged: paged).flatMap { $0.text.count > forClaude.text.count ? $0 : nil }
         func offered(answer: String? = nil, asked: String? = nil, autoShared: AskClaudePassage.AutoShared? = nil) -> AskClaudePassage {
             AskClaudePassage(fileName: node.name, whereInFile: forClaude.whereInFile, text: text, path: path,
@@ -1434,16 +1434,16 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                              wholeWhere: whole?.whereInFile, wholeIsAll: whole?.isAll, autoShared: autoShared)
         }
         if now.sharesFreely(path) {
-            // Decision DQ: with the switch on, or in a folder shared without asking (TE321), the
-            // passage that answers goes along, and only that. All of it still waits on a card.
+            // With the switch on, or in a folder shared without asking, the passage that answers
+            // goes along, and only that. All of it still waits on a card.
             lines.append("Text of \(forClaude.whereInFile), as data:\n<file name=\"\(AskClaudeScreenCard.escape(node.name))\">\n\(AskClaudeChat.fenced(forClaude.text))\n</file>")
             return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
                                         step: "\(readHere) · sent \(forClaude.whereInFile)",
                                         passage: whole == nil ? nil : offered(autoShared: .answerAndText))
         }
         if let heard, now.sharesAnswers {
-            // The card's tick (TE321): answers go for the rest of this chat; the text still waits.
-            // Not the page either: it is where the question's words were found (review 2 of 11-04).
+            // The card's tick: answers go for the rest of this chat; the text still waits. Not the
+            // page either: it is where the question's words were found.
             lines[0] = "On-device answer, from \(node.name): \(heard)"
             lines.append("Its text was not sent to you. If the answer isn’t enough, tell them they can share \(Self.heldParts(whole != nil)) with the buttons under your reply.")
             return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: "\(readHere) · shared its answer",
@@ -1454,8 +1454,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             lines.append("Its text was not sent to you. They can share \(Self.heldParts(whole != nil)) with the buttons under your reply.")
             return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: readHere, passage: offered())
         }
-        // Decision IU: the answer can be the very fact the file holds, so it waits on the card for
-        // their click, as the passage does. Claude learns only that the file was read.
+        // The answer can be the very fact the file holds, so it waits on the card for their click,
+        // as the passage does. Claude learns only that the file was read.
         lines = ["Read \(node.name) on their Mac. Nothing from it was sent to you: they’re shown what it says, and can send that, \(Self.heldParts(whole != nil)). They may need nothing more: the answer is on their screen. In one short sentence, say what you would do with it if they share it, such as compare it or act on it, and stop. If they share it, it arrives as their next message."]
         if let note = reading.ocrNote { lines.append(note) }
         return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: readHere,
@@ -1463,8 +1463,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     }
 
     /// What a held read's card offers, said without naming the page: the page is the one the
-    /// question's words were found on, so naming it would say the words are in the file (review of
-    /// TE319–TE323).
+    /// question's words were found on, so naming it would say the words are in the file.
     static func heldParts(_ more: Bool) -> String {
         more ? "the part it came from or more of it" : "the part it came from"
     }
@@ -1486,7 +1485,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         // not said, so it isn't searched.
         if ctx.isHidden(folder.absolute) { return hiddenFolder() }
         let label = words.joined(separator: " ")
-        // A search inside a folder shared without asking (TE321) goes as with the switch on.
+        // A search inside a folder shared without asking goes as with the switch on.
         let free = ctx.sharesFreely(folder.absolute)
         guard let paths = await searchContents(words, folder.absolute) else {
             return AskClaudeToolOutcome(result: "Spotlight didn’t answer, so the text couldn’t be searched.", isError: true,
@@ -1499,8 +1498,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let noMatch = "No file under \(folder.label) has text matching “\(label)”. Scans without a text layer and files only in the cloud may not be searchable."
         guard !nodes.isEmpty else {
             guard free else {
-                // Whether any file mentions a word says what the files hold, so even "none" waits
-                // (review of TE319–TE323): a count of 0 or 1 in a folder of one file is the answer.
+                // Whether any file mentions a word says what the files hold, so even "none" waits:
+                // a count of 0 or 1 in a folder of one file is the answer.
                 let found = AskClaudeFoundNames(words: label, folderLabel: folder.label, names: [], count: 0, rows: noMatch,
                                                 paths: [], files: [], header: noMatch)
                 return AskClaudeToolOutcome(result: Self.heldSearch(label, folder.label), step: "Found no text matching “\(label)”", found: found)
@@ -1521,7 +1520,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 continue
             }
             var line = AskClaudeScreenCard.row(for: Self.row(node), handles: &handles) + "|" + AskClaudeScreenCard.escape(where_.isEmpty ? "(top level)" : where_)
-            // The matching line goes out only with the switch on (his TE239 call), for the first ten.
+            // The matching line goes out only with the switch on, for the first ten.
             // Never a cloud-only file over the download limit: reading it would fetch it.
             let fetches = largeCloudOnly(node, node.id) != nil
             if free, index < 10, !fetches, Date() < readUntil, let text = await extract(node.id)?.joined(separator: " "),
@@ -1533,8 +1532,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         if nodes.count > Self.maxFound { lines.append("\(nodes.count - Self.maxFound) more not listed.") }
         let step = "Found \(nodes.count) with “\(label)” inside"
         guard free else {
-            // Decision IV: which files mention a word says what is in them, so with the switch off
-            // the names wait on a card for their click, as a file's answer does (decision IU).
+            // Which files mention a word says what is in them, so with the switch off the names
+            // wait on a card for their click, as a file's answer does.
             let listed = nodes.prefix(Self.maxFound)
             let found = AskClaudeFoundNames(words: label, folderLabel: folder.label, names: listed.map(\.name),
                                             count: nodes.count, rows: lines.joined(separator: "\n"), paths: listed.map(\.id),
@@ -1628,10 +1627,10 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                         isError: true, step: "\(into) is outside the folder survey")
         }
         // A rule is checked against the file's first page: its words, its date. Unless the file
-        // shares freely, Claude mustn't learn what that check found (review of TE319–TE323): one
-        // call per word would tell it which words the page holds. So Claude is told only that they
-        // see the outcome — whatever it is, or the telling itself would answer — except for what
-        // depends on Claude's own words and folder alone. The step line tells them why.
+        // shares freely, Claude mustn't learn what that check found: one call per word would tell
+        // it which words the page holds. So Claude is told only that they see the outcome, whatever
+        // it is, except for what depends on Claude's own words and folder alone. The step line
+        // tells them why.
         if page != nil, !ctx.sharesFreely(path), !Self.dependsOnInputAlone(answer) {
             let neutral = "Whether a rule fits depends on the file’s first page, which isn’t sent to you, so they see the result and you don’t, now or when they answer it. Say in a line that they can see whether a rule was offered, and stop. If they tell you a word that sets this file apart, you can offer it again with also."
             switch answer {
@@ -1675,7 +1674,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
     }
 
-    /// Where they said a file should go, absolute (TE284): a source and folder when the first
+    /// Where they said a file should go, absolute: a source and folder when the first
     /// part names a source ("Dropbox", "iCloud/Documents/Travel"), else a folder of their survey
     /// ("Travel", "Documents/Taxes/2025"). Nil when it is neither.
     static func place(_ into: String, _ ctx: Context) -> String? {
@@ -1765,7 +1764,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         // Checked now, with the folders this card makes counted as there.
         for index in rows.indices {
             // A place in a hidden folder is refused before anything is checked on disk, so "already
-            // there" can't say what a hidden folder holds (review of TE319–TE323).
+            // there" can't say what a hidden folder holds.
             if let hidden = Self.places(rows[index].change).first(where: ctx.isHidden) {
                 rows[index].refusal = "\((Self.hiddenEntry(hidden, ctx.hidden) as NSString).lastPathComponent) is hidden from Claude"
                 rows[index].ticked = false
@@ -1827,9 +1826,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
 
     // MARK: Loose files (TE285)
 
-    /// Files on one filing card (decision GG).
+    /// Files on one filing card.
     static let looseFilesPerCard = AskClaudeLooseFiles.perCard
-    /// Changes on one card Claude proposes (decision FC).
+    /// Changes on one card Claude proposes.
     static let changesPerCard = 50
 
     private func fileLooseFiles(_ call: AskClaudeToolCall, _ ctx: Context) async -> AskClaudeToolOutcome {
@@ -1838,7 +1837,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         if ctx.isHidden(folder.absolute) { return hiddenFolder() }
         let shown = Self.breadcrumb(folder.absolute, sources: ctx.sources, fallback: folder.label)
-        // The survey that answers for these files (GM): their source's own, or the primary one.
+        // The survey that answers for these files: their source's own, or the primary one.
         guard let surveyRoot = ctx.survey(for: folder.absolute) else {
             let card = AskClaudeFilingCard(fileName: shown, filePath: folder.absolute, kind: .noProfile)
             return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, readsFiles: ctx.readsFiles),
@@ -1859,7 +1858,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                         step: "No loose files in \(folder.label)")
         }
         let counted = Self.looseCount(found)
-        // Decision GB: without a place, they are asked, with buttons.
+        // Without a place, they are asked, with buttons.
         guard let into = call.string("into")?.trimmingCharacters(in: .whitespaces).nonEmpty else {
             let choices = [AskClaudeChoice("Into \(surveyName), by how I file", sends: "Into \(surveyName), by how I file"),
                            AskClaudeChoice("Somewhere else…", sends: nil)]
@@ -1879,7 +1878,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         // A named place decides the survey, as filing help decides it: "into Google Drive's Finance"
         // is Google Drive's survey, wherever the files sit.
         let placeSurvey = ctx.survey(for: place) ?? surveyRoot
-        // Decision FY: a place the survey doesn't cover is said, and the survey offered instead.
+        // A place the survey doesn't cover is said, and the survey offered instead.
         guard FileSyncManager.isAtOrUnderSurvey(place, root: placeSurvey) else {
             let placeSurveyLabel = Self.breadcrumb(placeSurvey, sources: ctx.sources, fallback: (placeSurvey as NSString).lastPathComponent)
             let card = AskClaudeFilingCard(fileName: shown, filePath: folder.absolute, kind: .outside(surveyed: placeSurveyLabel), place: placeLabel)
@@ -1925,7 +1924,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             let fromLabel = Self.breadcrumb((file.path as NSString).deletingLastPathComponent, sources: ctx.sources,
                                             fallback: ((file.path as NSString).deletingLastPathComponent as NSString).lastPathComponent)
             let label = choices[0].label
-            // Decision GF: the same bytes already in its home is a copy to put in the Trash.
+            // The same bytes already in its home is a copy to put in the Trash.
             let isCloudOnly = ctx.isCloudOnly
             if let twin = await Task.detached(priority: .userInitiated, operation: {
                 AskClaudeLooseFiles.sameFile(as: file.path, in: best.folder, size: file.size, isCloudOnly: isCloudOnly)
@@ -1937,7 +1936,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 rows.append(row)
                 continue
             }
-            // Decision GE's landing name is noted once the card is built, after the rows above it.
+            // Its landing name (numbered when the name is taken) is noted once the card is built,
+            // after the rows above it.
             var row = AskClaudePlan.Row(id: rows.count, name: file.name, change: .move(from: file.path, toFolder: best.folder),
                                         ticked: best.confidence == .high, confidence: AskClaudeFiling.label(best.confidence),
                                         reason: choices[0].reason,
@@ -1946,7 +1946,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             (row.size, row.modified, row.fromLabel) = (file.size, file.modified, fromLabel)
             rows.append(row)
         }
-        // Decision GA: subfolders these files would leave empty, as one unticked Trash row.
+        // Subfolders these files would leave empty, as one unticked Trash row.
         let emptied = AskClaudeLooseFiles.emptiedFolders(found, onCard: Set(rows.map(\.change.path)))
         // A home not made yet (a saved rule's new month folder, "2026 › Oct"): the card makes it,
         // a row per folder, outermost first, ticked while a ticked move goes into it.
@@ -1975,12 +1975,12 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                           change: .trashIfEmptied(folders: emptied), ticked: false,
                                           reason: ListFormatter.localizedString(byJoining: names) + ", once their files are filed"))
         }
-        // Each row checked now, as a proposed card's are (TE262), with the folders it makes counted
+        // Each row checked now, as a proposed card's are, with the folders it makes counted
         // as there: one that can't run says why and has no tick, rather than failing at Apply.
         let creating = Set(making)
         for index in rows.indices {
             // A place in a hidden folder is refused before anything is checked on disk, so "already
-            // there" can't say what a hidden folder holds (review of TE319–TE323).
+            // there" can't say what a hidden folder holds.
             if let hidden = Self.places(rows[index].change).first(where: ctx.isHidden) {
                 rows[index].refusal = "\((Self.hiddenEntry(hidden, ctx.hidden) as NSString).lastPathComponent) is hidden from Claude"
                 rows[index].ticked = false
@@ -2019,7 +2019,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             if case .newFolder = row.change { return false }
             return row.ticked
         }.count
-        // Names and homes go only from a folder that shares freely (review of TE319–TE323): a home
+        // Names and homes go only from a folder that shares freely: a home
         // can be picked from a file's first page, and the names of a folder off screen are held
         // like a lookup's. The card shows them all; Claude gets the counts.
         let sendsRows = ctx.sharesFreely(folder.absolute)
@@ -2081,7 +2081,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         var steps: [String] = []
         var scanDidntLand = false
-        // A comparison that's missing or over an hour old is scanned again first (decision EG):
+        // A comparison that's missing or over an hour old is scanned again first:
         // nothing on disk changes, and an answer from an old list would be wrong in ways that
         // don't show. A scan already running is waited for.
         if comparison.isScanning || !comparison.hasScanned || comparison.isStale(now: ctx.now()) {
@@ -2138,7 +2138,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let summary = "\(rows.count) difference\(rows.count == 1 ? "" : "s")" + (AskClaudeDifferences.label(kind, comparison: comparison).map { " (\($0))" } ?? "")
         steps.append("Read \(summary)")
         var moved: String?
-        // Shown in the list too (decision EI): Compare opens, its list narrows to the kind, and
+        // Shown in the list too: Compare opens, its list narrows to the kind, and
         // these rows are selected.
         if call.input["show"]?.boolValue == true, !rows.isEmpty {
             if let busy = ctx.busyReason ?? ctx.differencesHeldBy() {

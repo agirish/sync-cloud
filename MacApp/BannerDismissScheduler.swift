@@ -1,34 +1,29 @@
 import Foundation
 import Sync
 
-/// Owns the single auto-dismiss timer for the operation banner.
-/// Every banner change cancels the previous timer, so a replacement banner — even one with the
-/// exact same content — always gets the full display window, and a banner cleared elsewhere cannot
-/// be dismissed early by a stale timer that merely compares values.
+/// Owns the single auto-dismiss timer for the operation banner. Every banner change cancels the
+/// previous timer, so a replacement banner, even one with identical content, gets the full window,
+/// and a stale timer can't dismiss a banner early.
 ///
-/// Dismissal rules by severity: success and warning auto-dismiss after their configured delay
-/// (warnings get a longer window); errors are sticky and stay until manually closed. A message
-/// that is the toolbar capsule's own gets a longer window of its own (`capsuleNanoseconds`); a
-/// run's ending the capsule only mirrors from a pane keeps the pane's.
-/// Hovering the banner pauses the timer; on hover exit the FULL delay restarts (not the
-/// remainder) — a deliberate simplification: the user was just reading the banner, so it earns
-/// a fresh window.
+/// Success and warning auto-dismiss after their delay (warnings later); errors stay until closed.
+/// The toolbar capsule's own message gets `capsuleNanoseconds`; one it only mirrors from a pane
+/// keeps the pane's. Hover pauses the timer, and hover exit restarts the full delay, not the
+/// remainder: the user was just reading it.
 ///
-/// Hover is kept per surface (`ResultMessageHome`): a message can show in a pane, the workspace,
-/// the toolbar's capsule, or a pane and the capsule at once. SwiftUI delivers no hover exit for a
-/// view that is removed, so a surface that stops showing the message stops counting as hovered —
-/// or a message that moved from under a resting pointer to somewhere else would never time out.
+/// Hover is kept per surface (`ResultMessageHome`), since a message can show in a pane and the
+/// capsule at once. SwiftUI delivers no hover exit for a removed view, so a surface that stops
+/// showing the message stops counting as hovered, or a message that moved away from a resting
+/// pointer would never time out.
 @MainActor
 final class BannerDismissScheduler {
     /// Auto-dismiss delays per severity. Injectable so tests can run on short windows.
     struct Delays {
         var successNanoseconds: UInt64 = 5_000_000_000
         var warningNanoseconds: UInt64 = 10_000_000_000
-        /// **The toolbar capsule's own message, success or warning** (Run Room CG): a run's ending
-        /// after the reader moved on from where it was started, so it is never where they are
-        /// looking — and never under the pointer, which is what holds a pane's message open while
-        /// it is read. Five seconds there came and went unseen. A run's ending the capsule mirrors
-        /// from a pane is the pane's message, on the pane's window.
+        /// The toolbar capsule's own message, success or warning: a run ending after the reader
+        /// moved on, so it is never where they look and never under the pointer that would hold
+        /// it open. Five seconds there went unseen. A message the capsule mirrors from a pane keeps
+        /// the pane's window.
         var capsuleNanoseconds: UInt64 = 10_000_000_000
 
         static let standard = Delays()
@@ -44,29 +39,22 @@ final class BannerDismissScheduler {
     }
 
     private let delays: Delays
-    /// How the scheduler waits out a delay. Injectable for the same reason `Delays` is — except
-    /// that shortening the window does not make a test deterministic, it only makes the race
-    /// tighter: asserting "not dismissed yet" after sleeping 300ms of a 500ms window fails a
-    /// perfectly correct scheduler whenever a loaded runner turns that 300ms into 600ms. With the
-    /// wait itself injected, a test releases it explicitly and both halves — "hasn't fired" and
-    /// "has fired" — are exact. Defaults to a real sleep, so production behaviour is unchanged.
+    /// How the scheduler waits out a delay. Injected so a test can release the wait explicitly
+    /// and assert "hasn't fired" and "has fired" exactly; a short real window only races a loaded
+    /// runner. Defaults to a real sleep.
     private let sleep: @Sendable (UInt64) async -> Void
     private var dismissTask: Task<Void, Never>?
-    /// The timer currently counting down, or nil when none is running. Exposed for tests, which
-    /// otherwise have no sound way to state either half of this scheduler's contract: "no timer was
-    /// started at all" and "the cancelled timer ran to completion without dismissing" are both
-    /// claims about this task, and a test that infers them from `dismissCount` instead is really
-    /// asserting that a task it never waited for has not run yet — which is true of a correct
-    /// scheduler and a broken one alike.
+    /// The timer counting down, or nil. Exposed for tests: "no timer started" and "the cancelled
+    /// timer finished without dismissing" are claims about this task, which `dismissCount` alone
+    /// can't make, since a task nobody waited for hasn't run in a broken scheduler either.
     var currentTimerTask: Task<Void, Never>? { dismissTask }
     /// The full delay window for the currently shown banner; `nil` when there is no banner or it is sticky.
     private var currentDelay: UInt64?
     private var dismiss: (@MainActor () -> Void)?
     /// The surfaces the pointer is over, among those showing the message.
     private var hovered: Set<ResultMessageHome> = []
-    /// Held open by something the message opened — "Save as rule…"'s offer, whose popover takes the
-    /// pointer off the message, so hover alone would let the message (and the offer riding in it)
-    /// time out under the reader mid-choice.
+    /// Held open by something the message opened, such as "Save as rule…"'s popover, which takes
+    /// the pointer off the message; hover alone would let it time out mid-choice.
     private var isHeld = false
 
     init(delays: Delays = .standard,
@@ -89,9 +77,9 @@ final class BannerDismissScheduler {
         currentDelay = nil
         self.dismiss = nil
         guard let banner = newValue else {
-            // The banner view is gone, so hover is definitionally over — but SwiftUI doesn't
-            // deliver onHover(false) for a removed view, and every ✕ click happens while
-            // hovered. Without this reset the next banner would start paused and never dismiss.
+            // SwiftUI delivers no onHover(false) for a removed view, and every ✕ click happens
+            // while hovered. Without this reset the next banner would start paused and never
+            // dismiss.
             hovered = []
             isHeld = false
             return
@@ -114,22 +102,18 @@ final class BannerDismissScheduler {
         pausesChanged()
     }
 
-    /// Arms this scheduler for a banner that was ALREADY on screen when it was created — call from
-    /// the view's `onAppear`.
+    /// Arms this scheduler for a banner already on screen when it was created. Call from the
+    /// view's `onAppear`.
     ///
-    /// The scheduler is view `@State` but the banner is owned by the sync manager, which outlives
-    /// the window. A scheduler that comes into being with a banner already showing — a rebuilt
-    /// ContentView, which is how a close + Dock reopen was understood when this was written — is
-    /// never told about it, and `onChange(of:)` never fires for an unchanged value, so nothing else
-    /// was ever going to tell it. The success banner then sat there forever, and its ✕ was the
-    /// only way out. On macOS 27 a close + Dock reopen keeps the same view and scheduler (see
-    /// `SyncCloudApp.hasBootstrappedSession`), but nothing in SwiftUI promises that, so the
-    /// adoption stays.
+    /// The scheduler is view `@State`, but the sync manager owns the banner and outlives the
+    /// window. A new scheduler (a rebuilt ContentView) is never told about a banner already showing,
+    /// since `onChange(of:)` doesn't fire for an unchanged value, so that banner would never
+    /// dismiss. macOS 27 keeps the same view across a close and Dock reopen
+    /// (`SyncCloudApp.hasBootstrappedSession`), but SwiftUI doesn't promise it.
     ///
-    /// Deliberately a no-op unless this scheduler has never tracked anything (`dismissTask` and
-    /// `currentDelay` both still nil), so an `onAppear` that fires a second time for the same
-    /// instance cannot restart a countdown that is already running — or resurrect one for a banner
-    /// the user has since dismissed.
+    /// A no-op unless this scheduler has never tracked anything (`dismissTask` and `currentDelay`
+    /// both nil), so a second `onAppear` can't restart a running countdown or revive one for a
+    /// banner the user dismissed.
     func adoptExistingBanner(_ banner: OperationBanner?, inCapsule: Bool = false,
                              shownOn surfaces: Set<ResultMessageHome> = [.pane(isLeft: true)],
                              dismiss: @escaping @MainActor () -> Void) {

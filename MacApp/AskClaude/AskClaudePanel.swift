@@ -5,54 +5,53 @@ import Sync
 import Design
 import UniformTypeIdentifiers
 
-/// Ask Claude’s panel (RD69, v7.0): attached to the window, hanging from its toolbar button over
-/// the right edge of the content (decision DO). It covers the content’s right side while open and
-/// pushes nothing narrower.
+/// Ask Claude’s panel: attached to the window, hanging from its toolbar button over the right edge
+/// of the content. It covers the content’s right side while open and pushes nothing narrower.
 struct AskClaudePanel: View {
     @ObservedObject var chat: AskClaudeChat
-    /// The folder Claude sees, for the header and the shield's popover (TE260).
+    /// The folder Claude sees, for the header and the shield's popover.
     let place: AskClaudePlace
     let accent: Color
     let accentFill: Color
     let onAccent: Color
-    /// The window's accent, Tint and glass level (TE291). The panel is a window of its own, so it
-    /// paints a pane's surface itself — a gray popover read as a system popup over the app.
+    /// The window's accent, Tint and glass level. The panel is a window of its own, so it paints a
+    /// pane's surface itself: a gray popover would read as a system popup over the app.
     var hue: LiquidGlassHue = .none
     var tint: Double = 0
     var level: GlassLevel = .frosted
     let onAsk: (String) -> Void
     let onClose: () -> Void
     let onOpenSettings: () -> Void
-    /// The area the panel lives in, for keeping a moved panel inside the window (TE248).
+    /// The area the panel lives in, for keeping a moved panel inside the window.
     var container: CGSize = .zero
-    /// Puts the folder on screen on the Never show Claude list (true) or takes it off (TE246).
-    /// The shield's choice of what Claude gets from the folder (TE321).
+    /// The shield's choice of what Claude gets from the folder on screen: ask each time, share
+    /// without asking, or hide it.
     var onSetAccess: (AskClaudeFolderAccess) -> Void = { _ in }
-    /// Shows the folder's pane where the workspace has folded it away (TE260).
+    /// Shows the folder's pane where the workspace has folded it away.
     var onGoToFolder: () -> Void = {}
-    /// Reveals a file named in an answer (TE245).
+    /// Reveals a file named in an answer.
     var onReveal: (String) -> Void = { _ in }
-    /// Sends an offered passage (decision DS).
+    /// Sends an offered passage.
     var onSendOffer: (UUID, AskClaudeChat.OfferPart) -> Void = { _, _ in }
-    /// A tick on a found-names card (his call on TE320): the card, and the file by path.
+    /// A tick on a found-names card: the card, and the file by path.
     var onFoundTick: (UUID, String) -> Void = { _, _ in }
-    /// A download card's buttons (TE258).
+    /// A download card's buttons.
     var onDownloadCard: (UUID, AskClaudeDownloadAction) -> Void = { _, _ in }
-    /// Filing help's card buttons (TE255).
+    /// Filing help's card buttons.
     var onFilingCard: (AskClaudeFilingAction) -> Void = { _ in }
-    /// A card of changes: its ticks and row menus (TE285).
+    /// A card of changes: its ticks and row menus.
     var onPlanCard: (UUID, AskClaudePlanAction) -> Void = { _, _ in }
-    /// A button under Claude's question (decision GB), by its place in the row.
+    /// A button under Claude's question, by its place in the row.
     var onChoice: (UUID, Int) -> Void = { _, _ in }
-    /// A rule card's Save (true) or Not Now (TE286).
+    /// A rule card's Save (true) or Not Now.
     var onRuleCard: (UUID, Bool) -> Void = { _, _ in }
-    /// What a settings card reads and does (TE290).
+    /// What a settings card reads and does.
     var settingsBridge = AskClaudeSettingsBridge()
-    /// What a PDF card reads and does (TE294).
+    /// What a PDF card reads and does.
     var pdfBridge = AskClaudePDFBridge()
     /// Where the panel wants its window, top-left within `container` (AskClaudeWindow.swift).
     var onPlace: (CGRect) -> Void = { _ in }
-    /// A spoken question's Send (TE311), so its bubble shows it was spoken; `onAsk` without it.
+    /// A spoken question's Send, so its bubble shows it was spoken; `onAsk` without it.
     var onAskSpoken: ((String) -> Void)?
     /// The words of the names on screen, for the transcriber to listen for (`AskClaudeVoiceHints`).
     var voiceHints: () -> [String] = { [] }
@@ -65,12 +64,12 @@ struct AskClaudePanel: View {
     @State private var spentText = ""
     @AppStorage(AskClaudePrivacy.readsFilesKey) private var readsFiles = false
     @State private var showsPlace = false
-    /// Whether an API key is saved (TE315), asked without reading it: when the panel opens and
-    /// whenever the Keychain item changes, not on every draw. Nil until asked.
+    /// Whether an API key is saved, asked without reading it: when the panel opens and whenever the
+    /// Keychain item changes, not on every draw. Nil until asked.
     @State private var keySaved: Bool?
     @StateObject private var voice = AskClaudeVoice()
-    /// The turn whose bar shows (TE296), and the wait before a bar the mouse left goes: the bar
-    /// hangs a little past its row, and the mouse crosses the gap to reach it.
+    /// The turn whose bar shows, and the wait before a bar the mouse left goes: the bar hangs a
+    /// little past its row, and the mouse crosses the gap to reach it.
     @State private var hovered: AskClaudeHoverKey?
     @State private var hoverEnd: Task<Void, Never>?
     /// What the box held when Edit put a question in it, for Cancel to put back.
@@ -88,14 +87,12 @@ struct AskClaudePanel: View {
     /// How close to a side of the window a drop docks the panel there.
     static let snapZone: CGFloat = 56
 
-    // TE248, round 3: docked right (the default), docked left, or floating where it was dropped;
-    // TE288 adds the two bottom corners, where the panel grows upward from the window's bottom.
-    // One size in every placement, so moving never changes it (round 2 switched a docked panel's
-    // full height for the floating one's on drop, and the jump read as the panel resizing itself).
-    // Resized from its inner edge, its bottom edge and the corner between them, by AppKit handles:
-    // SwiftUI gestures laid over the thread's scroll view lost the mouse to it. The move is
-    // measured in window coordinates: measured in the panel's own, the moving panel fed its own
-    // movement back into the drag and it jittered.
+    // Docked right (the default) or left, docked in a bottom corner growing upward from the
+    // window's bottom, or floating where it was dropped. One size in every placement, so a move
+    // never resizes it. Resized from its inner edge, its free end and the corner between them, by
+    // AppKit handles: SwiftUI gestures laid over the thread's scroll view lose the mouse to it. The
+    // move is measured on the screen (`moveGesture`): in the panel's own coordinates, the moving
+    // panel feeds its own movement back into the drag and it jitters.
     enum Placement: String {
         case right, left, bottomRight, bottomLeft, floating
         var isRight: Bool { self == .right || self == .bottomRight }
@@ -139,7 +136,7 @@ struct AskClaudePanel: View {
     /// Where a panel dropped with its top-left at `point` docks, or nil to float there. Near a side
     /// it docks at that side's top or bottom, whichever edge of the window it is nearer; near the
     /// bottom alone, at the nearer bottom corner. The top has no zone of its own: dropped under the
-    /// toolbar away from the sides, it floats there, as before the bottom could dock.
+    /// toolbar away from the sides, it floats there.
     static func dock(droppedAt point: CGPoint, size: CGSize, in container: CGSize) -> Placement? {
         let topGap = point.y - 8
         let bottomGap = container.height - 10 - (point.y + size.height)
@@ -178,12 +175,11 @@ struct AskClaudePanel: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bottom = $0 }
         }
         .frame(width: size.width, height: size.height)
-        // A pane's surface and accent wash (TE291), so the panel reads as part of the window at
-        // every accent and Tint, over the ground for its text the other floating panels have, as
-        // thick as theirs at every level (IA) and the window's own dark ground in dark (HZ).
-        // Solid is opaque, like the panes; Frosted and Clear keep their glass, the window's content
-        // showing blurred through the backdrop (AskClaudeWindow.swift), which also owns the
-        // rounding and the shadow — so the ground is square, as it always was.
+        // A pane's surface and accent wash, so the panel reads as part of the window at every
+        // accent and Tint, over the same ground for its text as the other floating panels, as thick
+        // as theirs at every level, and the window's own dark ground in dark. Solid is opaque like
+        // the panes; Frosted and Clear show the content blurred through the backdrop
+        // (AskClaudeWindow.swift), which owns the rounding and the shadow, so the ground is square.
         .contentSurface(hue: hue, tint: tint)
         // With None in light at Clear, the window's own white film instead: this window's backdrop
         // is already the window's material, so the film is all that makes it the window's glass.
@@ -191,7 +187,7 @@ struct AskClaudePanel: View {
                           opacity: LiquidGlass.panelTakesWindowGlass(level: level, hue: hue, dark: colorScheme == .dark)
                               ? LiquidGlass.clearNoneLightVeil : level.groundedBackingOpacity,
                           cornerRadius: 0)
-        // The floating panels' glass, so at Clear in light it is clear glass as Settings' is (TE316).
+        // The floating panels' glass, so at Clear in light it is clear glass as Settings' is.
         .floatingPanelGlass(level, cornerRadius: Radius.card)
         .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(.separator.opacity(0.6)))
         .overlay { resizeHandles }
@@ -208,9 +204,9 @@ struct AskClaudePanel: View {
         }
         // Kept as it's typed: a window torn down needn't say goodbye to its views.
         .onChange(of: draft) { _, typed in chat.draft = typed }
-        // Something attached from a row's menu: the caret goes to the box for the question (TE263).
+        // Something attached from a row's menu: the caret goes to the box for the question.
         .onChange(of: chat.attachments) { _, now in if !now.isEmpty { composerFocused = true } }
-        // Edit Message on a caught-key card: the message comes back to the box (TE290 step 7).
+        // Edit Message on a caught-key card: the message comes back to the box.
         .onChange(of: chat.draftToRestore) { _, message in
             guard let message else { return }
             // Added to what's being typed, never in its place.
@@ -222,8 +218,8 @@ struct AskClaudePanel: View {
         // The limit is set in Settings, which writes it straight to the defaults.
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification).receive(on: RunLoop.main)) { _ in refreshSpent() }
         // The box takes the keyboard back once the answer is in, and VoiceOver hears that it is.
-        // It stays open while Claude answers (TE297), and so does listening: what is said or
-        // typed meanwhile waits for the answer to end.
+        // It stays open while Claude answers, and so does listening: what is said or typed
+        // meanwhile waits for the answer to end.
         .onChange(of: chat.isRunning) { _, running in
             guard !running else { return }
             composerFocused = true
@@ -342,13 +338,13 @@ struct AskClaudePanel: View {
         HStack(spacing: 2) {
             // Double-click docks it right, on the title and the space beside it but not the
             // buttons: a double-click gesture over a button holds each click until the double-click
-            // interval runs out (0.35 s measured), and the shield's popover came up that late.
+            // interval runs out (about 0.35 s), so the shield's popover would come up that late.
             HStack(spacing: 0) {
                 HStack(alignment: .center, spacing: 6) {
                     Image(systemName: "bubble.left.and.text.bubble.right")
                         .symbolRenderingMode(.hierarchical)
                         .scaledFont(.headline)
-                    // The title, and under it what the next question will describe (TE260).
+                    // The title, and under it what the next question will describe.
                     VStack(alignment: .leading, spacing: 0) {
                         Text("Claude").scaledFont(.headline)
                         Text(place.subtitle)
@@ -395,9 +391,8 @@ struct AskClaudePanel: View {
 
     private var thread: some View {
         ScrollView {
-                // **A plain VStack, not a lazy one.** The lazy stack went blank after scrolling to
-                // the bottom while an answer grew (2026-10-31: the thread showed nothing while
-                // chat.json held every message); a chat's few hundred rows don't need laziness.
+                // A plain VStack, not a lazy one: a lazy stack can go blank after scrolling to the
+                // bottom while an answer grows, and a chat's few hundred rows don't need laziness.
                 VStack(alignment: .leading, spacing: 10) {
                     if chat.items.isEmpty {
                         AskClaudeEmptyState(keySaved: keySaved, starters: AskClaudeStarters.questions(for: place.starterScreen),
@@ -406,7 +401,7 @@ struct AskClaudePanel: View {
                     }
                     let latestReceipt = chat.items.last { if case .receipt = $0.kind { true } else { false } }?.id
                     let turns = AskClaudeTurns(chat.items)
-                    // Retry is for the last answer only, and only once nothing runs (TE296).
+                    // Retry is for the last answer only, and only once nothing runs.
                     let retries = chat.lastQuestion.map { chat.canRewind(from: $0) } ?? false
                     ForEach(chat.items) { item in
                         let key = turns.hoverKey(of: item)
@@ -463,8 +458,8 @@ struct AskClaudePanel: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 if !voice.isActive { textLine }
-                // The box's bottom row (TE292): which model and style the next question goes to,
-                // then the mic (TE311), then Stop or Send.
+                // The box's bottom row: which model and style the next question goes to, then the
+                // mic, then Stop or Send.
                 HStack(spacing: 6) {
                     AskClaudeModelMenu(defaults: chat.settingsDefaults, chatModel: chat.chatModel,
                                        contextTokens: chat.contextTokens, onOpenSettings: onOpenSettings)
@@ -507,8 +502,8 @@ struct AskClaudePanel: View {
             .background(AskClaudeComposerCaret.Anchor(caret: caret))
     }
 
-    /// What is being said, while it is said (TE311): the settled words, the ones the transcriber
-    /// may still change greyed after them, a level meter, the keys, and where it is heard.
+    /// What is being said, while it is said: the settled words, the ones the transcriber may still
+    /// change greyed after them, a level meter, the keys, and where it is heard.
     private var listeningStrip: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(heardSoFar)
@@ -579,7 +574,7 @@ struct AskClaudePanel: View {
         .accessibilityLabel(voice.isActive ? "Send what you said" : "Talk")
     }
 
-    /// The divider under the header and over the composer, in the accent (TE291).
+    /// The divider under the header and over the composer, in the accent.
     private var hairline: some View {
         Rectangle()
             .fill(AskClaudeTint.hairline(hue, accent: accent, dark: colorScheme == .dark, neutral: 0.5))
@@ -603,7 +598,7 @@ struct AskClaudePanel: View {
         }
     }
 
-    /// While an edited question is in the box (TE296): sending it takes back the one it edits.
+    /// While an edited question is in the box: sending it takes back the one it edits.
     private var editingLine: some View {
         HStack(spacing: 6) {
             Image(systemName: "pencil").foregroundStyle(.secondary)
@@ -624,8 +619,8 @@ struct AskClaudePanel: View {
         .background(accent.opacity(0.14), in: Capsule())
     }
 
-    /// What a row offers (TE296): Copy and Edit on a question, Copy and Retry on an answer's rows
-    /// and its receipt. Edit only for a question from the box, Retry only on the last answer.
+    /// What a row offers: Copy and Edit on a question, Copy and Retry on an answer's rows and its
+    /// receipt. Edit only for a question from the box, Retry only on the last answer.
     private func turnActions(for item: AskClaudeChat.Item, turns: AskClaudeTurns, retries: Bool) -> [AskClaudeTurnAction] {
         switch item.kind {
         case .user:
@@ -673,8 +668,8 @@ struct AskClaudePanel: View {
         }
     }
 
-    /// The question waiting for the answer to end (TE297): "Next: … · Edit · Cancel", with Send
-    /// once nothing runs (after a Stop or a problem, it waits for them to say).
+    /// The question waiting for the answer to end: "Next: … · Edit · Cancel", with Send once
+    /// nothing runs (after a Stop or a problem, it waits for them to say).
     private func queuedLine(_ waiting: AskClaudeChat.Queued) -> some View {
         let about = waiting.attachments.isEmpty ? "" : " · about " + waiting.attachments.map(\.name).joined(separator: ", ")
         return HStack(spacing: 6) {
@@ -705,7 +700,7 @@ struct AskClaudePanel: View {
         .background(accent.opacity(0.14), in: Capsule())
     }
 
-    /// What the next question is about (TE263): a chip per row attached from its menu, each with ✕.
+    /// What the next question is about: a chip per row attached from its menu, each with ✕.
     private var attachmentChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
@@ -735,7 +730,7 @@ struct AskClaudePanel: View {
 
     private func send() { send(spoken: false) }
 
-    /// Return or Send. While Claude answers, the question waits for the answer to end (TE297).
+    /// Return or Send. While Claude answers, the question waits for the answer to end.
     private func send(spoken: Bool) {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -743,8 +738,8 @@ struct AskClaudePanel: View {
         if chat.isRunning {
             queue(text, spoken: spoken)
         } else {
-            // An edited question takes back the one it edits, and all after it (TE296) — not
-            // when it is held back for a key: then nothing is sent to take its place.
+            // An edited question takes back the one it edits, and all after it, but not when it is
+            // held back for a key: then nothing is sent to take its place.
             if AskClaudeKeyCatch.key(in: text) == nil { chat.finishEdit() }
             send(text, spoken: spoken)
         }
@@ -757,18 +752,17 @@ struct AskClaudePanel: View {
         chat.queue(text, spoken: spoken)
     }
 
-    /// The box's text, or a starter's (TE299), which goes exactly as if typed and leaves the box
-    /// as it was.
+    /// The box's text, or a starter's, which goes exactly as if typed and leaves the box as it was.
     private func send(_ text: String, spoken: Bool) {
         guard !text.isEmpty, !chat.isRunning else { return }
-        // A key never leaves the Mac in a message, nor joins the remembered questions (TE290 step 7).
+        // A key never leaves the Mac in a message, nor joins the remembered questions.
         if chat.catchKey(text) { return }
         chat.rememberSent(text)
         if spoken, let onAskSpoken { onAskSpoken(text) } else { onAsk(text) }
     }
 
-    /// ⌥Space or the mic: starts listening, or sends what was said (decision II, tap to toggle).
-    /// While Claude answers, what was said waits for the answer, as typing does (TE297).
+    /// ⌥Space or the mic, tap to toggle: starts listening, or sends what was said. While Claude
+    /// answers, what was said waits for the answer, as typing does.
     private func toggleTalk() {
         if voice.isActive {
             voice.finish()
@@ -832,8 +826,8 @@ final class AskClaudeComposerCaret {
     static func show(_ text: String, in editor: NSTextView, atStart: Bool) {
         editor.insertText(text, replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
         let caret = NSRange(location: atStart ? 0 : (editor.string as NSString).length, length: 0)
-        // Not `scrollRangeToVisible`: called here, inside SwiftUI's key dispatch, it waited on the
-        // text view's layout and never returned (2026-10-31, an offscreen test window).
+        // Not `scrollRangeToVisible`: called here, inside SwiftUI's key dispatch, it can wait on the
+        // text view's layout and never return.
         editor.setSelectedRange(caret)
     }
 
@@ -866,9 +860,9 @@ final class AskClaudeComposerCaret {
     }
 }
 
-/// The panel's accent paints over its pane surface (TE291). None has no hue of its own — its
-/// accent is the system's, which would repaint the panel in a colour nobody picked — so it keeps
-/// the stock grays, each at the opacity it had before.
+/// The panel's accent paints over its pane surface. None has no hue of its own (its accent is the
+/// system's, which would repaint the panel in a colour nobody picked), so it keeps the stock grays
+/// at their `neutral` opacities.
 enum AskClaudeTint {
     /// A divider or a field's edge. `neutral` is the separator's opacity under None.
     static func hairline(_ hue: LiquidGlassHue, accent: Color, dark: Bool, neutral: Double) -> AnyShapeStyle {
@@ -893,10 +887,10 @@ private struct AskClaudeThreadRow: View, Equatable {
     let onReveal: (String) -> Void
     let onSendOffer: (UUID, AskClaudeChat.OfferPart) -> Void
     let onFoundTick: (UUID, String) -> Void
-    /// The chat's "Share answers without asking" tick (TE321), and how a card sets it.
+    /// The chat's "Share answers without asking" tick, and how a card sets it.
     let sharesAnswers: Bool
     let onSharesAnswers: (Bool) -> Void
-    /// The lookup card's "Share lookups without asking" tick (TE323), and Customize's changes.
+    /// The lookup card's "Share lookups without asking" tick, and Customize's changes.
     var sharesNames = false
     var onSharesNames: (Bool) -> Void = { _ in }
     var onFoundEdit: (UUID, AskClaudeChat.FoundEdit) -> Void = { _, _ in }
@@ -908,7 +902,6 @@ private struct AskClaudeThreadRow: View, Equatable {
     let settingsBridge: AskClaudeSettingsBridge
     let pdfBridge: AskClaudePDFBridge
     var pdfThumbnails: [Int: CGImage] = [:]
-    /// A card applies only once the question that offered it has finished.
     /// The newest receipt shows its summary; older ones fold to an icon, so the thread doesn't
     /// repeat “Sent screen …” under every answer.
     var isLatestReceipt = false
@@ -916,8 +909,8 @@ private struct AskClaudeThreadRow: View, Equatable {
     var isRunning = false
     /// The answer still arriving: the newest item while a question runs.
     var isGrowing = false
-    /// Copy, Edit and Retry, as this row offers them (TE296): on the bar a question or receipt
-    /// shows while hovered, and on the right-click menu and VoiceOver's actions.
+    /// Copy, Edit and Retry, as this row offers them: on the bar a question or receipt shows while
+    /// hovered, and on the right-click menu and VoiceOver's actions.
     var turnActions: [AskClaudeTurnAction] = []
     var showsBar = false
     var onTurnAction: (AskClaudeTurnAction) -> Void = { _ in }
@@ -938,16 +931,16 @@ private struct AskClaudeThreadRow: View, Equatable {
 
     static let revealScheme = "synccloud-askclaude"
 
-    /// The answer's text with every known file name made a link that reveals it (TE245).
+    /// The answer's text with every known file name made a link that reveals it.
     ///
-    /// - **The answer's own links are dropped**: a link Claude writes could point anywhere (a file
-    ///   name or passage can carry text that asks for one), and only names this chat has seen may
-    ///   be clicked.
-    /// - **Longest names first, whole words only, no overlaps**, so "2024 Tax.pdf" isn't cut into
-    ///   by "Tax.pdf", and "notes" doesn't link inside "footnotes".
+    /// - The answer's own links are dropped: a link Claude writes could point anywhere (a file name
+    ///   or passage can carry text that asks for one), and only names this chat has seen may be
+    ///   clicked.
+    /// - Longest names first, whole words only, no overlaps, so "2024 Tax.pdf" isn't cut into by
+    ///   "Tax.pdf", and "notes" doesn't link inside "footnotes".
     ///
-    /// Drawn as its blocks (TE298): lists, tables and code as well as inline markdown. While it is
-    /// still arriving, only what has `settled` is drawn.
+    /// Drawn as its blocks: lists, tables and code as well as inline markdown. While it is still
+    /// arriving, only what has `settled` is drawn.
     private func answer(_ text: String) -> [AskClaudeMarkdown.Block] {
         AskClaudeMarkdown.linked(AskClaudeMarkdown.blocks(isGrowing ? AskClaudeMarkdown.settled(text) : text),
                                  targets: linkTargets, scheme: Self.revealScheme, underline: accentFill)
@@ -955,7 +948,7 @@ private struct AskClaudeThreadRow: View, Equatable {
 
     var body: some View {
         switch item.kind {
-        // The bar's actions, for whoever doesn't hover, on the right-click menu (TE296). Only on a
+        // The bar's actions, for whoever doesn't hover, on the right-click menu. Only on a
         // question, an answer and its receipt: a card keeps its own clicks. VoiceOver finds them
         // as actions on the question's bubble and on the answer's receipt.
         case .user, .assistant, .receipt:
@@ -983,7 +976,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     @ViewBuilder private var content: some View {
         switch item.kind {
         case .user(let text):
-            // A spoken question carries a small mic (TE311).
+            // A spoken question carries a small mic.
             (item.spoken == true ? Text("\(Image(systemName: "mic")) \(text)") : Text(text))
                 .textSelection(.enabled)
                 .padding(.horizontal, 11).padding(.vertical, 7)
@@ -991,13 +984,13 @@ private struct AskClaudeThreadRow: View, Equatable {
                 .background(accentFill, in: RoundedRectangle(cornerRadius: Radius.card))
                 // One element of its own over the selectable text, not the text's: while a question
                 // runs, SwiftUI's label for a node backed by the selectable text's AppKit view asks
-                // that view, whose label asks the node, until the stack runs out (an assistive app
-                // reading the panel, found under lldb).
+                // that view, whose label asks the node, until the stack runs out and an assistive
+                // app reading the panel crashes SyncCloud.
                 .accessibilityElement(children: .ignore)
                 .accessibilityAddTraits(.isStaticText)
                 .accessibilityLabel(item.spoken == true ? "You said: \(text)" : "You: \(text)")
                 .modifier(AskClaudeTurnVoiceOverActions(actions: turnActions, title: menuTitle, perform: onTurnAction))
-                // Its bar shows beside the bubble while hovered (TE296).
+                // Its bar shows beside the bubble while hovered.
                 .modifier(AskClaudeBarBeside(shows: showsBar && !turnActions.isEmpty) {
                     AskClaudeTurnBar(actions: turnActions, perform: onTurnAction)
                         .onHover(perform: onHover)
@@ -1041,8 +1034,7 @@ private struct AskClaudeThreadRow: View, Equatable {
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     // Read with no answer to show (the on-device model was unavailable or failed):
-                    // only the passage can go, by the share every other card names (review of
-                    // TE319–TE323).
+                    // only the passage can go, by the share every other card names.
                     Text("Read \(passage.fileName) on this Mac. Claude can answer from the content it came from if you share it.")
                         .scaledFont(.callout)
                     HStack(spacing: 8) {
@@ -1094,8 +1086,8 @@ private struct AskClaudeThreadRow: View, Equatable {
             .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.well))
         case .receipt(let receipt):
             // The answer's bar shows at the far end of its receipt's line while the answer is
-            // hovered (TE296), drawn over the line: laid out beside the receipt, even unseen, it
-            // took the receipt's width and wrapped it onto two lines.
+            // hovered, drawn over the line: laid out beside the receipt, even unseen, it would take
+            // the receipt's width and wrap it onto two lines.
             receiptButton(receipt)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .overlay(alignment: .trailing) {
@@ -1143,7 +1135,7 @@ private struct AskClaudeThreadRow: View, Equatable {
         }
     }
 
-    /// TE258: offered, downloading, then done, failed or timed out; Not Now folds it to a line.
+    /// A download: offered, downloading, then done, failed or timed out; Not Now folds it to a line.
     @ViewBuilder
     private func downloadCard(_ download: AskClaudeDownload, _ state: AskClaudeChat.DownloadState) -> some View {
         let size = download.size.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
@@ -1184,21 +1176,20 @@ private struct AskClaudeThreadRow: View, Equatable {
         .accessibilityElement(children: .contain)
     }
 
-    /// **What a file says, held for their click** (decision IU, TE319): Apple Intelligence's
-    /// answer exactly as it would go, when there is one, then what sharing gets them and the
-    /// shares: the answer, the passage it came from, and all the text read. Nothing leaves until
-    /// a click.
+    /// What a file says, held for their click: Apple Intelligence's answer exactly as it would go,
+    /// when there is one, then what sharing gets them and the shares: the answer, the passage it
+    /// came from, and all the text read. Nothing leaves until a click.
     private func heldAnswerCard(_ id: UUID, _ passage: AskClaudePassage, passageSent: Bool) -> some View {
         let answerSent = passage.answerSent == true
         let wholeSent = passage.wholeSent == true
         let anySent = answerSent || passageSent || wholeSent
         return VStack(alignment: .leading, spacing: 6) {
-            // Whose words these are and which file (his calls on TE319): Apple's on-device model's,
-            // not Claude's and not a search — `AskClaudeReading.answerOnDevice`. Claude's own
-            // question isn't shown: it goes with the answer when shared.
+            // Whose words these are and which file: Apple's on-device model's, not Claude's and not
+            // a search (`AskClaudeReading.answerOnDevice`). Claude's own question isn't shown: it
+            // goes with the answer when shared.
             if passage.autoShared == .answerAndText {
-                // Let Claude read files, or a folder shared without asking (TE321): the answer and
-                // the page went; all of the document still waits here.
+                // Let Claude read files, or a folder shared without asking: the answer and the page
+                // went; all of the document still waits here.
                 Label("Read \(passage.fileName) on this Mac. Claude has \(passage.whereInFile).", systemImage: "doc.text.magnifyingglass")
                     .scaledFont(.footnote)
                     .foregroundStyle(.secondary)
@@ -1227,8 +1218,8 @@ private struct AskClaudeThreadRow: View, Equatable {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
-            // What sharing is for, before the buttons (his call on TE319): more from Claude. A card
-            // whose answer went without asking (TE321) still offers what's left.
+            // What sharing is for, before the buttons: more from Claude. A card whose answer went
+            // without asking still offers what's left.
             if !anySent || (passage.autoShared != nil && !(passageSent || wholeSent)) {
                 Text(AskClaudeHeldAnswer.lead)
                     .scaledFont(.callout.weight(.medium))
@@ -1271,10 +1262,9 @@ private struct AskClaudeThreadRow: View, Equatable {
         .accessibilityElement(children: .contain)
     }
 
-    /// **Names held for their click**: a search inside files (decision IV, TE320) or a lookup
-    /// beyond the folder on screen (TE323). His call on TE323: a plain table first, Name, Folder
-    /// and Date, then Share Details (every file, every detail) or Customize…, which picks the
-    /// files and the details. Nothing leaves until a click.
+    /// Names held for their click: a search inside files, or a lookup beyond the folder on screen.
+    /// A plain table first, Name, Folder and Date, then Share Details (every file, every detail) or
+    /// Customize…, which picks the files and the details. Nothing leaves until a click.
     private func foundCard(_ id: UUID, _ found: AskClaudeFoundNames) -> some View {
         let sent = found.sent == true
         let customizing = found.customized && !sent && found.files != nil
@@ -1319,7 +1309,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     @ViewBuilder
     private func foundTable(_ found: AskClaudeFoundNames) -> some View {
         Group {
-            // Once shared, only what went (review of TE319–TE323).
+            // Once shared, only what went.
             if let files = found.files.map({ found.sent == true ? found.ticked : $0 }) {
                 ScrollView {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
@@ -1361,8 +1351,8 @@ private struct AskClaudeThreadRow: View, Equatable {
         .background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.well))
     }
 
-    /// **Customize what Claude gets** (his call on TE323): the details as ticks (names always go),
-    /// the files as ticks with Select All and None, and a share that names what goes.
+    /// Customize what Claude gets: the details as ticks (names always go), the files as ticks with
+    /// Select All and None, and a share that names what goes.
     @ViewBuilder
     private func foundCustomize(_ id: UUID, _ found: AskClaudeFoundNames) -> some View {
         let files = found.files ?? []
@@ -1406,8 +1396,8 @@ private struct AskClaudeThreadRow: View, Equatable {
             .foregroundStyle(.secondary)
     }
 
-    /// **Every file one question read, on one card** (his call on TE322): each file's tick, name
-    /// and answer, then one set of shares, one tick for the rest of the chat, one footnote.
+    /// Every file one question read, on one card: each file's tick, name and answer, then one set
+    /// of shares, one tick for the rest of the chat, one footnote.
     private func readsCard(_ id: UUID, _ group: AskClaudeReadGroup) -> some View {
         let ticked = group.ticked
         let answered = ticked.filter { $0.answer != nil }.count
@@ -1421,14 +1411,14 @@ private struct AskClaudeThreadRow: View, Equatable {
             ForEach(Array(group.files.enumerated()), id: \.offset) { index, file in
                 let isOn = !(group.unticked ?? []).contains(index)
                 // The answer sits beside the tick, not in its label: a Toggle reads its label for
-                // VoiceOver, and selectable text read that way looped on 11-03 (eae885318).
+                // VoiceOver, and selectable text read that way loops until the stack runs out.
                 VStack(alignment: .leading, spacing: 2) {
                     Toggle(isOn: Binding(get: { isOn }, set: { _ in if let path = file.path { onFoundTick(id, path) } })) {
                         Text(file.fileName).scaledFont(.footnote).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                     }
                     .toggleStyle(.checkbox)
-                    // Not while the question runs (review 2 of 11-04): a read joining the card moves
-                    // it to the foot of the thread, out from under the pointer.
+                    // Not while the question runs: a read joining the card moves it to the foot of
+                    // the thread, out from under the pointer.
                     .disabled(locked || isRunning)
                     if let answer = file.answer {
                         Text(answer)
@@ -1529,8 +1519,8 @@ private struct AskClaudeThreadRow: View, Equatable {
         }
     }
 
-    /// TE255: where the file fits by their own conventions, each folder with Go to Folder; Refine
-    /// with Claude when the answer isn't High (decision EY); Setup when there's no profile.
+    /// Filing help: where the file fits by their own conventions, each folder with Go to Folder and
+    /// Move Here; Refine with Claude when the answer isn't High; Setup when there's no profile.
     @ViewBuilder
     private func filingCard(_ card: AskClaudeFilingCard) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1582,8 +1572,8 @@ private struct AskClaudeThreadRow: View, Equatable {
         .accessibilityElement(children: .contain)
     }
 
-    /// TE286: a correction offered as a rule — its words, its folder and where this file goes.
-    /// Saved only on the click (decision GX).
+    /// A correction offered as a rule: its words, its folder and where this file goes. Saved only
+    /// on the click.
     private func ruleCard(_ card: AskClaudeRuleCard) -> some View {
         let added = Set(card.added)
         let words = card.words.enumerated().reduce(Text("")) { text, entry in
@@ -1635,10 +1625,10 @@ private struct AskClaudeThreadRow: View, Equatable {
         .accessibilityElement(children: .contain)
     }
 
-    /// A card of changes (TE285, TE262; redone after his first use, decision GG): one line per
-    /// item, grouped by the folder it goes to, and a click opens a row's details. Text follows the
-    /// app's text size. Every line is held to the card's width: a long name shortens in the
-    /// middle, a long path wraps in the details, and nothing sizes the card from its own text.
+    /// A card of changes: one line per item, grouped by the folder it goes to, and a click opens a
+    /// row's details. Text follows the app's text size. Every line is held to the card's width: a
+    /// long name shortens in the middle, a long path wraps in the details, and nothing sizes the
+    /// card from its own text.
     private func planCard(_ plan: AskClaudePlan) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             VStack(alignment: .leading, spacing: 1) {
@@ -1832,7 +1822,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            // One line when they fit, else two: a narrow panel cut "Choose Folder…" short.
+            // One line when they fit, else two: a narrow panel would cut "Choose Folder…" short.
             let choose = editable && { if case .move = row.change { true } else { false } }()
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 6) { detailButtons(row, choose: choose, preview: previewable, folder: folderPath) }
@@ -1857,8 +1847,8 @@ private struct AskClaudeThreadRow: View, Equatable {
         if let folder { Button("Go to Folder") { onPlanCard(item.id, .goTo(folder)) } }
     }
 
-    /// TE262: Apply and Not Now; then applying, done with Undo, or partly done. Next asks for the
-    /// next card, whatever this one's state (decision GG).
+    /// Apply and Not Now; then applying, done with Undo, or partly done. Next asks for the next
+    /// card, whatever this one's state.
     @ViewBuilder
     private func planFooter(_ plan: AskClaudePlan) -> some View {
         let count = plan.runnable.count
@@ -1928,11 +1918,10 @@ private struct AskClaudeThreadRow: View, Equatable {
 
 }
 
-/// A turn's actions for VoiceOver (TE296). Attached once, whatever the actions are (review 2 of
-/// 11-04): an `if` per action swapped the whole bubble for another view each time Edit or Retry
-/// came or went — at every run's start and end — which dropped selected text and rebuilt the
-/// accessibility element just as a run began. (The named-action form was first chosen against the
-/// 11-03 crash, but the label on the question's selectable text was the cause, eae885318.)
+/// A turn's actions for VoiceOver. Attached once, whatever the actions are: an `if` per action
+/// would swap the whole bubble for another view each time Edit or Retry comes or goes, at every
+/// run's start and end, dropping selected text and rebuilding the accessibility element just as a
+/// run begins.
 private struct AskClaudeTurnVoiceOverActions: ViewModifier {
     let actions: [AskClaudeTurnAction]
     let title: (AskClaudeTurnAction) -> String
@@ -1976,7 +1965,7 @@ private struct AskClaudeHeaderButton: View {
     }
 }
 
-/// Where an answer names a file this chat has seen (TE245).
+/// Where an answer names a file this chat has seen.
 enum AskClaudeLinks {
     /// Each place in `text` naming one of `targets` (name → path): longest names first, whole
     /// words only, never overlapping, so "2024 Tax.pdf" isn't cut into by "Tax.pdf" and "notes"
@@ -2022,7 +2011,7 @@ enum AskClaudeLinks {
     }
 
     /// `attributed` with its own links dropped and each of `targets` linked under `scheme`. A link
-    /// carries a thin underline in its own colour at half strength: colour alone didn't read as
+    /// carries a thin underline in its own colour at half strength: colour alone doesn't read as
     /// clickable in a bubble that is itself tinted.
     static func linked(_ attributed: AttributedString, targets: [String: String], scheme: String, underline: Color) -> AttributedString {
         var attributed = attributed
@@ -2123,46 +2112,46 @@ struct AskClaudeResizeHandle: NSViewRepresentable {
         override func mouseUp(with event: NSEvent) {
             guard start != nil else { return }
             start = nil
-            // A click that didn't drag sets nothing: it used to store the automatic height as a
-            // chosen one, so the panel stopped growing with the thread.
+            // A click that didn't drag sets nothing: storing the automatic height as a chosen one
+            // would stop the panel growing with the thread.
             if dragged { onEnd() }
             dragged = false
         }
     }
 }
 
-/// What a download card's button asks for (TE258).
+/// What a download card's button asks for.
 enum AskClaudeDownloadAction: Equatable {
     case download, stopWaiting, notNow, revealInFinder
 }
 
-/// What a card of changes asks for (TE285).
+/// What a card of changes asks for.
 enum AskClaudePlanAction: Equatable {
     case tick(Int, Bool)
     /// A row sent to one of its menu's folders.
     case choose(Int, AskClaudePlan.Choice)
     /// Choose Folder… in a row's details.
     case chooseFolder(Int)
-    /// TE262: the card's own buttons.
+    /// The card's own buttons.
     case apply, notNow, undo
     /// A row's details: Quick Look on the item, Go to Folder on where it goes.
     case quickLook(String)
     case goTo(String)
-    /// Next 10 (decision GG): asks for the next card.
+    /// Next 10: asks for the next card.
     case next
 }
 
-/// What filing help's card asks for (TE255).
+/// What filing help's card asks for.
 enum AskClaudeFilingAction: Equatable {
     case goTo(String)
     /// Refine with Claude for this file, in Organize.
     case refine(String)
     case openSetup
-    /// Move Here (decision FE): the card becomes a one-row plan card.
+    /// Move Here: the card becomes a one-row plan card.
     case moveHere(item: UUID, file: String, folder: String, label: String)
 }
 
-/// How a card row says where it goes, short (decision GG).
+/// How a card row says where it goes, short.
 enum AskClaudeThreadRowShortening {
     /// `text` cut in the middle to `limit` characters: "Girish - 2025" stays, a long one keeps both ends.
     static func shortened(_ text: String, to limit: Int) -> String {
@@ -2193,7 +2182,7 @@ extension AskClaudeChat.Receipt {
     }
 
     /// The model that answered, by its short name; the fallback's, marked, when one answered any
-    /// round instead of the one asked for (TE292). Nil for a receipt that never heard from a model.
+    /// round instead of the one asked for. Nil for a receipt that never heard from a model.
     var modelName: String? {
         if let fallbackModel { return AskClaudeModels.name(ofServed: fallbackModel) + ", fallback" }
         guard !model.isEmpty else { return nil }
@@ -2202,14 +2191,13 @@ extension AskClaudeChat.Receipt {
     }
 }
 
-/// The held-answer card's words (decision IU, TE319), apart from the view so a test reads them.
+/// The held-answer card's words, apart from the view so a test reads them.
 enum AskClaudeHeldAnswer {
-    /// What sharing is for, above the buttons (his calls on TE319, after "Send to Claude" beside
-    /// "Send the Text", then "Share This with Claude": the answer is already on their screen, so
-    /// the card says what sharing gets them).
+    /// What sharing is for, above the buttons: the answer is already on their screen, so the card
+    /// says what sharing gets them.
     static let lead = "Get more insights from Claude:"
 
-    /// The held-answer card's tick (his call on TE321): answers only, never page text.
+    /// The held-answer card's tick: answers only, never page text.
     static let answersTick = "Share answers without asking for the rest of this chat"
 
     /// The held answer's button: the box above it.
@@ -2217,9 +2205,9 @@ enum AskClaudeHeldAnswer {
 
     /// The passage's button, naming where its content is from — "Share Content from Page 2",
     /// "Also Share Content from Pages 1–2" once the answer has gone. "Content", not the page or
-    /// the file (his call on TE319): only text goes, never the document, and only the passage the
-    /// answer came from. A file without pages says "the Document", or "All Content from the
-    /// Document" when the passage is the whole of its text (`AskClaudeReading.claudePassage`).
+    /// the file: only text goes, never the document, and only the passage the answer came from. A
+    /// file without pages says "the Document", or "All Content from the Document" when the passage
+    /// is the whole of its text (`AskClaudeReading.claudePassage`).
     static func passageButton(_ whereInFile: String, sent: Bool, answerSent: Bool) -> String {
         let content: String
         if whereInFile.hasPrefix("page") {
@@ -2254,14 +2242,14 @@ enum AskClaudeHeldAnswer {
 
     static func words(in text: String) -> Int { text.split(whereSeparator: \.isWhitespace).count }
 
-    /// A group card's title (TE322): who read how many files.
+    /// A group card's title: who read how many files.
     static func readsTitle(_ group: AskClaudeReadGroup) -> String {
         let files = "\(group.files.count) files"
         if group.autoShared == .answerAndText { return "Read \(files) on this Mac. Claude has the passages that answer." }
         return group.files.contains { $0.answer != nil } ? "Apple Intelligence read \(files) on this Mac:" : "Read \(files) on this Mac:"
     }
 
-    /// The group's shares, counting the ticked files (his call on TE322).
+    /// The group's shares, counting the ticked files.
     static func readsAnswersButton(_ ticked: Int, sent: Bool) -> String {
         sent ? "Answers Shared" : ticked == 1 ? "Share This Answer" : ticked == 0 ? "Share Answers" : "Share \(ticked) Answers"
     }
@@ -2270,8 +2258,8 @@ enum AskClaudeHeldAnswer {
         sent ? "Content Shared" : ticked == 1 ? "Share Content from 1 File" : ticked == 0 ? "Share Content" : "Share Content from \(ticked) Files"
     }
 
-    /// Never "all" of what wasn't all read (review of TE319–TE323), as the one-file card: "Share
-    /// What Was Read from 3 Files" when any ticked file's text stops short of its end.
+    /// Never "all" of what wasn't all read, as on the one-file card: "Share What Was Read from 3
+    /// Files" when any ticked file's text stops short of its end.
     static func readsAllButton(_ ticked: Int, sent: Bool, isAll: Bool = true) -> String {
         let what = isAll ? "All Content" : "What Was Read"
         if sent { return isAll ? "All Content Shared" : "Content Shared" }
@@ -2287,8 +2275,8 @@ enum AskClaudeHeldAnswer {
             ? "\(what): \(about)." : "\(what): \(about), too long to share at once. Untick some files."
     }
 
-    /// A found-names card's title: who found them, what, where (his call on TE323: credit
-    /// Spotlight, or SyncCloud when only the folders it has opened were searched).
+    /// A found-names card's title: who found them, what, where. It credits Spotlight, or SyncCloud
+    /// when only the folders it has opened were searched.
     static func foundTitle(_ found: AskClaudeFoundNames) -> String {
         let title = foundTitleWords(found)
         return found.count == 0 ? String(title.dropLast()) + "." : title
@@ -2307,7 +2295,7 @@ enum AskClaudeHeldAnswer {
     }
 
     static let shareDetails = "Share Details"
-    /// A search inside files that found nothing (review of TE319–TE323): "none" waits too.
+    /// A search inside files that found nothing: "none" waits for a click too.
     static let shareResult = "Share This Result"
 
     /// Under a table that holds only some of them (a page of a longer list): "60 of 200 shown".
@@ -2317,7 +2305,7 @@ enum AskClaudeHeldAnswer {
     static let customize = "Customize…"
     static let customizeTitle = "Customize what Claude gets"
     static let detailsLead = "Details, with each name"
-    /// The lookup card's tick (TE323): lookups go without asking until New Chat.
+    /// The lookup card's tick: lookups go without asking until New Chat.
     static let namesTick = "Share lookups without asking for the rest of this chat"
 
     /// A found file's date in the table: "Sep 2, 2026".
@@ -2325,8 +2313,8 @@ enum AskClaudeHeldAnswer {
         file.modified.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? ""
     }
 
-    /// Customize's share, naming what goes (his call on TE323): "Share 18 Files with Folder and
-    /// Date", "Share 19 Files with All Details", "Share 18 Names Only" with every detail unticked.
+    /// Customize's share, naming what goes: "Share 18 Files with Folder and Date", "Share 19 Files
+    /// with All Details", "Share 18 Names Only" with every detail unticked.
     static func customShareButton(ticked: Int, details: [String], noun: String) -> String {
         guard ticked > 0 else { return "Share" }
         if details.isEmpty { return ticked == 1 ? "Share 1 Name Only" : "Share \(ticked) Names Only" }

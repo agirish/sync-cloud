@@ -4,27 +4,22 @@ import FileExplorer
 import Sync
 import Design
 
-/// The result message: what the operation you just ran did. Beyond the message + close button, an
-/// undoable outcome (`banner.isUndoable`, and the undo stack still has it on top) gets a one-click
-/// **Undo** — the visible face of the ⌘Z that already works — a finished file gets its doors
-/// (`banner.followUps`: Open in Edit, Reveal in Browse, Download), and auto-dismissing severities get
-/// a thin countdown bar so the disappearing window is legible.
+/// The result message: what the operation you just ran did. An undoable outcome
+/// (`banner.isUndoable`, still on top of the undo stack) gets a one-click Undo, the visible face of
+/// ⌘Z; a finished file gets its follow-ups (`banner.followUps`: Open in Edit, Reveal in Browse,
+/// Download); auto-dismissing severities get a thin countdown bar.
 ///
-/// **It lives in the pane, not over the window** (Banner Room, CA). It used to float across the
-/// window's top for five seconds, over the pane header's Delete — the button the next click was
-/// aimed at. Now each pane's file list docks it in one stack with the contextual action bar, at the
-/// edge `PaneBarPlacement` picks, so it covers neither the bar, the header nor the row acted on.
+/// It docks in the pane, in one stack with the contextual action bar at the edge
+/// `PaneBarPlacement` picks, so it covers neither the bar, the header nor the row acted on.
 ///
-/// A struct (not a `@ViewBuilder` on ContentView) so it can hold the countdown `@State`. The
-/// auto-dismiss timing itself still lives in `BannerDismissScheduler`; the bar only mirrors it,
-/// reading the same `Delays.standard` window so the two never disagree on how long is left, and
-/// resetting to full on hover exactly as the scheduler restarts its timer.
+/// A struct so it can hold the countdown `@State`. The timing lives in `BannerDismissScheduler`;
+/// the bar reads the same `Delays.standard` window and resets to full on hover, as the scheduler
+/// restarts its timer.
 struct OperationBannerView: View {
     let banner: OperationBanner
     let glassLevel: GlassLevel
-    /// Whether the undo stack currently has something to undo. Combined with `banner.isUndoable`
-    /// (the outcome is a single undo step) to decide whether to offer the button — so a banner
-    /// whose operation has already been undone elsewhere doesn't show a dead Undo.
+    /// Whether the undo stack has something to undo. With `banner.isUndoable` it decides the
+    /// button, so a message whose operation was already undone elsewhere shows no dead Undo.
     let canUndo: Bool
     let onUndo: () -> Void
     let onClose: () -> Void
@@ -37,24 +32,22 @@ struct OperationBannerView: View {
     @State private var countdown: CGFloat = 1
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The auto-dismiss window for this severity, in seconds, or nil when the banner is sticky
-    /// (errors). Read straight from the scheduler's delays so the bar can never drift from the
-    /// real timer.
+    /// The auto-dismiss window for this severity in seconds, or nil when the message is sticky
+    /// (errors). Read from the scheduler's delays so the bar can't drift from the real timer.
     var autoDismissSeconds: Double? {
         BannerDismissScheduler.Delays.standard
             .delayNanoseconds(for: banner.severity)
             .map { Double($0) / 1_000_000_000 }
     }
 
-    /// Whether to offer the one-click Undo. Both halves are load-bearing: `isUndoable` says the
-    /// outcome is a single undo step, `canUndo` says the stack still has it — dropping either
-    /// shows a dead button (already-undone elsewhere) or hides a live one. Instance state +
-    /// injected flag, so the truth table is testable on a constructed view; `body` reads this
-    /// property and nothing else for the decision.
+    /// Whether to offer the one-click Undo. `isUndoable` says the outcome is a single undo step,
+    /// `canUndo` that the stack still has it; dropping either shows a dead button or hides a live
+    /// one. `body` decides from this property alone, so the truth table is testable on a
+    /// constructed view.
     var showsUndo: Bool { banner.isUndoable && canUndo }
 
-    /// The countdown-bar rule, static so the Reduce Motion arm is testable — the environment
-    /// value cannot be injected into a constructed struct outside a render.
+    /// The countdown-bar rule, static so the Reduce Motion arm is testable: the environment value
+    /// can't be injected into a constructed view outside a render.
     static func showsCountdown(autoDismissSeconds: Double?, reduceMotion: Bool) -> Bool {
         autoDismissSeconds != nil && !reduceMotion
     }
@@ -65,24 +58,23 @@ struct OperationBannerView: View {
 
     private var tint: Color { OperationBannerStyle.tint(for: banner.severity) }
 
-    /// A follow-up's button title — the words the PDF tools' own banner used for the same doors.
+    /// A follow-up's button title, the words the PDF tools' own banner uses for the same actions.
     static func title(for followUp: OperationBanner.FollowUp) -> String { followUp.title }
 
     /// Its tooltip, naming the file — or how many — it goes to. Shared with Activity's Recent.
     static func help(for followUp: OperationBanner.FollowUp) -> String { followUp.help }
 
-    /// **What VoiceOver hears when the message appears** (TE211): the message, and — when the Undo
-    /// button shows — that ⌘Z takes it back. Nothing announced it before: "Deleted “Test3.md”" and
-    /// its Undo were silent.
+    /// What VoiceOver hears when the message appears: the message and, when Undo shows, that ⌘Z
+    /// takes it back.
     static func announcement(for banner: OperationBanner, offersUndo: Bool) -> String {
         guard offersUndo else { return banner.message }
         let ends = banner.message.last.map { ".!?".contains($0) } ?? false
         return banner.message + (ends ? " " : ". ") + "Undo available, Command Z"
     }
 
-    /// Posts the announcement — a problem at high priority, so it is spoken over whatever VoiceOver
-    /// was reading; a success at medium, so it waits its turn (Run Room TE226). Two within a moment
-    /// are spoken as one (``ActivityAnnouncer``).
+    /// Posts the announcement: a problem at high priority, spoken over whatever VoiceOver was
+    /// reading; a success at medium, so it waits its turn. Two within a moment are spoken as one
+    /// (``ActivityAnnouncer``).
     static func announce(_ banner: OperationBanner, offersUndo: Bool) {
         ActivityAnnouncer.say(announcement(for: banner, offersUndo: offersUndo),
                               isProblem: banner.severity != .success)
@@ -133,8 +125,8 @@ struct OperationBannerView: View {
             onHover(hovering)
             guard showsCountdown else { return }
             if hovering {
-                // Mirror the scheduler: hovering earns the banner a fresh full window, so show the
-                // bar full (paused) rather than trying to freeze mid-animation.
+                // Mirror the scheduler: hovering earns a fresh full window, so show the bar full
+                // (paused) rather than freezing it mid-animation.
                 withAnimation(.easeOut(duration: 0.15)) { countdown = 1 }
             } else {
                 startCountdown()
@@ -179,8 +171,8 @@ struct OperationBannerView: View {
             }
             .buttonStyle(.hoverAffordance(.segment, tint: tint))
             .shortcutKeycap("⌘Z")
-            // Greyed while a long run is going, as ⌘Z is (Banner Room, CF): a message up when a
-            // run starts keeps its button, greyed, and has it back when the run ends.
+            // Greyed while a long run is going, as ⌘Z is. A message up when a run starts keeps its
+            // button, greyed, and has it back when the run ends.
             .lockedDuringRun()
             .help(ShortcutHint.tooltip("Undo this operation", "⌘Z"))
             .accessibilityLabel("Undo this operation")
@@ -207,8 +199,7 @@ struct OperationBannerView: View {
     }
 
     private func startCountdown() {
-        // Routed through the tested rule rather than re-deriving `!reduceMotion` here — this was
-        // the one remaining parallel copy of the conjunction the extraction exists to end.
+        // Goes through the tested rule rather than re-deriving `!reduceMotion` here.
         guard showsCountdown, let seconds = autoDismissSeconds else { countdown = 1; return }
         countdown = 1
         withAnimation(.linear(duration: seconds)) { countdown = 0 }

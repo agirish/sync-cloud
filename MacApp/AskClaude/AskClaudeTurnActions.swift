@@ -2,7 +2,7 @@ import AppKit
 import Design
 import SwiftUI
 
-/// What a turn in the thread offers (TE296): Copy on a question or an answer, Edit on a question
+/// What a turn in the thread offers: Copy on a question or an answer, Edit on a question
 /// typed in the box, Retry on the last answer.
 enum AskClaudeTurnAction: Hashable, Identifiable {
     case copy, edit, retry
@@ -34,7 +34,7 @@ enum AskClaudeTurnAction: Hashable, Identifiable {
     }
 }
 
-/// The thread's turns (TE296): which question each row answers, and which questions were
+/// The thread's turns: which question each row answers, and which questions were
 /// answered in words. A row before any question (a note) belongs to none.
 struct AskClaudeTurns {
     private var questionOf: [UUID: UUID] = [:]
@@ -120,8 +120,9 @@ struct AskClaudeTurnBar: View {
     }
 }
 
-/// An answer copied (TE296): plain text, HTML and RTF on one pasteboard item, from the blocks
-/// TE298 draws — so a table pastes into Numbers as cells, and into Mail or Pages as a table.
+/// An answer copied: plain text, HTML and RTF on one pasteboard item, from the blocks
+/// `AskClaudeMarkdown` makes, so a table pastes into Numbers as cells and into Mail or Pages as a
+/// table.
 enum AskClaudeAnswerCopy {
     /// Puts `markdown`, an answer as Claude wrote it, on `pasteboard`.
     static func write(_ markdown: String, to pasteboard: NSPasteboard = .general) {

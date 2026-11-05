@@ -1,17 +1,11 @@
 import Foundation
 import FileExplorer
 
-/// Reading a file into the open document, and putting the undo stacks in step around it.
+/// Reading a file into the open document, and putting the undo stacks in step around it. Kept out
+/// of `ContentView`, which a test can't build, so the sequence can be run by a test.
 ///
-/// **Extracted for `EditorDocumentClose`'s reason, and it applies here harder.** That type says it
-/// plainly: `ContentView` cannot be built in a test, so an act written inline there is an act
-/// nothing executes. This one is the act with the crash in it — so the sequence lived in
-/// `ContentView.loadIntoEditor` with four callers, a comment explaining why the order matters, and
-/// no test that could run it. What stood in for one was a copy of the three calls in a test file,
-/// which pins a transcription rather than the code.
-///
-/// **The order is the whole content of this function.** `NSTextView` registers undo by character
-/// RANGE in the buffer the edit was made against, and `PlainTextEditor.updateNSView` hands the view
+/// The order is the whole content of this function. `NSTextView` registers undo by character
+/// range in the buffer the edit was made against, and `PlainTextEditor.updateNSView` hands the view
 /// its text and its undo manager read from one render pass. So:
 ///
 /// 0. ``EditorUndoStore/adopt(_:)`` — on the very first load only — makes the buffer's storage
@@ -21,8 +15,8 @@ import FileExplorer
 /// 2. The buffer is replaced.
 /// 3. ``EditorUndoStore/activate(path:text:)`` asks for the incoming document's stack against what
 ///    ACTUALLY loaded, so a stack that no longer fits is dropped rather than handed back.
-/// 4. ``EditorBuffer/follow(_:)`` hands the buffer the text storage kept beside that stack (TE67.0) —
-///    the storage the stack's actions edit, and what the text view is re-pointed at. Step 1 stopped
+/// 4. ``EditorBuffer/follow(_:)`` hands the buffer the text storage kept beside that stack: the
+///    storage the stack's actions edit, and what the text view is re-pointed at. Step 1 stopped
 ///    the outgoing storage listening, so the load in step 2 wrote only the buffer.
 ///
 /// Get 1 and 2 the wrong way round and the outgoing stack is filed against the incoming text, which
@@ -32,12 +26,11 @@ import FileExplorer
 /// every unsaved buffer in it. Leave 4 out and the text view goes on showing the outgoing document's
 /// storage beside the incoming document's stack.
 ///
-/// **Nothing here suspends, and that is load-bearing rather than incidental.** All four steps run
-/// in one main-actor turn, so SwiftUI cannot render between them and no pass can see one document's
-/// text beside another's undo manager. If the read is ever moved off the main actor, the `await`
-/// belongs BEFORE step 2 — while the buffer and the stack are both still the outgoing document's —
-/// and steps 2 to 4 must stay in a single synchronous block. Four callers also read the document
-/// straight after this returns, `owePaneSelection` included.
+/// **Nothing here may suspend.** All four steps run in one main-actor turn, so SwiftUI can't render
+/// between them and show one document's text beside another's undo manager. If the read ever moves
+/// off the main actor, the `await` belongs before step 2, and steps 2 to 4 must stay one
+/// synchronous block. Callers also read the document straight after this returns,
+/// `owePaneSelection` included.
 enum EditorDocumentLoad {
 
     /// Reads `path` into `document` and moves the undo stacks with it.
@@ -48,13 +41,13 @@ enum EditorDocumentLoad {
     @discardableResult
     static func run(path: String, document: EditorDocument, undoStore: EditorUndoStore,
                     log: (String) -> Void) -> EditorFileStore.OpenResult {
-        // The first load: the buffer and the store each started with a storage — one, from here on.
+        // On the first load the buffer and the store each have a storage; from here on, one.
         undoStore.adopt(document.buffer.source)
-        // `opening`: the file coming in is never the one evicted to make room (UND-7).
+        // `opening`: the file coming in is never the one evicted to make room.
         undoStore.remember(text: document.text, opening: path)
         undoStore.forgetMissingFiles()
-        // One call, not open-then-hand-over: the encoding a file was read in travels with the text
-        // it produced, which is what stops a save transcoding it. See `EditorFileStore.load`.
+        // One call, not open-then-hand-over, so the encoding the file was read in travels with its
+        // text and a save doesn't transcode it. See `EditorFileStore.load`.
         let result = EditorFileStore.load(path: path, into: document)
         undoStore.activate(path: document.path, text: document.text)
         document.buffer.follow(undoStore.source)
@@ -62,9 +55,9 @@ enum EditorDocumentLoad {
         return result
     }
 
-    /// One line per load, whatever the read did — so a refusal is as visible in the log as a
-    /// success. Separate from ``run(path:document:undoStore:log:)`` so its wording can be asserted
-    /// without performing a load.
+    /// One line per load, whatever the read did, so a refusal is as visible in the log as a success.
+    /// Separate from ``run(path:document:undoStore:log:)`` so a test can check the wording without
+    /// a load.
     static func logLine(path: String, result: EditorFileStore.OpenResult) -> String {
         switch result {
         case .refused(let reason): return "Editor could not open \(path) — \(reason)"
