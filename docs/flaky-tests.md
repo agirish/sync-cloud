@@ -5162,3 +5162,18 @@ still caught: with the stat run on the calling thread, as before 9a1d98bdf, it f
 
 **Tell.** A timing bound that is fine in the green runs and blown by a near-constant amount in the
 red ones, in a test whose clock starts before work it hands to a shared queue.
+
+### 54. A file presenter not yet consulted when the coordinated write asks, under load — cause not proven
+
+**Symptom.** `OneWaySyncAnswersTests.aFileArrivingInICloudBeforeTheWriteIsNotWrittenOver` red once
+on the self-hosted runner for the `v7.0` tag (run 41957561351, 2026-11-04, load 15–19, mostly
+`appstoreagent`): `arriving.arrived` false and the iCloud file not "arrived meanwhile". The rerun
+was green, and three runs of the suite alone at the tag passed in under a second each.
+
+**Likely mechanism.** The test's `Arriving` presenter writes the file when the coordinated write
+asks it to relinquish. `NSFileCoordinator.addFilePresenter` registers with `filecoordinationd`
+asynchronously, so a write that runs straight after can find no presenter yet, and the callback the
+test rests on never comes. Not reproduced; the app's own check is not involved.
+
+**Tell.** `arriving.arrived` false, red once under load, green alone. Rerun before suspecting the
+writer.
