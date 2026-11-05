@@ -259,6 +259,11 @@ struct SyncCloudApp: App {
             // ours has written the key, so anything found there is cleared rather than trusted.
             // Idempotent.
             OrganizeScopeDefaults.migrate(defaults: .standard)
+            // Decision JT retired Let Claude read files: on, it becomes the home folder shared
+            // without asking, so nothing reaches Claude differently. Once, by its key.
+            if let line = AskClaudePrivacy.retireReadsFiles(home: NSHomeDirectory(), in: .standard) {
+                Logger.shared.info(line)
+            }
 
             // Puts the startup disk in Locations' device band on an existing stored list. A change
             // to `SidebarFavoritePlaces.standard` reaches only a first run, because the stored

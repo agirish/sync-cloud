@@ -66,7 +66,6 @@ enum AskClaudeFolderAccess: CaseIterable {
 /// The shield's popover: the folder, then going to it, hiding it, and what Claude may read.
 struct AskClaudePlaceMenu: View {
     let place: AskClaudePlace
-    @Binding var readsFiles: Bool
     let spent: String
     let accentFill: Color
     let onAccent: Color
@@ -93,21 +92,6 @@ struct AskClaudePlaceMenu: View {
                 }
             }
             AskClaudeMenuRow(title: "Edit Folder Settings…", accentFill: accentFill, onAccent: onAccent, action: onEditHiddenList)
-            Divider().padding(.vertical, 2)
-            Toggle(isOn: $readsFiles) {
-                Text("Let Claude read files")
-            }
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
-            Text(readsFiles
-                 ? "On: when it needs what’s inside a file, Claude gets the passage that answers, never the whole file."
-                 : "Off: Claude sees names, sizes and dates. What a file says waits until you share it.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 8)
             Divider().padding(.vertical, 2)
             HStack {
                 Text("This month")

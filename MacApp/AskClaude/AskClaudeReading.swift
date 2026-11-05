@@ -10,8 +10,8 @@ import FoundationModels
 /// Reading a file for Ask Claude, all of it on this Mac.
 ///
 /// On-device first: the text is extracted here and Apple’s on-device model answers the question
-/// from it; Claude gets that answer. The text itself reaches Claude only when “Let Claude read
-/// files” is on or the person presses the panel’s Send button, and then only the passage that
+/// from it; Claude gets that answer. The text itself reaches Claude only when its folder is shared
+/// without asking or the person presses the panel’s Send button, and then only the passage that
 /// answers, never the whole file.
 ///
 /// A scanned PDF is read by OCR: a page whose text layer is empty, or all but, is drawn on the
@@ -410,9 +410,9 @@ enum AskClaudeReading {
     /// The on-device model's answer to `question` from `text`. Bounded at 60 s; a cold model takes
     /// about 27 s, a warm one about 5 (Filing's timing).
     ///
-    /// Capped, in tokens asked for and characters passed on: the answer is what reaches Claude with
-    /// Let Claude read files off, and a document that tells the model to repeat itself must not get
-    /// its text out that way.
+    /// Capped, in tokens asked for and characters passed on: the answer is what reaches Claude
+    /// outside a folder shared without asking, and a document that tells the model to repeat itself
+    /// must not get its text out that way.
     @MainActor
     static func answerOnDevice(_ question: String, from text: String, file: String) async -> OnDeviceAnswer {
         #if canImport(FoundationModels)

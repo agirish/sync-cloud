@@ -458,10 +458,6 @@ public enum SettingsCatalog {
           control: .segmented(AskClaudeDetail.allCases.map { SettingChoice(.string($0.rawValue), $0.label) }),
           default: .string(AskClaudeDetail.brief.rawValue), tier: .suggested,
           raises: .laterIn([.string(AskClaudeDetail.brief.rawValue), .string(AskClaudeDetail.detailed.rawValue)])),
-        e("intelligence.readsFiles", .intelligence, "Let Claude read files", indexed: true,
-          storage: app(AskClaudePrivacy.readsFilesKey, "AskClaudePrivacy.readsFilesKey", "false"),
-          control: .toggle, default: .bool(false), tier: .directWhenTightening, raises: .turningOn,
-          help: "Off: Apple Intelligence reads a file on this Mac, and its answer and text go to Claude only when you share them on the card. On: the answer and the passage it came from go without asking, and so do lookups; all of a document still waits for your click."),
         e("intelligence.hidden", .intelligence, "Hidden from Claude", indexed: true, others: ["Add…"],
           storage: .owner("AskClaudePrivacy"), control: .list, tier: .suggested, privacy: .countOnly, effects: .newChat),
         // Never in chat: a folder shared without asking loosens what reaches Claude, so only the

@@ -1,11 +1,14 @@
 import Foundation
 
 /// What Ask Claude may see and read (RD69): the “Never show Claude” list (decision DT, TE246) and
-/// the “Let Claude read files” switch (decision DQ).
+/// the folders shared without asking (TE321). Each folder is one of three: asked about, shared
+/// without asking, or hidden (decision JT retired the global “Let Claude read files” switch).
 public enum AskClaudePrivacy {
 
     public static let hiddenFoldersKey = "askClaudeHiddenFolders"
-    public static let readsFilesKey = "askClaudeReadsFiles"
+    /// The retired “Let Claude read files” switch (decision DQ, retired by JT); read once, by
+    /// `retireReadsFiles`.
+    public static let retiredReadsFilesKey = "askClaudeReadsFiles"
     /// The folders Claude gets answers, passages and search names from without a card (his call
     /// on TE321, "Share Without Asking"). Hidden wins over it; whole documents always ask.
     public static let sharedFoldersKey = "askClaudeSharedFolders"
@@ -129,16 +132,30 @@ public enum AskClaudePrivacy {
         }
     }
 
-    /// Whether Claude may be sent a passage of a file without asking each time. Off by default.
-    public static func readsFiles(in defaults: UserDefaults) -> Bool {
-        defaults.bool(forKey: readsFilesKey)
+    /// **Carries the retired switch over** (decision JT): on, it shared every folder not hidden,
+    /// so `home` is shared without asking in its place; off, nothing changes. The key goes either
+    /// way, so this runs once. Hidden folders stay hidden: hidden wins over shared.
+    /// - Returns: a log line when it moved anything.
+    @discardableResult
+    public static func retireReadsFiles(home: String, in defaults: UserDefaults) -> String? {
+        guard defaults.object(forKey: retiredReadsFilesKey) != nil else { return nil }
+        let wasOn = defaults.bool(forKey: retiredReadsFilesKey)
+        defaults.removeObject(forKey: retiredReadsFilesKey)
+        guard wasOn else { return nil }
+        let path = (home as NSString).standardizingPath
+        var folders = sharedFolders(in: defaults)
+        if !folders.contains(path) {
+            folders.append(path)
+            setSharedFolders(folders, in: defaults)
+        }
+        return "Let Claude read files was on, so the home folder is now shared without asking"
     }
 }
 
 /// **Names a content search found, held for their click** (decision IV, TE320): which files
-/// mention a word says what is inside them — "diagnosis" — so with Let Claude read files off the
-/// list waits on a card, as a file's answer does (decision IU), and goes only by its share (Share
-/// Details or Customize's, TE323).
+/// mention a word says what is inside them — "diagnosis" — so outside a folder shared without
+/// asking the list waits on a card, as a file's answer does (decision IU), and goes only by its
+/// share (Share Details or Customize's, TE323).
 public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
     /// The words searched for, as Claude gave them.
     public let words: String
@@ -317,9 +334,9 @@ public struct AskClaudePassage: Codable, Equatable, Sendable {
     /// saved before it was kept.
     public let path: String?
     /// **What the on-device model answered from the file, held for their click** (decision IU,
-    /// TE319): with Let Claude read files off, an answer can carry the very fact a file holds — an
-    /// account number, a diagnosis — so it waits on the card like the passage. Nil on a card that
-    /// offers the passage alone, or one saved before answers were held.
+    /// TE319): outside a folder shared without asking, an answer can carry the very fact a file
+    /// holds — an account number, a diagnosis — so it waits on the card like the passage. Nil on a
+    /// card that offers the passage alone, or one saved before answers were held.
     public let answer: String?
     /// What Claude asked of the file, said on the card above the answer.
     public let asked: String?
@@ -338,7 +355,7 @@ public struct AskClaudePassage: Codable, Equatable, Sendable {
     public let autoShared: AutoShared?
 
     public enum AutoShared: String, Codable, Sendable {
-        /// The answer and the passage went: Let Claude read files, or a folder shared without asking.
+        /// The answer and the passage went: the file is in a folder shared without asking.
         case answerAndText
         /// The answer went, as they chose for the rest of this chat; the text still waits.
         case answerForThisChat

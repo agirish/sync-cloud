@@ -569,7 +569,7 @@ public class SettingsManager: ObservableObject {
         for key in stored.keys where !SettingsResetKeeps.keeps(key) {
             userDefaults.removeObject(forKey: key)
         }
-        // What may reach Claude changed (`askClaudeReadsFiles` is reset), so post the notice and
+        // What may reach Claude changed (`askClaudeSharedFolders` is reset), so post the notice and
         // no cache of it is left stale. The store is the sender so a test can tell this reset's
         // notice from another's.
         NotificationCenter.default.post(name: AskClaudePrivacy.didChange, object: userDefaults)

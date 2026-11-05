@@ -14530,3 +14530,15 @@ for l in v6.x v5.x v4.x v3.x v2.x; do s=$(git show origin/$l:Modules/Design/Sour
 |---|---|---|
 | `v6.x` / `v5.x` | The rim on tinted glass | RECORDED — not owed (a look change) |
 | `v4.x` / `v3.x` / `v2.x` | No selection lens | CLOSED — doesn't apply |
+
+## Let Claude read files retired (decision JT) — main only
+
+2026-11-04, for v7.1. On `main`: the global Let Claude read files switch is gone from the shield
+popover, Settings ▸ Intelligence and the settings Claude may change; each folder is Ask Each Time,
+Share Without Asking or Hide from Claude. A switch left on becomes the home folder shared without
+asking, once, at launch. file_loose_files now judges the word read from a file by the folder's own
+sharing. Ask Claude exists only on `main`.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — doesn't apply |

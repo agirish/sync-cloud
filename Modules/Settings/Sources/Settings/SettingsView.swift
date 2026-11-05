@@ -594,12 +594,11 @@ enum SettingsSearchIndex {
               keywords: ["chat", "assistant", "ask", "claude chat", "panel", "⌘J", "copilot", "help me"]),
         .init(tab: .intelligence, title: "Answers",
               keywords: ["brief", "detailed", "verbose", "answer length", "concise", "ask claude answers"]),
-        .init(tab: .intelligence, title: "Let Claude read files",
-              keywords: ["read files", "file contents", "passage", "privacy", "send text", "ask claude reading"]),
         .init(tab: .intelligence, title: "Hidden from Claude",
               keywords: ["never show claude", "hide folder", "privacy", "exclude", "private folders"]),
         .init(tab: .intelligence, title: "Shared without asking",
-              keywords: ["share without asking", "trusted folders", "don’t ask", "privacy", "ask each time"]),
+              keywords: ["share without asking", "trusted folders", "don’t ask", "privacy", "ask each time",
+                         "let claude read files", "read files", "file contents", "passage", "send text"]),
         .init(tab: .intelligence, title: "Monthly limit",
               keywords: ["ask claude limit", "chat limit", "spend limit", "budget", "cap", "money"]),
         .init(tab: .intelligence, title: "This month",
@@ -2296,7 +2295,6 @@ struct IntelligenceSettingsTab: View {
     @AppStorage(AskClaudeSpend.limitDefaultsKey) private var askClaudeLimitUSD: Double = AskClaudeSpend.defaultLimitUSD
     @AppStorage(AskClaudeDetail.defaultsKey) private var askClaudeAnswers: String = AskClaudeDetail.brief.rawValue
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
-    @AppStorage(AskClaudePrivacy.readsFilesKey) private var askClaudeReadsFiles = false
     @State private var askClaudeHidden: [String] = []
     @State private var askClaudeShared: [String] = []
     @State private var askClaudeSpentUSD = 0.0
@@ -2370,7 +2368,7 @@ struct IntelligenceSettingsTab: View {
 
             SettingsSection(
                 "Ask Claude",
-                caption: "The chat button in the toolbar, ⌘J. Claude sees a description of the screen you’re on — the names, kinds, sizes, dates and tags of what’s shown — and can look things up, move your view and open your places. When it needs what’s inside a file, this Mac reads it, and a card shows Apple Intelligence’s answer; nothing from the file goes to Claude until you share it there, unless Let Claude read files is on. When you ask, it changes how SyncCloud looks, or lowers its own spending or access, with Undo on its card; any other change, files included, waits for your click on a card. Every answer says what it sent and what it cost."
+                caption: "The chat button in the toolbar, ⌘J. Claude sees a description of the screen you’re on — the names, kinds, sizes, dates and tags of what’s shown — and can look things up, move your view and open your places. When it needs what’s inside a file, this Mac reads it, and a card shows Apple Intelligence’s answer; nothing from the file goes to Claude until you share it there, unless its folder is shared without asking. When you ask, it changes how SyncCloud looks, or lowers its own spending or access, with Undo on its card; any other change, files included, waits for your click on a card. Every answer says what it sent and what it cost."
             ) {
                 SettingsRow("Model") {
                     Picker("Model", selection: Binding(
@@ -2411,8 +2409,6 @@ struct IntelligenceSettingsTab: View {
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
-                Toggle("Let Claude read files", isOn: $askClaudeReadsFiles)
-                    .help("Off: Apple Intelligence reads a file on this Mac, and its answer and text go to Claude only when you share them on the card. On: the answer and the passage it came from go without asking, and so do lookups; all of a document still waits for your click.")
                 SettingsRow("Hidden from Claude") {
                     VStack(alignment: .leading, spacing: 4) {
                         if askClaudeHidden.isEmpty {

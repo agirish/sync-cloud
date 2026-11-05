@@ -5,7 +5,7 @@ import Sync
 /// their click on a card.
 ///
 /// A Direct setting changes either way. A Direct-when-tightening one changes only the way that
-/// lowers Claude's spending or access (reading off, a lower limit), and never to a limit at or
+/// lowers Claude's spending or access (cloud refine off, a lower limit), and never to a limit at or
 /// below what is already spent: that would stop it at once, which is turning it off, and turning
 /// off is theirs. Raising is always their click.
 public enum ClaudeSettingRule {

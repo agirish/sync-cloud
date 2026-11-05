@@ -11,10 +11,10 @@ import Settings
     @Test(arguments: [
         // Raising Claude's spending or access.
         ("intelligence.askClaudeModel", "claude-haiku-5-5", "claude-sonnet-5-5", ["↑ Raises"]),
-        ("intelligence.readsFiles", "false", "true", ["↑ Raises"]),
+        ("intelligence.cloudRefine", "false", "true", ["↑ Raises"]),
         ("intelligence.monthlyLimit", "25.0", "0.0", ["↑ Raises"]),
         // Lowering it: the change Claude may make itself.
-        ("intelligence.readsFiles", "true", "false", ["↓ Tightens"]),
+        ("intelligence.cloudRefine", "true", "false", ["↓ Tightens"]),
         ("intelligence.monthlyLimit", "0.0", "25.0", ["↓ Tightens"]),
         // Removing a safeguard.
         ("sync.whenFileExists", "skip", "replace", ["⚠ Less safe"]),

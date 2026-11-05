@@ -1003,4 +1003,26 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(SettingsResetKeeps.keys.contains(AskClaudePrivacy.hiddenFoldersKey))
         #expect(!SettingsResetKeeps.keys.contains(AskClaudePrivacy.sharedFoldersKey))
     }
+
+    /// Decision JT: the retired switch, on, becomes the home folder shared without asking; off,
+    /// nothing. Either way its key goes, so it runs once, and hidden folders stay hidden.
+    @Test func theRetiredReadSwitchBecomesASharedHomeFolder() {
+        let on = freshDefaults("retireReadsFilesOn")
+        on.set(true, forKey: AskClaudePrivacy.retiredReadsFilesKey)
+        AskClaudePrivacy.hide("/Users/me/Medical", in: on)
+        #expect(AskClaudePrivacy.retireReadsFiles(home: "/Users/me/", in: on) != nil)
+        #expect(AskClaudePrivacy.sharedFolders(in: on) == ["/Users/me"])
+        #expect(on.object(forKey: AskClaudePrivacy.retiredReadsFilesKey) == nil)
+        #expect(AskClaudePrivacy.hiddenFolders(in: on) == ["/Users/me/Medical"])
+        // A second launch finds no key and changes nothing.
+        AskClaudePrivacy.stopSharing("/Users/me", in: on)
+        #expect(AskClaudePrivacy.retireReadsFiles(home: "/Users/me", in: on) == nil)
+        #expect(AskClaudePrivacy.sharedFolders(in: on).isEmpty)
+
+        let off = freshDefaults("retireReadsFilesOff")
+        off.set(false, forKey: AskClaudePrivacy.retiredReadsFilesKey)
+        #expect(AskClaudePrivacy.retireReadsFiles(home: "/Users/me", in: off) == nil)
+        #expect(AskClaudePrivacy.sharedFolders(in: off).isEmpty)
+        #expect(off.object(forKey: AskClaudePrivacy.retiredReadsFilesKey) == nil)
+    }
 }

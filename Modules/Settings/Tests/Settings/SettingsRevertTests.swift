@@ -64,20 +64,20 @@ import Sync
 
     @Test func aRevertThatRaisesAsksFirst() {
         let rig = Rig(#function); defer { rig.done() }
-        let off = SettingsChange(setting: "intelligence.readsFiles", name: "Let Claude read files", from: "true", to: "false",
+        let off = SettingsChange(setting: "intelligence.cloudRefine", name: "Use Claude (cloud) to refine suggestions", from: "true", to: "false",
                                  fromLabel: "On", toLabel: "Off", how: .claude)
-        rig.defaults.set(false, forKey: AskClaudePrivacy.readsFilesKey)
+        rig.defaults.set(false, forKey: FileSyncManager.usesCloudDefaultsKey)
         #expect(SettingsRevert.state(off, lookup: rig.lookup) == .ready(raises: true))
         var asked: [String] = []
         let cancelled = SettingsRevert.revert(off, lookup: rig.lookup, writer: rig.writer, log: rig.log, center: rig.center,
                                               confirmRaising: { asked.append($0.messageText); return false })
         #expect(cancelled != .done)
         #expect(asked.count == 1)
-        #expect(rig.defaults.bool(forKey: AskClaudePrivacy.readsFilesKey) == false)
+        #expect(rig.defaults.bool(forKey: FileSyncManager.usesCloudDefaultsKey) == false)
         #expect(rig.log.changes.isEmpty)
         #expect(SettingsRevert.revert(off, lookup: rig.lookup, writer: rig.writer, log: rig.log, center: rig.center,
                                       confirmRaising: { _ in true }) == .done)
-        #expect(rig.defaults.bool(forKey: AskClaudePrivacy.readsFilesKey))
+        #expect(rig.defaults.bool(forKey: FileSyncManager.usesCloudDefaultsKey))
     }
 
     /// A list edit goes back one item at a time, while the item still is (or isn't) there;

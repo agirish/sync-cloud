@@ -62,7 +62,6 @@ struct AskClaudePanel: View {
     @FocusState private var composerFocused: Bool
     @State private var caret = AskClaudeComposerCaret()
     @State private var spentText = ""
-    @AppStorage(AskClaudePrivacy.readsFilesKey) private var readsFiles = false
     @State private var showsPlace = false
     /// Whether an API key is saved, asked without reading it: when the panel opens and whenever the
     /// Keychain item changes, not on every draw. Nil until asked.
@@ -368,7 +367,7 @@ struct AskClaudePanel: View {
             AskClaudeHeaderButton(symbol: "checkmark.shield", help: "What Claude sees, and what it may see", label: "What Claude Sees",
                                   isOn: showsPlace) { showsPlace.toggle() }
                 .popover(isPresented: $showsPlace, arrowEdge: .bottom) {
-                    AskClaudePlaceMenu(place: place, readsFiles: $readsFiles, spent: spentText, accentFill: accentFill, onAccent: onAccent,
+                    AskClaudePlaceMenu(place: place, spent: spentText, accentFill: accentFill, onAccent: onAccent,
                                        onGoTo: { showsPlace = false; onGoToFolder() },
                                        onSetAccess: { access in showsPlace = false; onSetAccess(access) },
                                        onEditHiddenList: { showsPlace = false; onOpenSettings() })
@@ -1188,8 +1187,8 @@ private struct AskClaudeThreadRow: View, Equatable {
             // a search (`AskClaudeReading.answerOnDevice`). Claude's own question isn't shown: it
             // goes with the answer when shared.
             if passage.autoShared == .answerAndText {
-                // Let Claude read files, or a folder shared without asking: the answer and the page
-                // went; all of the document still waits here.
+                // A folder shared without asking: the answer and the page went; all of the document
+                // still waits here.
                 Label("Read \(passage.fileName) on this Mac. Claude has \(passage.whereInFile).", systemImage: "doc.text.magnifyingglass")
                     .scaledFont(.footnote)
                     .foregroundStyle(.secondary)

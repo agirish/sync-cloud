@@ -33,8 +33,7 @@ import Sync
 
     @Test func reachGoesOnlyDown() throws {
         let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
-        #expect(try refusal("intelligence.readsFiles", .bool(true), .bool(false), defaults) == nil)
-        #expect(try refusal("intelligence.readsFiles", .bool(false), .bool(true), defaults) != nil)
+        #expect(try refusal("intelligence.cloudRefine", .bool(true), .bool(false), defaults) == nil)
         #expect(try refusal("intelligence.cloudRefine", .bool(false), .bool(true), defaults) != nil)
         #expect(try refusal("intelligence.monthlyLimit", .double(25), .double(10), defaults) == nil)
         #expect(try refusal("intelligence.monthlyLimit", .double(25), .double(50), defaults) != nil)

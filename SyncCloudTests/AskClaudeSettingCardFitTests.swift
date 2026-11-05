@@ -53,7 +53,7 @@ import Sync
     /// Claude's own change says so, with the longest "was" and a raising Undo.
     @Test(arguments: [
         ("intelligence.monthlyLimit", "0.0", SettingValue.double(5)),
-        ("intelligence.readsFiles", "true", SettingValue.bool(false)),
+        ("intelligence.cloudRefine", "true", SettingValue.bool(false)),
         ("readability.columnWidths", "each", SettingValue.string("all")),
         // Two badges on their own line: ↑ Raises and Next launch.
         ("general.showHiddenByDefault", "false", SettingValue.bool(true)),

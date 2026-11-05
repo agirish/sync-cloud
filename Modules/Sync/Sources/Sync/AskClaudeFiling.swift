@@ -2,7 +2,7 @@ import Foundation
 
 /// Filing help's card in Ask Claude (TE255), and what Claude is told. The card is local UI and
 /// shows everything; Claude gets the folders and reasons, and the word read from the file only
-/// with Let Claude read files on.
+/// when the file is in a folder shared without asking.
 public struct AskClaudeFilingCard: Codable, Equatable, Sendable {
 
     public enum Kind: Codable, Equatable, Sendable {
@@ -75,9 +75,9 @@ public enum AskClaudeFiling {
     }
 
     /// The tool's answer to Claude.
-    /// - `readsFiles`: whether the file shares freely (Let Claude read files, or a folder shared
-    ///   without asking): only then is a folder picked from its text named to Claude.
-    public static func result(_ card: AskClaudeFilingCard, readsFiles: Bool) -> String {
+    /// - `sharesFreely`: whether the file is in a folder shared without asking: only then is a
+    ///   folder picked from its text named to Claude.
+    public static func result(_ card: AskClaudeFilingCard, sharesFreely: Bool) -> String {
         let name = AskClaudeScreenCard.escape(card.fileName)
         switch card.kind {
         case .noProfile:
@@ -95,7 +95,7 @@ public enum AskClaudeFiling {
                 let rank = i == 0 ? "best" : "runner-up"
                 // A folder picked by a word read from the file says what the file holds, so unless
                 // the file shares freely it stays on their card (review of TE319–TE323).
-                if folder.fromFile && !readsFiles {
+                if folder.fromFile && !sharesFreely {
                     lines.append("\(rank): a folder picked by a word read from the file · \(folder.confidence) · on their card, not sent to you")
                     continue
                 }

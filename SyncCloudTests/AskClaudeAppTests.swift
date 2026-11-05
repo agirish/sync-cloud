@@ -154,15 +154,15 @@ import FileExplorer
         #expect(hidden.isError && hidden.result.hasPrefix("Not changed: Settings is open"))
         #expect(defaults.string(forKey: LiquidGlass.appearanceModeKey) == AppearanceMode.dark.rawValue)
 
-        // Their click, not Claude's: a Suggested setting, and reading turned on.
+        // Their click, not Claude's: a Suggested setting, and cloud refine turned on.
         #expect(await set("sync.whenFileExists", "Skip").isError)
-        #expect(await set("intelligence.readsFiles", "On").isError)
-        #expect(defaults.object(forKey: AskClaudePrivacy.readsFilesKey) == nil)
+        #expect(await set("intelligence.cloudRefine", "On").isError)
+        #expect(defaults.object(forKey: FileSyncManager.usesCloudDefaultsKey) == nil)
 
-        // Lowering its own reach is Claude's to do: reading off, a lower limit. Not below what's spent.
-        defaults.set(true, forKey: AskClaudePrivacy.readsFilesKey)
-        #expect(!(await set("intelligence.readsFiles", "Off")).isError)
-        #expect(defaults.bool(forKey: AskClaudePrivacy.readsFilesKey) == false)
+        // Lowering its own reach is Claude's to do: cloud refine off, a lower limit. Not below what's spent.
+        defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        #expect(!(await set("intelligence.cloudRefine", "Off")).isError)
+        #expect(defaults.bool(forKey: FileSyncManager.usesCloudDefaultsKey) == false)
         AskClaudeSpend.record(7, in: defaults)
         #expect(await set("intelligence.monthlyLimit", "$50").isError)
         #expect(await set("intelligence.monthlyLimit", "No limit").isError)
@@ -908,27 +908,27 @@ import FileExplorer
         }
     }
 
-    /// Which files mention a word is held on a card while the switch is off: the names say what is
-    /// in the files, so Claude gets none of them, nor how they matched; the card holds the rows
-    /// Share These Names sends. With the switch on, the rows and the matching line go.
+    /// Which files mention a word is held on a card outside a folder shared without asking: the
+    /// names say what is in the files, so Claude gets none of them, nor how they matched; the card
+    /// holds the rows Share These Names sends. In a shared folder the rows and matching line go.
     @Test func aSearchInsideFilesHoldsItsNamesUntilShared() async throws {
         let receipt = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
         let biopsy = Self.root + "/Documents/Taxes/Biopsy results.txt"
         var map: [String: FileNode] = [:]
         Self.index(Self.tree + [Self.file("Documents/Taxes/Biopsy results.txt", kind: "Plain Text")], into: &map)
-        func runner(readsFiles: Bool) -> AskClaudeBrowseTools {
+        func runner(sharesRoot: Bool) -> AskClaudeBrowseTools {
             AskClaudeBrowseTools(context: {
                 var ctx = AskClaudeBrowseTools.Context(
                     inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
                     items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
-                ctx.readsFiles = readsFiles
+                ctx.shared = sharesRoot ? [Self.root] : []
                 return ctx
             }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
                extract: { _ in ["The diagnosis is benign."] }, searchContents: { _, _ in [receipt, biopsy] })
         }
         var handles = AskClaudeHandles()
         let search = call("find_in_contents", ["words": .string("diagnosis")])
-        let off = await runner(readsFiles: false).run(search, handles: &handles)
+        let off = await runner(sharesRoot: false).run(search, handles: &handles)
         // Not even how many: a count says whether a file mentions a word.
         #expect(off.result.hasPrefix("Spotlight searched inside the files under") && off.result.contains("not even how many"))
         #expect(!off.result.contains("2 files"))
@@ -942,11 +942,11 @@ import FileExplorer
         #expect(found.header?.hasPrefix("2 files under") == true)
         #expect(handles.count == 0 && found.files?.allSatisfy { $0.row.hasPrefix("|") } == true)
         #expect(Set(found.paths) == [receipt, biopsy])
-        let on = await runner(readsFiles: true).run(search, handles: &handles)
+        let on = await runner(sharesRoot: true).run(search, handles: &handles)
         #expect(on.found == nil && on.result.contains("Biopsy results.txt") && on.result.contains("benign"))
     }
 
-    /// A folder shared without asking reads and searches as with the switch on, and hidden wins:
+    /// A folder shared without asking reads and searches without a card, and hidden wins:
     /// the answer and page go, the whole document still waits, a search's names and lines go. A
     /// folder hidden as well is hidden.
     @Test func aFolderSharedWithoutAskingSkipsTheCards() async throws {
@@ -1201,12 +1201,12 @@ import FileExplorer
         let path = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
         var map: [String: FileNode] = [:]
         Self.index(Self.tree, into: &map)
-        func runner(readsFiles: Bool) -> AskClaudeBrowseTools {
+        func runner(sharesRoot: Bool) -> AskClaudeBrowseTools {
             AskClaudeBrowseTools(context: {
                 var ctx = AskClaudeBrowseTools.Context(
                     inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
                     items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
-                ctx.readsFiles = readsFiles
+                ctx.shared = sharesRoot ? [Self.root] : []
                 return ctx
             }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
                read: { _ in AskClaudeReading.Read(pages: ["Store copy", "Total due: $84.10 for the tent"], pageCount: 2) },
@@ -1214,7 +1214,7 @@ import FileExplorer
         }
         var handles = AskClaudeHandles()
         let handle = handles.handle(for: path)
-        let off = await runner(readsFiles: false).run(call("read_text", ["handle": .string(handle), "question": .string("What was the total due?")]), handles: &handles)
+        let off = await runner(sharesRoot: false).run(call("read_text", ["handle": .string(handle), "question": .string("What was the total due?")]), handles: &handles)
         // The answer can be the file's own fact, so it waits on the card too.
         #expect(!off.result.contains("84.10"))
         #expect(off.result.hasPrefix("Read Receipt REI 2025.pdf on their Mac. Nothing from it was sent to you"))
@@ -1224,7 +1224,7 @@ import FileExplorer
         #expect(off.passage?.wholeIsAll == true)
         #expect(!off.result.contains("tent"))                // the text itself stayed here
         #expect(off.passage?.whereInFile == "page 2")        // the page that answers, offered as a button
-        let on = await runner(readsFiles: true).run(call("read_text", ["handle": .string(handle), "question": .string("What was the total due?")]), handles: &handles)
+        let on = await runner(sharesRoot: true).run(call("read_text", ["handle": .string(handle), "question": .string("What was the total due?")]), handles: &handles)
         #expect(on.result.contains("Total due: $84.10 for the tent") && on.result.contains("The total is $84.10."))
         // The page went; all of it still waits on a card: whole documents always ask.
         #expect(on.passage?.autoShared == .answerAndText && on.passage?.wholeWhere == "all 2 pages")
@@ -1237,12 +1237,12 @@ import FileExplorer
         let path = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
         var map: [String: FileNode] = [:]
         Self.index(Self.tree, into: &map)
-        func runner(readsFiles: Bool, _ read: AskClaudeReading.Read?) -> AskClaudeBrowseTools {
+        func runner(sharesRoot: Bool, _ read: AskClaudeReading.Read?) -> AskClaudeBrowseTools {
             AskClaudeBrowseTools(context: {
                 var ctx = AskClaudeBrowseTools.Context(
                     inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
                     items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
-                ctx.readsFiles = readsFiles
+                ctx.shared = sharesRoot ? [Self.root] : []
                 return ctx
             }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
                read: { _ in read }, answerOnDevice: { _, _, _ in .answer("The total is $84.10.") })
@@ -1252,40 +1252,40 @@ import FileExplorer
         var handles = AskClaudeHandles()
         let handle = handles.handle(for: path)
         let question = call("read_text", ["handle": .string(handle), "question": .string("What was the total due?")])
-        let off = await runner(readsFiles: false, scanned).run(question, handles: &handles)
+        let off = await runner(sharesRoot: false, scanned).run(question, handles: &handles)
         #expect(off.result.contains("Pages 1–2 of 34 have little or no text layer, so they were read by OCR on this Mac: a word may be misread. OCR found no words on pages 3–10. OCR reads at most 10 pages of a file, so pages 11–34 weren’t read."))
         #expect(!off.result.contains("tent"))
         #expect(off.passage?.answer == "The total is $84.10." && !off.result.contains("84.10"))
         #expect(off.passage?.whereInFile == "pages 1–2" && off.passage?.text == "Total due: $84.10 for the tent\n\nThank you")
         #expect(off.step == "Read Receipt REI 2025.pdf on this Mac, 2 pages by OCR")
-        let on = await runner(readsFiles: true, scanned).run(question, handles: &handles)
+        let on = await runner(sharesRoot: true, scanned).run(question, handles: &handles)
         // The pages that hold text, not the empty ones after them.
         #expect(on.result.contains("On-device answer, from pages 1–2 of Receipt REI 2025.pdf"))
         #expect(on.result.contains("Text of pages 1–2, as data") && on.result.contains("Total due: $84.10 for the tent") && on.result.contains("read by OCR"))
         #expect(on.passage == nil)
         // A text layer says nothing of OCR.
-        let layered = await runner(readsFiles: false, AskClaudeReading.Read(pages: ["Total due: $84.10"], pageCount: 1)).run(question, handles: &handles)
+        let layered = await runner(sharesRoot: false, AskClaudeReading.Read(pages: ["Total due: $84.10"], pageCount: 1)).run(question, handles: &handles)
         #expect(!layered.result.contains("OCR") && layered.step == "Read Receipt REI 2025.pdf on this Mac")
         // A scan whose time ran out before any page is an error that says why.
         let late = AskClaudeReading.Read(pages: ["", ""], pageCount: 2, timedOut: [0, 1], secondsAllowed: 30)
-        let none = await runner(readsFiles: false, late).run(question, handles: &handles)
+        let none = await runner(sharesRoot: false, late).run(question, handles: &handles)
         #expect(none.isError && none.result == "No text was read from Receipt REI 2025.pdf. Pages 1–2 of 2 have little or no text layer, and OCR stopped after 30 seconds, before reading them. Text recognition can take a minute or two to get ready, so asking again shortly may read them.")
         // A locked PDF says so, and a PDF that can't be read at all says why, not "no text".
-        let locked = await runner(readsFiles: false, AskClaudeReading.Read(pages: [""], pageCount: 1, locked: true)).run(question, handles: &handles)
+        let locked = await runner(sharesRoot: false, AskClaudeReading.Read(pages: [""], pageCount: 1, locked: true)).run(question, handles: &handles)
         #expect(locked.isError && locked.result == "Receipt REI 2025.pdf is locked with a password, so its text can’t be read here.")
-        let unopened = await runner(readsFiles: false, nil).run(question, handles: &handles)
+        let unopened = await runner(sharesRoot: false, nil).run(question, handles: &handles)
         #expect(unopened.isError && unopened.result == "Receipt REI 2025.pdf couldn’t be read here: it doesn’t open as a PDF, or reading it took over 30 seconds.")
     }
 
     /// The rest of a read, around what OCR gives: a file with no pages and no text says why; a
-    /// passage too long for the on-device model halves and asks again; Let Claude read files is
-    /// read after the file is, not before; and a stopped question offers nothing to send.
+    /// passage too long for the on-device model halves and asks again; whether its folder is shared
+    /// is read after the file is, not before; and a stopped question offers nothing to send.
     @Test func aReadAnswersFromWhatFitsAndWhatHoldsNow() async {
         let pdf = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
         let note = Self.root + "/Documents/Taxes/Empty.txt"
         var map: [String: FileNode] = [:]
         Self.index(Self.tree + [Self.file("Documents/Taxes/Empty.txt", kind: "Plain Text")], into: &map)
-        let readsFiles = Box(false)
+        let sharesRoot = Box(false)
         let sent = Box<[Int]>([])
         func runner(_ read: @escaping (String) async -> AskClaudeReading.Read?,
                     fitsUnder: Int = .max, stopWhileAnswering: Bool = false) -> AskClaudeBrowseTools {
@@ -1293,7 +1293,7 @@ import FileExplorer
                 var ctx = AskClaudeBrowseTools.Context(
                     inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
                     items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
-                ctx.readsFiles = readsFiles.value
+                ctx.shared = sharesRoot.value ? [Self.root] : []
                 return ctx
             }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
                read: read, answerOnDevice: { _, text, _ in
@@ -1319,10 +1319,10 @@ import FileExplorer
         #expect(sent.value == [12_002, 6_000, 3_000])
         #expect(never.result.hasPrefix("The on-device model couldn’t answer: the passage was too long for it."))
 
-        // Turned off while the file was read: the text stays here, offered as a button.
-        readsFiles.value = true
+        // Sharing stopped while the file was read: the text stays here, offered as a button.
+        sharesRoot.value = true
         let switched = await runner { _ in
-            readsFiles.value = false
+            sharesRoot.value = false
             return AskClaudeReading.Read(pages: ["Rent is $2,400."], pageCount: 1)
         }.run(ask(pdf), handles: &handles)
         #expect(!switched.result.contains("$2,400") && switched.passage?.text == "Rent is $2,400.")
@@ -1357,12 +1357,12 @@ import FileExplorer
         Self.index(Self.tree, into: &map)
         let hidden = Box<[String]>([])
         let key = "sk-ant-api03-" + String(repeating: "aB3_-", count: 6)
-        func runner(readsFiles: Bool, hideWhileReading: Bool) -> AskClaudeBrowseTools {
+        func runner(sharesRoot: Bool, hideWhileReading: Bool) -> AskClaudeBrowseTools {
             AskClaudeBrowseTools(context: {
                 var ctx = AskClaudeBrowseTools.Context(
                     inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
                     items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
-                ctx.readsFiles = readsFiles
+                ctx.shared = sharesRoot ? [Self.root] : []
                 ctx.hidden = hidden.value
                 return ctx
             }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
@@ -1373,13 +1373,13 @@ import FileExplorer
         }
         var handles = AskClaudeHandles()
         let question = call("read_text", ["handle": .string(handles.handle(for: path)), "question": .string("What was the total due?")])
-        for readsFiles in [false, true] {
+        for sharesRoot in [false, true] {
             hidden.value = []
-            let late = await runner(readsFiles: readsFiles, hideWhileReading: true).run(question, handles: &handles)
-            #expect(late.isError && late.passage == nil && !late.result.contains("84.10"), "readsFiles: \(readsFiles)")
+            let late = await runner(sharesRoot: sharesRoot, hideWhileReading: true).run(question, handles: &handles)
+            #expect(late.isError && late.passage == nil && !late.result.contains("84.10"), "sharesRoot: \(sharesRoot)")
         }
         hidden.value = []
-        let offered = await runner(readsFiles: false, hideWhileReading: false).run(question, handles: &handles)
+        let offered = await runner(sharesRoot: false, hideWhileReading: false).run(question, handles: &handles)
         #expect(offered.passage?.text == "ANTHROPIC_API_KEY=sk-ant-api03-••••••••••••\nTotal due: $84.10")
         #expect(offered.passage?.path == path)
     }
@@ -3339,7 +3339,7 @@ private final class OffersADownload: AskClaudeToolRunning {
     private static let root = "/never-on-disk-icloud"
     private let file = FileNode(id: root + "/Downloads/scan.pdf", name: "scan.pdf", isDirectory: false, fileSize: 2_000)
 
-    private func runner(_ answer: FilingHelpAnswer?, canRefine: Bool = true, readsFiles: Bool = false,
+    private func runner(_ answer: FilingHelpAnswer?, canRefine: Bool = true, sharesRoot: Bool = false,
                         asked: PlaceBox = PlaceBox()) -> AskClaudeBrowseTools {
         let file = self.file
         return AskClaudeBrowseTools(context: {
@@ -3353,7 +3353,7 @@ private final class OffersADownload: AskClaudeToolRunning {
             ctx.surveyFolder = { $0.lowercased() == "travel" ? Self.root + "/Documents/Travel" : nil }
             ctx.hidden = [Self.root + "/Documents/Private"]
             ctx.canRefineFiling = canRefine
-            ctx.readsFiles = readsFiles
+            ctx.shared = sharesRoot ? [Self.root] : []
             ctx.now = { Date(timeIntervalSince1970: 1_792_000_000) }
             return ctx
         }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
@@ -3420,7 +3420,7 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(card.folders.map(\.label) == ["iCloud › Documents › Taxes › 2025", "iCloud › Documents › Work"])
         #expect(card.canRefine && card.staleDays == 30)
         #expect(!out.isError && out.step == "Found where scan.pdf fits: iCloud › Documents › Taxes › 2025")
-        #expect(!out.result.contains("W-2"), "the word read from the file went out with Let Claude read files off")
+        #expect(!out.result.contains("W-2"), "the word read from the file went out from a folder not shared")
     }
 
     @Test func aHighAnswerOffersNoRefineAndAMissingProfileSaysSo() async throws {
@@ -3524,7 +3524,7 @@ private final class OffersADownload: AskClaudeToolRunning {
         let held = await call(["into": .string("Documents")], runner())
         #expect(held.plan != nil && held.result.contains("with a home") && held.result.contains("needing their pick"))
         #expect(!held.result.contains("JAL Ticket.pdf") && !held.result.contains("Taxes"))
-        let free = await call(["into": .string("Documents")], runner(configure: { $0.readsFiles = true }))
+        let free = await call(["into": .string("Documents")], runner(configure: { $0.shared = [$0.root] }))
         #expect(free.result.contains("JAL Ticket.pdf"))
     }
 
@@ -3932,7 +3932,7 @@ private final class OffersADownload: AskClaudeToolRunning {
 
     final class Asked: @unchecked Sendable { var calls: [(folder: String, words: [String], page: String?)] = [] }
 
-    private func runner(_ asked: Asked, rules: [AutomationRule] = [], readsFiles: Bool = false) -> AskClaudeBrowseTools {
+    private func runner(_ asked: Asked, rules: [AutomationRule] = [], sharesRoot: Bool = false) -> AskClaudeBrowseTools {
         let file = self.file
         return AskClaudeBrowseTools(context: {
             var ctx = AskClaudeBrowseTools.Context(
@@ -3943,7 +3943,7 @@ private final class OffersADownload: AskClaudeToolRunning {
             let documents = Self.root + "/Documents"
             ctx.surveyFolder = { name in name.hasPrefix("Travel") ? documents + "/" + name : nil }
             ctx.hidden = [documents + "/Private"]
-            ctx.readsFiles = readsFiles
+            ctx.shared = sharesRoot ? [Self.root] : []
             ctx.ruleFromCorrection = { path, folder, name, words, also, page in
                 asked.calls.append((folder, words, page))
                 guard folder.hasPrefix(documents + "/") else { return nil }
@@ -3985,7 +3985,7 @@ private final class OffersADownload: AskClaudeToolRunning {
         // Held: Save and Not Now tell Claude nothing of it either.
         #expect(card.held == true)
         // Shared freely, Claude gets the words and folders, never text from the file.
-        let freely = await offer(runner(Asked(), readsFiles: true))
+        let freely = await offer(runner(Asked(), sharesRoot: true))
         #expect(freely.rule != nil && freely.rule?.held == nil && freely.result.contains("Nothing is saved until they click"))
         #expect(!freely.result.contains("15JUL") && !freely.result.lowercased().contains("nrt"))
         // A probe for a word only the page could hold is answered the same way, fit or not.
@@ -3995,7 +3995,7 @@ private final class OffersADownload: AskClaudeToolRunning {
 
     @Test func aRefusedOfferTellsClaudeWhy() async throws {
         // Shared freely, Claude is told why; otherwise the same line as a fit, and they see why.
-        let none = await offer(runner(Asked(), readsFiles: true), words: ["Lufthansa"])
+        let none = await offer(runner(Asked(), sharesRoot: true), words: ["Lufthansa"])
         #expect(none.isError && none.rule == nil)
         #expect(none.result.contains("None of those words is in the file"))
         let held = await offer(runner(Asked()), words: ["Lufthansa"])

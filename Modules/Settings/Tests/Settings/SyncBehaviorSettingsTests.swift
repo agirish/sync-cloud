@@ -133,7 +133,7 @@ import Sync
         )
         let defaults = test.defaults
         AskClaudePrivacy.hide("/Users/u/Documents/Medical", in: defaults)
-        defaults.set(true, forKey: AskClaudePrivacy.readsFilesKey)
+        AskClaudePrivacy.shareWithoutAsking("/Users/u/Documents/Recipes", in: defaults)
         defaults.set(5.0, forKey: AskClaudeSpend.limitDefaultsKey)
         AskClaudeSpend.record(3.10, in: defaults)
         defaults.set(2.0, forKey: FileSyncManager.monthlyBudgetCapKey)
@@ -192,7 +192,7 @@ import Sync
         #expect(FileSyncManager.totalBudgetCap(in: defaults) == 1)
         #expect(defaults.double(forKey: FileSyncManager.monthlyBudgetCapKey) == 2)
         #expect(FilingSpendStore.totals(defaults: defaults).costUSD == 0.75)
-        #expect(!AskClaudePrivacy.readsFiles(in: defaults))
+        #expect(AskClaudePrivacy.sharedFolders(in: defaults).isEmpty)
         #expect(defaults.data(forKey: FileSyncManager.automationRulesDefaultsKey) != nil)
         #expect(defaults.bool(forKey: FileSyncManager.filingRulesMigratedKey))
         #expect(defaults.data(forKey: "editorPDFSavedSignatures") != nil)

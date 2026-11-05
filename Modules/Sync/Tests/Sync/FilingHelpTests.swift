@@ -220,17 +220,17 @@ import Testing
     /// The word, and the folder it picked: "Taxes › 2025" for a scan named scan.pdf says it is a
     /// tax document (review of TE319–TE323).
     @Test func theWordReadFromTheFileGoesOnlyWithReadFilesOn() {
-        let off = AskClaudeFiling.result(card, readsFiles: false)
+        let off = AskClaudeFiling.result(card, sharesFreely: false)
         #expect(!off.contains("W-2") && !off.contains("Taxes"))
         #expect(off.contains("best: a folder picked by a word read from the file · Medium · on their card, not sent to you"))
         #expect(off.contains("runner-up: iCloud › Documents › Work · Medium · Fits how this folder is used"))
-        #expect(AskClaudeFiling.result(card, readsFiles: true).contains("Matched “W-2”"))
+        #expect(AskClaudeFiling.result(card, sharesFreely: true).contains("Matched “W-2”"))
         // Never a path.
         #expect(!off.contains("/c/"))
     }
 
     @Test func itSaysHowOldTheSurveyIsAndWhatTheCardOffers() {
-        let text = AskClaudeFiling.result(card, readsFiles: false)
+        let text = AskClaudeFiling.result(card, sharesFreely: false)
         #expect(text.contains("30 days old"))
         #expect(text.contains("Go to Folder and Move Here, and Refine with Claude"))
         #expect(text.contains("Nothing was moved."))
@@ -238,9 +238,9 @@ import Testing
 
     @Test func noProfileAndOutsideAskClaudeNotToGuess() {
         let none = AskClaudeFilingCard(fileName: "a.pdf", filePath: "/x/a.pdf", kind: .noProfile)
-        #expect(AskClaudeFiling.result(none, readsFiles: false).contains("Don’t guess"))
+        #expect(AskClaudeFiling.result(none, sharesFreely: false).contains("Don’t guess"))
         let outside = AskClaudeFilingCard(fileName: "a.pdf", filePath: "/x/a.pdf", kind: .outside(surveyed: "~/Documents"))
-        #expect(AskClaudeFiling.result(outside, readsFiles: false).contains("covers ~/Documents only"))
+        #expect(AskClaudeFiling.result(outside, sharesFreely: false).contains("covers ~/Documents only"))
         #expect(AskClaudeFiling.label(.low) == "Needs your pick")
     }
 }

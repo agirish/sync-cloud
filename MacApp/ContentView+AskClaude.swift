@@ -731,7 +731,6 @@ extension ContentView {
             },
             openForFill: { await askClaudeOpenForFill($0) },
             hidden: AskClaudePrivacy.hiddenFolders(in: .standard),
-            readsFiles: AskClaudePrivacy.readsFiles(in: .standard),
             shared: AskClaudePrivacy.sharedFolders(in: .standard),
             sharesAnswers: askClaudeChat.sharesAnswers,
             sharesNames: askClaudeChat.sharesNames,

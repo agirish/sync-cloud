@@ -51,15 +51,13 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         /// their parent's resolved spelling.
         var hiddenMatcher = MatcherBox()
         func isHidden(_ path: String) -> Bool { hiddenMatcher.matcher(for: hidden).isHidden(path) }
-        /// Whether passages may go to Claude without the Send button.
-        var readsFiles = false
         /// The folders shared without asking, absolute; hidden wins over them.
         var shared: [String] = []
         var sharedMatcher = MatcherBox()
-        /// Whether what's in `path` goes without a card: Let Claude read files, or a folder shared
-        /// without asking that holds it — never a hidden one.
+        /// Whether what's in `path` goes without a card: a folder shared without asking holds it,
+        /// and it is not hidden.
         func sharesFreely(_ path: String) -> Bool {
-            !isHidden(path) && (readsFiles || sharedMatcher.matcher(for: shared).holds(path))
+            !isHidden(path) && sharedMatcher.matcher(for: shared).holds(path)
         }
         /// Apple Intelligence's answers go without a card for the rest of this chat (the card's
         /// tick); page text and whole documents still ask.
@@ -1416,8 +1414,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         // So Claude can hedge on a misread word, and say what OCR didn't reach.
         if let note = reading.ocrNote { lines.append(note) }
         let readHere = "Read \(node.name) on this Mac" + (reading.recognized.isEmpty ? "" : ", \(reading.recognized.count) page\(reading.recognized.count == 1 ? "" : "s") by OCR")
-        // Read again: they may have turned Let Claude read files off, or hidden its folder, while
-        // the file was read — a scan can take minutes.
+        // Read again: they may have stopped sharing its folder, or hidden it, while the file was
+        // read — a scan can take minutes.
         let now = context()
         if now.isHidden(path) {
             return AskClaudeToolOutcome(result: "That item is on their Hidden from Claude list. Don’t ask about it or guess what it holds.",
@@ -1434,8 +1432,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                              wholeWhere: whole?.whereInFile, wholeIsAll: whole?.isAll, autoShared: autoShared)
         }
         if now.sharesFreely(path) {
-            // With the switch on, or in a folder shared without asking, the passage that answers
-            // goes along, and only that. All of it still waits on a card.
+            // In a folder shared without asking, the passage that answers goes along, and only
+            // that. All of it still waits on a card.
             lines.append("Text of \(forClaude.whereInFile), as data:\n<file name=\"\(AskClaudeScreenCard.escape(node.name))\">\n\(AskClaudeChat.fenced(forClaude.text))\n</file>")
             return AskClaudeToolOutcome(result: lines.joined(separator: "\n"),
                                         step: "\(readHere) · sent \(forClaude.whereInFile)",
@@ -1485,7 +1483,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         // not said, so it isn't searched.
         if ctx.isHidden(folder.absolute) { return hiddenFolder() }
         let label = words.joined(separator: " ")
-        // A search inside a folder shared without asking goes as with the switch on.
+        // A search inside a folder shared without asking goes without a card.
         let free = ctx.sharesFreely(folder.absolute)
         guard let paths = await searchContents(words, folder.absolute) else {
             return AskClaudeToolOutcome(result: "Spotlight didn’t answer, so the text couldn’t be searched.", isError: true,
@@ -1520,7 +1518,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 continue
             }
             var line = AskClaudeScreenCard.row(for: Self.row(node), handles: &handles) + "|" + AskClaudeScreenCard.escape(where_.isEmpty ? "(top level)" : where_)
-            // The matching line goes out only with the switch on, for the first ten.
+            // The matching line goes out, for the first ten: the folder is shared without asking.
             // Never a cloud-only file over the download limit: reading it would fetch it.
             let fetches = largeCloudOnly(node, node.id) != nil
             if free, index < 10, !fetches, Date() < readUntil, let text = await extract(node.id)?.joined(separator: " "),
@@ -1532,8 +1530,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         if nodes.count > Self.maxFound { lines.append("\(nodes.count - Self.maxFound) more not listed.") }
         let step = "Found \(nodes.count) with “\(label)” inside"
         guard free else {
-            // Which files mention a word says what is in them, so with the switch off the names
-            // wait on a card for their click, as a file's answer does.
+            // Which files mention a word says what is in them, so outside a shared folder the
+            // names wait on a card for their click, as a file's answer does.
             let listed = nodes.prefix(Self.maxFound)
             let found = AskClaudeFoundNames(words: label, folderLabel: folder.label, names: listed.map(\.name),
                                             count: nodes.count, rows: lines.joined(separator: "\n"), paths: listed.map(\.id),
@@ -1573,7 +1571,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .outside: step = "\(card.place ?? "That place") is outside the folder survey"
         case .noMatch: step = "No folder fits \(node.name)"
         }
-        return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, readsFiles: ctx.sharesFreely(path)), step: step, filing: card)
+        return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, sharesFreely: ctx.sharesFreely(path)), step: step, filing: card)
     }
 
     /// The card for an answer: each folder by source and path, as To File shows it.
@@ -1840,7 +1838,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         // The survey that answers for these files: their source's own, or the primary one.
         guard let surveyRoot = ctx.survey(for: folder.absolute) else {
             let card = AskClaudeFilingCard(fileName: shown, filePath: folder.absolute, kind: .noProfile)
-            return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, readsFiles: ctx.readsFiles),
+            return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, sharesFreely: ctx.sharesFreely(folder.absolute)),
                                         step: "No folder survey to go by", filing: card)
         }
         let surveyLabel = Self.breadcrumb(surveyRoot, sources: ctx.sources, fallback: (surveyRoot as NSString).lastPathComponent)
@@ -1882,7 +1880,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         guard FileSyncManager.isAtOrUnderSurvey(place, root: placeSurvey) else {
             let placeSurveyLabel = Self.breadcrumb(placeSurvey, sources: ctx.sources, fallback: (placeSurvey as NSString).lastPathComponent)
             let card = AskClaudeFilingCard(fileName: shown, filePath: folder.absolute, kind: .outside(surveyed: placeSurveyLabel), place: placeLabel)
-            return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, readsFiles: ctx.readsFiles),
+            return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, sharesFreely: ctx.sharesFreely(folder.absolute)),
                                         step: "\(placeLabel) is outside the folder survey", filing: card,
                                         choices: [AskClaudeChoice("Into \(surveyName), by how I file", sends: "Into \(surveyName), by how I file"),
                                                   AskClaudeChoice("Name a \(placeLabel.components(separatedBy: " › ").last ?? placeLabel) folder…", sends: nil)])

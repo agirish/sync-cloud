@@ -52,16 +52,16 @@ import Testing
         for key in keys { #expect(SettingsResetKeeps.keeps(key), "\(key) would be reset") }
     }
 
-    @Test func theHiddenListIsKeptAndTheReadSwitchIsNot() {
+    @Test func theHiddenListIsKeptAndTheSharedListIsNot() {
         let (defaults, name) = suite()
         defer { wipeDefaultsSuite(name) }
         AskClaudePrivacy.hide("/Users/u/Documents/Medical", in: defaults)
-        defaults.set(true, forKey: AskClaudePrivacy.readsFilesKey)
+        AskClaudePrivacy.shareWithoutAsking("/Users/u/Documents/Recipes", in: defaults)
 
-        #expect(storedKeys(name, defaults) == [AskClaudePrivacy.hiddenFoldersKey, AskClaudePrivacy.readsFilesKey])
+        #expect(storedKeys(name, defaults) == [AskClaudePrivacy.hiddenFoldersKey, AskClaudePrivacy.sharedFoldersKey])
         #expect(SettingsResetKeeps.keeps(AskClaudePrivacy.hiddenFoldersKey))
-        // Its default, off, is the stricter one.
-        #expect(!SettingsResetKeeps.keeps(AskClaudePrivacy.readsFilesKey))
+        // Its default, none, is the stricter one.
+        #expect(!SettingsResetKeeps.keeps(AskClaudePrivacy.sharedFoldersKey))
     }
 
     /// What he made by hand, through the stores that write it.
@@ -118,7 +118,7 @@ import Testing
     @Test func everythingElseIsReset() {
         // Real keys of the domain, and the month prefix without its dot: only `askClaudeSpend.<month>`
         // may ride the prefix.
-        for key in ["askClaudeModel", "askClaudeReadsFiles", "askClaudePanelWidth", "askClaudeAnswers",
+        for key in ["askClaudeModel", "askClaudeSharedFolders", "askClaudePanelWidth", "askClaudeAnswers",
                     "tidyFilingUseCloud", "tidyFilingCloudModel", "tidyFilingReadContents",
                     "folderJumpRecentsByRoot", "folderJumpStaysByRoot", "editorRecentFiles",
                     "ignoredItems_v1_iCloud", "editorPDFSignatureFace", "editorPDFSignaturePen",
