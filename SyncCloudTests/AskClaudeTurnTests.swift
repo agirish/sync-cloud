@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Sync
+import SwiftUI
 import Testing
 @testable import SyncCloud
 
@@ -235,5 +236,57 @@ private final class TurnTools: AskClaudeToolRunning {
     init(card: AskClaudeSettingCard? = nil) { self.card = card }
     func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
         AskClaudeToolOutcome(result: "Done", step: "Looked", settings: card)
+    }
+}
+
+/// Where a question's bar shows: beside its bubble, never on it (11-04: it covered the question).
+@MainActor
+@Suite(.serialized) struct AskClaudeBarBesideTests {
+
+    /// A blue bubble at the right of a 300-point row, with a red bar beside it: a short
+    /// question's, or one as wide as the row allows.
+    private static func render(wide: Bool) throws -> NSBitmapImageRep {
+        let view = Color.blue.frame(maxWidth: wide ? .infinity : 120).frame(height: 30)
+            .modifier(AskClaudeBarBeside(shows: true) { Color.red.frame(width: 40, height: 16) })
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        let host = NSHostingView(rootView: view.frame(width: 300, height: 30).background(Color.white))
+        host.frame.size = NSSize(width: 300, height: 30)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: host.frame.size), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 300, pixelsHigh: 30, bitsPerSample: 8,
+                                                samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        rep.size = host.bounds.size
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return rep
+    }
+
+    /// The columns, left to right, where the middle row paints red and where it paints blue.
+    private static func columns(_ rep: NSBitmapImageRep) -> (red: [Int], blue: [Int]) {
+        var red: [Int] = [], blue: [Int] = []
+        for x in 0..<rep.pixelsWide {
+            guard let c = rep.colorAt(x: x, y: rep.pixelsHigh / 2) else { continue }
+            if c.redComponent > 0.8 && c.blueComponent < 0.3 { red.append(x) }
+            if c.blueComponent > 0.8 && c.redComponent < 0.3 { blue.append(x) }
+        }
+        return (red, blue)
+    }
+
+    /// Red ends left of where the bubble starts: a bar drawn on the bubble hides the bubble's
+    /// own left edge, so where blue starts can't be the measure.
+    @Test func theBarIsBesideAShortQuestionNotOnIt() throws {
+        let red = Self.columns(try Self.render(wide: false)).red
+        #expect(red.count >= 36, "the bar is hidden behind the bubble or missing")
+        #expect(try #require(red.last) < 300 - 120, "the bar is drawn on the bubble")
+    }
+
+    @Test func aQuestionAsWideAsTheRowLeavesRoomForIt() throws {
+        let (red, blue) = Self.columns(try Self.render(wide: true))
+        #expect(red.count >= 36, "the bar is off the row or under the bubble")
+        #expect(try #require(blue.first) >= 44, "the bubble leaves no room beside it")
+        #expect(try #require(red.last) < 44, "the bar is drawn on the bubble")
     }
 }

@@ -680,8 +680,8 @@ might they be big?" with Detailed answers.
 Pick Detailed in the menu under the box, so answers carry lists and tables.
 
 - [ ] **The bar.** Point at an answer: Copy and Retry show beside its receipt line; point away and
-  they fade. Point at your question: Copy and Edit hang just under its bubble, and you can reach
-  them with the mouse.
+  they fade. Point at your question: Copy and Edit show as icons left of its bubble, never on its
+  words, and you can reach them with the mouse.
 - [ ] **Copy a table.** Ask "show the files here as a table of name, kind and size", Copy its
   answer, paste into Numbers: one cell per name, kind and size. Paste into TextEdit too: a table.
 - [ ] **Copy a question.** Copy on a question with a file attached copies only your words.

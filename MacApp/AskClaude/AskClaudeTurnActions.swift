@@ -68,8 +68,29 @@ enum AskClaudeHoverKey: Hashable {
     case answer(UUID)
 }
 
-/// The small bar of a turn's actions, shown while the turn is hovered. The same actions are on
-/// its right-click menu and VoiceOver's actions, for anyone who doesn't hover.
+/// A question's bar, beside its bubble on the left while hovered: under the bubble it covered the
+/// answer's first line, and over it, the question.
+struct AskClaudeBarBeside<Bar: View>: ViewModifier {
+    let shows: Bool
+    @ViewBuilder let bar: () -> Bar
+    @Environment(\.appFontScale) private var scale
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .leading) {
+                // The guide goes on the group: set inside the `if`, SwiftUI drops it, and the bar
+                // lands on the bubble's text.
+                Group { if shows { bar() } }
+                    .alignmentGuide(.leading) { $0[.trailing] + 4 }
+            }
+            // Room for it beside a question as wide as the panel; it grows with the text size.
+            .padding(.leading, 48 * scale)
+    }
+}
+
+/// The small bar of a turn's actions, shown while the turn is hovered: icons only, their names in
+/// the tooltips. The same actions are on its right-click menu and VoiceOver's actions, for anyone
+/// who doesn't hover.
 struct AskClaudeTurnBar: View {
     let actions: [AskClaudeTurnAction]
     let perform: (AskClaudeTurnAction) -> Void
@@ -86,8 +107,8 @@ struct AskClaudeTurnBar: View {
                 } label: {
                     Label(action == .copy && copied ? "Copied" : action.title,
                           systemImage: action == .copy && copied ? "checkmark" : action.symbol)
-                        .labelStyle(.titleAndIcon)
-                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .labelStyle(.iconOnly)
+                        .padding(.horizontal, 4).padding(.vertical, 2)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
@@ -96,10 +117,6 @@ struct AskClaudeTurnBar: View {
         }
         .scaledFont(.caption)
         .foregroundStyle(.secondary)
-        .padding(2)
-        .background(.background, in: RoundedRectangle(cornerRadius: Radius.chip))
-        .overlay(RoundedRectangle(cornerRadius: Radius.chip).strokeBorder(.separator.opacity(0.6)))
-        .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
     }
 }
 

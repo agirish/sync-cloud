@@ -428,8 +428,6 @@ struct AskClaudePanel: View {
                                            onHover: { inside in if let key { hover(key, inside) } })
                             // Rows that didn't change aren't redrawn as each word streams in.
                             .equatable()
-                            // A question's bar hangs over the row below it.
-                            .zIndex(key != nil && hovered == key ? 1 : 0)
                     }
                     if chat.isRunning && chat.isThinking {
                         HStack(spacing: 6) {
@@ -999,15 +997,12 @@ private struct AskClaudeThreadRow: View, Equatable {
                 .accessibilityAddTraits(.isStaticText)
                 .accessibilityLabel(item.spoken == true ? "You said: \(text)" : "You: \(text)")
                 .modifier(AskClaudeTurnVoiceOverActions(actions: turnActions, title: menuTitle, perform: onTurnAction))
-                // Its bar hangs just under the bubble, over the row below, while hovered (TE296).
-                .overlay(alignment: .bottomTrailing) {
-                    if showsBar && !turnActions.isEmpty {
-                        AskClaudeTurnBar(actions: turnActions, perform: onTurnAction)
-                            .alignmentGuide(.bottom) { $0[.top] - 3 }
-                            .onHover(perform: onHover)
-                            .accessibilityHidden(true)
-                    }
-                }
+                // Its bar shows beside the bubble while hovered (TE296).
+                .modifier(AskClaudeBarBeside(shows: showsBar && !turnActions.isEmpty) {
+                    AskClaudeTurnBar(actions: turnActions, perform: onTurnAction)
+                        .onHover(perform: onHover)
+                        .accessibilityHidden(true)
+                })
                 .frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant(let text):
             AskClaudeAnswerView(blocks: answer(text))
@@ -1098,15 +1093,14 @@ private struct AskClaudeThreadRow: View, Equatable {
             .padding(10)
             .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.well))
         case .receipt(let receipt):
-            // The answer's bar hangs under its receipt while the answer is hovered (TE296), over
-            // the row below as a question's does: laid out beside it, even unseen, it took the
-            // receipt's width and wrapped it onto two lines.
+            // The answer's bar shows at the far end of its receipt's line while the answer is
+            // hovered (TE296), drawn over the line: laid out beside the receipt, even unseen, it
+            // took the receipt's width and wrapped it onto two lines.
             receiptButton(receipt)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .overlay(alignment: .bottomTrailing) {
+                .overlay(alignment: .trailing) {
                     if showsBar && !turnActions.isEmpty {
                         AskClaudeTurnBar(actions: turnActions, perform: onTurnAction)
-                            .alignmentGuide(.bottom) { $0[.top] - 3 }
                             .onHover(perform: onHover)
                             .accessibilityHidden(true)
                     }
