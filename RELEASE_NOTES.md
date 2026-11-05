@@ -23,7 +23,7 @@ Requires **macOS 26**, unchanged from v6.2.
 - **Ask Claude, with ⌘J or the toolbar button.** A chat panel over the window, docked at the top or
   bottom of either side or floating, and resizable, that answers questions about what you're looking at and takes you
   places in SyncCloud. It uses your own Anthropic API key from Settings ▸ Intelligence, and nothing
-  is sent until you ask. The chat stays for an hour, across a relaunch.
+  is sent until you ask. The chat survives a relaunch, and starts over after an hour unused.
 - **Set up from the panel, then questions to start with.** With no API key saved, the empty panel
   says what Ask Claude does and where to make a key, the Claude Console at platform.claude.com, and
   saves the key to your Keychain from a field there. Claude Max, Ultra and Team plans include
@@ -58,17 +58,19 @@ Requires **macOS 26**, unchanged from v6.2.
   one can't be written to), and the original never changes.
   A password is typed on the card and never reaches Claude. Undo on the card moves what it made to
   the Trash, until SyncCloud quits or the chat starts over. To fill in a form, Claude opens it in Edit with Fill & Sign on.
-- **What's inside a file is read on this Mac, and waits until you share it.** Only a question that
-  needs a file's contents reads one: renaming, moving or a PDF tool never does. Apple Intelligence
-  answers Claude's question on this Mac, and a card shows the answer word for word; nothing from the
-  file goes until you click Share This Answer, or Share Content from Page 2 (the card names the
-  page) for the text it came from, or Share All Content from the Document, which says how much that
-  is first and names the pages when it can't be all; only text goes, never the file itself, and only
-  when Claude should use it. Claude isn't told which page, since the page is where its question's
-  words were found. With Let Claude read files on, the answer and its page go without asking; all
-  of a document still waits for your click. A scanned PDF is read too: pages with little or no text are read by recognizing the words, in most major languages,
-  up to 10 pages, and Claude is told which pages those were and that a word may be misread. Stop
-  ends the reading.
+- **What's inside a file is read on this Mac, and waits until you share it.** Only a question about
+  what a file says reads it; renaming, moving or a PDF tool never does, and filing reads only a
+  file's first page, keeping what it found from Claude (below). Apple Intelligence answers Claude's
+  question on this Mac, and a card shows the answer word for word; nothing from the file goes until
+  you click Share This Answer, or Share Content from Page 2 (the card names the page) for the text
+  it came from, or Share All Content from the Document, which says how much that is first and names
+  the pages when it can't be all; only text goes, never the file itself. Without Apple
+  Intelligence, the card offers the text alone. Claude isn't told which page, since the page is
+  where its question's words were found. With Let Claude read files on, the answer and its page go
+  without asking; all of a document still waits for your click. A scanned PDF is read too: pages
+  with little or no text are read by recognizing the words, in more than 30 languages, Chinese,
+  Japanese, Korean and Arabic among them, up to 10 pages, and Claude is told which pages those were
+  and that a word may be misread. Stop ends the reading.
 - **One card for every file a question reads.** Each file shows its answer with a tick; Share
   Answers, Share Content and Share All Content send the ticked files', and the all-content share
   says first how much that is.
@@ -85,12 +87,12 @@ Requires **macOS 26**, unchanged from v6.2.
   Share lookups without asking for the rest of this chat lets later lookups go, with each file's
   details, until the chat starts over, as do folders set to Share Without Asking and Let Claude read
   files. A list longer than the card holds says how many more, and so does the share.
-- **Nothing else from a file reaches Claude unasked.** Filing the loose files of a folder tells
+- **Nothing else of what a file says reaches Claude unasked.** Filing the loose files of a folder tells
   Claude only how many have a home and how many need your pick; a home picked from a file's
   first page isn't named to Claude by "where should this go?"; and a rule Claude offers is checked
   against the file's first page without Claude learning what the check found. A share of something
-  from a folder hidden since is refused, Retry included, and a card can't be shared once the
-  next question would start a new chat.
+  from a folder hidden since is refused, and a card can't be shared once the next question would
+  start a new chat.
 - **Choose what Claude gets, folder by folder.** The shield beside the panel's title sets the folder
   it sees to Ask Each Time, Share Without Asking (answers, page text, search names and lookups go
   without a card; whole documents still ask) or Hide from Claude. On a card, Share answers without
@@ -100,27 +102,30 @@ Requires **macOS 26**, unchanged from v6.2.
   Compare shows, with both sides' sizes and dates. A comparison over an hour old is scanned again
   first, and Claude can narrow the list and select the rows it means. The list scrolls to the first
   of them, and opens if it was collapsed to its bar.
-- **A file only in the cloud over 25 MB is downloaded only when you click.** Claude shows a card
+- **A file only in the cloud over 25 MB, or of a size the cloud doesn't say, is downloaded only
+  when you click.** Claude shows a card
   with the file's size and where it lives; Download and Read, or Download and Open, fetches it and
   carries on. Smaller files download as part of the read, as opening them does.
 - **Right-click ▸ Ask Claude About This.** On files and folders in a pane, and on rows in Compare's
   differences. The panel opens with them attached above the text box, and your question is about
-  those. Hide from Claude on the same menu keeps a file or folder off Claude's screen; the list is
-  in Settings ▸ Intelligence, where Remove asks before it shows one to Claude again.
+  those. On a pane's menu, for one item, Hide from Claude keeps a file or folder off Claude's
+  screen; the list is in Settings ▸ Intelligence, where Remove asks before it shows one to Claude
+  again.
 - **Where should this go?** Ask about a file and Claude answers from how you file, as Setup's folder
   survey learned it from your own folders: the best folder and why, with a runner-up when it isn't
   sure, and Go to Folder. It is worked out on this Mac from the file's name and, when the file is on
   this Mac, its first page, and costs nothing. When the answer isn't sure, Refine with Claude opens the file in Organize, which
   shows the price before anything is sent. The file can be anywhere on this Mac, Downloads included.
   Name a place ("into Travel") and its folders come first, though a file that plainly belongs
-  elsewhere is still placed there, and the card says so. A place the survey doesn't cover, such as
-  Dropbox, is answered as that.
-- **File a folder's loose files.** In Downloads, say "file the loose files". Claude counts them,
+  elsewhere is still placed there, and the card says so. For a place the survey doesn't cover,
+  such as Dropbox, Claude says so and offers to file it by the survey instead, or into a folder
+  there that you name.
+- **File a folder's loose files.** In a folder such as Downloads, say "file the loose files". Claude counts them,
   those in subfolders too, and asks where they go, with a button for your folder survey. Then one
-  card shows a home for each, grouped by folder, 10 at a time with Next 10 for the rest: one line per
+  card shows a home for each, grouped by folder, 10 at a time with a Next button for the rest: one line per
   file, High ones ticked. Click a row for where exactly it goes and why, the file's size and date,
   the other folders to pick from, Quick Look and Go to Folder. A file already filed byte for
-  byte, and a subfolder the files would leave empty, get Trash rows, never ticked for you. A taken
+  byte (checked up to 100 MB), and a subfolder the files would leave empty, get Trash rows, never ticked for you. A taken
   name is shown as the name it would get. Hidden files, unfinished downloads and installers stay
   where they are. Apply moves what's ticked, with one Undo.
 - **Correct Claude, and it offers a rule.** Tell Claude a file goes somewhere else ("no, JAL tickets
@@ -146,14 +151,14 @@ Requires **macOS 26**, unchanged from v6.2.
   names and Hidden from Claude show with a remove beside each item; only you add a folder to Hidden
   from Claude. A source's name, path and Open at, Add Folder…, and a person's fields, Move Up, Move
   Down and Add Person can each be a card; a folder always comes from the macOS panel, never from
-  Claude. A button that can't be undone, such as Remove, Clear All, Reset Setup or Reset All, asks
+  Claude. A button that can't be undone, such as Remove, Clear All, Reset Setup or Reset All Settings, asks
   first inside the card, in Settings' own words.
 - **Your API key stays out of the chat.** Ask for a new key and the card holds a field for it; the
   key goes to the Keychain. A message with your Anthropic API key in it isn't sent: its card shows it masked, with
   Save as API Key and Edit Message, and the key is never saved with the chat.
 - **Settings changed from the chat are kept in History.** The Activity window's History tab lists
   every setting changed from the chat and every rule saved from a card among the copies and moves,
-  by time, for 90 days, after the chat is gone. Each says who changed it; the path filter finds a
+  by time, for 90 days (the newest 500), after the chat is gone. Each says who changed it; the path filter finds a
   setting by name, and the action menu's Settings Changes shows them alone. Revert puts a value back
   while the setting still holds what was set there, and asks first when that would raise Claude's
   spending or access.
@@ -175,8 +180,8 @@ Requires **macOS 26**, unchanged from v6.2.
   its bubble. The first time, macOS asks for the microphone and may download its speech model.
 - **Answers show lists, tables and code.** Claude's answers draw bulleted and numbered lists,
   tables and code blocks, each code block with a Copy button, and headings as bold lines. File
-  names stay links that reveal the file, in a list or a table too. When Claude lists files, it
-  answers with a table. While an answer arrives, a table appears once its header is in, never as a
+  names stay links that reveal the file, in a list or a table too. When Claude lists files with a
+  size, date or place for each, it answers with a table. While an answer arrives, a table appears once its header is in, never as a
   row of pipes.
 - **Copy, Edit and Retry.** Point at a question or an answer for its bar, or right-click it.
   Copy copies an answer with its lists and tables, so a table pastes into Numbers as cells. Edit
@@ -185,7 +190,7 @@ Requires **macOS 26**, unchanged from v6.2.
   Undo, and Claude is told what they did.
 - **Type while Claude answers.** The text box stays open while Claude answers, and grows to eight
   lines. Return holds the question as Next, over the box, and asks it when the answer ends; Edit
-  puts it back and Cancel drops it. After Stop it waits for you to click Send. A question said
+  puts it back and Cancel drops it. After Stop or a problem it waits for you to click Send. A question said
   while Claude answers waits the same way.
 
 ### One-way sync
@@ -221,7 +226,7 @@ Requires **macOS 26**, unchanged from v6.2.
   in a day than the limit, wait there with Choose a Version…, Review… and Match iCloud, with a
   notification if you turned them on. The whole sync stops there, and says why, when Dropbox isn't
   running, hasn't uploaded a changed file for 30 minutes, or reports it's full, or when SyncCloud
-  can't read a folder; a synced folder that becomes shared stops on its own. A stop because Dropbox
+  can't read a folder; a synced folder that becomes shared stops alone, and the rest carry on. A stop because Dropbox
   or iCloud wasn't there clears as soon as it's back. A sync in Activity ▸ History, kept 90 days, offers Reverse in iCloud…, which
   also moves a file moved in from a folder that isn't synced back to it.
 - **Taking the sync over from another Mac asks about Dropbox's extra files.** The first sync after
@@ -232,7 +237,7 @@ Requires **macOS 26**, unchanged from v6.2.
   renaming or deleting a synced file isn't offered and moving one is refused, and Show in iCloud
   finds the file it comes from.
 - **Settings ▸ Sync ▸ One-Way Sync** has Pause, Choose Folders…, the two settings for changes made
-  in Dropbox, files you stopped syncing, SyncCloud Removed with Choose Items to Empty… and Restore to
+  in Dropbox, files you stopped syncing, SyncCloud Removed with Show and Choose Items to Empty…, whose list also offers Restore to
   iCloud, and Turn Off One-Way Sync…. Resume says what the next sync would do first. SyncCloud
   Removed says so once it holds more than a tenth of this Mac's free space. Only SyncCloud in the
   Applications folder syncs.
@@ -254,12 +259,12 @@ Requires **macOS 26**, unchanged from v6.2.
 - **To File learns each cloud source's folders.** iCloud's survey stays the primary one. A source
   laid out like iCloud's Documents, with half or more of its folders found there as in a Dropbox
   copy, uses iCloud's survey. A source laid out differently places files by name and offers Learn
-  Its Folders, which reads folder names only, takes seconds and downloads nothing. v6.2 applied
+  Its Folders, which reads folder names only, downloads nothing. v6.2 applied
   iCloud's survey in every source wherever a folder's path happened to match. To File's header names
   the survey in use and switches it, and Settings ▸ Organize ▸ Folder surveys lists every source.
   Ask Claude answers "where should this go?" from the survey of the file's own source. A source with its
   own survey can then have its documents read, page 1 of each, as iCloud's were: the survey menu's
-  Read Documents item first says how many, and how many are cloud-only and download (they stay
+  Read <source>'s Documents… item first says how many, and how many are cloud-only and download (they stay
   downloaded).
 - **To File reads loose files from anywhere on this Mac.** Right-click Downloads in the Home folder
   and choose Organize This Folder…, and To File suggests homes in your primary survey's folder,
@@ -359,7 +364,7 @@ Requires **macOS 26**, unchanged from v6.2.
   section.
 - **SyncCloud no longer quits at launch** when macOS fails to hand it the monospaced font the
   toolbar's ⌘K keycap is measured with.
-- **Cloud Filing prices Sonnet 5 at $2/$10.** v6.2 quoted and counted it at Sonnet 4.6's $3/$15 per
+- **Refine with Claude prices Sonnet 5 at $2/$10.** v6.2 quoted and counted it at Sonnet 4.6's $3/$15 per
   million tokens, so the quote and the spend caps counted half as much again as a scan cost, and
   the caps were reached early.
 - **A remembered check on a FAT or exFAT disk now expires.** Those disks can't show that a file
